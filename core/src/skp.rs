@@ -848,7 +848,7 @@ fn fill(m: &mut Model, e: &Entities, mats: &HashMap<u32, (String, [f32; 3])>) ->
             .collect();
         let material = mats.get(&f.material).map(|(name, rgb)| {
             let key = format!("skp:{name}");
-            m.materials.entry(key.clone()).or_insert(crate::model::Material { color: *rgb });
+            m.materials.entry(key.clone()).or_insert(crate::model::Material { color: *rgb, texture: None });
             key
         });
         m.insert_face(Face { outer: ids, holes, material, ..Default::default() });

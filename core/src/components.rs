@@ -18,6 +18,8 @@ pub struct WFace {
     pub holes: Vec<Vec<DVec3>>,
     pub normal: DVec3,
     pub color: Option<[f32; 3]>,
+    /// material name (look it up in the model, or the component that owns it)
+    pub material: Option<String>,
 }
 
 pub struct WEdge {
@@ -58,6 +60,7 @@ impl Model {
                 outer,
                 normal,
                 color: f.material.as_ref().and_then(|m| self.materials.get(m)).map(|m| m.color),
+                material: f.material.clone(),
             });
         }
         for (&iid, inst) in &self.instances {
@@ -113,6 +116,11 @@ impl Model {
     }
 
     /// Bounds of everything, components included.
+    /// A material by name, here or in any component definition.
+    pub fn find_material(&self, name: &str) -> Option<&crate::model::Material> {
+        self.materials.get(name).or_else(|| self.definitions.values().find_map(|d| d.model.find_material(name)))
+    }
+
     pub fn world_bounds(&self) -> Option<(DVec3, DVec3)> {
         let mut it = self.world_faces().into_iter().flat_map(|f| f.outer).chain(self.world_edges().into_iter().flat_map(|e| [e.a, e.b]));
         let first = it.next()?;
