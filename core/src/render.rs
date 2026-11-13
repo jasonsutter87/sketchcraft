@@ -63,7 +63,7 @@ pub fn camera_for(model: &Model, opts: &RenderOpts) -> CameraSpec {
     }
     .normalize();
     let fov: f64 = 40.0;
-    let dist = radius / (fov.to_radians() * 0.5).sin() * 1.08;
+    let dist = radius / (fov.to_radians() * 0.5).sin() * 0.9;
     let eye = center + dir * dist;
     CameraSpec { eye: eye.to_array(), target: center.to_array(), fov }
 }
