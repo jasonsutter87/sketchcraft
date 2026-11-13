@@ -1016,3 +1016,21 @@ fn component_library() {
     assert_eq!(sketchcraft::library::nice_name("Sink+Base+Cabinet_261102"), "Sink Base Cabinet");
     std::fs::remove_dir_all(dir).ok();
 }
+
+#[test]
+fn parallel_elevations_hide_edges_behind_walls() {
+    // a wall with a small box well behind it: in a parallel front view the
+    // box's edges must not show through the wall
+    let mut e = Engine::new();
+    box_group(&mut e, [0.0, 0.0, 0.0], [4.0, 0.2, 3.0], "Wall");
+    box_group(&mut e, [1.5, 3.0, 1.0], [2.5, 4.0, 2.0], "Behind");
+    let dir = std::env::temp_dir().join(format!("sketchcraft-ortho-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("front.png").to_string_lossy().to_string();
+    run(&mut e, json!({"cmd":"render","out":path,"view":"front","parallel":true,"width":200,"height":160,"grid":false,"paper":true}));
+    let img = image::open(&path).unwrap().to_rgb8();
+    // the middle of the wall (where the hidden box's edges would cross) is wall-colored, not edge-dark
+    let dark = (60..140).flat_map(|x| (50..110).map(move |y| (x, y))).filter(|(x, y)| img.get_pixel(*x, *y).0.iter().all(|c| *c < 80)).count();
+    assert!(dark < 20, "{dark} dark pixels: hidden edges are showing");
+    std::fs::remove_dir_all(dir).ok();
+}
