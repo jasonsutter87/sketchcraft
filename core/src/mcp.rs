@@ -32,6 +32,7 @@ ORGANIZE
 - wall {points, thickness?=0.2, height?=2.7, closed?}; stairs {at, rise, direction?(deg), width?, tread?}; roof {face, kind?=gable|hip|shed, pitch?(deg), overhang?, thickness?}; column {at, size?, height?, round?}
 - texture {name, data(data: URL), width?, height?, color?, project?:[x,y,z]|null, origin?}; paint {ids, material:name} paints with it
 - units {units: m|cm|mm|ft|in} (display only; geometry is meters); dimension {from, to, offset}; text {at, text, leader?}
+- solid {op: union|subtract|intersect|trim|split|outer_shell, ids:[group or instance, ...]}: solid tools on closed shapes; subtract/trim: the first cuts the second. volume {id} -> {solid, volume m3}
 - import_skp {path | data(base64)}: SketchUp files, legacy 6-8 and modern 2013+ (geometry, nested components, colors, textures)
 - insert {asset, at, rotate?}: built-ins door, window, garage_door, tree, palm, car, streetlight, bench, hydrant (doors/windows face -Y, origin bottom-left on the wall).
 - hide {ids}; unhide {ids?}; tag {ids, tag}; tag_visible {tag, visible}; soften {ids | coplanar:true}; rename {id, name}

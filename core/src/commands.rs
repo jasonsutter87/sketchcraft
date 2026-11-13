@@ -221,6 +221,12 @@ pub enum Command {
         #[serde(default)]
         name: Option<String>,
     },
+    /// Solid tools on closed groups / components: union, subtract,
+    /// intersect, trim, split, outer_shell. Subtract and trim: the first
+    /// cuts the second.
+    Solid { op: String, ids: Vec<Id> },
+    /// Volume of a closed group / component (m³), or not a solid.
+    Volume { id: Id },
     /// Walls along a path: `thickness` and `height`; `closed` makes a room.
     Wall {
         points: Vec<[f64; 3]>,
@@ -821,6 +827,14 @@ impl Engine {
                 let r = crate::skp::import(m, &bytes, v3(at), &label)?;
                 json!({"group": r.group, "version": r.version, "faces": r.faces, "components": r.components, "placed": r.placed})
             }
+            Command::Solid { op, ids } => {
+                let groups = crate::csg::solid(m, &op, &ids)?;
+                json!({"groups": groups, "group": groups.first()})
+            }
+            Command::Volume { id } => match crate::csg::solid_info(m, id) {
+                Some(v) => json!({"solid": true, "volume": v}),
+                None => json!({"solid": false}),
+            },
             Command::Wall { points, thickness, height, closed } => {
                 let pts: Vec<DVec3> = points.into_iter().map(v3).collect();
                 json!({"group": m.wall(&pts, thickness, height, closed)?})
