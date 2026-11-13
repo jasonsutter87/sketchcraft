@@ -18,29 +18,19 @@ open out/sunset_iso.png out/sunset_street.png
 ## Commands
 
 One JSON object per line. Add `"as":"name"` to remember a result's id, then
-use `"@name"` anywhere an id goes.
+use `"@name"` anywhere an id goes. Units are meters; Z is up.
 
-| Command | What it does |
+| Area | Commands |
 |---|---|
-| `rect {from, to}` | Axis-aligned rectangle (ground, or on a wall: it cuts a hole there) |
-| `polygon {points}` | Any planar shape: footprint, gable, stair profile |
-| `line {points}` | Lines; closing the loop makes a face |
-| `pushpull {face, distance}` | Pull out (+) or push in (−) along the face normal |
-| `pick {at, facing?}` | The face under a point |
-| `faces {group?, facing?}` | List faces with normal, center, area |
-| `move {ids, by}` | Move faces, edges, vertices or groups |
-| `copy {group, by, name?}` | Duplicate a group (a whole house) |
-| `begin_group {name}` / `end_group` | New geometry goes into a group |
-| `group {ids, name?}` | Group existing faces |
-| `paint {ids, color}` | RGB 0..1 on faces or whole groups |
-| `reverse {ids}` / `delete {ids}` | Flip or remove |
-| `undo` / `redo` | 200 steps |
-| `render {out, width?, height?, view?, camera?}` | PNG, no GPU needed. Views: iso, front, back, left, right, top |
-| `save {path}` / `open {path}` | `.riseline` (JSON) |
-| `export_obj {path}` | OBJ + MTL, one object per group |
-| `info` | Counts, bounds, groups, materials |
-
-Units are meters; Z is up.
+| Draw | `rect`, `polygon`, `line` (splits edges, cuts faces, closes loops), `circle`, `arc`, `offset` |
+| Shape | `pushpull` (pull, push, carve recesses), `follow_me` (path points, edges, or `around` a face) |
+| Transform | `move` (faces, edges, vertices: raise a ridge for a gable), `rotate`, `scale` (uniform or per axis), `duplicate`, `array`, `copy` |
+| Organize | `begin_group`/`end_group`, `group`, `edit`/`close`, `make_component`, `place`, `explode`, `components`, `rename` |
+| Library | `insert` (door, window, garage_door, tree, palm, car, streetlight, bench, hydrant), `assets` |
+| Visibility | `hide`, `unhide`, `tag`, `tag_visible`, `soften` (edges, or `coplanar:true`) |
+| Construction | `guide` (line or point), `clear_guides`, `save_view`, `delete_view` |
+| Inspect | `pick`, `faces`, `info`, `undo`, `redo`, `new` |
+| Files | `save`/`open` (.riseline), `export_obj`, `export_glb`, `export_stl`, `import_obj`, `render` (PNG, any view or saved view) |
 
 ## The app
 
@@ -50,10 +40,16 @@ cd app && npm install && npm run tauri dev     # desktop (Tauri)
 cargo run --release -- bridge & (cd app && npx vite)   # open http://127.0.0.1:5174
 ```
 
-Figma-style layout: layers and templates on the left, properties on the
-right, a floating toolbar (V select, R rectangle, P push/pull, B paint,
-E erase, O orbit; hold Space to orbit). Type a number and press Enter for
-exact sizes. The model lives in `~/Documents/Riseline/live.riseline`; the app
+Figma-style layout: Outliner / Library / Views on the left, Entity Info and
+paint on the right, a floating toolbar with every tool, style toggles (X-ray,
+shadows, edges, parallel projection) and a section cut. Keys follow the
+classic push/pull modeler layout: Space select (hold to orbit), L line,
+A arc, R rectangle, C circle, N polygon, P push/pull, F offset, J follow me,
+M move (Option copies, then `x5` / `/5` for arrays), Q rotate, S scale,
+T tape measure (guides), B paint (Option samples), E erase (Shift hides),
+O orbit, X section, G group, H hide, ⇧Z zoom extents. Snapping shows
+endpoints, midpoints, edges, faces and the red/green/blue axes; arrow keys
+lock an axis. Type a number and press Enter for exact sizes. The model lives in `~/Documents/Riseline/live.riseline`; the app
 reloads it when Claude edits it over MCP, so you can build together.
 
 ## Claude (MCP)
@@ -82,9 +78,11 @@ cargo run --release -- run out/20th_ave.jsonl --save ~/Documents/Riseline/live.r
 1. ✅ Engine, commands, headless render, OBJ export
 2. ✅ MCP server so Claude can model directly
 3. ✅ Desktop app (Tauri + React, Figma/Canva-style panels), live-linked to the engine
-4. ◐ Snapping: endpoints, midpoints, 5 cm grid done; axis inference and guide lines next
-5. ✅ Face splitting (doors that touch the ground, bands across faces)
+4. ✅ Inference: endpoints, midpoints, on edge/face/guide, axis locks (arrows)
+5. ✅ Face splitting, line topology, auto-fold, soft edges
 6. ✅ Import googledriver twin blocks (footprints, measured heights, sloped streets)
-7. Photo match: project Street View onto faces
-8. Asset library: doors, windows, trees, cars
-9. Soft edges (hide lines between coplanar faces), line tool, move tool, gable roofs
+7. ✅ Components, groups (open/close), tags, hide, guides, saved views
+8. ✅ Asset library: doors, windows, garage doors, trees, palms, cars, streetlights, benches, hydrants
+9. ✅ glTF / STL / OBJ export, OBJ import, section cut, X-ray, shadows, parallel view
+10. Next: photo match (Street View onto faces), textures, dimensions and text labels,
+    solid tools (union / subtract), intersect faces, parallel/perpendicular inference
