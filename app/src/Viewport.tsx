@@ -779,6 +779,7 @@ export default function Viewport(props: Props) {
 
   function view(name: "iso" | "top" | "front" | "right" | "back" | "left") {
     const T = t.current!;
+    setFov(40);
     const dirs: Record<string, Vec3> = { iso: [1, -1.35, 0.95], top: [0, -0.001, 1], front: [0, -1, 0.08], back: [0, 1, 0.08], right: [1, 0, 0.08], left: [-1, 0, 0.08] };
     const d = V(dirs[name]).normalize();
     const dist = T.camera.position.distanceTo(T.controls.target);
@@ -792,8 +793,16 @@ export default function Viewport(props: Props) {
     return { eye: arr(T.camera.position), target: arr(T.controls.target), fov: T.persp.fov };
   }
 
+  function setFov(fov: number) {
+    const T = t.current!;
+    if (Math.abs(T.persp.fov - fov) < 1e-6) return;
+    T.persp.fov = fov;
+    T.persp.updateProjectionMatrix();
+  }
+
   function goTo(c: Cam) {
     const T = t.current!;
+    setFov(c.fov || 40); // a saved view keeps its lens
     const from = { e: T.camera.position.clone(), t: T.controls.target.clone() };
     const to = { e: V(c.eye), t: V(c.target) };
     const t0 = performance.now();
@@ -802,7 +811,11 @@ export default function Viewport(props: Props) {
       const ease = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
       T.camera.position.lerpVectors(from.e, to.e, ease);
       T.controls.target.lerpVectors(from.t, to.t, ease);
-      if (T.camera === T.ortho) T.persp.position.copy(T.camera.position);
+      if (T.camera === T.ortho) {
+        T.persp.position.copy(T.camera.position);
+        T.ortho.lookAt(T.controls.target);
+        syncOrtho(false); // frame the parallel view for the new distance
+      }
       if (k < 1) requestAnimationFrame(step);
     };
     step();
