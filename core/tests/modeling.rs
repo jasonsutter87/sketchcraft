@@ -199,3 +199,43 @@ fn band_across_wall_splits_it_in_two() {
     let total: f64 = front.iter().map(|f| f["area"].as_f64().unwrap()).sum();
     assert!((total - 48.0).abs() < 1e-6);
 }
+
+#[test]
+fn line_across_top_then_raise_ridge_makes_gable() {
+    let mut e = Engine::new();
+    make_box(&mut e); // 8 x 12 x 6
+    // ridge line across the roof, midpoint to midpoint of the short edges
+    let r = run(&mut e, json!({"cmd":"line","points":[[4,0,6],[4,12,6]]}));
+    assert_eq!(r["faces"].as_array().unwrap().len(), 2, "roof split in two");
+    let ridge = r["edges"][0].clone();
+    run(&mut e, json!({"cmd":"move","ids":[ridge],"by":[0,0,3]}));
+    let info = run(&mut e, json!({"cmd":"info"}));
+    assert_eq!(info["bounds"]["max"][2], 9.0);
+    // gable ends are pentagons that still face front/back
+    let front: Vec<Value> = run(&mut e, json!({"cmd":"faces","facing":[0,-1,0]}))["faces"].as_array().unwrap().clone();
+    assert_eq!(front.len(), 1);
+    assert_eq!(front[0]["points"], 5);
+    assert!((front[0]["area"].as_f64().unwrap() - (48.0 + 12.0)).abs() < 1e-6);
+    assert_outward(&mut e, DVec3::new(4.0, 6.0, 3.5));
+}
+
+#[test]
+fn lines_closing_a_loop_make_a_face() {
+    let mut e = Engine::new();
+    run(&mut e, json!({"cmd":"line","points":[[0,0,0],[5,0,0],[5,4,0]]}));
+    let r = run(&mut e, json!({"cmd":"line","points":[[5,4,0],[0,4,0],[0,0,0]]}));
+    assert_eq!(r["faces"].as_array().unwrap().len(), 1);
+    assert_eq!(run(&mut e, json!({"cmd":"info"}))["faces"], 1);
+    // a line through the middle divides it into two faces
+    let r = run(&mut e, json!({"cmd":"line","points":[[2,0,0],[2,4,0]]}));
+    assert_eq!(r["faces"].as_array().unwrap().len(), 2);
+    assert_eq!(run(&mut e, json!({"cmd":"info"}))["faces"], 2);
+}
+
+#[test]
+fn line_ending_mid_edge_splits_it() {
+    let mut e = Engine::new();
+    run(&mut e, json!({"cmd":"line","points":[[0,0,0],[10,0,0]]}));
+    run(&mut e, json!({"cmd":"line","points":[[4,0,0],[4,5,0]]}));
+    assert_eq!(run(&mut e, json!({"cmd":"info"}))["edges"], 3);
+}
