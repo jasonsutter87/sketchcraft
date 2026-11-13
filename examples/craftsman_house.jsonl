@@ -96,14 +96,25 @@
 {"cmd":"rect","from":[11.5,-9,0.01],"to":[14.5,12,0.01],"as":"drive"}
 {"cmd":"end_group"}
 {"cmd":"paint","ids":["@site"],"color":[0.74,0.73,0.7]}
-{"cmd":"insert","asset":"tree","at":[-3,-5,0]}
+{"cmd":"insert","asset":"tree","at":[-5,-4,0]}
 {"cmd":"insert","asset":"tree","at":[-2.5,6,0]}
 {"cmd":"insert","asset":"car","at":[13,-2,0],"rotate":90}
-{"cmd":"insert","asset":"streetlight","at":[-5,-9.5,0]}
+{"cmd":"insert","asset":"streetlight","at":[16.5,-9.5,0],"rotate":180}
 {"cmd":"insert","asset":"hydrant","at":[9,-9.3,0]}
 
+# ---- drawing notes: dimensions and labels for the front elevation
+{"cmd":"dimension","from":[0,-3.6,0],"to":[10,-3.6,0],"offset":[0,0,-1.3]}
+{"cmd":"dimension","from":[2.2,-3.6,0],"to":[7.8,-3.6,0],"offset":[0,0,-0.6]}
+{"cmd":"dimension","from":[10.6,-3.6,0],"to":[10.6,-3.6,6.12],"offset":[1.0,0,0]}
+{"cmd":"dimension","from":[10.6,-3.6,0],"to":[10.6,-3.6,9.2],"offset":[2.1,0,0]}
+{"cmd":"dimension","from":[-0.6,-3.6,0],"to":[-0.6,-3.6,3.4],"offset":[-1.0,0,0]}
+{"cmd":"text","at":[-2.6,-3.6,9.4],"text":"Ridge 9.2 m","leader":[5,-0.6,9.2]}
+{"cmd":"text","at":[-3.4,-3.6,4.6],"text":"Belt course","leader":[0.6,-0.1,3.4]}
+{"cmd":"text","at":[5,-3.6,10.6],"text":"FRONT ELEVATION"}
+{"cmd":"save_view","name":"Front elevation","eye":[5,-80,4.6],"target":[5,0,4.6],"fov":11}
 {"cmd":"save_view","name":"Street","eye":[-14,-26,5],"target":[5,4,4],"fov":40}
 {"cmd":"save_view","name":"Aerial","eye":[30,-28,26],"target":[5,5,3],"fov":40}
 {"cmd":"info"}
-{"cmd":"render","out":"out/craftsman_street.png","view":"Street","width":1600,"height":1000}
-{"cmd":"render","out":"out/craftsman_aerial.png","view":"Aerial","width":1600,"height":1000}
+{"cmd":"render","out":"out/craftsman_street.png","view":"Street","width":1600,"height":1000,"annotations":false}
+{"cmd":"render","out":"out/craftsman_front_elevation.png","view":"Front elevation","width":1600,"height":1000,"parallel":true,"grid":false}
+{"cmd":"render","out":"out/craftsman_aerial.png","view":"Aerial","width":1600,"height":1000,"annotations":false}
