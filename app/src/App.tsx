@@ -4,7 +4,7 @@ import { exec, loadScene, sync, type Reply, type Scene } from "./engine";
 import { Icons, Logo } from "./icons";
 import { BuildTools, ContextMenu, contextItems, EntityInfo, Library, LocationDialog, Outliner, Sandbox, SheetsDialog, ShortcutSheet, Templates, Textures, Views } from "./panels";
 import { EMPTY, isEmpty, selIds, type Sel } from "./selection";
-import { UNIT_OPTIONS } from "./units";
+import { formatLength, parseLength, UNIT_OPTIONS } from "./units";
 import { pickOpen, pickSave, rememberedFile, rememberFile } from "./files";
 import Viewport, { type Backdrop, type BuildSettings, type FaceStyle, type Styles, type Tool, type ViewportApi } from "./Viewport";
 import { MatchPhoto, type PhotoMatch } from "./matchphoto";
@@ -47,6 +47,34 @@ const STYLE_PRESETS: { name: string; styles: Partial<Styles> }[] = [
   { name: "Clay", styles: { face: "monochrome", background: "default", profiles: false, sketchy: false, extensions: false, ao: true, edges: false } },
   { name: "Night", styles: { face: "shaded", background: "night", profiles: true, sketchy: false, extensions: false, ao: false, edges: true } },
 ];
+
+/** The cut's height for a floor-plan cut: type one (4', 14', 1.2 m) to move it. */
+function SectionHeight({ api, units, tick }: { api: React.RefObject<ViewportApi | null>; units: string; tick: number }) {
+  const plane = api.current?.sectionPlane();
+  const flat = plane && Math.abs(plane.normal[2]) > 0.99;
+  const [text, setText] = useState<string | null>(null);
+  void tick;
+  if (!flat) return null;
+  const z = plane!.origin[2];
+  return (
+    <input
+      className="section-height"
+      title="Cut height (type a height, Enter)"
+      value={text ?? formatLength(z, units)}
+      onFocus={(e) => (setText(formatLength(z, units)), e.target.select())}
+      onChange={(e) => setText(e.target.value)}
+      onBlur={() => setText(null)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          const h = parseLength(text ?? "", units);
+          if (!Number.isNaN(h)) api.current?.planCut(h);
+          (e.target as HTMLInputElement).blur();
+        }
+        if (e.key === "Escape") (e.target as HTMLInputElement).blur();
+      }}
+    />
+  );
+}
 
 const TOOL_GROUPS: { id: Tool; name: string; key: string }[][] = [
   [{ id: "select", name: "Select", key: "Space" }],
@@ -136,6 +164,8 @@ export default function App() {
   const [showKeys, setShowKeys] = useState(false);
   const [showSheets, setShowSheets] = useState(false);
   const [showLocation, setShowLocation] = useState(false);
+  // bumps when the section moves, so its height box refreshes
+  const [sectionTick, setSectionTick] = useState(0);
   /** Match Photo in progress: the photo being lined up */
   const [matching, setMatching] = useState<{ src: string; width: number; height: number } | null>(null);
   const startMatch = async (file: File) => {
@@ -602,7 +632,10 @@ export default function App() {
           onMeasure={(label, value) => setMeasure({ label, value })}
           onContext={(x, y) => setMenu({ x, y })}
           onToast={say}
-          onSection={setSection}
+          onSection={(on) => {
+            setSection(on);
+            setSectionTick((t) => t + 1);
+          }}
           api={api}
         />
         {matching && <MatchPhoto src={matching.src} width={matching.width} height={matching.height} defaultName={`Photo ${(scene?.views.filter((v) => v.photo).length ?? 0) + 1}`} onDone={finishMatch} onCancel={() => setMatching(null)} />}
@@ -645,17 +678,37 @@ export default function App() {
               {label}
             </button>
           ))}
-          {section && (
+          {!section && (
             <button
-              className="on"
               onClick={() => {
-                api.current?.clearSection();
-                setSection(false);
+                api.current?.planCut(1.22);
+                api.current?.view("top");
               }}
-              title="Remove the section cut"
+              title="Floor plan: cut the model 4 ft up and look down. Change the height to see other floors."
             >
-              Section ✕
+              Plan
             </button>
+          )}
+          {section && (
+            <span className="section-ctl">
+              <button title="Move the cut up 1 ft (or back, for a side cut)" onClick={() => api.current?.moveSection(-0.3048)}>
+                ▲
+              </button>
+              <button title="Move the cut down 1 ft (or in, for a side cut)" onClick={() => api.current?.moveSection(0.3048)}>
+                ▼
+              </button>
+              <SectionHeight api={api} units={scene?.units || "m"} tick={sectionTick} />
+              <button
+                className="on"
+                onClick={() => {
+                  api.current?.clearSection();
+                  setSection(false);
+                }}
+                title="Remove the section cut"
+              >
+                Section ✕
+              </button>
+            </span>
           )}
         </div>
 
@@ -848,12 +901,8 @@ export default function App() {
         )}
         <div className="section hint">
           <p>
-            <b>R</b> rectangle, <b>L</b> line, <b>P</b> push/pull. Type a number and press Enter for exact sizes; <b>←</b> <b>→</b> <b>↑</b> lock to an axis.
+            Each tool tells you what to do next, top-left of the model. Press <b>?</b> for every shortcut.
           </p>
-          <p>
-            <b>M</b> with Option copies; then type <b>x5</b> for an array. <b>D</b> dimensions: click two points, pull out, click. Double-click a group to open it, Esc to close. Right-click for more.
-          </p>
-          <p>Middle-drag or hold Space to orbit, right-drag to pan, scroll to zoom.</p>
         </div>
       </aside>
     </div>
