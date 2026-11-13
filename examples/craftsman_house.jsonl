@@ -1,0 +1,109 @@
+# A two-story Craftsman house, built only with SketchCraft commands.
+#   cargo run --release -- run examples/craftsman_house.jsonl
+# Street side faces -Y. Footprint 10 x 14 m. Meters, Z up.
+{"cmd":"new"}
+
+# ---- foundation: a concrete plinth 60 cm high
+{"cmd":"begin_group","name":"Foundation","as":"foundation"}
+{"cmd":"rect","from":[0,0,0],"to":[10,14,0],"as":"plinth"}
+{"cmd":"pushpull","face":"@plinth","distance":0.6}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@foundation"],"color":[0.66,0.65,0.62]}
+
+# ---- house body: two floors, 15 cm inside the plinth edge
+{"cmd":"begin_group","name":"House","as":"house"}
+{"cmd":"rect","from":[0.15,0.15,0.6],"to":[9.85,13.85,0.6],"as":"body"}
+{"cmd":"pushpull","face":"@body","distance":5.6}
+# gable ends up to the ridge
+{"cmd":"polygon","points":[[0.15,0.15,6.2],[9.85,0.15,6.2],[5,0.15,8.95]]}
+{"cmd":"polygon","points":[[9.85,13.85,6.2],[0.15,13.85,6.2],[5,13.85,8.95]]}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@house"],"color":[0.62,0.68,0.58]}
+
+# ---- belt course between the floors: a trim profile swept around the house
+{"cmd":"begin_group","name":"Belt course","as":"belt"}
+{"cmd":"rect","from":[0.15,0.15,3.4],"to":[9.85,13.85,3.4],"as":"beltpath"}
+{"cmd":"polygon","points":[[0.15,0.15,3.32],[0.15,0.15,3.5],[0.15,0.02,3.5],[0.15,0.02,3.32]],"as":"beltprofile"}
+{"cmd":"follow_me","face":"@beltprofile","around":"@beltpath"}
+{"cmd":"delete","ids":["@beltpath"]}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@belt"],"color":[0.96,0.95,0.91]}
+
+# ---- roof: a 25 cm slab, overhanging 60 cm on every side
+{"cmd":"begin_group","name":"Roof","as":"roof"}
+{"cmd":"polygon","points":[[-0.6,-0.6,5.85],[-0.6,-0.6,6.12],[5,-0.6,9.2],[10.6,-0.6,6.12],[10.6,-0.6,5.85],[5,-0.6,8.93]],"as":"roofend"}
+{"cmd":"pushpull","face":"@roofend","distance":15.2}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@roof"],"color":[0.27,0.28,0.3]}
+
+# ---- chimney on the east side
+{"cmd":"begin_group","name":"Chimney","as":"chimney"}
+{"cmd":"rect","from":[9.85,9.2,0],"to":[10.75,10.4,0],"as":"ch"}
+{"cmd":"pushpull","face":"@ch","distance":9.6,"as":"chtop"}
+{"cmd":"offset","face":"@chtop","distance":0.12,"as":"flue"}
+{"cmd":"pushpull","face":"@flue","distance":-0.4}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@chimney"],"color":[0.56,0.31,0.24]}
+
+# ---- front porch: deck, steps, columns and its own roof
+{"cmd":"begin_group","name":"Porch deck","as":"deck"}
+{"cmd":"rect","from":[2.2,-2.6,0],"to":[7.8,0,0],"as":"d"}
+{"cmd":"pushpull","face":"@d","distance":0.6}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@deck"],"color":[0.55,0.42,0.3]}
+{"cmd":"begin_group","name":"Porch steps","as":"steps"}
+{"cmd":"polygon","points":[[3.9,-2.6,0],[3.9,-3.5,0],[3.9,-3.5,0.2],[3.9,-3.2,0.2],[3.9,-3.2,0.4],[3.9,-2.9,0.4],[3.9,-2.9,0.6],[3.9,-2.6,0.6]],"as":"stair"}
+{"cmd":"pushpull","face":"@stair","distance":-2.2}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@steps"],"color":[0.66,0.65,0.62]}
+{"cmd":"begin_group","name":"Porch columns","as":"cols"}
+{"cmd":"rect","from":[2.35,-2.45,0.6],"to":[2.75,-2.05,0.6],"as":"c1"}
+{"cmd":"pushpull","face":"@c1","distance":2.7,"as":"c1t"}
+{"cmd":"scale","ids":["@c1t"],"center":[2.55,-2.25,3.3],"factor":[0.65,0.65,1]}
+{"cmd":"rect","from":[7.25,-2.45,0.6],"to":[7.65,-2.05,0.6],"as":"c2"}
+{"cmd":"pushpull","face":"@c2","distance":2.7,"as":"c2t"}
+{"cmd":"scale","ids":["@c2t"],"center":[7.45,-2.25,3.3],"factor":[0.65,0.65,1]}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@cols"],"color":[0.96,0.95,0.91]}
+{"cmd":"begin_group","name":"Porch roof","as":"proof"}
+{"cmd":"polygon","points":[[1.9,-2.95,3.3],[8.1,-2.95,3.3],[8.1,-2.95,3.5],[1.9,-2.95,3.5]],"as":"pr"}
+{"cmd":"pushpull","face":"@pr","distance":-3.1,"as":"prback"}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@proof"],"color":[0.27,0.28,0.3]}
+
+# ---- windows and doors (components: edit one, they all change)
+{"cmd":"insert","asset":"door","at":[4.5,0.15,0.6]}
+{"cmd":"insert","asset":"window","at":[1.2,0.15,1.4]}
+{"cmd":"insert","asset":"window","at":[7.6,0.15,1.4]}
+{"cmd":"insert","asset":"window","at":[1.2,0.15,4.1]}
+{"cmd":"insert","asset":"window","at":[4.4,0.15,4.1]}
+{"cmd":"insert","asset":"window","at":[7.6,0.15,4.1]}
+{"cmd":"insert","asset":"window","at":[9.85,2.0,1.4],"rotate":90}
+{"cmd":"insert","asset":"window","at":[9.85,5.5,1.4],"rotate":90}
+{"cmd":"insert","asset":"window","at":[9.85,2.0,4.1],"rotate":90}
+{"cmd":"insert","asset":"window","at":[9.85,5.5,4.1],"rotate":90}
+{"cmd":"insert","asset":"window","at":[0.15,12.2,1.4],"rotate":-90}
+{"cmd":"insert","asset":"window","at":[0.15,8.0,1.4],"rotate":-90}
+{"cmd":"insert","asset":"window","at":[0.15,4.2,1.4],"rotate":-90}
+{"cmd":"insert","asset":"window","at":[0.15,12.2,4.1],"rotate":-90}
+{"cmd":"insert","asset":"window","at":[0.15,8.0,4.1],"rotate":-90}
+{"cmd":"insert","asset":"window","at":[0.15,4.2,4.1],"rotate":-90}
+{"cmd":"insert","asset":"window","at":[4.4,0.15,6.5]}
+
+# ---- site: walk, driveway, trees, a car, a streetlight
+{"cmd":"begin_group","name":"Site","as":"site"}
+{"cmd":"rect","from":[4.1,-9,0.01],"to":[5.9,-3.5,0.01],"as":"walk"}
+{"cmd":"rect","from":[11.5,-9,0.01],"to":[14.5,12,0.01],"as":"drive"}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@site"],"color":[0.74,0.73,0.7]}
+{"cmd":"insert","asset":"tree","at":[-3,-5,0]}
+{"cmd":"insert","asset":"tree","at":[-2.5,6,0]}
+{"cmd":"insert","asset":"car","at":[13,-2,0],"rotate":90}
+{"cmd":"insert","asset":"streetlight","at":[-5,-9.5,0]}
+{"cmd":"insert","asset":"hydrant","at":[9,-9.3,0]}
+
+{"cmd":"save_view","name":"Street","eye":[-14,-26,5],"target":[5,4,4],"fov":40}
+{"cmd":"save_view","name":"Aerial","eye":[30,-28,26],"target":[5,5,3],"fov":40}
+{"cmd":"info"}
+{"cmd":"render","out":"out/craftsman_street.png","view":"Street","width":1600,"height":1000}
+{"cmd":"render","out":"out/craftsman_aerial.png","view":"Aerial","width":1600,"height":1000}
