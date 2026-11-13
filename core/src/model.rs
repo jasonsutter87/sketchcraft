@@ -157,6 +157,20 @@ impl Model {
         geom::area(&self.pts(&face.outer)) - face.holes.iter().map(|h| geom::area(&self.pts(h))).sum::<f64>()
     }
 
+    /// Is `p` on face `f` (on its plane, inside the outline, not in a hole)?
+    pub fn contains(&self, f: Id, p: DVec3) -> bool {
+        let face = &self.faces[&f];
+        let outer = self.pts(&face.outer);
+        let n = geom::newell(&outer);
+        if (p - outer[0]).dot(n).abs() > 1e-4 {
+            return false;
+        }
+        let (u, v) = geom::basis(n);
+        let q = geom::to2d(&[p], u, v)[0];
+        geom::inside(q, &geom::to2d(&outer, u, v))
+            && !face.holes.iter().any(|h| geom::inside(q, &geom::to2d(&self.pts(h), u, v)))
+    }
+
     pub fn faces_using_edge(&self, a: Id, b: Id) -> Vec<Id> {
         self.faces.iter().filter(|(_, f)| f.uses_edge(a, b)).map(|(&id, _)| id).collect()
     }
