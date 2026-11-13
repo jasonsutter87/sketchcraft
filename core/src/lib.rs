@@ -17,6 +17,7 @@ pub mod model;
 pub mod render;
 pub mod scene;
 pub mod shapes;
+pub mod skp;
 pub mod topology;
 pub mod transform;
 

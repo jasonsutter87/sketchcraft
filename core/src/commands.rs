@@ -180,6 +180,17 @@ pub enum Command {
         #[serde(default)]
         at: [f64; 3],
     },
+    /// Import a SketchUp file (SketchUp 6-8 era). `path`, or the file as base64 in `data`.
+    ImportSkp {
+        #[serde(default)]
+        path: Option<String>,
+        #[serde(default)]
+        data: Option<String>,
+        #[serde(default)]
+        at: [f64; 3],
+        #[serde(default)]
+        name: Option<String>,
+    },
     /// Place a built-in asset (door, window, garage_door, tree, palm, car, streetlight, bench, hydrant).
     Insert {
         asset: String,
@@ -644,6 +655,22 @@ impl Engine {
                 };
                 let r = crate::import::import_obj(m, &text, up.eq_ignore_ascii_case("y"), scale, v3(at))?;
                 json!({"groups": r.groups, "group": r.groups.first(), "faces": r.faces, "skipped": r.skipped})
+            }
+            Command::ImportSkp { path, data, at, name } => {
+                use base64::Engine as _;
+                let bytes = match (data, &path) {
+                    (Some(b64), _) => base64::engine::general_purpose::STANDARD.decode(b64.trim())?,
+                    (None, Some(p)) => std::fs::read(p)?,
+                    _ => bail!("import_skp needs a path or data"),
+                };
+                let label = name.unwrap_or_else(|| {
+                    path.as_deref()
+                        .and_then(|p| std::path::Path::new(p).file_stem())
+                        .map(|s| s.to_string_lossy().to_string())
+                        .unwrap_or_else(|| "SketchUp model".into())
+                });
+                let r = crate::skp::import(m, &bytes, v3(at), &label)?;
+                json!({"group": r.group, "version": r.version, "faces": r.faces, "components": r.components, "placed": r.placed})
             }
             Command::Insert { asset, at, rotate } => {
                 let def = crate::assets::definition(m, &asset)?;
