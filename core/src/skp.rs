@@ -1,7 +1,8 @@
 //! Import legacy SketchUp files (.skp from SketchUp 6-8 era, the "SketchUp
 //! Model" MFC CArchive container). Clean-room: the layout below was worked
 //! out from sample files, for interoperability. Nothing here comes from
-//! SketchUp's code.
+//! SketchUp's code. Files from SketchUp 2013 on use a different layout and
+//! are read by `skp_vff`; `parse` hands them over.
 //!
 //! The stream is MFC CArchive object serialization:
 //!   new class : FFFF, schema u16, name length u16, ASCII name (takes a map index;
@@ -362,6 +363,8 @@ pub struct SkpFile {
     pub definitions: BTreeMap<u32, (String, Entities)>,
     pub roots: Vec<Entities>,
     pub materials: HashMap<u32, (String, [f32; 3])>,
+    /// images of textured materials (modern files)
+    pub textures: HashMap<u32, crate::skp_vff::Texture>,
 }
 
 fn resolve(r: &Reader, items: &[Slot]) -> Entities {
@@ -643,8 +646,8 @@ pub fn parse(d: &[u8]) -> Result<SkpFile> {
     let mut r = Reader { d, p: 0x20, counter: 0, classes: HashMap::new(), names: HashMap::new(), objects: HashMap::new(), depth: 0 };
     file.version = r.cstring().unwrap_or_default();
     let major: u32 = file.version.trim_start_matches('{').split('.').next().and_then(|v| v.parse().ok()).unwrap_or(0);
-    if major >= 13 {
-        bail!("SketchUp {} files aren't supported yet (only SketchUp 6-8 era files); export OBJ from SketchUp and import that", file.version);
+    if major >= 13 || crate::skp_vff::zip_start(d).is_some() {
+        return crate::skp_vff::parse(d, file.version);
     }
 
     let mut known = learn(d);
@@ -765,12 +768,16 @@ pub fn import(m: &mut Model, d: &[u8], at: DVec3, name: &str) -> Result<ImportSu
     }
     for (&key, (_, ents)) in &file.definitions {
         let mut dm = Model::default();
-        summary.faces += fill(&mut dm, ents, &file.materials);
+        summary.faces += fill(&mut dm, ents, &file);
         for (child, t) in &ents.instances {
             if let Some(&cid) = def_ids.get(child) {
                 let iid = dm.new_id();
                 dm.instances.insert(iid, Instance { def: cid, name: "part".into(), transform: s * *t * s_inv, tag: None, hidden: false });
             }
+        }
+        // materials live on the document too, so the app can show their images
+        for (k, mat) in &dm.materials {
+            m.materials.entry(k.clone()).or_insert(mat.clone());
         }
         let id = def_ids[&key];
         m.definitions.get_mut(&id).unwrap().model = dm;
@@ -782,7 +789,7 @@ pub fn import(m: &mut Model, d: &[u8], at: DVec3, name: &str) -> Result<ImportSu
     let mut placed = 0;
     for root in &file.roots {
         let mut tmp = Model::default();
-        summary.faces += fill(&mut tmp, root, &file.materials);
+        summary.faces += fill(&mut tmp, root, &file);
         merge_into(m, &tmp, gid, base);
         for (child, t) in &root.instances {
             if let Some(&cid) = def_ids.get(child) {
@@ -819,7 +826,8 @@ pub struct ImportSummary {
 }
 
 /// Add faces and loose lines (inches -> meters) to a model.
-fn fill(m: &mut Model, e: &Entities, mats: &HashMap<u32, (String, [f32; 3])>) -> usize {
+fn fill(m: &mut Model, e: &Entities, file: &SkpFile) -> usize {
+    let mats = &file.materials;
     let mut n = 0;
     for f in &e.faces {
         let outer: Vec<DVec3> = f.outer.iter().map(|p| *p * INCH).collect();
@@ -848,7 +856,8 @@ fn fill(m: &mut Model, e: &Entities, mats: &HashMap<u32, (String, [f32; 3])>) ->
             .collect();
         let material = mats.get(&f.material).map(|(name, rgb)| {
             let key = format!("skp:{name}");
-            m.materials.entry(key.clone()).or_insert(crate::model::Material { color: *rgb, texture: None });
+            let texture = file.textures.get(&f.material).map(|t| crate::model::Texture { data: t.data.clone(), width: t.tile, height: t.tile * t.aspect, project: None, origin: None });
+            m.materials.entry(key.clone()).or_insert(crate::model::Material { color: *rgb, texture });
             key
         });
         m.insert_face(Face { outer: ids, holes, material, ..Default::default() });
