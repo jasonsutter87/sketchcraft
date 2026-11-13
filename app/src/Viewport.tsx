@@ -1514,6 +1514,11 @@ export default function Viewport(props: Props) {
           return;
         }
       }
+      if (op?.t === "push" && !op.dragged && press?.fresh && Math.hypot(e.clientX - press.x, e.clientY - press.y) > 6) {
+        // a quick flick with no move events in between: measure from where it let go
+        op.d = closestOnLine(ray(e), op.origin, op.n).sub(op.origin).dot(op.n);
+        op.dragged = true;
+      }
       if (op?.t === "push" && op.dragged) {
         el.releasePointerCapture(e.pointerId);
         if (Math.abs(op.d) > 1e-3) await commitPush();
