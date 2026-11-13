@@ -33,6 +33,9 @@ pub struct ViewportSpec {
     pub h: f64,
     /// caption (default: the view's name)
     pub label: Option<String>,
+    /// a floor plan instead of a view: the model cut this many meters up,
+    /// drawn as vector fills (walls solid, openings open)
+    pub cut: Option<f64>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -109,6 +112,10 @@ pub fn write_sheets(m: &Model, path: &str, sheet: &str, project: &str, mut pages
         // sheet border
         c += &format!("0.6 w {:.2} {:.2} {:.2} {:.2} re S\n", 10.0 * PT, 10.0 * PT, (sw - 20.0) * PT, (sh - 20.0) * PT);
         for v in &page.viewports {
+            if let Some(z) = v.cut {
+                c += &plan_cut(m, v, z, &y)?;
+                continue;
+            }
             let mut o = RenderOpts { paper: true, grid: false, ..Default::default() };
             let px_per_mm = (6.0f64).min(4000.0 / v.w.max(v.h));
             o.width = (v.w * px_per_mm) as u32;
@@ -133,17 +140,7 @@ pub fn write_sheets(m: &Model, path: &str, sheet: &str, project: &str, mut pages
             c += &format!("0.3 w {:.2} {:.2} {:.2} {:.2} re S\n", v.x * PT, y(v.y + v.h), v.w * PT, v.h * PT);
             c += &format!("BT /F2 8 Tf {:.2} {:.2} Td ({}) Tj ET\n", v.x * PT, y(v.y + v.h + 5.0), esc(&label));
             if let Some(d) = denom {
-                // scale bar: a round length no longer than 40 mm on paper
-                let max_m = 40.0 * d / 1000.0;
-                let len_m = [0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 200.0, 500.0].iter().copied().filter(|l| *l <= max_m).last().unwrap_or(max_m);
-                let len_mm = len_m * 1000.0 / d;
-                let (bx, by) = (v.x + v.w - len_mm, v.y + v.h + 3.5);
-                c += &format!("0.5 w {:.2} {:.2} m {:.2} {:.2} l S\n", bx * PT, y(by), (bx + len_mm) * PT, y(by));
-                for k in 0..=4 {
-                    let tx = bx + len_mm * k as f64 / 4.0;
-                    c += &format!("{:.2} {:.2} m {:.2} {:.2} l S\n", tx * PT, y(by - 1.0), tx * PT, y(by + 1.0));
-                }
-                c += &format!("BT /F1 6 Tf {:.2} {:.2} Td ({} m) Tj ET\n", (bx + len_mm + 1.0) * PT, y(by + 1.0), len_m);
+                c += &scale_bar(v, d, &y);
             }
         }
         // title block, bottom right
@@ -158,6 +155,72 @@ pub fn write_sheets(m: &Model, path: &str, sheet: &str, project: &str, mut pages
     }
     write_pdf(path, sw * PT, sh * PT, &out_pages)?;
     Ok(total)
+}
+
+/// A floor plan viewport: the section at height `z` as vector paths, to
+/// scale (or fitted), with its caption and scale bar.
+fn plan_cut(m: &Model, v: &ViewportSpec, z: f64, y: &dyn Fn(f64) -> f64) -> Result<String> {
+    let cut = m.section(glam::DVec3::new(0.0, 0.0, z), glam::DVec3::new(0.0, 0.0, -1.0))?;
+    let pts: Vec<(f64, f64)> = cut.segments.iter().flat_map(|(a, b)| [(a.x, a.y), (b.x, b.y)]).collect();
+    if pts.is_empty() {
+        bail!("nothing is cut at {z} m");
+    }
+    let (x0, x1) = pts.iter().fold((f64::MAX, f64::MIN), |(lo, hi), p| (lo.min(p.0), hi.max(p.0)));
+    let (y0, y1) = pts.iter().fold((f64::MAX, f64::MIN), |(lo, hi), p| (lo.min(p.1), hi.max(p.1)));
+    // meters -> mm on paper
+    let denom = match &v.scale {
+        Some(s) => scale_of(s)?,
+        None => ((x1 - x0) * 1000.0 / (v.w * 0.9)).max((y1 - y0) * 1000.0 / (v.h * 0.9)),
+    };
+    let k = 1000.0 / denom;
+    let (cx, cy) = (v.x + v.w / 2.0, v.y + v.h / 2.0);
+    let (mx, my) = ((x0 + x1) / 2.0, (y0 + y1) / 2.0);
+    // plan +Y is up the sheet
+    let to = |px: f64, py: f64| -> (f64, f64) { ((cx + (px - mx) * k) * PT, y(cy - (py - my) * k)) };
+    let mut c = String::new();
+    c += &format!("q {:.2} {:.2} {:.2} {:.2} re W n\n", v.x * PT, y(v.y + v.h), v.w * PT, v.h * PT);
+    // cut walls: dark fill, holes left open (even-odd)
+    c += "0.16 0.17 0.2 rg 0.1 0.1 0.12 RG 0.4 w\n";
+    for (_, outer, holes) in &cut.regions {
+        for ring in std::iter::once(outer).chain(holes.iter()) {
+            for (i, p) in ring.iter().enumerate() {
+                let (a, b) = to(p.x, p.y);
+                c += &format!("{a:.2} {b:.2} {}\n", if i == 0 { "m" } else { "l" });
+            }
+            c += "h\n";
+        }
+        c += "B*\n";
+    }
+    // everything else the cut passes through (glass, frames): thin lines
+    c += "0.25 w 0.15 0.15 0.18 RG\n";
+    for (a, b) in &cut.segments {
+        let (p, q) = (to(a.x, a.y), to(b.x, b.y));
+        c += &format!("{:.2} {:.2} m {:.2} {:.2} l S\n", p.0, p.1, q.0, q.1);
+    }
+    c += "Q 0 g 0 G\n";
+    let label = v.label.clone().unwrap_or_else(|| format!("Plan at {z:.2} m"));
+    let label = if v.scale.is_some() { format!("{label}   1:{denom}") } else { label };
+    c += &format!("0.3 w {:.2} {:.2} {:.2} {:.2} re S\n", v.x * PT, y(v.y + v.h), v.w * PT, v.h * PT);
+    c += &format!("BT /F2 8 Tf {:.2} {:.2} Td ({}) Tj ET\n", v.x * PT, y(v.y + v.h + 5.0), esc(&label));
+    if v.scale.is_some() {
+        c += &scale_bar(v, denom, y);
+    }
+    Ok(c)
+}
+
+/// A scale bar under a viewport: a round length no longer than 40 mm.
+fn scale_bar(v: &ViewportSpec, d: f64, y: &dyn Fn(f64) -> f64) -> String {
+    let max_m = 40.0 * d / 1000.0;
+    let len_m = [0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 200.0, 500.0].iter().copied().filter(|l| *l <= max_m).last().unwrap_or(max_m);
+    let len_mm = len_m * 1000.0 / d;
+    let (bx, by) = (v.x + v.w - len_mm, v.y + v.h + 3.5);
+    let mut c = format!("0.5 w {:.2} {:.2} m {:.2} {:.2} l S\n", bx * PT, y(by), (bx + len_mm) * PT, y(by));
+    for k in 0..=4 {
+        let tx = bx + len_mm * k as f64 / 4.0;
+        c += &format!("{:.2} {:.2} m {:.2} {:.2} l S\n", tx * PT, y(by - 1.0), tx * PT, y(by + 1.0));
+    }
+    c += &format!("BT /F1 6 Tf {:.2} {:.2} Td ({} m) Tj ET\n", (bx + len_mm + 1.0) * PT, y(by + 1.0), len_m);
+    c
 }
 
 fn today() -> String {

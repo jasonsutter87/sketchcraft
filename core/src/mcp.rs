@@ -39,7 +39,7 @@ ORGANIZE
 - import_fbx {path | data(base64), at?, name?}: binary FBX 7.x -> one component, a group per mesh, material colors
 - animate {path: .mp4|.mov|folder, fps?=24, transition?=2 s, delay?=1 s, views?: names, turntable?=8 s, + render options}: scene animation (turntable with <2 views)
 - match_photo {name, width, height, red:[[x1,y1,x2,y2]x2], green:[..x2], origin:[x,y], distance?=15, photo?: data URL}: camera from a photo's vanishing lines, saved as a view with the photo
-- sheets {path(.pdf), sheet?=a3|a4|a2|letter|tabloid, project?, pages?: [{title, viewports:[{view: saved name|iso|top|front|back|left|right, scale?: "1:100", x?,y?,w?,h? mm, label?}]}]}: LayOut-style drawing sheets
+- sheets {path(.pdf), sheet?=a3|a4|a2|letter|tabloid, project?, pages?: [{title, viewports:[{view: saved name|iso|top|front|back|left|right, scale?: "1:100", cut?: meters (floor plan at that height), x?,y?,w?,h? mm, label?}]}]}: LayOut-style drawing sheets
 - set_attrs {id: placement or component, attrs:{name: value|"=formula"}}: Dynamic Components (lenx/leny/lenz m, copies, spacing, material, hidden; formulas with min/max/round/if, parent!name). report {path?.csv}: Generate Report
 - classify {ids, class: IfcWall|IfcSlab|IfcRoof|IfcDoor|IfcWindow|IfcColumn|IfcBeam|IfcStair|IfcRailing|IfcCovering|IfcFurniture|IfcPlate|IfcMember|"" }; export_ifc {path, project?}: IFC4 (unclassified things typed from their names)
 - add_location {lat, lon, size?=300 m, cells?=60, imagery?=true}: real terrain (+ OpenStreetMap imagery) around a place; origin at ground, +Y north
