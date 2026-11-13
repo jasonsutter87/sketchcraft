@@ -5,7 +5,7 @@ import { BuildTools, ContextMenu, contextItems, EntityInfo, Library, Outliner, S
 import { EMPTY, isEmpty, selIds, type Sel } from "./selection";
 import { UNIT_OPTIONS } from "./units";
 import { pickOpen, pickSave, rememberedFile, rememberFile } from "./files";
-import Viewport, { type BuildSettings, type Styles, type Tool, type ViewportApi } from "./Viewport";
+import Viewport, { type Backdrop, type BuildSettings, type FaceStyle, type Styles, type Tool, type ViewportApi } from "./Viewport";
 import { MatchPhoto, type PhotoMatch } from "./matchphoto";
 import { prepareImage } from "./textures";
 
@@ -35,6 +35,17 @@ function loadBuild(): BuildSettings {
     return DEFAULT_BUILD;
   }
 }
+
+/** One-click looks, like SketchUp's style collections. */
+const STYLE_PRESETS: { name: string; styles: Partial<Styles> }[] = [
+  { name: "Default", styles: { face: "textured", background: "default", profiles: false, sketchy: false, extensions: false, ao: false, edges: true } },
+  { name: "Architectural", styles: { face: "shaded", background: "default", profiles: true, sketchy: false, extensions: false, ao: true, edges: true } },
+  { name: "Sketchy on paper", styles: { face: "hiddenline", background: "paper", profiles: true, sketchy: true, extensions: true, ao: false, edges: true } },
+  { name: "Hidden line", styles: { face: "hiddenline", background: "default", profiles: true, sketchy: false, extensions: false, ao: false, edges: true } },
+  { name: "Blueprint", styles: { face: "hiddenline", background: "blueprint", profiles: false, sketchy: false, extensions: true, ao: false, edges: true } },
+  { name: "Clay", styles: { face: "monochrome", background: "default", profiles: false, sketchy: false, extensions: false, ao: true, edges: false } },
+  { name: "Night", styles: { face: "shaded", background: "night", profiles: true, sketchy: false, extensions: false, ao: false, edges: true } },
+];
 
 const TOOL_GROUPS: { id: Tool; name: string; key: string }[][] = [
   [{ id: "select", name: "Select", key: "Space" }],
@@ -97,7 +108,7 @@ export default function App() {
   const [typed, setTyped] = useState("");
   const [toast, setToast] = useState<{ text: string; bad?: boolean } | null>(null);
   const [tab, setTab] = useState<Tab>("outliner");
-  const [styles, setStyles] = useState<Styles>({ xray: false, backEdges: false, shadows: false, edges: true, parallel: false });
+  const [styles, setStyles] = useState<Styles>({ xray: false, backEdges: false, shadows: false, edges: true, parallel: false, face: "textured", background: "default" });
   const [section, setSection] = useState(false);
   const [placing, setPlacing] = useState<string | null>(null);
   const [build, setBuildState] = useState<BuildSettings>(loadBuild);
@@ -659,6 +670,57 @@ export default function App() {
                   </option>
                 ))}
               </select>
+            </div>
+          </div>
+        )}
+        {selCount === 0 && (
+          <div className="section">
+            <div className="section-title">Style</div>
+            <div className="kv">
+              <span>Preset</span>
+              <select
+                className="units-select"
+                value=""
+                onChange={(e) => {
+                  const p = STYLE_PRESETS.find((x) => x.name === e.target.value);
+                  if (p) setStyles((s) => ({ ...s, ...p.styles }));
+                }}
+              >
+                <option value="">Choose…</option>
+                {STYLE_PRESETS.map((p) => (
+                  <option key={p.name}>{p.name}</option>
+                ))}
+              </select>
+              <span>Faces</span>
+              <select className="units-select" value={styles.face ?? "textured"} onChange={(e) => setStyles((s) => ({ ...s, face: e.target.value as FaceStyle }))}>
+                <option value="textured">Shaded with textures</option>
+                <option value="shaded">Shaded</option>
+                <option value="monochrome">Monochrome</option>
+                <option value="hiddenline">Hidden line</option>
+                <option value="wireframe">Wireframe</option>
+              </select>
+              <span>Background</span>
+              <select className="units-select" value={styles.background ?? "default"} onChange={(e) => setStyles((s) => ({ ...s, background: e.target.value as Backdrop }))}>
+                <option value="default">Sky and ground</option>
+                <option value="paper">Paper</option>
+                <option value="blueprint">Blueprint</option>
+                <option value="night">Night</option>
+              </select>
+            </div>
+            <div className="style-checks">
+              {(
+                [
+                  ["profiles", "Profiles"],
+                  ["sketchy", "Sketchy edges"],
+                  ["extensions", "Extensions"],
+                  ["ao", "Ambient occlusion"],
+                ] as [keyof Styles, string][]
+              ).map(([k, label]) => (
+                <label key={k} className="field check">
+                  <input type="checkbox" checked={!!styles[k]} onChange={(e) => setStyles((s) => ({ ...s, [k]: e.target.checked }))} />
+                  <span>{label}</span>
+                </label>
+              ))}
             </div>
           </div>
         )}

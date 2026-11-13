@@ -1208,3 +1208,10 @@ button.tile:hover .tile-art {
   border-radius: 3px;
   object-fit: cover;
 }
+
+.style-checks {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px 8px;
+  margin-top: 8px;
+}
