@@ -708,3 +708,30 @@ fn lines_closing_a_loop_on_a_face_cut_a_new_face() {
     let holed = e.model.faces.values().filter(|f| f.holes.len() == 1).count();
     assert_eq!(holed, 1, "the wall gets the window as a hole");
 }
+
+#[test]
+fn section_cut_fills_walls_with_their_openings() {
+    // a 4 x 4 room of 0.2 m walls, 2.7 m tall: cut level at 1.2 m gives one
+    // filled ring (outline with the room as a hole)
+    let mut e = Engine::new();
+    run(&mut e, json!({"cmd":"wall","points":[[0,0,0],[4,0,0],[4,4,0],[0,4,0]],"closed":true,"thickness":0.2,"height":2.7}));
+    let dir = std::env::temp_dir().join(format!("sketchcraft-sec-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let svg = dir.join("plan.svg").to_string_lossy().to_string();
+    let r = run(&mut e, json!({"cmd":"section","origin":[0,0,1.2],"normal":[0,0,-1],"path":svg}));
+    assert_eq!(r["regions"], 1, "{r}");
+    // fill area = ring area: 4.2² - 3.8² = 3.2 m²
+    let f: Vec<f64> = r["fill"].as_array().unwrap().iter().map(|x| x.as_f64().unwrap()).collect();
+    let area: f64 = f.chunks(9).map(|t| {
+        let (a, b, c) = (glam::DVec3::new(t[0], t[1], t[2]), glam::DVec3::new(t[3], t[4], t[5]), glam::DVec3::new(t[6], t[7], t[8]));
+        (b - a).cross(c - a).length() / 2.0
+    }).sum();
+    assert!((area - 3.2).abs() < 1e-6, "{area}");
+    let text = std::fs::read_to_string(&svg).unwrap();
+    assert!(text.starts_with("<svg") && text.contains("evenodd") && text.matches("<path").count() == 1);
+    let dxf = dir.join("plan.dxf").to_string_lossy().to_string();
+    run(&mut e, json!({"cmd":"section","origin":[0,0,1.2],"normal":[0,0,-1],"path":dxf}));
+    let d = std::fs::read_to_string(&dxf).unwrap();
+    assert_eq!(d.matches("\nLINE\n").count(), 8, "outer and inner square");
+    std::fs::remove_dir_all(dir).ok();
+}
