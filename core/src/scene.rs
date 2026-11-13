@@ -1,5 +1,6 @@
-//! What a viewer needs to draw a model: triangles (with the face each one
-//! belongs to, for picking), edges, face outlines and layers. Shared by the
+//! What a viewer needs to draw a model: triangles (with the face or component
+//! each belongs to, for picking), edges (with ids, for picking lines), face
+//! outlines, the outliner tree, tags, guides and saved views. Shared by the
 //! desktop app and the browser bridge.
 
 use crate::geom;
@@ -8,53 +9,96 @@ use serde_json::{json, Value};
 
 const DEFAULT_COLOR: [f32; 3] = [0.95, 0.94, 0.91];
 
-pub fn build(m: &Model) -> Value {
+/// `ctx`: a component definition being edited. Its geometry is then listed
+/// in `faces` (editable), placed at the first instance's transform.
+pub fn build(root: &Model, ctx: Option<u32>) -> Value {
     let mut positions: Vec<f32> = Vec::new();
     let mut colors: Vec<f32> = Vec::new();
     let mut tri_face: Vec<u32> = Vec::new();
-    let mut faces = Vec::new();
-    for (&id, f) in &m.faces {
-        let outer = m.pts(&f.outer);
-        let holes: Vec<_> = f.holes.iter().map(|h| m.pts(h)).collect();
-        let n = geom::newell(&outer);
-        let color = f.material.as_ref().and_then(|k| m.materials.get(k)).map(|k| k.color).unwrap_or(DEFAULT_COLOR);
-        for t in geom::triangulate(&outer, &holes, n) {
+    for f in root.world_faces() {
+        let color = f.color.unwrap_or(DEFAULT_COLOR);
+        for t in geom::triangulate(&f.outer, &f.holes, f.normal) {
             for p in t {
                 positions.extend([p.x as f32, p.y as f32, p.z as f32]);
                 colors.extend(color);
             }
-            tri_face.push(id);
+            tri_face.push(f.owner);
         }
-        faces.push(json!({
-            "id": id,
-            "normal": n.to_array(),
-            "outer": outer.iter().map(|p| p.to_array()).collect::<Vec<_>>(),
-            "group": f.group,
-            "area": m.face_area(id),
-            "material": f.material,
-        }));
     }
-    let edges: Vec<f32> = m
-        .edges
-        .values()
-        .flat_map(|e| {
-            let (a, b) = (m.p(e.a), m.p(e.b));
-            [a.x as f32, a.y as f32, a.z as f32, b.x as f32, b.y as f32, b.z as f32]
+    let (mut edges, mut edge_ids, mut soft_edges) = (Vec::<f32>::new(), Vec::<u32>::new(), Vec::<f32>::new());
+    for e in root.world_edges() {
+        let seg = [e.a.x as f32, e.a.y as f32, e.a.z as f32, e.b.x as f32, e.b.y as f32, e.b.z as f32];
+        if e.soft {
+            soft_edges.extend(seg);
+        } else {
+            edges.extend(seg);
+            edge_ids.push(e.owner);
+        }
+    }
+
+    // editable faces: top level, or the definition being edited (in world space)
+    let (m, t) = match ctx.and_then(|d| root.definitions.get(&d).map(|def| (d, def))) {
+        Some((d, def)) => {
+            let t = root.instances.values().find(|i| i.def == d).map(|i| i.transform).unwrap_or_default();
+            (&def.model, t)
+        }
+        None => (root, glam::DMat4::IDENTITY),
+    };
+    let faces: Vec<Value> = m
+        .faces
+        .iter()
+        .map(|(&id, f)| {
+            let outer: Vec<_> = m.pts(&f.outer).into_iter().map(|p| t.transform_point3(p)).collect();
+            json!({
+                "id": id,
+                "normal": geom::newell(&outer).to_array(),
+                "outer": outer.iter().map(|p| p.to_array()).collect::<Vec<_>>(),
+                "group": f.group,
+                "area": m.face_area(id),
+                "material": f.material,
+                "hidden": f.hidden,
+            })
         })
         .collect();
-    let groups: Vec<Value> = m
+    let edge_list: Vec<Value> = m
+        .edges
+        .iter()
+        .map(|(&id, e)| {
+            json!({"id": id, "a": t.transform_point3(m.p(e.a)).to_array(), "b": t.transform_point3(m.p(e.b)).to_array(), "soft": e.soft, "group": e.group})
+        })
+        .collect();
+    let groups: Vec<Value> = root
         .groups
         .iter()
-        .map(|(id, g)| json!({"id": id, "name": g.name, "faces": m.faces.values().filter(|f| f.group == Some(*id)).count()}))
+        .map(|(id, g)| json!({"id": id, "name": g.name, "tag": g.tag, "hidden": g.hidden, "faces": root.faces.values().filter(|f| f.group == Some(*id)).count()}))
+        .collect();
+    let instances: Vec<Value> = root
+        .instances
+        .iter()
+        .map(|(id, i)| json!({"id": id, "name": i.name, "component": i.def, "tag": i.tag, "hidden": i.hidden, "transform": i.transform.to_cols_array()}))
+        .collect();
+    let components: Vec<Value> = root
+        .definitions
+        .iter()
+        .map(|(id, d)| json!({"id": id, "name": d.name, "placed": root.instances.values().filter(|i| i.def == *id).count()}))
         .collect();
     json!({
         "positions": positions,
         "colors": colors,
         "triFace": tri_face,
         "faces": faces,
+        "edgeList": edge_list,
         "edges": edges,
+        "edgeIds": edge_ids,
+        "softEdges": soft_edges,
         "groups": groups,
-        "loose": m.faces.values().filter(|f| f.group.is_none()).count(),
-        "activeGroup": m.active_group,
+        "instances": instances,
+        "components": components,
+        "loose": root.faces.values().filter(|f| f.group.is_none()).count(),
+        "activeGroup": root.active_group,
+        "editing": ctx,
+        "tags": root.tags,
+        "guides": root.guides.iter().map(|g| json!({"id": g.id, "p": g.p.to_array(), "dir": g.dir.map(|d| d.to_array())})).collect::<Vec<_>>(),
+        "views": root.views,
     })
 }

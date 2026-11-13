@@ -63,7 +63,7 @@ impl Live {
     }
 
     pub fn scene(&self) -> Value {
-        let mut s = crate::scene::build(&self.engine.model);
+        let mut s = crate::scene::build(&self.engine.model, self.engine.ctx);
         s["doc"] = json!(self.doc);
         s
     }
