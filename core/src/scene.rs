@@ -124,5 +124,6 @@ pub fn build(root: &Model, ctx: Option<u32>) -> Value {
         "tags": root.tags,
         "guides": root.guides.iter().map(|g| json!({"id": g.id, "p": g.p.to_array(), "dir": g.dir.map(|d| d.to_array())})).collect::<Vec<_>>(),
         "views": root.views,
+        "annotations": root.annotations,
     })
 }
