@@ -42,11 +42,14 @@ pub struct RenderOpts {
     pub paper: bool,
     /// white lines on blueprint blue (faces drawn in the background color)
     pub blueprint: bool,
+    /// a section: [origin x,y,z, direction x,y,z]; only what's on the
+    /// direction's side of the plane through origin is drawn
+    pub clip: Option<[f64; 6]>,
 }
 
 impl Default for RenderOpts {
     fn default() -> Self {
-        Self { width: 1280, height: 800, camera: None, view: "iso".into(), edges: true, grid: true, annotations: true, parallel: false, ortho_height: None, paper: false, blueprint: false }
+        Self { width: 1280, height: 800, camera: None, view: "iso".into(), edges: true, grid: true, annotations: true, parallel: false, ortho_height: None, paper: false, blueprint: false, clip: None }
     }
 }
 
@@ -319,6 +322,22 @@ fn draw_annotations(cv: &mut Canvas, model: &Model) {
     }
 }
 
+/// The part of a triangle on `d`'s side of the plane through `o`.
+fn clip_plane(tri: &[DVec3; 3], o: DVec3, d: DVec3) -> Vec<DVec3> {
+    let mut out = Vec::with_capacity(4);
+    for i in 0..3 {
+        let (a, b) = (tri[i], tri[(i + 1) % 3]);
+        let (da, db) = ((a - o).dot(d), (b - o).dot(d));
+        if da >= 0.0 {
+            out.push(a);
+        }
+        if (da >= 0.0) != (db >= 0.0) {
+            out.push(a + (b - a) * (da / (da - db)));
+        }
+    }
+    out
+}
+
 fn clip_near(poly: &[DVec4]) -> Vec<DVec4> {
     let mut out = Vec::new();
     for i in 0..poly.len() {
@@ -402,6 +421,7 @@ pub fn render(model: &Model, opts: &RenderOpts) -> RgbImage {
         }
     }
 
+    let clip = opts.clip.map(|c| (DVec3::new(c[0], c[1], c[2]), DVec3::new(c[3], c[4], c[5]).normalize_or_zero()));
     for f in model.world_faces() {
         let n = f.normal;
         let front = (eye - geom::centroid(&f.outer)).dot(n) >= 0.0;
@@ -416,13 +436,33 @@ pub fn render(model: &Model, opts: &RenderOpts) -> RgbImage {
             (false, None) => shade(BACK, -n),
         };
         for tri in geom::triangulate(&f.outer, &f.holes, n) {
-            cv.triangle(tri, col);
+            match clip {
+                None => cv.triangle(tri, col),
+                Some((o, d)) => {
+                    let poly = clip_plane(&tri, o, d);
+                    for k in 1..poly.len().saturating_sub(1) {
+                        cv.triangle([poly[0], poly[k], poly[k + 1]], col);
+                    }
+                }
+            }
         }
     }
 
     if opts.edges {
         for e in model.world_edges().into_iter().filter(|e| !e.soft) {
-            cv.line(e.a, e.b, if opts.blueprint { BLUEPRINT_INK } else { EDGE }, 1.1, false);
+            let (mut a, mut b) = (e.a, e.b);
+            if let Some((o, d)) = clip {
+                let (da, db) = ((a - o).dot(d), (b - o).dot(d));
+                if da < 0.0 && db < 0.0 {
+                    continue;
+                }
+                if da < 0.0 {
+                    a = a + (b - a) * (da / (da - db));
+                } else if db < 0.0 {
+                    b = a + (b - a) * (da / (da - db));
+                }
+            }
+            cv.line(a, b, if opts.blueprint { BLUEPRINT_INK } else { EDGE }, 1.1, false);
         }
     }
 
