@@ -8,19 +8,24 @@ use crate::model::Model;
 use serde_json::{json, Value};
 
 const DEFAULT_COLOR: [f32; 3] = [0.95, 0.94, 0.91];
+const BACK_COLOR: [f32; 3] = [0.65, 0.68, 0.82];
 
 /// `ctx`: a component definition being edited. Its geometry is then listed
 /// in `faces` (editable), placed at the first instance's transform.
 pub fn build(root: &Model, ctx: Option<u32>) -> Value {
     let mut positions: Vec<f32> = Vec::new();
     let mut colors: Vec<f32> = Vec::new();
+    let mut back_colors: Vec<f32> = Vec::new();
     let mut tri_face: Vec<u32> = Vec::new();
     for f in root.world_faces() {
         let color = f.color.unwrap_or(DEFAULT_COLOR);
+        // painted faces show paint on both sides; bare backs are blue
+        let back = f.color.map(|c| [c[0] * 0.85, c[1] * 0.85, c[2] * 0.85]).unwrap_or(BACK_COLOR);
         for t in geom::triangulate(&f.outer, &f.holes, f.normal) {
             for p in t {
                 positions.extend([p.x as f32, p.y as f32, p.z as f32]);
                 colors.extend(color);
+                back_colors.extend(back);
             }
             tri_face.push(f.owner);
         }
@@ -85,6 +90,7 @@ pub fn build(root: &Model, ctx: Option<u32>) -> Value {
     json!({
         "positions": positions,
         "colors": colors,
+        "backColors": back_colors,
         "triFace": tri_face,
         "faces": faces,
         "edgeList": edge_list,
