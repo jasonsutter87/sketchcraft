@@ -136,8 +136,8 @@ export default function App() {
         break;
       }
     }
+    api.current?.fitSoon();
     await refresh();
-    api.current?.fit();
   };
 
   const selFaces = useMemo(() => scene?.faces.filter((f) => sel.faces.includes(f.id)) ?? [], [scene, sel]);
