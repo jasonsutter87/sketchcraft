@@ -147,7 +147,56 @@ cmd({"cmd": "polygon", "points": [m(0, 0, z2 + WALL_H), m(22, 0, z2 + WALL_H), m
 cmd({"cmd": "roof", "face": "@_top", "kind": "gable", "pitch": 26.57, "overhang": round(1.0 * FT, 4), "thickness": 0.2, "as": "roof"})
 cmd({"cmd": "delete", "ids": ["@_top"]})
 
+# ---- fixtures (from the plan: kitchen, baths, laundry) ------------------------------
+def cylinder(name, cx, cy, z0, r, h, as_):
+    cmd({"cmd": "begin_group", "name": name, "as": as_})
+    cmd({"cmd": "circle", "center": m(cx, cy, z0), "radius": round(r * FT, 6), "segments": 24, "as": "_c"})
+    cmd({"cmd": "pushpull", "face": "@_c", "distance": round(h * FT, 6)})
+    cmd({"cmd": "end_group"})
+
+
+def toilet(tag, tank, bowl_c, z0):
+    box(f"Toilet tank {tag}", *tank[:2], z0, *tank[2:], z0 + 2.5, as_=f"tank{tag}")
+    cylinder(f"Toilet {tag}", bowl_c[0], bowl_c[1], z0, 0.65, 1.3, as_=f"bowl{tag}")
+
+
+FIXTURES = []
+i = 0
+def fixture(name, x0, y0, z0, x1, y1, z1, mat):
+    global i
+    i += 1
+    box(name, x0, y0, z0, x1, y1, z1, as_=f"fx{i}")
+    FIXTURES.append((f"fx{i}", mat))
+
+
+# kitchen: counter run on the left wall with the range in it, fridge, island
+fixture("Kitchen counter", EXT, 23.0, 0, 2.75, 28.4, 3.0, "Quartz")
+fixture("Range", EXT, 28.4, 0, 2.75, 30.9, 3.05, "Stainless steel")
+fixture("Kitchen counter", EXT, 30.9, 0, 2.75, 34.8, 3.0, "Quartz")
+fixture("Refrigerator", EXT, 20.2, 0, 3.2, 23.0, 6.0, "Stainless steel")
+fixture("Kitchen island", 4.8, 26.8, 0, 9.8, 29.8, 3.0, "Walnut")
+# bath 1: vanity, shower, toilet
+fixture("Vanity", 13.5, 45.6, 0, 17.2, 48 - EXT, 2.8, "Quartz")
+fixture("Shower tray", 18.3, 43.8, 0, 22 - EXT, 48 - EXT, 0.3, "Porcelain")
+toilet("1", (20.6, 40.3, 22 - EXT, 41.9), (19.9, 41.1), 0)
+# laundry: washer and dryer
+fixture("Washer", 11.6, 12.4, 0, 14.1, 14.9, 3.0, "Appliance white")
+fixture("Dryer", 11.6, 9.9, 0, 14.1, 12.4, 3.0, "Appliance white")
+# bath 2 (upstairs): tub, toilet, vanity
+fixture("Bathtub", EXT, 17.8, FLOOR, 3.2, 22.8, FLOOR + 1.6, "Porcelain")
+cut(f"fx{i}", EXT + 0.25, 18.05, FLOOR + 0.4, 2.95, 22.55, FLOOR + 2.0)
+toilet("2", (4.1, 22.0, 5.4, 23 - INT / 2), (4.75, 21.3), FLOOR)
+fixture("Vanity", 3.7, 15 + INT / 2, FLOOR, 7.8, 16.9, FLOOR + 2.8, "Quartz")
+
 # ---- paint and classify ----------------------------------------------------------
+LOOKS = {"Quartz": [0.93, 0.92, 0.89], "Stainless steel": [0.72, 0.73, 0.74], "Walnut": [0.42, 0.29, 0.20], "Porcelain": [0.96, 0.96, 0.95], "Appliance white": [0.94, 0.94, 0.93]}
+for name, color in LOOKS.items():
+    cmd({"cmd": "material", "name": name, "color": color})
+for ref, mat in FIXTURES:
+    cmd({"cmd": "paint", "ids": [f"@{ref}"], "material": mat})
+for t in ["1", "2"]:
+    cmd({"cmd": "paint", "ids": [f"@tank{t}", f"@bowl{t}"], "material": "Porcelain"})
+cmd({"cmd": "classify", "ids": [f"@{ref}" for ref, _ in FIXTURES] + ["@tank1", "@bowl1", "@tank2", "@bowl2"], "class": "IfcFurniture"})
 SIDING = [0.86, 0.84, 0.78]
 for g in ["main_walls", "upper_walls"]:
     cmd({"cmd": "paint", "ids": [f"@{g}"], "color": SIDING})
@@ -160,6 +209,43 @@ cmd({"cmd": "paint", "ids": ["@stair"], "color": [0.62, 0.45, 0.30]})
 cmd({"cmd": "classify", "ids": ["@floor2", "@foundation"], "class": "IfcSlab"})
 cmd({"cmd": "classify", "ids": ["@rear_roof"], "class": "IfcRoof"})
 cmd({"cmd": "classify", "ids": ["@stair_rail"], "class": "IfcRailing"})
+
+# ---- room names and dimensions, as on sheet A-101 ----------------------------------------
+def room(name, x, y, w, d, z):
+    cmd({"cmd": "text", "at": m(x, y, z + 0.1), "text": f"{name}\n{w}' x {d}' - {w * d} SF"})
+
+
+def dim(a, b, off, z):
+    cmd({"cmd": "dimension", "from": m(a[0], a[1], z + 0.05), "to": m(b[0], b[1], z + 0.05), "offset": m(off[0], off[1], 0)})
+
+
+room("PRIMARY BEDROOM", 6.5, 41.5, 13, 13, 0)
+room("BATH 1", 17.5, 44.5, 9, 8, 0)
+room("WIC", 17.5, 37.5, 9, 5, 0)
+room("KITCHEN", 6.5, 24.5, 10, 15, 0)
+room("LIVING / DINING", 15.5, 27.5, 12, 15, 0)
+room("GARAGE", 5.5, 10, 11, 20, 0)
+room("FOYER", 16.5, 4.5, 11, 8, 0)
+room("BED 2", 6, 29, 12, 12, FLOOR)
+room("BED 3", 17, 29, 10, 12, FLOOR)
+room("BATH 2", 5, 19.5, 8, 8, FLOOR)
+room("LOFT", 9, 7.5, 18, 15, FLOOR)
+# main floor: 22' across (13' + 9'), 48' deep (13' + 15' + 20')
+dim((0, 48), (22, 48), (0, 5), 0)
+dim((0, 48), (13, 48), (0, 3), 0)
+dim((13, 48), (22, 48), (0, 3), 0)
+dim((0, 0), (0, 48), (-5, 0), 0)
+dim((0, 0), (0, 20), (-3, 0), 0)
+dim((0, 20), (0, 35), (-3, 0), 0)
+dim((0, 35), (0, 48), (-3, 0), 0)
+# upper floor: 22' (12' + 10'), 35' (15' + 8' + 12')
+dim((0, 35), (22, 35), (0, 5), FLOOR)
+dim((0, 35), (12, 35), (0, 3), FLOOR)
+dim((12, 35), (22, 35), (0, 3), FLOOR)
+dim((0, 0), (0, 35), (-5, 0), FLOOR)
+dim((0, 0), (0, 15), (-3, 0), FLOOR)
+dim((0, 15), (0, 23), (-3, 0), FLOOR)
+dim((0, 23), (0, 35), (-3, 0), FLOOR)
 
 # ---- views -------------------------------------------------------------------------
 cmd({"cmd": "save_view", "name": "Street", "eye": m(52, -48, 6), "target": m(10, 18, 9), "fov": 42})
