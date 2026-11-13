@@ -42,19 +42,49 @@ use `"@name"` anywhere an id goes.
 
 Units are meters; Z is up.
 
+## The app
+
+```sh
+cd app && npm install && npm run tauri dev     # desktop (Tauri)
+# or in a browser:
+cargo run --release -- bridge & (cd app && npx vite)   # open http://127.0.0.1:5174
+```
+
+Figma-style layout: layers and templates on the left, properties on the
+right, a floating toolbar (V select, R rectangle, P push/pull, B paint,
+E erase, O orbit; hold Space to orbit). Type a number and press Enter for
+exact sizes. The model lives in `~/Documents/Riseline/live.riseline`; the app
+reloads it when Claude edits it over MCP, so you can build together.
+
+## Claude (MCP)
+
+`.mcp.json` registers `riseline mcp` for Claude Code in this repo. Claude gets
+`riseline_run` (commands), `riseline_render` (sees a PNG) and `riseline_info`,
+all on the same live model as the app. Build the binary first:
+`cargo build --release`.
+
+## Import a googledriver block
+
+```sh
+python3 tools/twin_import.py ../googledriver/twin/20th-ave out/20th_ave.jsonl
+cargo run --release -- run out/20th_ave.jsonl --save ~/Documents/Riseline/live.riseline
+```
+
 ## Run modes
 
 - `riseline run script.jsonl [--open f] [--save f]`: run a script.
 - `riseline serve [--open f]`: JSON commands on stdin, replies on stdout.
-  This is the protocol the MCP server and the app speak.
+- `riseline mcp [--doc f]`: MCP server for AI agents.
+- `riseline bridge [--port 5175]`: localhost HTTP bridge for the browser UI.
 
 ## Roadmap
 
 1. ✅ Engine, commands, headless render, OBJ export
-2. MCP server so Claude can model directly
-3. Desktop app (Tauri + React, Figma/Canva-style panels), live-linked to the engine
-4. Mouse tools with inference snapping (endpoints, midpoints, axes)
-5. Face splitting (doors that touch the ground, lines across faces)
-6. Import googledriver twin blocks (footprints, heights, terrain)
+2. ✅ MCP server so Claude can model directly
+3. ✅ Desktop app (Tauri + React, Figma/Canva-style panels), live-linked to the engine
+4. ◐ Snapping: endpoints, midpoints, 5 cm grid done; axis inference and guide lines next
+5. ✅ Face splitting (doors that touch the ground, bands across faces)
+6. ✅ Import googledriver twin blocks (footprints, measured heights, sloped streets)
 7. Photo match: project Street View onto faces
 8. Asset library: doors, windows, trees, cars
+9. Soft edges (hide lines between coplanar faces), line tool, move tool, gable roofs
