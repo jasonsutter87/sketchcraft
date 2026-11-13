@@ -7,9 +7,12 @@
 pub mod commands;
 pub mod export;
 pub mod geom;
+pub mod http;
+pub mod live;
 pub mod mcp;
 pub mod model;
 pub mod render;
+pub mod scene;
 
 pub use commands::{Command, Engine};
 pub use model::{Id, Model};
