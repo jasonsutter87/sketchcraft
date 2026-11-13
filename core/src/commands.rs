@@ -1070,8 +1070,12 @@ impl Engine {
                 json!({"editing": i.def})
             }
             Command::Close => {
-                m.active_group = None;
-                self.ctx = None;
+                // out of a component; or out of a group, one level at a time
+                if self.ctx.is_some() {
+                    self.ctx = None;
+                } else {
+                    m.active_group = m.active_group.and_then(|g| m.groups.get(&g)).and_then(|g| g.parent);
+                }
                 json!({})
             }
             Command::Explode { id } => json!({"group": m.explode(id)?}),
