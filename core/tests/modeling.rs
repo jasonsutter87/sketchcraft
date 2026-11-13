@@ -1,5 +1,5 @@
 use glam::DVec3;
-use riseline::Engine;
+use sketchcraft::Engine;
 use serde_json::{json, Value};
 
 fn run(e: &mut Engine, v: Value) -> Value {
@@ -146,7 +146,7 @@ fn closed_line_makes_a_face() {
 
 #[test]
 fn render_and_export_write_files() {
-    let dir = std::env::temp_dir().join(format!("riseline-test-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("sketchcraft-test-{}", std::process::id()));
     let mut e = Engine::new();
     make_box(&mut e);
     let png = dir.join("box.png").to_string_lossy().to_string();
@@ -157,7 +157,7 @@ fn render_and_export_write_files() {
     let obj = dir.join("box.obj").to_string_lossy().to_string();
     let r = run(&mut e, json!({"cmd":"export_obj","path":obj}));
     assert_eq!(r["triangles"], 12);
-    let save = dir.join("box.riseline").to_string_lossy().to_string();
+    let save = dir.join("box.sketchcraft").to_string_lossy().to_string();
     run(&mut e, json!({"cmd":"save","path":save}));
     let mut e2 = Engine::new();
     run(&mut e2, json!({"cmd":"open","path":save}));
@@ -406,7 +406,7 @@ fn every_asset_builds_and_places() {
 
 #[test]
 fn glb_stl_and_obj_round_trip() {
-    let dir = std::env::temp_dir().join(format!("riseline-io-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("sketchcraft-io-{}", std::process::id()));
     let p = |n: &str| dir.join(n).to_string_lossy().to_string();
     let mut e = Engine::new();
     make_box(&mut e);

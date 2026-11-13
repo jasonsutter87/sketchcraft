@@ -1,5 +1,5 @@
 //! OBJ import: each `o`/`g` becomes a group. Most OBJ files are Y-up
-//! (Blender's default export); `up: "y"` turns them to Riseline's Z-up.
+//! (Blender's default export); `up: "y"` turns them to SketchCraft's Z-up.
 
 use crate::model::{Id, Model};
 use anyhow::{bail, Result};

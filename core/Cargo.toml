@@ -1,14 +1,14 @@
 [package]
-name = "riseline-core"
+name = "sketchcraft-core"
 version = "0.1.0"
 edition = "2021"
-description = "Riseline engine: draw outlines, pull them up. Every action is a command."
+description = "SketchCraft engine: draw outlines, pull them up. Every action is a command."
 
 [lib]
-name = "riseline"
+name = "sketchcraft"
 
 [[bin]]
-name = "riseline"
+name = "sketchcraft"
 path = "src/main.rs"
 
 [dependencies]

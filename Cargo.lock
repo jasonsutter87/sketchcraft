@@ -2826,31 +2826,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "riseline-app"
-version = "0.1.0"
-dependencies = [
- "riseline-core",
- "serde_json",
- "tauri",
- "tauri-build",
-]
-
-[[package]]
-name = "riseline-core"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "base64 0.22.1",
- "earcutr",
- "geo",
- "glam",
- "image",
- "serde",
- "serde_json",
- "tiny_http",
-]
-
-[[package]]
 name = "robust"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3196,6 +3171,31 @@ name = "siphasher"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "33f4fe9184a62d842c9ef383018f3306d8ba224fd9d836f56d7288308847c256"
+
+[[package]]
+name = "sketchcraft-app"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "sketchcraft-core",
+ "tauri",
+ "tauri-build",
+]
+
+[[package]]
+name = "sketchcraft-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "earcutr",
+ "geo",
+ "glam",
+ "image",
+ "serde",
+ "serde_json",
+ "tiny_http",
+]
 
 [[package]]
 name = "slab"

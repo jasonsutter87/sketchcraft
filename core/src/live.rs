@@ -20,11 +20,11 @@ fn mtime(p: &PathBuf) -> Option<SystemTime> {
 }
 
 pub fn default_doc() -> PathBuf {
-    if let Ok(p) = std::env::var("RISELINE_DOC") {
+    if let Ok(p) = std::env::var("SKETCHCRAFT_DOC") {
         return PathBuf::from(p);
     }
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
-    PathBuf::from(home).join("Documents/Riseline/live.riseline")
+    PathBuf::from(home).join("Documents/SketchCraft/live.sketchcraft")
 }
 
 impl Live {

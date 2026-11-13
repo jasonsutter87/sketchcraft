@@ -1,4 +1,4 @@
-//! Riseline: draw an outline, pull it up.
+//! SketchCraft: draw an outline, pull it up.
 //!
 //! The engine is a plain library. Every action is a JSON command run through
 //! [`commands::Engine`], so the desktop app, scripts, the CLI and AI agents

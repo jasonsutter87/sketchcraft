@@ -21,7 +21,7 @@ pub fn write_obj(m: &Model, path: &str) -> Result<usize> {
         writeln!(mtl, "newmtl {}\nKd {} {} {}\n", color_id(mat.color), mat.color[0], mat.color[1], mat.color[2])?;
     }
 
-    let mut obj = format!("# Riseline export\nmtllib {mtl_name}\n");
+    let mut obj = format!("# SketchCraft export\nmtllib {mtl_name}\n");
     let mut count = 0usize;
     let mut vn = 0usize;
     // one object per group / component placement, so Blender gets one object per house
@@ -129,10 +129,10 @@ pub fn write_glb(m: &Model, path: &str) -> Result<usize> {
         prims.push(json!({"attributes": {"POSITION": accessors.len() - 2, "NORMAL": accessors.len() - 1}, "material": i}));
     }
     let doc = json!({
-        "asset": {"version": "2.0", "generator": "Riseline"},
+        "asset": {"version": "2.0", "generator": "SketchCraft"},
         "scene": 0,
         "scenes": [{"nodes": [0]}],
-        "nodes": [{"mesh": 0, "name": "Riseline model"}],
+        "nodes": [{"mesh": 0, "name": "SketchCraft model"}],
         "meshes": [{"primitives": prims}],
         "materials": mats,
         "accessors": accessors,
@@ -175,7 +175,8 @@ pub fn write_stl(m: &Model, path: &str, scale: f64) -> Result<usize> {
         }
     }
     let mut out = vec![0u8; 80];
-    out[..21].copy_from_slice(b"Riseline binary STL  ");
+    let header = b"SketchCraft binary STL";
+    out[..header.len()].copy_from_slice(header);
     out.extend_from_slice(&(tris.len() as u32).to_le_bytes());
     for (n, v) in &tris {
         for x in n.iter().chain(v.iter().flatten()) {

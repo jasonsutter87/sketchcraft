@@ -12,7 +12,7 @@ use tiny_http::{Header, Method, Response, Server};
 
 pub fn serve(mut live: Live, port: u16) -> anyhow::Result<()> {
     let server = Server::http(("127.0.0.1", port)).map_err(|e| anyhow::anyhow!("{e}"))?;
-    eprintln!("riseline bridge on http://127.0.0.1:{port}  (model: {})", live.doc.display());
+    eprintln!("sketchcraft bridge on http://127.0.0.1:{port}  (model: {})", live.doc.display());
     for mut req in server.incoming_requests() {
         let body: Value = match (req.method(), req.url()) {
             (Method::Options, _) => json!({}),

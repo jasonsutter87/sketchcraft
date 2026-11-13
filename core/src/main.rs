@@ -1,26 +1,26 @@
-//! riseline CLI
+//! sketchcraft CLI
 //!
-//!   riseline run <script.jsonl> [--open model.riseline] [--save model.riseline]
+//!   sketchcraft run <script.jsonl> [--open model.sketchcraft] [--save model.sketchcraft]
 //!       Run one JSON command per line (blank lines and # comments skipped),
 //!       print each reply. Stops at the first error unless --keep-going.
 //!
-//!   riseline serve [--open model.riseline]
+//!   sketchcraft serve [--open model.sketchcraft]
 //!       Read commands from stdin, write one JSON reply per line to stdout.
 //!       This is the headless protocol the app speaks.
 //!
-//!   riseline bridge [--port 5175]
+//!   sketchcraft bridge [--port 5175]
 //!       Browser bridge for the UI on 127.0.0.1 (shares the live model file).
 //!
-//!   riseline mcp [--doc model.riseline]
+//!   sketchcraft mcp [--doc model.sketchcraft]
 //!       MCP server on stdio for AI agents. With --doc, the model is loaded
 //!       from FILE (if it exists) and saved back after every change.
 
-use riseline::Engine;
+use sketchcraft::Engine;
 use serde_json::json;
 use std::io::{BufRead, Write};
 
 fn usage() -> ! {
-    eprintln!("usage:\n  riseline run <script.jsonl> [--open FILE] [--save FILE] [--keep-going]\n  riseline serve [--open FILE]\n  riseline bridge [--port 5175]\n  riseline mcp [--doc FILE]");
+    eprintln!("usage:\n  sketchcraft run <script.jsonl> [--open FILE] [--save FILE] [--keep-going]\n  sketchcraft serve [--open FILE]\n  sketchcraft bridge [--port 5175]\n  sketchcraft mcp [--doc FILE]");
     std::process::exit(2)
 }
 
@@ -82,8 +82,8 @@ fn main() {
         }
         Some("bridge") => {
             let port = flag(&args, "--port").and_then(|p| p.parse().ok()).unwrap_or(5175);
-            let live = riseline::live::Live::open(riseline::live::default_doc());
-            if let Err(e) = riseline::http::serve(live, port) {
+            let live = sketchcraft::live::Live::open(sketchcraft::live::default_doc());
+            if let Err(e) = sketchcraft::http::serve(live, port) {
                 eprintln!("{e}");
                 std::process::exit(1);
             }
@@ -95,7 +95,7 @@ fn main() {
                     engine.exec_json(&json!({"cmd": "open", "path": path}).to_string());
                 }
             }
-            riseline::mcp::serve(engine, doc);
+            sketchcraft::mcp::serve(engine, doc);
         }
         _ => usage(),
     }
