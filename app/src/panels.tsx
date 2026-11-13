@@ -1,7 +1,7 @@
 // Side panels: Outliner (groups, components, tags), Library (assets and the
 // model's components), Views (saved cameras), Entity Info, and the
 // right-click menu.
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ASSETS, type Reply, type Scene } from "./engine";
 import { Icons } from "./icons";
 import { EMPTY, isEmpty, selIds, type Sel } from "./selection";
@@ -290,6 +290,19 @@ export function EntityInfo({ scene, sel, run }: { scene: Scene; sel: Sel; run: R
       ? groups[0]?.name ?? insts[0]?.name ?? (faces[0] ? `Face ${faces[0].id}` : `Edge ${edges[0].id}`)
       : `${selIds(sel).length} selected`;
   const taggable = [...sel.groups, ...sel.instances];
+  // one group or component: is it a solid, and its volume (SketchUp's "Solid Group")
+  const [solid, setSolid] = useState<{ id: number; volume: number | null } | null>(null);
+  const one = taggable.length === 1 && selIds(sel).length === 1 ? taggable[0] : null;
+  useEffect(() => {
+    if (one == null) return setSolid(null);
+    let live = true;
+    run({ cmd: "volume", id: one }).then((r) => live && setSolid({ id: one, volume: r.ok && r.solid ? (r.volume as number) : null }));
+    return () => {
+      live = false;
+    };
+    // recheck whenever the model changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [one, scene]);
   return (
     <div className="section">
       <div className="section-title">{title}</div>
@@ -304,6 +317,12 @@ export function EntityInfo({ scene, sel, run }: { scene: Scene; sel: Sel; run: R
           <>
             <span>Length</span>
             <b>{formatLength(len, scene.units)}</b>
+          </>
+        )}
+        {solid && solid.id === one && (
+          <>
+            <span>{solid.volume != null ? "Solid" : "Not solid"}</span>
+            <b>{solid.volume != null ? formatVolume(solid.volume, scene.units) : "has open edges"}</b>
           </>
         )}
         {insts.length === 1 && (
@@ -356,22 +375,35 @@ export function contextItems(scene: Scene, sel: Sel, run: Run, setSel: (s: Sel) 
   const one = ids.length === 1;
   if (one && (sel.groups.length || sel.instances.length)) items.push({ label: `Edit ${sel.groups.length ? "group" : "component"}`, run: () => (run({ cmd: "edit", id: ids[0] }), setSel(EMPTY)) });
   if (sel.faces.length) {
-    items.push({ label: "Make group", key: "G", run: () => run({ cmd: "group", ids: sel.faces }).then(() => setSel(EMPTY)) });
+    items.push({ label: "Make group", run: () => run({ cmd: "group", ids: sel.faces }).then(() => setSel(EMPTY)) });
   }
   if (sel.faces.length || sel.groups.length) {
     items.push({
       label: "Make component…",
+      key: "G",
       run: () => {
         const name = window.prompt("Component name", "Component");
         if (name) run({ cmd: "make_component", ids: [...sel.faces, ...sel.groups], name }).then(() => setSel(EMPTY));
       },
     });
   }
+  // Solid Tools: in pick order (for Subtract and Trim the first one cuts the second)
+  const solids = [...sel.groups, ...sel.instances];
+  if (solids.length >= 2 && !sel.faces.length && !sel.edges.length) {
+    const tool = (label: string, op: string, two = false) =>
+      (!two || solids.length === 2) && items.push({ label: `Solid: ${label}`, run: () => run({ cmd: "solid", op, ids: solids }).then((r) => r.ok && setSel({ ...EMPTY, groups: (r.groups as number[]) ?? [] })) });
+    tool("Outer Shell", "outer_shell");
+    tool("Union", "union");
+    tool("Intersect", "intersect");
+    tool("Subtract (first cuts second)", "subtract", true);
+    tool("Trim (first cuts second, kept)", "trim", true);
+    tool("Split", "split", true);
+  }
   if (sel.instances.length) items.push({ label: "Explode", run: () => Promise.all(sel.instances.map((id) => run({ cmd: "explode", id }))).then(() => setSel(EMPTY)) });
   if (sel.faces.length || sel.groups.length) items.push({ label: "Reverse faces", run: () => run({ cmd: "reverse", ids: [...sel.faces, ...sel.groups] }) });
   if (sel.edges.length) items.push({ label: "Soften edges", run: () => run({ cmd: "soften", ids: sel.edges }) });
   items.push({ label: "Zoom to selection", key: "⇧Z", run: fitSel });
-  items.push({ label: "Hide", key: "H", run: () => run({ cmd: "hide", ids }).then(() => setSel(EMPTY)) });
+  items.push({ label: "Hide", run: () => run({ cmd: "hide", ids }).then(() => setSel(EMPTY)) });
   items.push({ label: "Delete", key: "⌫", danger: true, run: () => run({ cmd: "delete", ids }).then(() => setSel(EMPTY)) });
   return items;
 }
@@ -396,6 +428,12 @@ export function ContextMenu({ x, y, items, close }: { x: number; y: number; item
       </div>
     </div>
   );
+}
+
+export function formatVolume(m3: number, units: string): string {
+  if (units === "ft" || units === "in") return `${(m3 / 0.028316846592).toFixed(2)} ft³`;
+  if (units === "mm" || units === "cm") return `${(m3 * 1e6).toFixed(0)} cm³`;
+  return `${m3.toFixed(3)} m³`;
 }
 
 export function formatArea(m2: number, units: string): string {
@@ -493,6 +531,112 @@ export function Textures({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+
+/** Every shortcut, laid out like SketchUp's defaults (Mac keys; Windows uses Ctrl for ⌘ and Option). */
+export const SHORTCUTS: [string, [string, string][]][] = [
+  [
+    "Tools",
+    [
+      ["Space", "Select"],
+      ["L", "Line"],
+      ["A", "Arc"],
+      ["R", "Rectangle"],
+      ["C", "Circle"],
+      ["N", "Polygon"],
+      ["P", "Push/Pull"],
+      ["F", "Offset"],
+      ["J", "Follow Me"],
+      ["M", "Move"],
+      ["Q", "Rotate"],
+      ["S", "Scale"],
+      ["T", "Tape Measure"],
+      ["D", "Dimension"],
+      ["W", "Text"],
+      ["B", "Paint Bucket"],
+      ["E", "Eraser"],
+      ["X", "Section Plane"],
+    ],
+  ],
+  [
+    "Camera",
+    [
+      ["O", "Orbit (or middle-drag)"],
+      ["H", "Pan (or Shift + middle-drag)"],
+      ["Z", "Zoom"],
+      ["⇧Z", "Zoom Extents"],
+      ["⌘1 – ⌘6", "Iso, Top, Front, Right, Back, Left"],
+      ["K", "Back Edges"],
+    ],
+  ],
+  [
+    "Edit",
+    [
+      ["⌘Z", "Undo"],
+      ["⇧⌘Z  /  Ctrl+Y", "Redo"],
+      ["⌘X  ⌘C  ⌘V", "Cut, Copy, Paste"],
+      ["⌘A", "Select All"],
+      ["⌘T", "Select None"],
+      ["⌫", "Delete"],
+      ["G", "Make Component"],
+      ["⌘N  ⌘O  ⌘S  ⇧⌘S", "New, Open, Save, Save As"],
+      ["⌘I", "Import"],
+    ],
+  ],
+  [
+    "While using a tool",
+    [
+      ["Type + Enter", "Exact length, size, angle, or 24s for sides"],
+      ["→  ←  ↑", "Lock to the red, green, blue axis"],
+      ["Hold ⇧", "Lock the direction you're inferring"],
+      ["Esc", "Cancel, or close the group you're in"],
+      ["Option / Ctrl", "Move and Rotate: copy"],
+      ["x5 after a copy", "Make 5 copies in a row"],
+      ["Double-click", "Push/Pull: repeat the last distance; Select: open a group"],
+    ],
+  ],
+  [
+    "Selecting",
+    [
+      ["⇧ click", "Add or remove"],
+      ["Option / Ctrl click", "Add"],
+      ["⇧ Option click", "Remove"],
+      ["⌘ / Option click", "Paint Bucket: sample a material"],
+      ["⇧ click", "Paint Bucket: paint every matching face"],
+      ["Option / Ctrl click", "Eraser: soften (⇧ too: unsoften)"],
+      ["⇧ click", "Eraser: hide"],
+    ],
+  ],
+];
+
+export function ShortcutSheet({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="sheet-backdrop" onClick={onClose}>
+      <div className="sheet" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Keyboard shortcuts">
+        <div className="sheet-head">
+          <b>Keyboard shortcuts</b>
+          <span className="muted">SketchUp's defaults. On Windows, Ctrl stands in for ⌘.</span>
+          <button className="btn small ghost" onClick={onClose}>
+            Close
+          </button>
+        </div>
+        <div className="sheet-cols">
+          {SHORTCUTS.map(([title, rows]) => (
+            <div key={title} className="sheet-sec">
+              <div className="section-title">{title}</div>
+              {rows.map(([k, what]) => (
+                <div key={k + what} className="sheet-row">
+                  <kbd>{k}</kbd>
+                  <span>{what}</span>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
