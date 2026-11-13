@@ -142,6 +142,10 @@ pub enum Command {
     /// Construction guide: a line through `point` along `direction`, or a point.
     Guide { point: [f64; 3], #[serde(default)] direction: Option<[f64; 3]> },
     ClearGuides,
+    /// A dimension from `from` to `to`, drawn `offset` away (e.g. [0,-1,0] = 1 m toward the street).
+    Dimension { from: [f64; 3], to: [f64; 3], #[serde(default)] offset: [f64; 3] },
+    /// A text label at `at`, with an optional leader line to `leader`.
+    Text { at: [f64; 3], text: String, #[serde(default)] leader: Option<[f64; 3]> },
     /// Save a camera as a named view.
     SaveView { name: String, eye: [f64; 3], target: [f64; 3], #[serde(default = "fov")] fov: f64 },
     DeleteView { name: String },
@@ -280,7 +284,7 @@ impl Engine {
             Err(e) => return json!({"ok": false, "error": format!("bad command: {e}")}),
         };
         if let (Some(n), true) = (name, r["ok"] == true) {
-            if let Some(id) = ["face", "group", "instance", "guide"]
+            if let Some(id) = ["face", "group", "instance", "guide", "dimension", "text"]
                 .iter()
                 .find_map(|k| r[*k].as_u64())
                 .or_else(|| r["ids"][0].as_u64())
@@ -558,6 +562,19 @@ impl Engine {
                 m.next_id = id;
                 m.guides.push(crate::model::Guide { id, p: v3(point), dir: direction.map(|d| v3(d).normalize()) });
                 json!({"guide": id})
+            }
+            Command::Dimension { from, to, offset } => {
+                let id = m.next_id + 1;
+                m.next_id = id;
+                let (a, b) = (v3(from), v3(to));
+                m.annotations.push(crate::model::Annotation::Dimension { id, a, b, offset: v3(offset) });
+                json!({"dimension": id, "length": round(a.distance(b))})
+            }
+            Command::Text { at, text, leader } => {
+                let id = m.next_id + 1;
+                m.next_id = id;
+                m.annotations.push(crate::model::Annotation::Text { id, at: v3(at), text, leader: leader.map(v3) });
+                json!({"text": id})
             }
             Command::ClearGuides => {
                 m.guides.clear();
