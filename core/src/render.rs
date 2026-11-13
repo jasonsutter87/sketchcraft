@@ -5,6 +5,7 @@
 
 use crate::geom;
 use crate::model::Model;
+
 use glam::{DMat4, DVec3, DVec4};
 use image::{Rgb, RgbImage};
 use serde::Deserialize;
@@ -50,7 +51,10 @@ pub fn camera_for(model: &Model, opts: &RenderOpts) -> CameraSpec {
     if let Some(c) = &opts.camera {
         return c.clone();
     }
-    let (lo, hi) = model.bounds().unwrap_or((DVec3::splat(-5.0), DVec3::splat(5.0)));
+    if let Some(v) = model.views.iter().find(|v| v.name == opts.view) {
+        return CameraSpec { eye: v.eye, target: v.target, fov: v.fov };
+    }
+    let (lo, hi) = model.world_bounds().unwrap_or((DVec3::splat(-5.0), DVec3::splat(5.0)));
     let center = (lo + hi) * 0.5;
     let radius = ((hi - lo).length() * 0.5).max(1.0);
     let dir = match opts.view.as_str() {
@@ -212,46 +216,41 @@ pub fn render(model: &Model, opts: &RenderOpts) -> RgbImage {
     let mut cv = Canvas { w, h, color, depth: vec![0.0; w * h], vp: proj * view };
 
     if opts.grid {
-        let (lo, hi) = model.bounds().unwrap_or((DVec3::splat(-5.0), DVec3::splat(5.0)));
+        let (lo, hi) = model.world_bounds().unwrap_or((DVec3::splat(-5.0), DVec3::splat(5.0)));
         let pad = ((hi - lo).length() * 0.35).max(4.0);
+        let gz = lo.z.min(0.0);
         let step = if (hi - lo).length() > 200.0 { 10.0 } else { 1.0 };
         let (x0, x1) = (((lo.x - pad) / step).floor() * step, ((hi.x + pad) / step).ceil() * step);
         let (y0, y1) = (((lo.y - pad) / step).floor() * step, ((hi.y + pad) / step).ceil() * step);
         let mut x = x0;
         while x <= x1 {
-            cv.line(DVec3::new(x, y0, 0.0), DVec3::new(x, y1, 0.0), GRID, 0.6, false);
+            cv.line(DVec3::new(x, y0, gz), DVec3::new(x, y1, gz), GRID, 0.6, false);
             x += step;
         }
         let mut y = y0;
         while y <= y1 {
-            cv.line(DVec3::new(x0, y, 0.0), DVec3::new(x1, y, 0.0), GRID, 0.6, false);
+            cv.line(DVec3::new(x0, y, gz), DVec3::new(x1, y, gz), GRID, 0.6, false);
             y += step;
         }
     }
 
-    for face in model.faces.values() {
-        let outer = model.pts(&face.outer);
-        let holes: Vec<_> = face.holes.iter().map(|h| model.pts(h)).collect();
-        let n = geom::newell(&outer);
-        let front = (eye - geom::centroid(&outer)).dot(n) >= 0.0;
-        let base = face
-            .material
-            .as_ref()
-            .and_then(|m| model.materials.get(m))
-            .map(|m| m.color)
-            .unwrap_or(DEFAULT_FRONT);
+    for f in model.world_faces() {
+        let n = f.normal;
+        let front = (eye - geom::centroid(&f.outer)).dot(n) >= 0.0;
+        let base = f.color.unwrap_or(DEFAULT_FRONT);
         let col = if front { shade(base, n) } else { shade(BACK, -n) };
-        for tri in geom::triangulate(&outer, &holes, n) {
+        for tri in geom::triangulate(&f.outer, &f.holes, n) {
             cv.triangle(tri, col);
         }
     }
 
     if opts.edges {
-        for e in model.edges.values() {
-            cv.line(model.p(e.a), model.p(e.b), EDGE, 1.1, false);
+        for e in model.world_edges().into_iter().filter(|e| !e.soft) {
+            cv.line(e.a, e.b, EDGE, 1.1, false);
         }
     }
 
+    // grid floor sits under the model
     // downsample
     let mut img = RgbImage::new(opts.width.max(16), opts.height.max(16));
     for (x, y, px) in img.enumerate_pixels_mut() {
