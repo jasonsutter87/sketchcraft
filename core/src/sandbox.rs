@@ -32,7 +32,7 @@ impl Model {
     }
 
     /// Build a terrain group from triangles over points (soft inside edges).
-    fn terrain_group(&mut self, name: &str, pts: &[DVec3], tris: &[[usize; 3]]) -> Result<Id> {
+    pub(crate) fn terrain_group(&mut self, name: &str, pts: &[DVec3], tris: &[[usize; 3]]) -> Result<Id> {
         let prev = self.active_group;
         let gid = self.begin_group(name.to_string());
         let mut mesh = Mesh::new(self, Some(gid));
