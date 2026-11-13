@@ -49,8 +49,23 @@ export interface BuildSettings {
 export type FaceStyle = "textured" | "shaded" | "monochrome" | "hiddenline" | "wireframe";
 export type Backdrop = "default" | "paper" | "blueprint" | "night";
 
+/** A pleasant color for a tag that hasn't been given one (stable per name). */
+export function autoTagColor(tag: string): [number, number, number] {
+  let h = 0;
+  for (const ch of tag) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  const hue = (h % 360) / 360;
+  // soft, distinct: HSL with s .5, l .68
+  const f = (n: number) => {
+    const k = (n + hue * 12) % 12;
+    return 0.68 - 0.5 * Math.min(0.68, 1 - 0.68) * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+  };
+  return [f(0), f(8), f(4)];
+}
+
 export interface Styles {
   xray: boolean;
+  /** faces in their tag's color */
+  byTag?: boolean;
   /** dimensions, labels and door swings (on unless turned off) */
   notes?: boolean;
   /** SketchUp's face styles */
@@ -631,7 +646,7 @@ export default function Viewport(props: Props) {
     T.catcher.visible = styles.shadows;
     buildModel();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [styles.xray, styles.shadows, styles.edges, styles.parallel, styles.backEdges, styles.face, styles.profiles, styles.sketchy, styles.extensions, styles.background]);
+  }, [styles.xray, styles.shadows, styles.edges, styles.parallel, styles.backEdges, styles.face, styles.profiles, styles.sketchy, styles.extensions, styles.background, styles.byTag, styles.notes]);
 
   // ---------------------------------------------------------------- labels
   /** Keep one DOM label per spec; positions are updated every frame. */
@@ -739,6 +754,31 @@ export default function Viewport(props: Props) {
     );
   }
 
+  /** Per-triangle colors from each thing's tag (its own, or the nearest
+   *  group it sits in that has one); untagged stays a quiet gray. */
+  function tagColors(s: Scene): number[] {
+    const parentOf = new Map(s.groups.map((g) => [g.id, g]));
+    const tagOfGroup = (g: number | null): string | null => {
+      for (let c = g, n = 0; c != null && n < 256; n++) {
+        const x = parentOf.get(c);
+        if (!x) break;
+        if (x.tag) return x.tag;
+        c = x.parent;
+      }
+      return null;
+    };
+    const faceGroup = new Map(s.faces.map((f) => [f.id, f.group]));
+    const inst = new Map(s.instances.map((i) => [i.id, i]));
+    const out: number[] = [];
+    for (const owner of s.triFace) {
+      const i = inst.get(owner);
+      const tag = i ? i.tag ?? tagOfGroup(i.parent) : tagOfGroup(faceGroup.get(owner) ?? null);
+      const c = (tag && s.tagColors?.[tag]) || (tag ? autoTagColor(tag) : [0.86, 0.86, 0.84]);
+      out.push(c[0], c[1], c[2]);
+    }
+    return out;
+  }
+
   // ---------------------------------------------------------------- model
   function buildModel() {
     const T = t.current;
@@ -757,7 +797,7 @@ export default function Viewport(props: Props) {
       for (let t = 0; t < c.length / 3; t++) for (let k = 0; k < 3; k++) out.set([c[t * 3], c[t * 3 + 1], c[t * 3 + 2]], t * 9 + k * 3);
       return new THREE.BufferAttribute(out, 3);
     };
-    geo.setAttribute("color", corners(s.colors));
+    geo.setAttribute("color", corners(live.current.styles.byTag ? tagColors(s) : s.colors));
     geo.setAttribute("normal", new THREE.BufferAttribute(smoothNormals(s.positions), 3));
     const bgeo = geo.clone();
     bgeo.setAttribute("color", corners(s.backColors));
@@ -1031,6 +1071,8 @@ export default function Viewport(props: Props) {
     let best: { id: number; d: number } | null = null;
     for (const ed of s.edgeList) {
       if (ed.soft && !live.current.styles.xray && live.current.tool !== "flipedge") continue;
+      // edges inside a closed group belong to the group: the click takes the group
+      if (selectableGroup(ed.group) != null) continue;
       const a = sc(V(ed.a));
       const b = sc(V(ed.b));
       const ab = b.clone().sub(a);
@@ -1058,8 +1100,39 @@ export default function Viewport(props: Props) {
     return out;
   }
 
+  // ---- the hierarchy: groups inside groups --------------------------------
+  /** A group and everything nested in it. */
+  function subtree(g: number): Set<number> {
+    const s = sceneNow();
+    const out = new Set([g]);
+    for (let grew = true; grew; ) {
+      grew = false;
+      for (const x of s.groups) if (x.parent != null && out.has(x.parent) && !out.has(x.id)) (out.add(x.id), (grew = true));
+    }
+    return out;
+  }
+  /** What a click on something in group `g` selects: the group one level
+   *  inside the one that's open (the top group when none is), or nothing
+   *  when `g` is the open group itself (then you pick its faces). */
+  function selectableGroup(g: number | null): number | null {
+    const s = sceneNow();
+    if (g == null) return null;
+    const parentOf = new Map(s.groups.map((x) => [x.id, x.parent]));
+    const chain: number[] = [];
+    for (let c: number | null | undefined = g; c != null && chain.length < 256; c = parentOf.get(c)) chain.push(c);
+    if (s.activeGroup == null) return chain[chain.length - 1];
+    const i = chain.indexOf(s.activeGroup);
+    if (i === 0) return null;
+    if (i > 0) return chain[i - 1];
+    return chain[chain.length - 1];
+  }
   function groupFaces(g: number): Set<number> {
-    return new Set(sceneNow().faces.filter((f) => f.group === g).map((f) => f.id));
+    const tree = subtree(g);
+    const s = sceneNow();
+    const out = new Set(s.faces.filter((f) => f.group != null && tree.has(f.group)).map((f) => f.id));
+    // components placed inside it light up with it
+    for (const i of s.instances) if (i.parent != null && tree.has(i.parent)) out.add(i.id);
+    return out;
   }
 
   function ownersOf(sel: Sel): Set<number> {
@@ -1159,17 +1232,23 @@ export default function Viewport(props: Props) {
 
   /** What hovering this owner would select (a whole group, unless it's open). */
   function hoverOwners(owner: number): Set<number> {
-    const g = groupOfFace(owner);
-    if (g != null && g !== sceneNow().activeGroup) return groupFaces(g);
+    const inst = sceneNow().instances.find((i) => i.id === owner);
+    const g = selectableGroup(inst ? inst.parent : groupOfFace(owner));
+    if (g != null) return groupFaces(g);
     return new Set([owner]);
   }
 
   /** The selectable thing for a pick: a component placement, a closed group, or a face. */
   function entityOf(p: Pick): { kind: keyof Sel; id: number } {
     const s = sceneNow();
-    if (!p.face && s.instances.some((i) => i.id === p.owner)) return { kind: "instances", id: p.owner };
-    const g = groupOfFace(p.owner);
-    if (g != null && g !== s.activeGroup) return { kind: "groups", id: g };
+    const inst = !p.face ? s.instances.find((i) => i.id === p.owner) : undefined;
+    if (inst) {
+      // a component inside a closed group: the click takes the group
+      const g = selectableGroup(inst.parent);
+      return g != null ? { kind: "groups", id: g } : { kind: "instances", id: p.owner };
+    }
+    const g = selectableGroup(groupOfFace(p.owner));
+    if (g != null) return { kind: "groups", id: g };
     return { kind: "faces", id: p.owner };
   }
 
@@ -2233,7 +2312,8 @@ export default function Viewport(props: Props) {
       const groupsHit = new Map<number, boolean[]>();
       for (const f of s.faces) {
         const ok = test(f.outer);
-        if (f.group != null && f.group !== s.activeGroup) groupsHit.set(f.group, [...(groupsHit.get(f.group) ?? []), ok]);
+        const g = selectableGroup(f.group);
+        if (g != null) groupsHit.set(g, [...(groupsHit.get(g) ?? []), ok]);
         else if (ok) out.faces.push(f.id);
       }
       for (const [g, hits] of groupsHit) if (crossing ? hits.some(Boolean) : hits.every(Boolean)) out.groups.push(g);
