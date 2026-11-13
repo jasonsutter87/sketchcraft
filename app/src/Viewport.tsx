@@ -11,7 +11,7 @@ import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { Line2 } from "three/examples/jsm/lines/Line2.js";
 import { LineGeometry } from "three/examples/jsm/lines/LineGeometry.js";
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
-import { exec, type FaceInfo, type Reply, type Scene, type Vec3 } from "./engine";
+import { exec, type Annotation, type FaceInfo, type Reply, type Scene, type Vec3 } from "./engine";
 import { guide, type Guide } from "./guide";
 import { Icons } from "./icons";
 import { AXIS_COLORS, closestOnLine, infer, rayFrom, V, type Axis, type InferEnv, type Pick, type Snap } from "./inference";
@@ -51,6 +51,8 @@ export type Backdrop = "default" | "paper" | "blueprint" | "night";
 
 export interface Styles {
   xray: boolean;
+  /** dimensions, labels and door swings (on unless turned off) */
+  notes?: boolean;
   /** SketchUp's face styles */
   face?: FaceStyle;
   /** bold outlines around shapes */
@@ -710,10 +712,25 @@ export default function Viewport(props: Props) {
     return out;
   }
 
+  /** Is a note shown? Not when notes are off; with a section, only what's on
+   *  the kept side (a floor plan shows that floor's notes, not the ones above
+   *  or a storey below). */
+  function noteShown(an: Annotation): boolean {
+    if (live.current.styles.notes === false) return false;
+    const plane = st.current.section;
+    if (!plane) return true;
+    const p = V(an.kind === "dimension" ? an.a : an.kind === "text" ? an.at : an.hinge);
+    if (plane.normal.z < -0.99) {
+      const cut = plane.constant; // -z + c = 0
+      return p.z <= cut + 0.05 && p.z >= cut - 2.6;
+    }
+    return plane.distanceToPoint(p) >= -0.05;
+  }
+
   function annotationSpecs(): LabelSpec[] {
     const s = live.current.scene;
     if (!s) return [];
-    return s.annotations.flatMap((an) =>
+    return s.annotations.filter(noteShown).flatMap((an) =>
       an.kind === "dimension"
         ? [{ key: `a${an.id}`, id: an.id, p: V(an.a).add(V(an.b)).multiplyScalar(0.5).add(V(an.offset)), text: fmt(V(an.a).distanceTo(V(an.b))) }]
         : an.kind === "text"
@@ -868,7 +885,7 @@ export default function Viewport(props: Props) {
     }
     // dimensions and text leaders, always on top
     const ann: number[] = [];
-    for (const an of s.annotations) {
+    for (const an of s.annotations.filter(noteShown)) {
       if (an.kind === "dimension") ann.push(...dimSegments(V(an.a), V(an.b), V(an.offset)));
       else if (an.kind === "swing") {
         // the open leaf and the arc its edge sweeps
