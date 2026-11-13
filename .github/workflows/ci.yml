@@ -1,0 +1,21 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Engine tests
+        run: cargo test -p sketchcraft-core
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: App type check
+        working-directory: app
+        run: npm ci && npx tsc --noEmit
