@@ -40,6 +40,14 @@ pub struct ViewportSpec {
     /// a floor plan's floor height (default: 4 ft below the cut); what sits
     /// between it and the cut is drawn in thin lines (stairs, counters, fixtures)
     pub floor: Option<f64>,
+    /// plans: door/window tags, automatic exterior dimensions, north arrow;
+    /// elevations: true elevation (level camera)
+    pub callouts: bool,
+    /// plans: elevation markers, labels for the front, right, back and left
+    /// elevations ("3/2" = drawing 3 on sheet 2)
+    pub marks: Vec<String>,
+    /// elevations: level datums (name, height in m)
+    pub levels: Vec<(String, f64)>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -47,6 +55,8 @@ pub struct ViewportSpec {
 pub struct PageSpec {
     pub title: String,
     pub viewports: Vec<ViewportSpec>,
+    /// a table on the page (first row is the header), e.g. a schedule
+    pub table: Vec<Vec<String>>,
 }
 
 /// "1:100" -> 100
@@ -95,10 +105,10 @@ pub fn write_sheets(m: &Model, path: &str, sheet: &str, project: &str, mut pages
         .map(|view| ViewportSpec { view, ..Default::default() })
         .collect();
     if pages.is_empty() {
-        pages.push(PageSpec { title: "Views".into(), viewports: vec![] });
+        pages.push(PageSpec { title: "Views".into(), ..Default::default() });
     }
     for p in &mut pages {
-        if p.viewports.is_empty() {
+        if p.viewports.is_empty() && p.table.is_empty() {
             p.viewports = defaults.clone();
         }
     }
@@ -125,13 +135,28 @@ pub fn write_sheets(m: &Model, path: &str, sheet: &str, project: &str, mut pages
                 c += &plan_cut(m, v, z, &y, blueprint)?;
                 continue;
             }
-            let mut o = RenderOpts { paper: true, grid: false, blueprint, ..Default::default() };
+            // drawings carry their own notes; the model's plan labels don't belong on elevations
+            let mut o = RenderOpts { paper: true, grid: false, blueprint, annotations: !v.callouts, ..Default::default() };
             let px_per_mm = (6.0f64).min(4000.0 / v.w.max(v.h));
             o.width = (v.w * px_per_mm) as u32;
             o.height = (v.h * px_per_mm) as u32;
             let mut label = v.label.clone().unwrap_or_else(|| v.view.clone());
+            // a true elevation: looking dead level at the side, from the middle
+            let elev_dir = match v.view.as_str() {
+                "front" => Some(DVec3::new(0.0, -1.0, 0.0)),
+                "back" => Some(DVec3::new(0.0, 1.0, 0.0)),
+                "left" => Some(DVec3::new(-1.0, 0.0, 0.0)),
+                "right" => Some(DVec3::new(1.0, 0.0, 0.0)),
+                _ => None,
+            }
+            .filter(|_| v.callouts && v.scale.is_some());
+            let bounds = m.world_bounds();
             if let Some(saved) = m.views.iter().find(|s| s.name == v.view) {
                 o.camera = Some(CameraSpec { eye: saved.eye, target: saved.target, fov: saved.fov });
+            } else if let (Some(d), Some((lo, hi))) = (elev_dir, bounds) {
+                let center = (lo + hi) / 2.0;
+                let eye = center + d * ((hi - lo).length() + 10.0);
+                o.camera = Some(CameraSpec { eye: eye.to_array(), target: center.to_array(), fov: 40.0 });
             } else {
                 o.view = v.view.clone();
             }
@@ -150,6 +175,56 @@ pub fn write_sheets(m: &Model, path: &str, sheet: &str, project: &str, mut pages
             c += &format!("BT /F2 8 Tf {:.2} {:.2} Td ({}) Tj ET\n", v.x * PT, y(v.y + v.h + 5.0), esc(&label));
             if let Some(d) = denom {
                 c += &scale_bar(v, d, &y);
+            }
+            // level datums across a true elevation
+            if let (Some(dir), Some((lo, hi)), Some(d)) = (elev_dir, bounds, denom) {
+                if !v.levels.is_empty() {
+                    let ink = if blueprint { "0.93 0.96 1" } else { "0.1 0.1 0.12" };
+                    let k = 1000.0 / d; // mm per m
+                    let center = (lo + hi) / 2.0;
+                    // screen right, seen from outside looking in
+                    let right = DVec3::Z.cross(-dir);
+                    let span = |p: DVec3| (p - center).dot(right);
+                    let corners = [lo, hi, DVec3::new(lo.x, hi.y, 0.0), DVec3::new(hi.x, lo.y, 0.0)];
+                    let (smin, smax) = corners.iter().map(|p| span(*p)).fold((f64::MAX, f64::MIN), |(a, b), s| (a.min(s), b.max(s)));
+                    let (cx, cy) = (v.x + v.w / 2.0, v.y + v.h / 2.0);
+                    let x0 = ((cx + (smin - 0.6) * k) * PT).max(v.x * PT + 2.0);
+                    let x1 = ((cx + (smax + 0.6) * k) * PT).min((v.x + v.w) * PT - 60.0);
+                    c += &format!("q {:.2} {:.2} {:.2} {:.2} re W n\n", v.x * PT, y(v.y + v.h), v.w * PT, v.h * PT);
+                    let units = if m.units.is_empty() { "m" } else { m.units.as_str() };
+                    let base = v.levels.first().map(|l| l.1).unwrap_or(0.0);
+                    for (name, h) in &v.levels {
+                        let yy = y(cy - (h - center.z) * k);
+                        c += &crate::callouts::level(x0, x1, yy, name, &format!("{}{}", if h - base < -1e-3 { "-" } else { "+" }, crate::units::format((h - base).abs(), units)), ink);
+                    }
+                    c += "Q\n";
+                }
+            }
+        }
+        // a table (schedule) at the top left
+        if !page.table.is_empty() {
+            let size = 7.5;
+            let cols = page.table.iter().map(|r| r.len()).max().unwrap_or(0);
+            let widths: Vec<f64> = (0..cols).map(|i| page.table.iter().map(|r| r.get(i).map(|s| crate::callouts::text_w(s, size)).unwrap_or(0.0)).fold(0.0, f64::max) + 16.0).collect();
+            let (tx, ty, rh) = (20.0 * PT, 20.0, 6.5);
+            let total_w: f64 = widths.iter().sum();
+            c += &format!("BT /F2 11 Tf {:.2} {:.2} Td ({}) Tj ET\n", tx, y(ty), esc(&page.title.to_uppercase()));
+            for (ri, row) in page.table.iter().enumerate() {
+                let top = ty + 4.0 + ri as f64 * rh;
+                c += &format!("{} w {:.2} {:.2} m {:.2} {:.2} l S\n", if ri <= 1 { 0.6 } else { 0.25 }, tx, y(top), tx + total_w, y(top));
+                let mut x = tx;
+                for (ci, cell) in row.iter().enumerate() {
+                    c += &format!("BT /{} {size} Tf {:.2} {:.2} Td ({}) Tj ET\n", if ri == 0 || ci == 0 { "F2" } else { "F1" }, x + 6.0, y(top + rh - 2.0), esc(cell));
+                    x += widths[ci];
+                }
+            }
+            let bottom = ty + 4.0 + page.table.len() as f64 * rh;
+            c += &format!("0.6 w {:.2} {:.2} m {:.2} {:.2} l S\n", tx, y(bottom), tx + total_w, y(bottom));
+            // column rules
+            let mut x = tx;
+            for w in std::iter::once(0.0).chain(widths.iter().copied()) {
+                x += w;
+                c += &format!("0.25 w {:.2} {:.2} m {:.2} {:.2} l S\n", x, y(ty + 4.0), x, y(bottom));
             }
         }
         // notes (areas, general notes) in a box above the title block
@@ -186,7 +261,10 @@ fn plan_cut(m: &Model, v: &ViewportSpec, z: f64, y: &dyn Fn(f64) -> f64, bluepri
     let cut = m.section(glam::DVec3::new(0.0, 0.0, z), glam::DVec3::new(0.0, 0.0, -1.0))?;
     let mut pts: Vec<(f64, f64)> = cut.segments.iter().flat_map(|(a, b)| [(a.x, a.y), (b.x, b.y)]).collect();
     // dimension strings on this floor count toward the plan's size
-    pts.extend(dims_on_floor(m, v.floor.unwrap_or(z - 1.22)));
+    let floor = v.floor.unwrap_or(z - 1.22);
+    pts.extend(dims_on_floor(m, floor));
+    let extras = if v.callouts { plan_extras(m, floor, z, !v.marks.is_empty()) } else { PlanExtras::default() };
+    pts.extend(extras.reach.iter().copied());
     if pts.is_empty() {
         bail!("nothing is cut at {z} m");
     }
@@ -225,7 +303,6 @@ fn plan_cut(m: &Model, v: &ViewportSpec, z: f64, y: &dyn Fn(f64) -> f64, bluepri
     }
     // what's below the cut on this floor, seen from above: stair treads,
     // counters, fixtures (finer and lighter than the cut)
-    let floor = v.floor.unwrap_or(z - 1.22);
     c += if blueprint { "0.2 w 0.75 0.84 0.95 RG\n" } else { "0.2 w 0.45 0.46 0.5 RG\n" };
     for e in m.world_edges().into_iter().filter(|e| !e.soft) {
         let (lo, hi) = (e.a.z.min(e.b.z), e.a.z.max(e.b.z));
@@ -326,10 +403,26 @@ fn plan_cut(m: &Model, v: &ViewportSpec, z: f64, y: &dyn Fn(f64) -> f64, bluepri
     let on_floor = |pz: f64| pz > floor - 0.05 && pz < floor + 1.0;
     for a in &m.annotations {
         match a {
-            crate::model::Annotation::Text { at, text, .. } if on_floor(at.z) => {
+            crate::model::Annotation::Text { at, text, leader, .. } if on_floor(at.z) => {
                 // centered, line by line
                 let lines: Vec<&str> = text.lines().collect();
                 let (px, py) = to(at.x, at.y);
+                // a leader: from the edge of the note to a dot on what it's about
+                if let Some(l) = leader {
+                    let (lx, ly) = to(l.x, l.y);
+                    let (dx, dy) = (lx - px, ly - py);
+                    let d = dx.hypot(dy);
+                    if d > 4.0 {
+                        let w = lines.iter().map(|s| crate::callouts::text_w(s, 7.0)).fold(0.0, f64::max) / 2.0 + 3.0;
+                        let h = lines.len() as f64 * 4.5 + 3.0;
+                        // leave the text box where the line crosses it
+                        let t = (w / dx.abs().max(1e-6)).min(h / dy.abs().max(1e-6)).min(0.9);
+                        c += &format!("0.35 w {ink} RG {:.2} {:.2} m {:.2} {:.2} l S\n", px + dx * t, py + dy * t, lx, ly);
+                        c += &format!("{ink} rg ");
+                        c += &crate::callouts::circle(lx, ly, 1.3);
+                        c += "f\n";
+                    }
+                }
                 for (i, line) in lines.iter().enumerate() {
                     let size = if i == 0 { 7.0 } else { 5.5 };
                     let w = line.len() as f64 * size * 0.52;
@@ -350,31 +443,31 @@ fn plan_cut(m: &Model, v: &ViewportSpec, z: f64, y: &dyn Fn(f64) -> f64, bluepri
                 c += "S\n";
             }
             crate::model::Annotation::Dimension { a: da, b: db, offset, .. } if on_floor(da.z) && on_floor(db.z) => {
-                let (pa, pb) = (*da + *offset, *db + *offset);
-                let (p, q) = (to(pa.x, pa.y), to(pb.x, pb.y));
-                let (o1, o2) = (to(da.x, da.y), to(db.x, db.y));
-                c += &format!("0.3 w {ink} RG {:.2} {:.2} m {:.2} {:.2} l S\n", p.0, p.1, q.0, q.1);
-                // extension lines and tick marks
-                for (from, at) in [(o1, p), (o2, q)] {
-                    let (dx, dy) = (at.0 - from.0, at.1 - from.1);
-                    let l = dx.hypot(dy).max(1e-6);
-                    let gap = 2.0f64.min(l * 0.3);
-                    c += &format!("0.2 w {:.2} {:.2} m {:.2} {:.2} l S\n", from.0 + dx / l * gap, from.1 + dy / l * gap, at.0 + dx / l * 2.0, at.1 + dy / l * 2.0);
-                    c += &format!("0.5 w {:.2} {:.2} m {:.2} {:.2} l S\n", at.0 - 2.5, at.1 - 2.5, at.0 + 2.5, at.1 + 2.5);
-                }
-                let len = da.distance(*db);
-                let label = crate::units::format(len, units);
-                let (mx, my) = ((p.0 + q.0) / 2.0, (p.1 + q.1) / 2.0);
-                let ang = (q.1 - p.1).atan2(q.0 - p.0);
-                let ang = if ang > std::f64::consts::FRAC_PI_2 || ang < -std::f64::consts::FRAC_PI_2 { ang + std::f64::consts::PI } else { ang };
-                let (ca, sa) = (ang.cos(), ang.sin());
-                let w = label.len() as f64 * 6.0 * 0.5;
-                // text along the line, just above it
-                let (tx, ty) = (mx - ca * w / 2.0 - sa * 2.5, my - sa * w / 2.0 + ca * 2.5);
-                c += &format!("{ink} rg BT /F1 6 Tf {ca:.4} {sa:.4} {:.4} {ca:.4} {tx:.2} {ty:.2} Tm ({}) Tj ET\n", -sa, esc(&label));
+                c += &dimension(*da, *db, *offset, &to, ink, units);
             }
             _ => {}
         }
+    }
+    // worked-out callouts: exterior dimension chains, door/window tags,
+    // elevation markers, north arrow
+    // short neighbours take turns lifting their labels
+    let mut lift = false;
+    for (a, b, off) in &extras.dims {
+        let short = a.distance(*b) * 1000.0 / denom < 12.0;
+        lift = short && !lift;
+        c += &dimension_lift(*a, *b, *off, &to, ink, units, lift);
+    }
+    let paper = if blueprint { let b = crate::render::BLUEPRINT; format!("{} {} {}", b[0], b[1], b[2]) } else { "1 1 1".to_string() };
+    for (p, label, kind) in &extras.tags {
+        let (tx, ty) = to(p.x, p.y);
+        c += &crate::callouts::tag(tx, ty, label, *kind, ink, &paper);
+    }
+    if let (Some((p, _)), 4) = (extras.marks.first(), v.marks.len()) {
+        let (mx, my) = to(p.x, p.y);
+        c += &crate::callouts::elevation_key(mx, my, &v.marks, ink, &paper);
+    }
+    if v.callouts {
+        c += &crate::callouts::north_arrow((v.x + v.w - 9.0) * PT, y(v.y + v.h - 11.0), ink);
     }
     c += if blueprint { "Q 0.93 0.96 1 rg 0.93 0.96 1 RG\n" } else { "Q 0 g 0 G\n" };
     let label = v.label.clone().unwrap_or_else(|| format!("Plan at {z:.2} m"));
@@ -385,6 +478,112 @@ fn plan_cut(m: &Model, v: &ViewportSpec, z: f64, y: &dyn Fn(f64) -> f64, bluepri
         c += &scale_bar(v, denom, y);
     }
     Ok(c)
+}
+
+/// A dimension: the line `offset` out from a-b, extension lines, ticks and
+/// the length along it.
+fn dimension(da: DVec3, db: DVec3, offset: DVec3, to: &dyn Fn(f64, f64) -> (f64, f64), ink: &str, units: &str) -> String {
+    dimension_lift(da, db, offset, to, ink, units, false)
+}
+
+/// `lift`: a short segment whose text sits a line further out (so
+/// neighbouring short ones don't collide).
+fn dimension_lift(da: DVec3, db: DVec3, offset: DVec3, to: &dyn Fn(f64, f64) -> (f64, f64), ink: &str, units: &str, lift: bool) -> String {
+    let mut c = String::new();
+    let (pa, pb) = (da + offset, db + offset);
+    let (p, q) = (to(pa.x, pa.y), to(pb.x, pb.y));
+    let (o1, o2) = (to(da.x, da.y), to(db.x, db.y));
+    c += &format!("0.3 w {ink} RG {:.2} {:.2} m {:.2} {:.2} l S\n", p.0, p.1, q.0, q.1);
+    // extension lines and tick marks
+    for (from, at) in [(o1, p), (o2, q)] {
+        let (dx, dy) = (at.0 - from.0, at.1 - from.1);
+        let l = dx.hypot(dy).max(1e-6);
+        let gap = 2.0f64.min(l * 0.3);
+        c += &format!("0.2 w {:.2} {:.2} m {:.2} {:.2} l S\n", from.0 + dx / l * gap, from.1 + dy / l * gap, at.0 + dx / l * 2.0, at.1 + dy / l * 2.0);
+        c += &format!("0.5 w {:.2} {:.2} m {:.2} {:.2} l S\n", at.0 - 2.5, at.1 - 2.5, at.0 + 2.5, at.1 + 2.5);
+    }
+    let label = crate::units::format(da.distance(db), units);
+    let (mx, my) = ((p.0 + q.0) / 2.0, (p.1 + q.1) / 2.0);
+    let ang = (q.1 - p.1).atan2(q.0 - p.0);
+    let ang = if ang > std::f64::consts::FRAC_PI_2 || ang < -std::f64::consts::FRAC_PI_2 { ang + std::f64::consts::PI } else { ang };
+    let (ca, sa) = (ang.cos(), ang.sin());
+    let w = crate::callouts::text_w(&label, 6.0);
+    // text along the line, on the side away from the building; a short
+    // segment's text can be lifted a line further out
+    let (ox, oy) = { let (a, b) = (to(0.0, 0.0), to(offset.x, offset.y)); let (dx, dy) = (b.0 - a.0, b.1 - a.1); let l = dx.hypot(dy).max(1e-9); (dx / l, dy / l) };
+    // the text's "up" (-sa, ca) points outward, or flip which side it hangs on
+    let up = if -sa * ox + ca * oy >= 0.0 { 1.0 } else { -1.0 };
+    let len = (q.0 - p.0).hypot(q.1 - p.1);
+    let raise = if lift && w > len - 3.0 { 7.0 } else { 0.0 };
+    let base = if up > 0.0 { 2.0 + raise } else { -6.5 - raise };
+    let (tx, ty) = (mx - ca * w / 2.0 - sa * base, my - sa * w / 2.0 + ca * base);
+    c += &format!("{ink} rg BT /F1 6 Tf {ca:.4} {sa:.4} {:.4} {ca:.4} {tx:.2} {ty:.2} Tm ({}) Tj ET\n", -sa, esc(&label));
+    c
+}
+
+/// What a plan works out for itself: dimension chains, tags, where the
+/// elevation markers go, and every point they reach (for fitting the plan).
+#[derive(Default)]
+struct PlanExtras {
+    dims: Vec<(DVec3, DVec3, DVec3)>,
+    /// (where, "W1", 'W')
+    tags: Vec<(DVec3, String, char)>,
+    /// front, right, back, left: where, and the way it looks (plan axes)
+    marks: Vec<(DVec3, DVec3)>,
+    reach: Vec<(f64, f64)>,
+}
+
+fn plan_extras(m: &Model, floor: f64, cut_z: f64, marks: bool) -> PlanExtras {
+    let mut e = PlanExtras::default();
+    let Some(box_) = crate::callouts::outline(m, cut_z) else { return e };
+    let (x0, y0, x1, y1) = box_;
+    let ops = crate::callouts::openings(m);
+    e.dims = crate::callouts::auto_dims(m, &ops, floor, box_);
+    // tags just outside the wall for exterior openings, beside interior doors
+    for o in crate::callouts::on_floor(&ops, floor) {
+        let c = o.center();
+        let (dist_out, out) = if o.along_x {
+            if (c.y - y0).abs() < (y1 - c.y).abs() { ((c.y - y0).abs(), DVec3::NEG_Y) } else { ((y1 - c.y).abs(), DVec3::Y) }
+        } else if (c.x - x0).abs() < (x1 - c.x).abs() {
+            ((c.x - x0).abs(), DVec3::NEG_X)
+        } else {
+            ((x1 - c.x).abs(), DVec3::X)
+        };
+        let p = if dist_out < 0.6 { DVec3::new(c.x, c.y, floor) + out * 0.5 } else { DVec3::new(c.x, c.y, floor) + if o.along_x { DVec3::Y } else { DVec3::X } * 0.45 };
+        e.tags.push((p, o.tag.clone(), o.kind));
+    }
+    // how far out everything reaches, for the markers and the fit
+    let mut far = 0.6f64;
+    for (a, _, off) in &e.dims {
+        let p = *a + *off;
+        far = far.max(x0 - p.x).max(p.x - x1).max(y0 - p.y).max(p.y - y1);
+    }
+    for a in &m.annotations {
+        if let crate::model::Annotation::Dimension { a, offset, .. } = a {
+            if a.z > floor - 0.05 && a.z < floor + 1.0 {
+                let p = *a + *offset;
+                far = far.max(x0 - p.x).max(p.x - x1).max(y0 - p.y).max(p.y - y1);
+            }
+        }
+    }
+    if marks {
+        // one key for all four elevations, beside the plan (east): each arrow
+        // points the way its elevation looks
+        e.marks = vec![(DVec3::new(x1 + far + 2.8, (y0 + y1) / 2.0, floor), DVec3::ZERO)];
+    }
+    for (a, b, off) in &e.dims {
+        let out = off.normalize_or_zero() * 0.4;
+        for p in [*a + *off + out, *b + *off + out] {
+            e.reach.push((p.x, p.y));
+        }
+    }
+    for (p, _) in &e.marks {
+        e.reach.push((p.x + 1.4, p.y));
+    }
+    for (p, _, _) in &e.tags {
+        e.reach.push((p.x, p.y));
+    }
+    e
 }
 
 /// Points along a door's swing, from closed to open, around the hinge.
@@ -564,6 +763,7 @@ pub fn blueprint(m: &Model, path: &str, sheet: &str, project: &str, extra_notes:
         if let Ok(c) = m.section(glam::DVec3::new(0.0, 0.0, z + 1.22), glam::DVec3::new(0.0, 0.0, -1.0)) {
             let mut pts: Vec<_> = c.segments.iter().flat_map(|(a, b)| [*a, *b]).collect();
             pts.extend(dims_on_floor(m, *z).into_iter().map(|(x, y)| DVec3::new(x, y, 0.0)));
+            pts.extend(plan_extras(m, *z, z + 1.22, true).reach.into_iter().map(|(x, y)| DVec3::new(x, y, 0.0)));
             if let Some(first) = pts.first() {
                 let (l, h) = pts.iter().fold((*first, *first), |(l, h), p| (l.min(*p), h.max(*p)));
                 px = px.max(h.x - l.x);
@@ -581,12 +781,19 @@ pub fn blueprint(m: &Model, path: &str, sheet: &str, project: &str, extra_notes:
             floor: Some(*z),
             scale: Some(plan_scale.clone()),
             label: Some(format!("{}  {} plan", i + 1, ordinal(i))),
+            callouts: true,
+            // markers for the four elevations (drawings n+1.. on sheet 2), on the main floor
+            marks: if i == 0 { (0..4).map(|k| format!("{}/2", n + k + 1)).collect() } else { vec![] },
+            levels: vec![],
             x: left + (i % cols) as f64 * cw + 4.0,
             y: top + (i / cols) as f64 * ch + 4.0,
             w: cw - 8.0,
             h: ch - 14.0,
         })
         .collect();
+    // level datums: each floor, and the top of the building
+    let mut level_marks: Vec<(String, f64)> = levels.iter().enumerate().map(|(i, z)| (format!("{} FLOOR", ordinal(i).split(' ').next().unwrap_or("").to_uppercase()), *z)).collect();
+    level_marks.push(("TOP".into(), hi.z));
     // elevations: 2 x 2
     let (ew, eh) = (usable_w / 2.0 - 8.0, usable_h / 2.0 - 14.0);
     let el_scale = fit(size.x.max(size.y), size.z, ew, eh);
@@ -597,6 +804,8 @@ pub fn blueprint(m: &Model, path: &str, sheet: &str, project: &str, extra_notes:
             view: v.to_string(),
             scale: Some(el_scale.clone()),
             label: Some(format!("{}  {name} elevation", n + i + 1)),
+            callouts: true,
+            levels: level_marks.clone(),
             x: left + (i % 2) as f64 * (usable_w / 2.0) + 4.0,
             y: top + (i / 2) as f64 * (usable_h / 2.0) + 4.0,
             w: ew,
@@ -626,7 +835,13 @@ pub fn blueprint(m: &Model, path: &str, sheet: &str, project: &str, extra_notes:
         notes.push(format!("# TOTAL   {}", fmt_area(total)));
     }
     notes.extend(extra_notes.iter().cloned());
-    write_sheets(m, path, sheet, project, vec![PageSpec { title: "Floor plans".into(), viewports: plans }, PageSpec { title: "Elevations".into(), viewports: elev }], true, &notes)
+    let mut pages = vec![PageSpec { title: "Floor plans".into(), viewports: plans, ..Default::default() }, PageSpec { title: "Elevations".into(), viewports: elev, ..Default::default() }];
+    // doors and windows: tagged on the plans, listed here
+    let ops = crate::callouts::openings(m);
+    if !ops.is_empty() {
+        pages.push(PageSpec { title: "Door and window schedule".into(), table: crate::callouts::schedule(&ops, units, &levels), ..Default::default() });
+    }
+    write_sheets(m, path, sheet, project, pages, true, &notes)
 }
 
 fn thousands(n: i64) -> String {

@@ -7,6 +7,7 @@
 pub mod animate;
 pub mod assets;
 pub mod builders;
+pub mod callouts;
 pub mod commands;
 pub mod components;
 pub mod csg;
