@@ -13,6 +13,7 @@ pub mod export;
 pub mod geom;
 pub mod http;
 pub mod import;
+pub mod intersect;
 pub mod live;
 pub mod mcp;
 pub mod mesh;

@@ -225,6 +225,15 @@ pub enum Command {
     /// intersect, trim, split, outer_shell. Subtract and trim: the first
     /// cuts the second.
     Solid { op: String, ids: Vec<Id> },
+    /// Intersect Faces: draw lines where the picked faces / groups cross the
+    /// model (`with: "model"`, default) or each other (`"selection"`).
+    Intersect {
+        ids: Vec<Id>,
+        #[serde(default = "with_model")]
+        with: String,
+    },
+    /// Flip Along an axis (red/x, green/y, blue/z) across the pick's middle.
+    Flip { ids: Vec<Id>, axis: String },
     /// Volume of a closed group / component (m³), or not a solid.
     Volume { id: Id },
     /// Walls along a path: `thickness` and `height`; `closed` makes a room.
@@ -286,6 +295,19 @@ pub enum Command {
 pub enum Factor {
     Uniform(f64),
     Axes([f64; 3]),
+}
+
+fn with_model() -> String {
+    "model".into()
+}
+
+fn axis_index(a: &str) -> Result<usize> {
+    Ok(match a.to_ascii_lowercase().as_str() {
+        "red" | "x" => 0,
+        "green" | "y" => 1,
+        "blue" | "z" => 2,
+        _ => bail!("axis is red, green or blue (x, y, z)"),
+    })
 }
 
 fn circle_segments() -> usize {
@@ -828,6 +850,8 @@ impl Engine {
                 let r = crate::skp::import(m, &bytes, v3(at), &label)?;
                 json!({"group": r.group, "version": r.version, "faces": r.faces, "components": r.components, "placed": r.placed})
             }
+            Command::Intersect { ids, with } => json!({"lines": m.intersect(&ids, with != "selection")?}),
+            Command::Flip { ids, axis } => json!({"moved": m.flip(&ids, axis_index(&axis)?)?}),
             Command::Solid { op, ids } => {
                 let groups = crate::csg::solid(m, &op, &ids)?;
                 json!({"groups": groups, "group": groups.first()})
