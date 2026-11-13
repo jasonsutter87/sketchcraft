@@ -6,14 +6,18 @@
 //!
 //!   riseline serve [--open model.riseline]
 //!       Read commands from stdin, write one JSON reply per line to stdout.
-//!       This is the headless protocol the MCP server and the app speak.
+//!       This is the headless protocol the app speaks.
+//!
+//!   riseline mcp [--doc model.riseline]
+//!       MCP server on stdio for AI agents. With --doc, the model is loaded
+//!       from FILE (if it exists) and saved back after every change.
 
 use riseline::Engine;
 use serde_json::json;
 use std::io::{BufRead, Write};
 
 fn usage() -> ! {
-    eprintln!("usage:\n  riseline run <script.jsonl> [--open FILE] [--save FILE] [--keep-going]\n  riseline serve [--open FILE]");
+    eprintln!("usage:\n  riseline run <script.jsonl> [--open FILE] [--save FILE] [--keep-going]\n  riseline serve [--open FILE]\n  riseline mcp [--doc FILE]");
     std::process::exit(2)
 }
 
@@ -72,6 +76,15 @@ fn main() {
                 writeln!(out, "{r}").ok();
                 out.flush().ok();
             }
+        }
+        Some("mcp") => {
+            let doc = flag(&args, "--doc");
+            if let Some(path) = &doc {
+                if std::path::Path::new(path).exists() {
+                    engine.exec_json(&json!({"cmd": "open", "path": path}).to_string());
+                }
+            }
+            riseline::mcp::serve(engine, doc);
         }
         _ => usage(),
     }
