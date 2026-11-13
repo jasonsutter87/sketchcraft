@@ -1,6 +1,6 @@
-# SketchCraft
+<p align="center"><img src="brand/banner.png" alt="SketchCraft: Draw an outline. Pull it up." width="900"></p>
 
-**Draw an outline. Pull it up.**
+# SketchCraft
 
 SketchCraft is a free, open-source push/pull 3D modeler for buildings, streets
 and anything with straight walls. It's written in Rust, runs as a desktop app
