@@ -1106,7 +1106,8 @@ export default function Viewport(props: Props) {
           return;
         }
         case "rect": {
-          const sn = infer(E, e, { anchor: op.p0, plane: { origin: op.p0, normal: op.n } });
+          // no axis lock from the first corner: that would squash the rectangle flat
+          const sn = infer(E, e, { plane: { origin: op.p0, normal: op.n } });
           const d = sn.p.clone().sub(op.p0);
           op.a = d.dot(op.u);
           op.b = d.dot(op.v);
