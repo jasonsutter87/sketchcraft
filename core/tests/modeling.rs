@@ -465,3 +465,29 @@ fn builders_walls_stairs_roofs_columns() {
     run(&mut e, json!({"cmd":"roof","face":top,"kind":"hip","pitch":25}));
     run(&mut e, json!({"cmd":"column","at":[30,0,0],"round":true}));
 }
+
+#[test]
+fn image_materials_paint_and_project() {
+    let mut e = Engine::new();
+    make_box(&mut e);
+    // 1x1 PNG
+    let png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+    run(&mut e, json!({"cmd":"texture","name":"Brick","data":png,"width":1.2,"height":0.6,"color":[0.6,0.3,0.2]}));
+    let front = run(&mut e, json!({"cmd":"pick","at":[4,0,3],"facing":[0,-1,0]}))["face"].clone();
+    run(&mut e, json!({"cmd":"paint","ids":[front],"material":"Brick"}));
+    let scene = sketchcraft::scene::build(&e.model, None);
+    let tri_tex = scene["triTex"].as_array().unwrap();
+    assert_eq!(tri_tex.iter().filter(|t| t.as_i64() == Some(0)).count(), 2, "the painted wall's two triangles use texture 0");
+    // tile size: an 8 m wide wall spans 8 / 1.2 tiles
+    let uvs: Vec<f64> = scene["uvs"].as_array().unwrap().iter().map(|v| v.as_f64().unwrap()).collect();
+    let i = tri_tex.iter().position(|t| t.as_i64() == Some(0)).unwrap();
+    let us: Vec<f64> = (0..3).map(|k| uvs[(i * 3 + k) * 2]).collect();
+    let span = us.iter().cloned().fold(f64::MIN, f64::max) - us.iter().cloned().fold(f64::MAX, f64::min);
+    assert!((span - 8.0 / 1.2).abs() < 1e-3, "u span {span}");
+    // project it from the front instead
+    run(&mut e, json!({"cmd":"texture","name":"Brick","project":[0,1,0]}));
+    assert!(e.model.materials["Brick"].texture.as_ref().unwrap().project.is_some());
+    // unknown materials and bad data are refused
+    assert_eq!(e.exec_json(&json!({"cmd":"paint","ids":[front],"material":"Nope"}).to_string())["ok"], false);
+    assert_eq!(e.exec_json(&json!({"cmd":"texture","name":"X","data":"hello"}).to_string())["ok"], false);
+}
