@@ -48,6 +48,19 @@ pub struct ViewportSpec {
     pub marks: Vec<String>,
     /// elevations: level datums (name, height in m)
     pub levels: Vec<(String, f64)>,
+    /// a building section: [origin x,y,z, look x,y,z]; the model cut by the
+    /// vertical plane through origin, seen looking along `look`
+    pub section: Option<[f64; 6]>,
+    /// plans: where a section cuts, marked with a section line
+    pub section_mark: Option<SectionMark>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct SectionMark {
+    pub origin: [f64; 3],
+    pub look: [f64; 3],
+    /// "A/3": section A, on sheet 3
+    pub label: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -150,8 +163,16 @@ pub fn write_sheets(m: &Model, path: &str, sheet: &str, project: &str, mut pages
                 _ => None,
             }
             .filter(|_| v.callouts && v.scale.is_some());
+            // a section looks along `look` from the far side of its plane
+            let sec = v.section.map(|s| (DVec3::new(s[0], s[1], s[2]), DVec3::new(s[3], s[4], 0.0).normalize_or_zero()));
+            let elev_dir = if let Some((_, look)) = sec { Some(-look) } else { elev_dir };
             let bounds = m.world_bounds();
-            if let Some(saved) = m.views.iter().find(|s| s.name == v.view) {
+            if let (Some((origin, look)), Some((lo, hi))) = (sec, bounds) {
+                let center = (lo + hi) / 2.0;
+                let eye = center - look * ((hi - lo).length() + 10.0);
+                o.camera = Some(CameraSpec { eye: eye.to_array(), target: center.to_array(), fov: 40.0 });
+                o.clip = Some([origin.x, origin.y, origin.z, look.x, look.y, look.z]);
+            } else if let Some(saved) = m.views.iter().find(|s| s.name == v.view) {
                 o.camera = Some(CameraSpec { eye: saved.eye, target: saved.target, fov: saved.fov });
             } else if let (Some(d), Some((lo, hi))) = (elev_dir, bounds) {
                 let center = (lo + hi) / 2.0;
@@ -175,6 +196,34 @@ pub fn write_sheets(m: &Model, path: &str, sheet: &str, project: &str, mut pages
             c += &format!("BT /F2 8 Tf {:.2} {:.2} Td ({}) Tj ET\n", v.x * PT, y(v.y + v.h + 5.0), esc(&label));
             if let Some(d) = denom {
                 c += &scale_bar(v, d, &y);
+            }
+            // a section: what the plane cuts through, filled solid over the picture
+            if let (Some((origin, look)), Some((lo, hi)), Some(d)) = (sec, bounds, denom) {
+                if let Ok(cut) = m.section(origin, look) {
+                    let k = 1000.0 / d;
+                    let center = (lo + hi) / 2.0;
+                    let right = DVec3::Z.cross(look);
+                    let (cx, cy) = (v.x + v.w / 2.0, v.y + v.h / 2.0);
+                    let to = |p: DVec3| ((cx + (p - center).dot(right) * k) * PT, y(cy - (p.z - center.z) * k));
+                    c += &format!("q {:.2} {:.2} {:.2} {:.2} re W n\n", v.x * PT, y(v.y + v.h), v.w * PT, v.h * PT);
+                    c += if blueprint { "0.62 0.74 0.88 rg 0.93 0.96 1 RG 0.5 w\n" } else { "0.16 0.17 0.2 rg 0.1 0.1 0.12 RG 0.4 w\n" };
+                    for (_, outer, holes) in &cut.regions {
+                        for ring in std::iter::once(outer).chain(holes.iter()) {
+                            for (i, p) in ring.iter().enumerate() {
+                                let (a, b) = to(*p);
+                                c += &format!("{a:.2} {b:.2} {}\n", if i == 0 { "m" } else { "l" });
+                            }
+                            c += "h\n";
+                        }
+                        c += "B*\n";
+                    }
+                    c += if blueprint { "0.25 w 0.93 0.96 1 RG\n" } else { "0.25 w 0.15 0.15 0.18 RG\n" };
+                    for (a, b) in &cut.segments {
+                        let (p, q) = (to(*a), to(*b));
+                        c += &format!("{:.2} {:.2} m {:.2} {:.2} l S\n", p.0, p.1, q.0, q.1);
+                    }
+                    c += "Q\n";
+                }
             }
             // level datums across a true elevation
             if let (Some(dir), Some((lo, hi)), Some(d)) = (elev_dir, bounds, denom) {
@@ -265,6 +314,7 @@ fn plan_cut(m: &Model, v: &ViewportSpec, z: f64, y: &dyn Fn(f64) -> f64, bluepri
     pts.extend(dims_on_floor(m, floor));
     let extras = if v.callouts { plan_extras(m, floor, z, !v.marks.is_empty()) } else { PlanExtras::default() };
     pts.extend(extras.reach.iter().copied());
+
     if pts.is_empty() {
         bail!("nothing is cut at {z} m");
     }
@@ -466,6 +516,27 @@ fn plan_cut(m: &Model, v: &ViewportSpec, z: f64, y: &dyn Fn(f64) -> f64, bluepri
         let (mx, my) = to(p.x, p.y);
         c += &crate::callouts::elevation_key(mx, my, &v.marks, ink, &paper);
     }
+    if let Some(sm) = &v.section_mark {
+        let (o, look) = (DVec3::from(sm.origin), DVec3::new(sm.look[0], sm.look[1], 0.0).normalize_or_zero());
+        // the line runs across the plan, past the building on both sides
+        let along = DVec3::Z.cross(look);
+        // past the building and every dimension and tag around it
+        let reach: Vec<f64> = pts.iter().map(|(px, py)| (DVec3::new(*px, *py, 0.0) - DVec3::new(o.x, o.y, 0.0)).dot(along)).collect();
+        let (s0, s1) = reach.iter().fold((f64::MAX, f64::MIN), |(a, b), s| (a.min(*s), b.max(*s)));
+        if s0 < s1 {
+            let (a, b) = (o + along * (s0 - 0.7), o + along * (s1 + 0.7));
+            // kept inside the frame (between the dimensions and its edge)
+            let inside = |p: (f64, f64)| ((p.0).clamp(v.x * PT + 14.0, (v.x + v.w) * PT - 14.0), (p.1).clamp(y(v.y + v.h) + 14.0, y(v.y) - 14.0));
+            let (pa, pb) = (inside(to(a.x, a.y)), inside(to(b.x, b.y)));
+            c += &format!("[9 2 2 2] 0 d 0.7 w {ink} RG {:.2} {:.2} m {:.2} {:.2} l S [] 0 d\n", pa.0, pa.1, pb.0, pb.1);
+            // heads at both ends: which way it looks, and where it's drawn
+            let lp = { let q = to(o.x + look.x, o.y + look.y); let p0 = to(o.x, o.y); let (dx, dy) = (q.0 - p0.0, q.1 - p0.1); let l = dx.hypot(dy).max(1e-9); (dx / l, dy / l) };
+            let (num, sheet) = sm.label.split_once('/').unwrap_or((sm.label.as_str(), ""));
+            for p in [pa, pb] {
+                c += &crate::callouts::elevation_marker(p.0, p.1, lp, num, sheet, ink, &paper);
+            }
+        }
+    }
     if v.callouts {
         c += &crate::callouts::north_arrow((v.x + v.w - 9.0) * PT, y(v.y + v.h - 11.0), ink);
     }
@@ -584,6 +655,45 @@ fn plan_extras(m: &Model, floor: f64, cut_z: f64, marks: bool) -> PlanExtras {
         e.reach.push((p.x, p.y));
     }
     e
+}
+
+/// Where a building section goes: along the stair run through its middle
+/// (so the stair shows in profile), else down the building's middle;
+/// looking toward the larger part of the building.
+fn section_through(m: &Model) -> Option<(DVec3, DVec3)> {
+    let (lo, hi) = m.world_bounds()?;
+    let center = (lo + hi) / 2.0;
+    let mut stair: Option<(DVec3, DVec3)> = None;
+    for (gid, g) in &m.groups {
+        let n = g.name.to_ascii_lowercase();
+        if !n.contains("stair") || n.contains("rail") {
+            continue;
+        }
+        for e in m.edges.values().filter(|e| e.group == Some(*gid)) {
+            for p in [m.p(e.a), m.p(e.b)] {
+                stair = Some(match stair {
+                    None => (p, p),
+                    Some((a, b)) => (a.min(p), b.max(p)),
+                });
+            }
+        }
+    }
+    let (origin, look) = match stair {
+        Some((a, b)) => {
+            let c = (a + b) / 2.0;
+            // the plane holds the run; it faces across it
+            let look = if b.x - a.x < b.y - a.y { DVec3::X } else { DVec3::Y };
+            let look = if (center - c).dot(look) >= 0.0 { look } else { -look };
+            // just inside the stair's near side of center, so the cut goes through the treads
+            (DVec3::new(c.x, c.y, 0.0), look)
+        }
+        None => {
+            let size = hi - lo;
+            let look = if size.x < size.y { DVec3::X } else { DVec3::Y };
+            (DVec3::new(center.x, center.y, 0.0), look)
+        }
+    };
+    Some((origin, look))
 }
 
 /// Points along a door's swing, from closed to open, around the hinge.
@@ -785,6 +895,8 @@ pub fn blueprint(m: &Model, path: &str, sheet: &str, project: &str, extra_notes:
             // markers for the four elevations (drawings n+1.. on sheet 2), on the main floor
             marks: if i == 0 { (0..4).map(|k| format!("{}/2", n + k + 1)).collect() } else { vec![] },
             levels: vec![],
+            section: None,
+            section_mark: None,
             x: left + (i % cols) as f64 * cw + 4.0,
             y: top + (i / cols) as f64 * ch + 4.0,
             w: cw - 8.0,
@@ -836,6 +948,34 @@ pub fn blueprint(m: &Model, path: &str, sheet: &str, project: &str, extra_notes:
     }
     notes.extend(extra_notes.iter().cloned());
     let mut pages = vec![PageSpec { title: "Floor plans".into(), viewports: plans, ..Default::default() }, PageSpec { title: "Elevations".into(), viewports: elev, ..Default::default() }];
+    // a building section: through the stairs if there are any, looking at
+    // the bigger part of the building; marked on every plan
+    if let Some((origin, look)) = section_through(m) {
+        let k = n + 5;
+        let (sw_, sh_) = (usable_w - 8.0, usable_h - 14.0);
+        let reach = (hi - lo).dot(DVec3::Z.cross(look).abs()).abs().max(1.0);
+        let sec_scale = fit(reach, size.z, sw_, sh_);
+        pages.push(PageSpec {
+            title: "Building section".into(),
+            viewports: vec![ViewportSpec {
+                view: "section".into(),
+                scale: Some(sec_scale),
+                label: Some(format!("{k}  Section A")),
+                x: left + 4.0,
+                y: top + 4.0,
+                w: sw_,
+                h: sh_,
+                callouts: true,
+                levels: level_marks.clone(),
+                section: Some([origin.x, origin.y, origin.z, look.x, look.y, look.z]),
+                ..Default::default()
+            }],
+            ..Default::default()
+        });
+        for p in pages[0].viewports.iter_mut() {
+            p.section_mark = Some(SectionMark { origin: origin.to_array(), look: look.to_array(), label: "A/3".into() });
+        }
+    }
     // doors and windows: tagged on the plans, listed here
     let ops = crate::callouts::openings(m);
     if !ops.is_empty() {
