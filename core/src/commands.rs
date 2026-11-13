@@ -335,6 +335,29 @@ pub enum Command {
         #[serde(default)]
         path: Option<String>,
     },
+    /// Classifier: mark groups / placements as an IFC type (IfcWall, IfcDoor,
+    /// IfcWindow, IfcSlab, IfcRoof, IfcColumn, IfcBeam, IfcStair, ...);
+    /// an empty type clears it.
+    Classify { ids: Vec<Id>, class: String },
+    /// IFC4 export: Project > Site > Building > Storey with every group and
+    /// component as a typed, triangulated element.
+    ExportIfc {
+        path: String,
+        #[serde(default)]
+        project: Option<String>,
+    },
+    /// Add Location: terrain (and map imagery) of the area around lat / lon,
+    /// `size` meters across, origin at ground level, +Y north.
+    AddLocation {
+        lat: f64,
+        lon: f64,
+        #[serde(default = "loc_size")]
+        size: f64,
+        #[serde(default = "loc_cells")]
+        cells: usize,
+        #[serde(default = "yes")]
+        imagery: bool,
+    },
     /// Volume of a closed group / component (m³), or not a solid.
     Volume { id: Id },
     /// Import a binary FBX (7.x): `path`, or the file as base64 in `data`.
@@ -408,6 +431,14 @@ pub enum Command {
 pub enum Factor {
     Uniform(f64),
     Axes([f64; 3]),
+}
+
+fn loc_size() -> f64 {
+    300.0
+}
+
+fn loc_cells() -> usize {
+    60
 }
 
 fn sheet_a3() -> String {
@@ -522,6 +553,7 @@ impl Command {
                 | Command::ExportGlb { .. }
                 | Command::ExportStl { .. }
                 | Command::ExportDae { .. }
+                | Command::ExportIfc { .. }
                 | Command::Sheets { .. }
                 | Command::Animate { .. }
                 | Command::ExportDxf { .. }
@@ -989,6 +1021,10 @@ impl Engine {
                 let project = project.unwrap_or_else(|| std::path::Path::new(&path).file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "Project".into()));
                 json!({"path": path, "pages": crate::layout::write_sheets(&self.model, &path, &sheet, &project, pages)?})
             }
+            Command::ExportIfc { path, project } => {
+                let project = project.unwrap_or_else(|| std::path::Path::new(&path).file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "Project".into()));
+                json!({"path": path, "elements": crate::ifc::write_ifc(&self.model, &path, &project)?})
+            }
             Command::ExportDae { path } => json!({"path": path, "triangles": crate::export2::write_dae(&self.model, &path)?}),
             Command::ExportDxf { path } => json!({"path": path, "triangles": crate::export2::write_dxf(&self.model, &path)?}),
             Command::ExportPdf { path, title, opts } => {
@@ -1094,6 +1130,27 @@ impl Engine {
                     std::fs::write(p, crate::dynamic::report_csv(&rows))?;
                 }
                 json!({"rows": rows, "path": path})
+            }
+            Command::Classify { ids, class } => {
+                let class = class.trim().to_string();
+                if !class.is_empty() && !crate::ifc::CLASSES.iter().any(|c| c.eq_ignore_ascii_case(&class)) {
+                    bail!("unknown IFC type {class:?}; one of {}", crate::ifc::CLASSES.join(", "));
+                }
+                let class = crate::ifc::CLASSES.iter().find(|c| c.eq_ignore_ascii_case(&class)).map(|c| c.to_string());
+                for id in &ids {
+                    if !m.groups.contains_key(id) && !m.instances.contains_key(id) {
+                        bail!("{id} is not a group or component");
+                    }
+                    match &class {
+                        Some(c) => m.classes.insert(*id, c.clone()),
+                        None => m.classes.remove(id),
+                    };
+                }
+                json!({"classified": ids.len()})
+            }
+            Command::AddLocation { lat, lon, size, cells, imagery } => {
+                let p = crate::geo::add_location(m, lat, lon, size, cells, imagery, &crate::geo::fetch)?;
+                json!({"group": p.group, "elevation": p.elevation, "zoom": p.zoom})
             }
             Command::Intersect { ids, with } => json!({"lines": m.intersect(&ids, with != "selection")?}),
             Command::Flip { ids, axis } => json!({"moved": m.flip(&ids, axis_index(&axis)?)?}),

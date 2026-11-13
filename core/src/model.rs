@@ -182,6 +182,22 @@ pub struct Model {
     /// Display units: "m", "cm", "mm", "ft" (feet and inches) or "in". Geometry is always meters.
     #[serde(default = "meters", skip_serializing_if = "is_meters")]
     pub units: String,
+    /// Classifier: IFC types (IfcWall, IfcDoor, ...) by group / placement id
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub classes: BTreeMap<Id, String>,
+    /// Geo-location of the model's origin
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<Location>,
+}
+
+/// Where the model's origin is on Earth (+Y is north).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Location {
+    pub lat: f64,
+    pub lon: f64,
+    /// meters above sea level at the origin
+    #[serde(default)]
+    pub elevation: f64,
 }
 
 fn meters() -> String {
