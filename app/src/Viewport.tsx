@@ -10,6 +10,8 @@ export type Tool = "select" | "rect" | "push" | "paint" | "erase" | "orbit";
 export interface ViewportApi {
   applyTyped: (text: string) => void;
   fit: () => void;
+  /** Fit once the next scene arrives (after a template, an import...). */
+  fitSoon: () => void;
   view: (name: "iso" | "top" | "front" | "right") => void;
 }
 
@@ -70,7 +72,8 @@ export default function Viewport({ scene, tool, selected, color, run, onPick, on
     hover: number | null;
     space: boolean;
     fitted: boolean;
-  }>({ rect: null, push: null, lastPush: null, hover: null, space: false, fitted: false });
+    fitNext: boolean;
+  }>({ rect: null, push: null, lastPush: null, hover: null, space: false, fitted: false, fitNext: false });
 
   // ---------- setup ----------
   useEffect(() => {
@@ -89,8 +92,8 @@ export default function Viewport({ scene, tool, selected, color, run, onPick, on
     controls.screenSpacePanning = true;
 
     const world = new THREE.Scene();
-    world.add(new THREE.HemisphereLight(0xffffff, 0xd8dbe6, 2.2));
-    const sun = new THREE.DirectionalLight(0xffffff, 1.6);
+    world.add(new THREE.HemisphereLight(0xffffff, 0xe2e4ec, 2.7));
+    const sun = new THREE.DirectionalLight(0xffffff, 1.3);
     sun.position.set(30, -50, 80);
     world.add(sun);
 
@@ -169,9 +172,11 @@ export default function Viewport({ scene, tool, selected, color, run, onPick, on
     T.model.add(front, back, edges);
     T.pickMesh = front; // hitFace() picks it from either side
 
-    if (!st.current.fitted && scene.positions.length) {
+    // frame the model when the app opens or after a template, never while drawing
+    if (!st.current.fitted || st.current.fitNext) {
       st.current.fitted = true;
-      fit();
+      st.current.fitNext = false;
+      if (scene.positions.length) fit();
     }
     drawOverlay();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -421,7 +426,7 @@ export default function Viewport({ scene, tool, selected, color, run, onPick, on
     live.current.onMeasure("", "");
   }
 
-  api.current = { applyTyped, fit, view };
+  api.current = { applyTyped, fit, view, fitSoon: () => (st.current.fitNext = true) };
 
   // ---------- input ----------
   useEffect(() => {
