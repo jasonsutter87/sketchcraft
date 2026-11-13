@@ -78,6 +78,11 @@ export interface Scene {
   loose: number;
   activeGroup: number | null;
   editing: number | null;
+  /** when editing a component: its faces' triangles (world space) and ids */
+  editPositions: number[];
+  editTriFace: number[];
+  /** instance transform used to show the component being edited (column-major) */
+  editTransform: number[];
   tags: Record<string, boolean>;
   guides: GuideInfo[];
   views: SavedView[];
