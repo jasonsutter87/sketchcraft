@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ask, AskHost } from "./ask";
 import { exec, loadScene, sync, type Reply, type Scene } from "./engine";
 import { Icons, Logo } from "./icons";
-import { BuildTools, ContextMenu, contextItems, EntityInfo, Library, LocationDialog, Outliner, Sandbox, SheetsDialog, ShortcutSheet, Textures, Views } from "./panels";
+import { BuildTools, ContextMenu, contextItems, EntityInfo, Library, LocationDialog, Outliner, Sandbox, SheetsDialog, ShortcutSheet, Templates, Textures, Views } from "./panels";
 import { EMPTY, isEmpty, selIds, type Sel } from "./selection";
 import { UNIT_OPTIONS } from "./units";
 import { pickOpen, pickSave, rememberedFile, rememberFile } from "./files";
@@ -301,7 +302,7 @@ export default function App() {
         e.preventDefault();
         const ids = [...sel.faces, ...sel.groups];
         if (!ids.length) return say("Select faces or groups first, then G makes them a component.", true);
-        const name = window.prompt("Component name", "Component");
+        const name = await ask("Component name", "Component");
         if (name) {
           await run({ cmd: "make_component", ids, name });
           setSel(EMPTY);
@@ -553,18 +554,31 @@ export default function App() {
         </div>
         <div className="section grow">
           {scene && tab === "outliner" && <Outliner scene={scene} sel={sel} setSel={setSel} run={run} />}
-          {scene && tab === "library" && <BuildTools tool={tool} setTool={chooseTool} build={build} setBuild={setBuild} units={scene.units || "m"} />}
-          {scene && tab === "library" && <Sandbox tool={tool} setTool={chooseTool} build={build} setBuild={setBuild} units={scene.units || "m"} run={run} sel={sel} onToast={say} />}
           {scene && tab === "library" && (
-            <Library
-              scene={scene}
-              placing={placing}
-              onTemplate={runTemplate}
-              place={(k) => {
-                setPlacing(k);
-                setTool(k ? "place" : "select");
-              }}
-            />
+            <>
+              <Library
+                scene={scene}
+                placing={placing}
+                run={run}
+                onToast={say}
+                place={(k) => {
+                  setPlacing(k);
+                  setTool(k ? "place" : "select");
+                }}
+              />
+              <details className="panel-fold" open>
+                <summary>Build</summary>
+                <BuildTools tool={tool} setTool={chooseTool} build={build} setBuild={setBuild} units={scene.units || "m"} />
+              </details>
+              <details className="panel-fold">
+                <summary>Sandbox (terrain)</summary>
+                <Sandbox tool={tool} setTool={chooseTool} build={build} setBuild={setBuild} units={scene.units || "m"} run={run} sel={sel} onToast={say} />
+              </details>
+              <details className="panel-fold">
+                <summary>Templates</summary>
+                <Templates onTemplate={runTemplate} />
+              </details>
+            </>
           )}
           {scene && tab === "views" && <Views scene={scene} run={run} camera={() => api.current!.camera()} goTo={(c) => api.current?.goTo(c)} onMatchPhoto={startMatch} />}
         </div>
@@ -659,6 +673,7 @@ export default function App() {
         </form>
 
         {toast && <div className={`toast ${toast.bad ? "bad" : ""}`}>{toast.text}</div>}
+        <AskHost />
         {showKeys && <ShortcutSheet onClose={() => setShowKeys(false)} />}
         {showLocation && (
           <LocationDialog
@@ -809,8 +824,8 @@ export default function App() {
               {(sel.faces.length > 0 || sel.groups.length > 0) && (
                 <button
                   className="btn small"
-                  onClick={() => {
-                    const name = window.prompt("Component name", "Component");
+                  onClick={async () => {
+                    const name = await ask("Component name", "Component");
                     if (name) run({ cmd: "make_component", ids: [...sel.faces, ...sel.groups], name }).then(() => setSel(EMPTY));
                   }}
                 >

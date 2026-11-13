@@ -2,7 +2,9 @@
 // model's components), Views (saved cameras), Entity Info, and the
 // right-click menu.
 import { useEffect, useState } from "react";
-import { ASSETS, type Reply, type Scene } from "./engine";
+import { ask } from "./ask";
+import { ASSETS, exec, type Reply, type Scene } from "./engine";
+import { pickOpen } from "./files";
 import { Icons } from "./icons";
 import { EMPTY, isEmpty, selIds, type Sel } from "./selection";
 import { TEMPLATES } from "./templates";
@@ -86,11 +88,6 @@ export function Outliner({ scene, sel, setSel, run }: { scene: Scene; sel: Sel; 
   );
 }
 
-const ASSET_TINT: Record<string, string> = {
-  door: "#F3E3D6", window: "#DDEBF7", garage_door: "#ECEDEF", tree: "#DDEFD8", palm: "#E7F1D9",
-  car: "#F8DEDE", streetlight: "#E6E7EC", bench: "#F1E6D8", hydrant: "#FBF0C9",
-};
-
 function LengthInput({ value, units, onChange, label }: { value: number; units: string; onChange: (m: number) => void; label: string }) {
   const [text, setText] = useState<string | null>(null);
   return (
@@ -123,7 +120,6 @@ export function BuildTools({ tool, setTool, build, setBuild, units }: { tool: To
   const set = (k: keyof BuildSettings) => (v: unknown) => setBuild({ ...build, [k]: v });
   return (
     <>
-      <div className="section-title sub">Build</div>
       <div className="tiles build">
         {BUILD_TOOLS.map((b) => (
           <button key={b.id} className={`tile ${tool === b.id ? "on" : ""}`} onClick={() => setTool(tool === b.id ? "select" : b.id)} title={b.how}>
@@ -214,7 +210,6 @@ export function Sandbox({ tool, setTool, build, setBuild, units, run, sel, onToa
   };
   return (
     <>
-      <div className="section-title sub">Sandbox</div>
       <div className="tiles build">
         <button className="tile" onClick={contours} title="Select contour lines, then click: a terrain through them">
           <span className="tile-art build-art">{Icons.terrain()}</span>
@@ -252,39 +247,173 @@ export function Sandbox({ tool, setTool, build, setBuild, units, run, sel, onToa
   );
 }
 
-export function Library({ scene, place, placing, onTemplate }: { scene: Scene; place: (k: string | null) => void; placing: string | null; onTemplate: (lines: string[]) => void }) {
+// ----- Components (SketchUp's Components panel) --------------------------------
+
+/** Thumbnails, fetched one at a time and kept for the session. */
+const thumbs = new Map<string, string>();
+const waiting = new Map<string, ((d: string) => void)[]>();
+const queue: { key: string; req: Record<string, unknown> }[] = [];
+let busy = false;
+async function pump() {
+  if (busy) return;
+  busy = true;
+  while (queue.length) {
+    const { key, req } = queue.shift()!;
+    const r = await exec({ cmd: "thumbnail", size: 160, ...req }).catch(() => null);
+    const data = r?.ok ? (r.data as string) : "";
+    thumbs.set(key, data);
+    for (const f of waiting.get(key) ?? []) f(data);
+    waiting.delete(key);
+  }
+  busy = false;
+}
+
+function Thumb({ k, req }: { k: string; req: Record<string, unknown> }) {
+  const [src, setSrc] = useState(() => thumbs.get(k) ?? null);
+  useEffect(() => {
+    if (thumbs.has(k)) return setSrc(thumbs.get(k)!);
+    let live = true;
+    waiting.set(k, [...(waiting.get(k) ?? []), (d) => live && setSrc(d)]);
+    if (!queue.some((q) => q.key === k)) queue.push({ key: k, req });
+    void pump();
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [k]);
+  return src ? <img className="thumb" src={src} alt="" draggable={false} /> : <span className="thumb loading" />;
+}
+
+interface LibEntry {
+  path: string;
+  name: string;
+  collection: string;
+}
+
+export function Library({ scene, place, placing, run, onToast }: { scene: Scene; place: (k: string | null) => void; placing: string | null; run: Run; onToast: (t: string, bad?: boolean) => void }) {
+  const [q, setQ] = useState("");
+  const [lib, setLib] = useState<{ dir: string; entries: LibEntry[] } | null>(null);
+  const reload = async () => {
+    const r = await exec({ cmd: "library" });
+    if (r.ok) setLib({ dir: r.dir as string, entries: r.entries as LibEntry[] });
+  };
+  useEffect(() => {
+    void reload();
+  }, []);
+  const match = (name: string) => !q.trim() || name.toLowerCase().includes(q.trim().toLowerCase());
+  // in the model: placed things first; parts of other components only when searching
+  const used = scene.components.filter((c) => match(c.name) && (c.placed > 0 || (q.trim() !== "" && (c.inside ?? 0) > 0)));
+  const unused = scene.components.filter((c) => c.placed === 0 && (c.inside ?? 0) === 0);
+  const parts = scene.components.filter((c) => c.placed === 0 && (c.inside ?? 0) > 0).length;
+  const collections = new Map<string, LibEntry[]>();
+  for (const e of lib?.entries ?? []) if (match(e.name)) collections.set(e.collection, [...(collections.get(e.collection) ?? []), e]);
+  const starter = ASSETS.filter((a) => match(a.name));
+
+  const tile = (key: string, name: string, thumbKey: string, req: Record<string, unknown>, title: string, extra?: React.ReactNode) => (
+    <div key={key} className={`tile comp ${placing === key ? "on" : ""}`} title={title}>
+      <button className="tile-hit" onClick={() => place(placing === key ? null : key)}>
+        <span className="tile-art thumb-art">
+          <Thumb k={thumbKey} req={req} />
+        </span>
+        <span className="tile-name">{name}</span>
+      </button>
+      {extra}
+    </div>
+  );
+
+  const saveToLibrary = async (id: number, name: string) => {
+    const collection = await ask(`Save "${name}" to my library`, "", "Collection (a folder in your library), or leave blank.");
+    if (collection === null) return;
+    const r = await run({ cmd: "save_to_library", component: id, collection });
+    if (r.ok) {
+      onToast(`Saved to your library: ${String(r.path).split("/").slice(-2).join("/")}`);
+      void reload();
+    }
+  };
+  const addFiles = async () => {
+    const path = await pickOpen();
+    if (!path) return;
+    const r = await run({ cmd: "library_add", paths: [path] });
+    if (r.ok) {
+      onToast("Added to your library");
+      void reload();
+    }
+  };
+
   return (
     <>
-      <div className="section-title sub">Assets</div>
-      <div className="tiles">
-        {ASSETS.map((a) => (
-          <button key={a.key} className={`tile ${placing === a.key ? "on" : ""}`} onClick={() => place(placing === a.key ? null : a.key)} title={`Place ${a.name}: click in the model`}>
-            <span className="tile-art" style={{ background: ASSET_TINT[a.key] }}>
-              <Icons.component />
-            </span>
-            <span>{a.name}</span>
+      <input className="lib-search" placeholder="Search components" value={q} onChange={(e) => setQ(e.target.value)} />
+
+      <div className="section-title sub row-between">
+        <span>In this model</span>
+        {unused.length > 0 && (
+          <button className="link" onClick={() => run({ cmd: "purge" }).then((r) => r.ok && onToast(`Removed ${r.removed} unused component${r.removed === 1 ? "" : "s"}`))} title="Remove components nothing places">
+            Purge {unused.length} unused
           </button>
-        ))}
+        )}
       </div>
-      {scene.components.length > 0 && (
-        <>
-          <div className="section-title sub">In this model</div>
-          <ul className="layers">
-            {scene.components.map((c) => (
-              <li key={c.id}>
-                <Icons.component />
-                <span className="name">{c.name}</span>
-                <span className="count">{c.placed}×</span>
-              </li>
-            ))}
-          </ul>
-        </>
+      {used.length ? (
+        <div className="tiles">
+          {used.map((c) =>
+            tile(
+              `component:${c.id}`,
+              c.name,
+              `c${c.id}:${c.placed}:${scene.faces.length}`,
+              { component: c.id },
+              `${c.name}: ${c.placed} placed${c.inside ? `, ${c.inside} inside other components` : ""}. Click, then click in the model to place another.`,
+              <>
+                <span className="tile-count">{c.placed}×</span>
+                <button className="tile-act" title="Save to my library" onClick={() => saveToLibrary(c.id, c.name)}>
+                  <Icons.plus />
+                </button>
+              </>
+            )
+          )}
+        </div>
+      ) : (
+        <p className="hint-text">{q ? "Nothing here matches." : "Components you make (G) or place show up here."}</p>
       )}
-      <div className="section-title sub">Templates</div>
-      <TemplateTiles onTemplate={onTemplate} />
-      <p className="hint-text">Assets are components: edit one (double-click it) and every copy changes.</p>
+      {parts > 0 && !q && <p className="hint-text">{parts} more are parts inside these. Search to find them.</p>}
+
+      <div className="section-title sub row-between">
+        <span>My library</span>
+        <span className="row gap-s">
+          <button className="link" onClick={addFiles} title="Copy a .skp, .fbx, .obj or .sketchcraft file into your library">
+            Add file…
+          </button>
+          <button className="link" onClick={() => run({ cmd: "reveal", path: lib?.dir })} title={lib?.dir}>
+            Open folder
+          </button>
+          <button className="link" onClick={reload} title="Look for new files">
+            ↻
+          </button>
+        </span>
+      </div>
+      {collections.size === 0 && (
+        <p className="hint-text">
+          {q ? "Nothing in your library matches." : "Your own components: save one from the model (+ on its tile), or drop .skp, .fbx, .obj or .sketchcraft files into the library folder. Subfolders become collections."}
+        </p>
+      )}
+      {[...collections.entries()].map(([col, items]) => (
+        <details key={col || "_top"} className="collection" open>
+          <summary>{col || "Unsorted"}</summary>
+          <div className="tiles">{items.map((e) => tile(`file:${e.path}`, e.name, `f:${e.path}`, { path: e.path }, `${e.name}. Click, then click in the model to place it.`))}</div>
+        </details>
+      ))}
+
+      {starter.length > 0 && (
+        <details className="collection" open={!lib?.entries.length}>
+          <summary>Starter</summary>
+          <div className="tiles">{starter.map((a) => tile(a.key, a.name, `a:${a.key}`, { asset: a.key }, `Place ${a.name}: click in the model`))}</div>
+        </details>
+      )}
+      <p className="hint-text">Components share their geometry: edit one (double-click it) and every copy changes.</p>
     </>
   );
+}
+
+export function Templates({ onTemplate }: { onTemplate: (lines: string[]) => void }) {
+  return <TemplateTiles onTemplate={onTemplate} />;
 }
 
 function TemplateTiles({ onTemplate }: { onTemplate: (lines: string[]) => void }) {
@@ -464,8 +593,8 @@ export function contextItems(scene: Scene, sel: Sel, run: Run, setSel: (s: Sel) 
     items.push({
       label: "Make component…",
       key: "G",
-      run: () => {
-        const name = window.prompt("Component name", "Component");
+      run: async () => {
+        const name = await ask("Component name", "Component");
         if (name) run({ cmd: "make_component", ids: [...sel.faces, ...sel.groups], name }).then(() => setSel(EMPTY));
       },
     });

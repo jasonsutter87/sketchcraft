@@ -47,7 +47,12 @@ export interface InstanceInfo {
 export interface ComponentInfo {
   id: number;
   name: string;
+  /** placements in the model */
   placed: number;
+  /** placements inside other components (it's a part) */
+  inside?: number;
+  /** the library file it came from */
+  source?: string | null;
 }
 
 export interface GuideInfo {

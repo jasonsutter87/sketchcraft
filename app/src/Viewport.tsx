@@ -1,6 +1,7 @@
 // The 3D view. Draws the engine's scene with three.js and turns mouse and
 // keyboard input into engine commands. Z is up, units are meters.
 import { useEffect, useRef, useState } from "react";
+import { ask } from "./ask";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
@@ -1919,7 +1920,7 @@ export default function Viewport(props: Props) {
           if (op?.t === "text") {
             st.current.op = null;
             clearPreview();
-            const text = window.prompt("Label text", "");
+            const text = await ask("Label text", "");
             if (text?.trim()) await run({ cmd: "text", at: arr(op.cur), text: text.trim(), leader: arr(op.leader) });
             return;
           }
@@ -2053,7 +2054,11 @@ export default function Viewport(props: Props) {
           const at = sn.p.clone();
           // doors stand on the bottom of the wall they're dropped on
           if (wall && sn.face && (L.placeAsset === "door" || L.placeAsset === "garage_door")) at.z = Math.min(...sn.face.outer.map((q) => q[2]));
-          await run({ cmd: "insert", asset: L.placeAsset, at: arr(at), rotate: r4(rot) });
+          const k = L.placeAsset;
+          // a library file, a component already in the model, or a starter asset
+          if (k.startsWith("file:")) await run({ cmd: "insert_file", path: k.slice(5), at: arr(at), rotate: r4(rot) });
+          else if (k.startsWith("component:")) await run({ cmd: "place", component: Number(k.slice(10)), at: arr(at), rotate: r4(rot) });
+          else await run({ cmd: "insert", asset: k, at: arr(at), rotate: r4(rot) });
           return;
         }
       }
