@@ -56,6 +56,8 @@ pub enum Command {
         #[serde(default)]
         facing: Option<[f64; 3]>,
     },
+    /// Duplicate a group (a whole house), offset by `by`.
+    Copy { group: Id, by: [f64; 3], #[serde(default)] name: Option<String> },
     /// Counts, bounds, groups, materials.
     Info,
     Undo,
@@ -278,6 +280,7 @@ impl Engine {
                 let Some(face) = face else { bail!("no face there") };
                 json!({"face": face, "exact": on.is_some()})
             }
+            Command::Copy { group, by, name } => json!({"group": m.copy_group(group, v3(by), name)?}),
             Command::Info => {
                 let b = m.bounds().map(|(lo, hi)| json!({"min": lo.to_array(), "max": hi.to_array()}));
                 json!({
