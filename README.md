@@ -34,8 +34,17 @@ drive with the mouse.
   size, or project it across a whole model from your view.
 - **Units:** meters, centimeters, millimeters, feet & inches, or inches. Type
   lengths any way: `12'`, `8'6"`, `250cm`, `2.5m`.
+- **Pro tools:** Solid Tools (union, subtract, intersect, trim, split, outer
+  shell), Intersect Faces, Flip Along, Sandbox terrain (contours, scratch,
+  smoove, stamp, drape, flip edge), Dynamic Components (attributes and
+  formulas), Match Photo, section fills, scene animation (MP4), drawing sheets
+  at true scale (PDF), Generate Report (CSV), Classifier + IFC export, and Add
+  Location (real terrain + OpenStreetMap). See [docs/PARITY.md](docs/PARITY.md).
+- **Styles:** shaded, textured, monochrome, hidden line, wireframe; profiles,
+  sketchy edges, extensions, ambient occlusion; paper, blueprint and night.
+- **Keyboard:** SketchUp's default shortcuts, 1:1 (press `?` in the app).
 - **Files:** a File menu with New / Open / Save / Save As; `.sketchcraft` documents,
-  glTF (.glb), OBJ and STL export; OBJ import; and **SketchUp (.skp) import** for
+  glTF (.glb), OBJ, STL, Collada, 3D DXF, PDF and IFC export; OBJ and binary FBX import; and **SketchUp (.skp) import** for
   both legacy SketchUp 6–8 files and modern 2013+ files (checked against 26.2):
   geometry, nested components and placements, colors and textures.
 
