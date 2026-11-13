@@ -8,6 +8,8 @@ export type Axis = 0 | 1 | 2;
 
 export interface Snap {
   p: THREE.Vector3;
+  /** a hovered point this one lines up with (draw a dotted line from it) */
+  from?: THREE.Vector3;
   kind: "endpoint" | "midpoint" | "guide-point" | "axis" | "on-edge" | "on-guide" | "face" | "ground" | "plane";
   label: string;
   axis?: Axis;
@@ -16,6 +18,18 @@ export interface Snap {
   face?: FaceInfo;
   /** the plane this point lies in (face normal, or up for the ground) */
   normal: THREE.Vector3;
+}
+
+// Points the cursor recently rested on: you can line up with them later
+// ("From Point" inference), like hovering a corner then drawing level with it.
+const recent: THREE.Vector3[] = [];
+function remember(p: THREE.Vector3) {
+  if (recent.some((r) => r.distanceTo(p) < 1e-6)) return;
+  recent.push(p.clone());
+  if (recent.length > 4) recent.shift();
+}
+export function forgetRecent() {
+  recent.length = 0;
 }
 
 export const AXIS_COLORS = [0xe5484d, 0x30a46c, 0x3e63dd];
@@ -112,6 +126,7 @@ export function infer(env: InferEnv, e: { clientX: number; clientY: number }, op
   if (!best) for (const g of s.guides) if (!g.dir) consider(V(g.p), "guide-point", "Guide Point", 10);
   if (best) {
     const b = best as { p: THREE.Vector3; kind: Snap["kind"]; label: string };
+    if (b.kind === "endpoint" || b.kind === "midpoint") remember(b.p);
     return { p: b.p.clone(), kind: b.kind, label: b.label, normal: planeN.clone(), face: hit?.face ?? undefined };
   }
 
@@ -125,7 +140,33 @@ export function infer(env: InferEnv, e: { clientX: number; clientY: number }, op
       const d = Math.hypot(sc.x - mx, sc.y - my);
       if (d < 10 && (!ax || d < ax.d)) ax = { q, d, k };
     }
-    if (ax) return { p: ax.q, kind: "axis", axis: ax.k, label: `On ${AXIS_NAMES[ax.k]} Axis`, normal: plane?.normal ?? up };
+    if (ax) {
+      // ...and level with a point hovered earlier?
+      for (const r of recent) {
+        const along = AXES[ax.k];
+        const q = opts.anchor.clone().addScaledVector(along, r.clone().sub(opts.anchor).dot(along));
+        if (q.distanceTo(r) < 1e-6 || !onPlane(q)) continue;
+        const sc = screen(env, q);
+        if (Math.hypot(sc.x - mx, sc.y - my) < 9) return { p: q, from: r.clone(), kind: "axis", axis: ax.k, label: `On ${AXIS_NAMES[ax.k]} Axis · From Point`, normal: plane?.normal ?? up };
+      }
+      return { p: ax.q, kind: "axis", axis: ax.k, label: `On ${AXIS_NAMES[ax.k]} Axis`, normal: plane?.normal ?? up };
+    }
+  }
+
+  // in line with a point hovered earlier, along an axis
+  {
+    let fp: { q: THREE.Vector3; d: number; k: Axis; r: THREE.Vector3 } | null = null;
+    for (const r of recent) {
+      for (const k of [0, 1, 2] as Axis[]) {
+        const q = closestOnLine(ray, r, AXES[k]);
+        if (q.distanceTo(r) < 0.05 || !onPlane(q) || !visible(q)) continue;
+        const sc = screen(env, q);
+        if (sc.behind) continue;
+        const d = Math.hypot(sc.x - mx, sc.y - my);
+        if (d < 7 && (!fp || d < fp.d)) fp = { q, d, k, r };
+      }
+    }
+    if (fp) return { p: fp.q, from: fp.r.clone(), kind: "axis", axis: fp.k, label: "From Point", normal: plane?.normal ?? (hit?.face ? V(hit.face.normal) : up) };
   }
 
   // on an edge or a guide line
