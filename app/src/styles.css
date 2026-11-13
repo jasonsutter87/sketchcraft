@@ -896,3 +896,8 @@ button.tile:hover .tile-art {
   color: var(--faint);
   font-size: 11px;
 }
+
+/* the measurement box sits above the toolbar's row so they never collide */
+.measure {
+  bottom: 74px;
+}
