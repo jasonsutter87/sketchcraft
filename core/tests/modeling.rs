@@ -660,3 +660,51 @@ fn a_machined_bracket_takes_seven_cuts_in_a_row() {
     let faces = e.model.faces.values().filter(|f| f.group == Some(u as u32)).count();
     assert!(faces < 250, "faces stay merged: {faces}");
 }
+
+#[test]
+fn intersect_faces_splits_where_shapes_cross() {
+    // a box group with a thin slab pushed through it: intersecting draws the
+    // ring where the slab passes through the box's walls
+    let mut e = Engine::new();
+    let b = box_group(&mut e, [0.0, 0.0, 0.0], [2.0, 2.0, 2.0], "Box");
+    let s = box_group(&mut e, [-1.0, -1.0, 0.9], [3.0, 3.0, 1.1], "Slab");
+    let faces_before = e.model.faces.values().filter(|f| f.group == Some(b as u32)).count();
+    let r = run(&mut e, json!({"cmd":"intersect","ids":[b, s]}));
+    assert!(r["lines"].as_u64().unwrap() >= 8, "{r}");
+    let faces_after = e.model.faces.values().filter(|f| f.group == Some(b as u32)).count();
+    // each of the box's 4 walls is cut twice (slab top and bottom): 4 -> 12 wall faces
+    assert_eq!(faces_after, faces_before + 8, "walls split by the slab");
+    // the slab's top and bottom get the square where the box passes through
+    let slab_holes = e.model.faces.values().filter(|f| f.group == Some(s as u32)).count();
+    assert!(slab_holes > 6);
+}
+
+#[test]
+fn flip_along_mirrors_in_place() {
+    let mut e = Engine::new();
+    let g = run(&mut e, json!({"cmd":"begin_group","name":"L"}))["group"].as_u64().unwrap();
+    // an L shape, wider at x = 0
+    run(&mut e, json!({"cmd":"polygon","points":[[0,0,0],[3,0,0],[3,1,0],[1,1,0],[1,2,0],[0,2,0]]}));
+    run(&mut e, json!({"cmd":"end_group"}));
+    run(&mut e, json!({"cmd":"flip","ids":[g],"axis":"red"}));
+    let f = e.model.faces.values().find(|f| f.group == Some(g as u32)).unwrap();
+    let pts = e.model.pts(&f.outer);
+    // the tall part moved to x in [2, 3]; bounds unchanged
+    assert!(pts.iter().any(|p| (p.x - 2.0).abs() < 1e-9 && (p.y - 2.0).abs() < 1e-9));
+    assert!(pts.iter().all(|p| p.x >= -1e-9 && p.x <= 3.0 + 1e-9));
+    let before = f.outer.len();
+    assert_eq!(before, 6);
+    // faces still face the same way after a mirror
+    assert!(e.model.normal(*e.model.faces.iter().find(|(_, f)| f.group == Some(g as u32)).unwrap().0).z.abs() > 0.99);
+}
+
+#[test]
+fn lines_closing_a_loop_on_a_face_cut_a_new_face() {
+    // like drawing a window on a wall with the Line tool
+    let mut e = Engine::new();
+    run(&mut e, json!({"cmd":"polygon","points":[[-1,-1,1],[3,-1,1],[3,3,1],[-1,3,1]]}));
+    run(&mut e, json!({"cmd":"line","points":[[0,0,1],[2,0,1],[2,2,1],[0,2,1],[0,0,1]]}));
+    assert_eq!(e.model.faces.len(), 2);
+    let holed = e.model.faces.values().filter(|f| f.holes.len() == 1).count();
+    assert_eq!(holed, 1, "the wall gets the window as a hole");
+}
