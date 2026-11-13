@@ -56,7 +56,17 @@ pub fn inside(p: DVec2, poly: &[DVec2]) -> bool {
     c && !on_boundary(p, poly)
 }
 
-fn on_boundary(p: DVec2, poly: &[DVec2]) -> bool {
+pub fn inside_or_on(p: DVec2, poly: &[DVec2]) -> bool {
+    inside(p, poly) || on_boundary(p, poly)
+}
+
+/// Shoelace area: positive when the 2D loop is counter-clockwise.
+pub fn signed_area(poly: &[DVec2]) -> f64 {
+    let n = poly.len();
+    (0..n).map(|i| poly[i].perp_dot(poly[(i + 1) % n])).sum::<f64>() * 0.5
+}
+
+pub fn on_boundary(p: DVec2, poly: &[DVec2]) -> bool {
     let n = poly.len();
     (0..n).any(|i| {
         let (a, b) = (poly[i], poly[(i + 1) % n]);
