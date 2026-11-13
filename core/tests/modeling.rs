@@ -1057,6 +1057,18 @@ fn blueprint_finds_floors_and_draws_them() {
     // walls centered on a 6 x 8 m outline, 0.2 m thick: 6.2 x 8.2 m outside
     let areas: Vec<&str> = pdf.lines().filter(|l| l.contains(" m2")).collect();
     assert!(pdf.contains("50.8 m2") && pdf.contains("TOTAL   101.7 m2"), "gross floor area: {areas:?}");
+    // no doors or windows: no schedule page, but still a north arrow and level datums
+    assert_eq!(r["pages"], 2);
+    assert!(pdf.contains("(N) Tj") && pdf.contains("UPPER FLOOR") && pdf.contains("ELEVATIONS"), "callouts");
+    // a door and two windows: tags on the plan and a schedule page
+    run(&mut e, json!({"cmd":"insert","asset":"door","at":[1.0,-0.1,0.0]}));
+    run(&mut e, json!({"cmd":"insert","asset":"window","at":[3.5,-0.1,0.9]}));
+    run(&mut e, json!({"cmd":"insert","asset":"window","at":[3.5,-0.1,3.9]}));
+    let r2 = run(&mut e, json!({"cmd":"blueprint","path":path,"sheet":"a3"}));
+    assert_eq!(r2["pages"], 3, "schedule page");
+    let pdf = String::from_utf8_lossy(&std::fs::read(&path).unwrap()).to_string();
+    assert!(pdf.contains("(D1) Tj") && pdf.contains("(W1) Tj") && pdf.contains("SCHEDULE"), "tags and schedule");
+    assert!(pdf.contains("Main, Upper"), "one window type on both floors");
     // a door swing: hinge, strike, the side it opens to
     let r = run(&mut e, json!({"cmd":"door_swing","hinge":[1,0,0.02],"strike":[2,0,0.02],"toward":[1.5,3,0]}));
     let id = r["swing"].as_u64().unwrap() as u32;
