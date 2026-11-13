@@ -40,11 +40,13 @@ impl Model {
 
     pub fn world_faces(&self) -> Vec<WFace> {
         let mut out = Vec::new();
-        self.collect_faces(DMat4::IDENTITY, None, &mut out);
+        self.collect_faces(self, DMat4::IDENTITY, None, &mut out);
         out
     }
 
-    fn collect_faces(&self, t: DMat4, owner: Option<Id>, out: &mut Vec<WFace>) {
+    /// `root` holds the definitions: components inside components are looked
+    /// up there, not in the definition's own (empty) table.
+    fn collect_faces(&self, root: &Model, t: DMat4, owner: Option<Id>, out: &mut Vec<WFace>) {
         for (&id, f) in &self.faces {
             if f.hidden || !self.group_visible(f.group) {
                 continue;
@@ -67,19 +69,19 @@ impl Model {
             if inst.hidden || !self.tag_visible(&inst.tag) {
                 continue;
             }
-            if let Some(def) = self.definitions.get(&inst.def) {
-                def.model.collect_faces(t * inst.transform, Some(owner.unwrap_or(iid)), out);
+            if let Some(def) = root.definitions.get(&inst.def).or_else(|| self.definitions.get(&inst.def)) {
+                def.model.collect_faces(root, t * inst.transform, Some(owner.unwrap_or(iid)), out);
             }
         }
     }
 
     pub fn world_edges(&self) -> Vec<WEdge> {
         let mut out = Vec::new();
-        self.collect_edges(DMat4::IDENTITY, None, &mut out);
+        self.collect_edges(self, DMat4::IDENTITY, None, &mut out);
         out
     }
 
-    fn collect_edges(&self, t: DMat4, owner: Option<Id>, out: &mut Vec<WEdge>) {
+    fn collect_edges(&self, root: &Model, t: DMat4, owner: Option<Id>, out: &mut Vec<WEdge>) {
         // an edge shows if it isn't hidden and something visible uses it (or it's a free line)
         let mut used: HashMap<(Id, Id), bool> = HashMap::new();
         for f in self.faces.values() {
@@ -109,8 +111,8 @@ impl Model {
             if inst.hidden || !self.tag_visible(&inst.tag) {
                 continue;
             }
-            if let Some(def) = self.definitions.get(&inst.def) {
-                def.model.collect_edges(t * inst.transform, Some(owner.unwrap_or(iid)), out);
+            if let Some(def) = root.definitions.get(&inst.def).or_else(|| self.definitions.get(&inst.def)) {
+                def.model.collect_edges(root, t * inst.transform, Some(owner.unwrap_or(iid)), out);
             }
         }
     }
