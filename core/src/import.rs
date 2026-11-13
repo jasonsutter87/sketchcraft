@@ -125,8 +125,8 @@ pub fn import_obj(m: &mut Model, text: &str, dir: Option<&Path>, name: &str, y_u
         m.materials.entry(key).or_insert(mat);
     }
     let component = m.new_id();
-    m.definitions.insert(component, Definition { name: name.to_string(), model: std::sync::Arc::new(def) });
+    m.definitions.insert(component, Definition { name: name.to_string(), model: std::sync::Arc::new(def), attrs: Default::default() });
     let instance = m.new_id();
-    m.instances.insert(instance, Instance { def: component, name: name.to_string(), transform: DMat4::from_translation(at), tag: None, hidden: false });
+    m.instances.insert(instance, Instance { def: component, name: name.to_string(), transform: DMat4::from_translation(at), tag: None, hidden: false, attrs: Default::default() });
     Ok(ImportResult { instance, component, groups: objects.len(), faces, skipped })
 }

@@ -326,6 +326,15 @@ pub enum Command {
         #[serde(default)]
         photo: Option<String>,
     },
+    /// Dynamic Component attributes on a placement (or defaults on a
+    /// component, by its component id). An empty value removes one.
+    SetAttrs { id: Id, attrs: std::collections::BTreeMap<String, String> },
+    /// Generate Report: every group and component with size, area, volume
+    /// and attributes; `path` writes CSV.
+    Report {
+        #[serde(default)]
+        path: Option<String>,
+    },
     /// Volume of a closed group / component (m³), or not a solid.
     Volume { id: Id },
     /// Import a binary FBX (7.x): `path`, or the file as base64 in `data`.
@@ -500,6 +509,7 @@ impl Command {
             self,
             Command::Faces { .. }
                 | Command::Volume { .. }
+                | Command::Report { .. }
                 | Command::Section { .. }
                 | Command::Info
                 | Command::Components
@@ -1040,6 +1050,50 @@ impl Engine {
             Command::FlipEdge { edge } => {
                 m.flip_edge(edge)?;
                 json!({})
+            }
+            Command::SetAttrs { id, attrs } => {
+                let target = if let Some(i) = m.instances.get_mut(&id) {
+                    &mut i.attrs
+                } else if let Some(d) = m.definitions.get_mut(&id) {
+                    &mut d.attrs
+                } else {
+                    bail!("{id} is not a component placement or a component");
+                };
+                for (k, v) in attrs {
+                    let k = k.trim().to_ascii_lowercase();
+                    if k.is_empty() || !k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+                        bail!("attribute names are letters, digits and _ ({k:?})");
+                    }
+                    if v.trim().is_empty() {
+                        target.remove(&k);
+                    } else {
+                        target.insert(k, v.trim().to_string());
+                    }
+                }
+                // check every formula still works out
+                let (inst, def) = match m.instances.get(&id) {
+                    Some(i) => (Some(i.clone()), m.definitions.get(&i.def)),
+                    None => (None, m.definitions.get(&id)),
+                };
+                let all = match &inst {
+                    Some(i) => crate::dynamic::attrs_of(i, def),
+                    None => def.map(|d| d.attrs.clone()).unwrap_or_default(),
+                };
+                let vals = crate::dynamic::resolve(&all, &Default::default());
+                for (k, v) in &all {
+                    if v.starts_with('=') && !vals.contains_key(k) && !v.contains("parent!") {
+                        let err = crate::dynamic::eval(v, &|n| vals.get(n).copied().ok_or_else(|| anyhow::anyhow!("no attribute {n}"))).err();
+                        bail!("{k}: {}", err.map(|e| e.to_string()).unwrap_or_else(|| "can't be worked out".into()));
+                    }
+                }
+                json!({"attrs": all, "values": vals})
+            }
+            Command::Report { path } => {
+                let rows = crate::dynamic::report(m);
+                if let Some(p) = &path {
+                    std::fs::write(p, crate::dynamic::report_csv(&rows))?;
+                }
+                json!({"rows": rows, "path": path})
             }
             Command::Intersect { ids, with } => json!({"lines": m.intersect(&ids, with != "selection")?}),
             Command::Flip { ids, axis } => json!({"moved": m.flip(&ids, axis_index(&axis)?)?}),

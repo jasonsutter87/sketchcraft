@@ -75,6 +75,9 @@ pub struct Definition {
     /// Shared, not copied, between undo steps: a 200,000-triangle import
     /// stays one copy until the component itself is edited.
     pub model: std::sync::Arc<Model>,
+    /// defaults for its placements' Dynamic Component attributes
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub attrs: BTreeMap<String, String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -86,6 +89,9 @@ pub struct Instance {
     pub tag: Option<String>,
     #[serde(default, skip_serializing_if = "is_false")]
     pub hidden: bool,
+    /// Dynamic Component attributes: values or "=formulas" (see `dynamic`)
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub attrs: BTreeMap<String, String>,
 }
 
 /// A construction guide: a line (with `dir`) or a point. Snappable, never exported.

@@ -5,7 +5,7 @@ use crate::geom;
 use crate::model::{Definition, Face, Group, Id, Instance, Model};
 use anyhow::{anyhow, bail, Result};
 use glam::{DMat4, DVec3};
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 /// A visible face in world space. `owner` is the face id for loose/grouped
 /// geometry, or the top-level component instance it came from.
@@ -40,13 +40,32 @@ impl Model {
 
     pub fn world_faces(&self) -> Vec<WFace> {
         let mut out = Vec::new();
-        self.collect_faces(self, DMat4::IDENTITY, None, &mut out);
+        self.collect_faces(self, DMat4::IDENTITY, None, None, &Default::default(), &mut out);
         out
+    }
+
+    /// A component's own size (its definition's bounds), for Dynamic
+    /// Component lengths.
+    fn def_size(root: &Model, def: &crate::model::Definition) -> DVec3 {
+        let mut fs = Vec::new();
+        def.model.collect_faces(root, DMat4::IDENTITY, Some(0), None, &Default::default(), &mut fs);
+        let mut it = fs.iter().flat_map(|f| f.outer.iter());
+        let Some(first) = it.next() else { return DVec3::ZERO };
+        let (lo, hi) = it.fold((*first, *first), |(lo, hi), p| (lo.min(*p), hi.max(*p)));
+        hi - lo
+    }
+
+    /// How a placement draws (copies, stretch, fill, hidden), Dynamic
+    /// Component attributes worked out.
+    fn placement(root: &Model, inst: &crate::model::Instance, def: &crate::model::Definition, scope: &BTreeMap<String, f64>) -> crate::dynamic::Draw {
+        let has = !inst.attrs.is_empty() || !def.attrs.is_empty();
+        let size = if has { Self::def_size(root, def) } else { DVec3::ZERO };
+        crate::dynamic::draw(root, inst, Some(def), size, scope)
     }
 
     /// `root` holds the definitions: components inside components are looked
     /// up there, not in the definition's own (empty) table.
-    fn collect_faces(&self, root: &Model, t: DMat4, owner: Option<Id>, out: &mut Vec<WFace>) {
+    fn collect_faces(&self, root: &Model, t: DMat4, owner: Option<Id>, fill: Option<[f32; 3]>, scope: &BTreeMap<String, f64>, out: &mut Vec<WFace>) {
         for (&id, f) in &self.faces {
             if f.hidden || !self.group_visible(f.group) {
                 continue;
@@ -61,7 +80,7 @@ impl Model {
                 holes: f.holes.iter().map(|h| tp(h)).collect(),
                 outer,
                 normal,
-                color: f.material.as_ref().and_then(|m| self.materials.get(m)).map(|m| m.color),
+                color: f.material.as_ref().and_then(|m| self.materials.get(m)).map(|m| m.color).or(fill),
                 material: f.material.clone(),
             });
         }
@@ -70,18 +89,24 @@ impl Model {
                 continue;
             }
             if let Some(def) = root.definitions.get(&inst.def).or_else(|| self.definitions.get(&inst.def)) {
-                def.model.collect_faces(root, t * inst.transform, Some(owner.unwrap_or(iid)), out);
+                let d = Self::placement(root, inst, def, scope);
+                if d.hidden {
+                    continue;
+                }
+                for p in &d.placements {
+                    def.model.collect_faces(root, t * *p, Some(owner.unwrap_or(iid)), d.color.or(fill), &d.scope, out);
+                }
             }
         }
     }
 
     pub fn world_edges(&self) -> Vec<WEdge> {
         let mut out = Vec::new();
-        self.collect_edges(self, DMat4::IDENTITY, None, &mut out);
+        self.collect_edges(self, DMat4::IDENTITY, None, &Default::default(), &mut out);
         out
     }
 
-    fn collect_edges(&self, root: &Model, t: DMat4, owner: Option<Id>, out: &mut Vec<WEdge>) {
+    fn collect_edges(&self, root: &Model, t: DMat4, owner: Option<Id>, scope: &BTreeMap<String, f64>, out: &mut Vec<WEdge>) {
         // an edge shows if it isn't hidden and something visible uses it (or it's a free line)
         let mut used: HashMap<(Id, Id), bool> = HashMap::new();
         for f in self.faces.values() {
@@ -112,7 +137,13 @@ impl Model {
                 continue;
             }
             if let Some(def) = root.definitions.get(&inst.def).or_else(|| self.definitions.get(&inst.def)) {
-                def.model.collect_edges(root, t * inst.transform, Some(owner.unwrap_or(iid)), out);
+                let d = Self::placement(root, inst, def, scope);
+                if d.hidden {
+                    continue;
+                }
+                for p in &d.placements {
+                    def.model.collect_edges(root, t * *p, Some(owner.unwrap_or(iid)), &d.scope, out);
+                }
             }
         }
     }
@@ -176,7 +207,7 @@ impl Model {
         self.edges.retain(|_, e| !(verts.contains(&e.a) && verts.contains(&e.b)) || self.faces.values().any(|f| f.uses_edge(e.a, e.b)));
         self.gc();
         let did = self.new_id();
-        self.definitions.insert(did, Definition { name: name.clone(), model: std::sync::Arc::new(def) });
+        self.definitions.insert(did, Definition { name: name.clone(), model: std::sync::Arc::new(def), attrs: Default::default() });
         self.place(did, lo, 0.0, None)
     }
 
@@ -191,7 +222,7 @@ impl Model {
         let name = name.unwrap_or_else(|| d.name.clone());
         let t = DMat4::from_translation(at) * DMat4::from_rotation_z(rotate_deg.to_radians());
         let id = self.new_id();
-        self.instances.insert(id, Instance { def, name, transform: t, tag: None, hidden: false });
+        self.instances.insert(id, Instance { def, name, transform: t, tag: None, hidden: false, attrs: Default::default() });
         Ok(id)
     }
 

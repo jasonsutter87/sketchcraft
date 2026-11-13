@@ -40,6 +40,7 @@ ORGANIZE
 - animate {path: .mp4|.mov|folder, fps?=24, transition?=2 s, delay?=1 s, views?: names, turntable?=8 s, + render options}: scene animation (turntable with <2 views)
 - match_photo {name, width, height, red:[[x1,y1,x2,y2]x2], green:[..x2], origin:[x,y], distance?=15, photo?: data URL}: camera from a photo's vanishing lines, saved as a view with the photo
 - sheets {path(.pdf), sheet?=a3|a4|a2|letter|tabloid, project?, pages?: [{title, viewports:[{view: saved name|iso|top|front|back|left|right, scale?: "1:100", x?,y?,w?,h? mm, label?}]}]}: LayOut-style drawing sheets
+- set_attrs {id: placement or component, attrs:{name: value|"=formula"}}: Dynamic Components (lenx/leny/lenz m, copies, spacing, material, hidden; formulas with min/max/round/if, parent!name). report {path?.csv}: Generate Report
 - solid {op: union|subtract|intersect|trim|split|outer_shell, ids:[group or instance, ...]}: solid tools on closed shapes; subtract/trim: the first cuts the second. volume {id} -> {solid, volume m3}
 - import_skp {path | data(base64)}: SketchUp files, legacy 6-8 and modern 2013+ (geometry, nested components, colors, textures)
 - insert {asset, at, rotate?}: built-ins door, window, garage_door, tree, palm, car, streetlight, bench, hydrant (doors/windows face -Y, origin bottom-left on the wall).

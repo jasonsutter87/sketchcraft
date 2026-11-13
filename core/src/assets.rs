@@ -54,6 +54,6 @@ pub fn definition(m: &mut Model, key: &str) -> Result<Id> {
     }
     let model = build(asset)?;
     let id = m.new_id();
-    m.definitions.insert(id, Definition { name: asset.name.to_string(), model: std::sync::Arc::new(model) });
+    m.definitions.insert(id, Definition { name: asset.name.to_string(), model: std::sync::Arc::new(model), attrs: Default::default() });
     Ok(id)
 }

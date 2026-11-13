@@ -10,6 +10,7 @@ pub mod builders;
 pub mod commands;
 pub mod components;
 pub mod csg;
+pub mod dynamic;
 pub mod export;
 pub mod export2;
 pub mod fbx;

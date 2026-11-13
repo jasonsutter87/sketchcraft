@@ -123,7 +123,7 @@ pub fn build(root: &Model, ctx: Option<u32>) -> Value {
     let instances: Vec<Value> = root
         .instances
         .iter()
-        .map(|(id, i)| json!({"id": id, "name": i.name, "component": i.def, "tag": i.tag, "hidden": i.hidden, "transform": i.transform.to_cols_array()}))
+        .map(|(id, i)| json!({"id": id, "name": i.name, "component": i.def, "tag": i.tag, "hidden": i.hidden, "transform": i.transform.to_cols_array(), "attrs": i.attrs}))
         .collect();
     let components: Vec<Value> = root
         .definitions
