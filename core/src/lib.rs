@@ -20,6 +20,7 @@ pub mod shapes;
 pub mod skp;
 pub mod topology;
 pub mod transform;
+pub mod units;
 
 pub use commands::{Command, Engine};
 pub use model::{Id, Model};
