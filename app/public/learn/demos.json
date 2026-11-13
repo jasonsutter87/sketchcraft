@@ -1,0 +1,50 @@
+{
+  "subdivision": {
+    "title": "Subdivision surfaces",
+    "about": "Model a rough cage of quads and smooth it, the way Blender’s Subdivision modifier does (subd / subdivide).",
+    "topic": "Shape",
+    "gif": "learn/subdivision.gif",
+    "frames": 5,
+    "captured": "2026-11-13"
+  },
+  "photo-modeling": {
+    "title": "Model from photos",
+    "about": "Mark the same corners in two matched photos; SketchCraft works out where they are in 3D and builds the faces.",
+    "topic": "Photos",
+    "gif": "learn/photo-modeling.gif",
+    "frames": 47,
+    "captured": "2026-11-13"
+  },
+  "hierarchy-tags": {
+    "title": "Groups, hierarchy and tags",
+    "about": "Groups inside groups, a click that picks the whole house, hiding a whole chain, and tags with colors and solo.",
+    "topic": "Organize",
+    "gif": "learn/hierarchy-tags.gif",
+    "frames": 17,
+    "captured": "2026-11-13"
+  },
+  "environments": {
+    "title": "Environments",
+    "about": "Put a model in a ready-made setting (suburban lot, city block, park, desert, waterfront) in one click.",
+    "topic": "Present",
+    "gif": "learn/environments.gif",
+    "frames": 19,
+    "captured": "2026-11-13"
+  },
+  "studio-render": {
+    "title": "Studio renders",
+    "about": "A seamless studio backdrop with softbox lights, and a photoreal render that sharpens while you watch.",
+    "topic": "Present",
+    "gif": "learn/studio-render.gif",
+    "frames": 13,
+    "captured": "2026-11-13"
+  },
+  "workspaces-skins": {
+    "title": "Workspaces and skins",
+    "about": "Arch, Design and Previz arrange the tools for the job; skins change the whole look, and you can make your own.",
+    "topic": "Basics",
+    "gif": "learn/workspaces-skins.gif",
+    "frames": 25,
+    "captured": "2026-11-13"
+  }
+}

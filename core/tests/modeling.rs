@@ -1369,3 +1369,14 @@ fn subdivision_rounds_a_cage_like_blender() {
     let r = run(&mut e, json!({"cmd":"subdivide","id":b,"levels":1}));
     assert!(r["faces"].as_u64().unwrap() >= 48);
 }
+
+#[test]
+fn saving_a_view_again_keeps_its_photo() {
+    let mut e = Engine::new();
+    run(&mut e, json!({"cmd":"save_view","name":"Street","eye":[10,-10,5],"target":[0,0,0],"photo":"data:image/png;base64,AA=="}));
+    run(&mut e, json!({"cmd":"save_view","name":"Street","eye":[11,-10,5],"target":[0,0,0]}));
+    let v = e.model.views.iter().find(|v| v.name == "Street").unwrap();
+    assert_eq!(v.photo.as_deref(), Some("data:image/png;base64,AA=="), "re-saving kept the photo");
+    assert_eq!(v.eye[0], 11.0);
+    assert_eq!(e.exec_json(&json!({"cmd":"save_view","name":"X","eye":[1,1,1],"target":[0,0,0],"photo":"http://x"}).to_string())["ok"], false);
+}

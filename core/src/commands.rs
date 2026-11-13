@@ -191,7 +191,8 @@ pub enum Command {
     /// A text label at `at`, with an optional leader line to `leader`.
     Text { at: [f64; 3], text: String, #[serde(default)] leader: Option<[f64; 3]> },
     /// Save a camera as a named view.
-    SaveView { name: String, eye: [f64; 3], target: [f64; 3], #[serde(default = "fov")] fov: f64 },
+    /// `photo`: a picture seen from this camera (data:image URL), as Match Photo makes
+    SaveView { name: String, eye: [f64; 3], target: [f64; 3], #[serde(default = "fov")] fov: f64, #[serde(default)] photo: Option<String> },
     DeleteView { name: String },
     Undo,
     Redo,
@@ -1321,10 +1322,12 @@ impl Engine {
                 m.guides.clear();
                 json!({})
             }
-            Command::SaveView { name, eye, target, fov } => {
-                m.views.retain(|v| v.name != name);
+            Command::SaveView { name, eye, target, fov, photo } => {
+                if photo.as_deref().is_some_and(|p| !p.starts_with("data:image/")) {
+                    bail!("photo must be a data:image/... URL");
+                }
                 // re-saving a matched photo's scene keeps its photo
-                let photo = m.views.iter().find(|v| v.name == name).and_then(|v| v.photo.clone());
+                let photo = photo.or_else(|| m.views.iter().find(|v| v.name == name).and_then(|v| v.photo.clone()));
                 m.views.retain(|v| v.name != name);
                 m.views.push(crate::model::View { name, eye, target, fov, photo });
                 json!({})
