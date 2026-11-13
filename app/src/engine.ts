@@ -61,6 +61,10 @@ export interface SavedView {
   fov: number;
 }
 
+export type Annotation =
+  | { kind: "dimension"; id: number; a: Vec3; b: Vec3; offset: Vec3 }
+  | { kind: "text"; id: number; at: Vec3; text: string; leader: Vec3 | null };
+
 export interface Scene {
   positions: number[];
   colors: number[];
@@ -86,6 +90,7 @@ export interface Scene {
   tags: Record<string, boolean>;
   guides: GuideInfo[];
   views: SavedView[];
+  annotations: Annotation[];
   doc: string;
 }
 
