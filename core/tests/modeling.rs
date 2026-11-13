@@ -535,3 +535,128 @@ fn big_obj_imports_fast_as_one_component() {
     assert!(t.elapsed().as_secs_f64() < 2.0, "20 edits took {:?}", t.elapsed());
     std::fs::remove_dir_all(dir).ok();
 }
+
+fn box_group(e: &mut Engine, from: [f64; 3], to: [f64; 3], name: &str) -> u64 {
+    let g = run(e, json!({"cmd":"begin_group","name":name}))["group"].as_u64().unwrap();
+    let f = run(e, json!({"cmd":"rect","from":[from[0],from[1],from[2]],"to":[to[0],to[1],from[2]]}))["face"].as_u64().unwrap();
+    // pull toward +z whichever way the new face looks
+    let up = e.model.normal(f as _).z > 0.0;
+    let h = to[2] - from[2];
+    run(e, json!({"cmd":"pushpull","face":f,"distance": if up { h } else { -h }}));
+    run(e, json!({"cmd":"end_group"}));
+    g
+}
+
+fn volume(e: &mut Engine, id: u64) -> f64 {
+    let r = run(e, json!({"cmd":"volume","id":id}));
+    assert_eq!(r["solid"], true, "{id} should be a solid: {r}");
+    r["volume"].as_f64().unwrap()
+}
+
+#[test]
+fn solid_tools_union_subtract_intersect_split() {
+    let close = |a: f64, b: f64| (a - b).abs() < 1e-6;
+    // two 2 m cubes overlapping by 1 m along x: overlap is 1 x 2 x 2 = 4 m³
+    let fresh = || {
+        let mut e = Engine::new();
+        let a = box_group(&mut e, [0.0, 0.0, 0.0], [2.0, 2.0, 2.0], "A");
+        let b = box_group(&mut e, [1.0, 0.0, 0.0], [3.0, 2.0, 2.0], "B");
+        (e, a, b)
+    };
+    let (mut e, a, b) = fresh();
+    assert!(close(volume(&mut e, a), 8.0));
+    let g = run(&mut e, json!({"cmd":"solid","op":"union","ids":[a,b]}))["group"].as_u64().unwrap();
+    assert!(close(volume(&mut e, g), 12.0), "union");
+    // the merged block is a clean box: 6 faces
+    assert_eq!(e.model.faces.values().filter(|f| f.group == Some(g as u32)).count(), 6);
+
+    let (mut e, a, b) = fresh();
+    let g = run(&mut e, json!({"cmd":"solid","op":"subtract","ids":[a,b]}))["group"].as_u64().unwrap();
+    assert!(close(volume(&mut e, g), 4.0), "B minus A");
+    assert!(e.model.groups.get(&(a as u32)).is_none(), "subtract removes the cutter");
+
+    let (mut e, a, b) = fresh();
+    let g = run(&mut e, json!({"cmd":"solid","op":"trim","ids":[a,b]}))["group"].as_u64().unwrap();
+    assert!(close(volume(&mut e, g), 4.0));
+    assert!(e.model.groups.get(&(a as u32)).is_some(), "trim keeps the cutter");
+
+    let (mut e, a, b) = fresh();
+    let g = run(&mut e, json!({"cmd":"solid","op":"intersect","ids":[a,b]}))["group"].as_u64().unwrap();
+    assert!(close(volume(&mut e, g), 4.0), "overlap");
+
+    let (mut e, a, b) = fresh();
+    let r = run(&mut e, json!({"cmd":"solid","op":"split","ids":[a,b]}));
+    let gs: Vec<u64> = r["groups"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap()).collect();
+    assert_eq!(gs.len(), 3);
+    let total: f64 = gs.iter().map(|g| volume(&mut e, *g)).sum();
+    assert!(close(total, 12.0));
+}
+
+#[test]
+fn subtracting_a_cylinder_leaves_a_hole_that_is_still_solid() {
+    let mut e = Engine::new();
+    let slab = box_group(&mut e, [0.0, 0.0, 0.0], [4.0, 4.0, 0.5], "Slab");
+    let drill = run(&mut e, json!({"cmd":"begin_group","name":"Drill"}))["group"].as_u64().unwrap();
+    let c = run(&mut e, json!({"cmd":"circle","center":[2,2,-1],"normal":[0,0,1],"radius":0.5,"segments":24}))["face"].as_u64().unwrap();
+    let up = e.model.normal(c as _).z > 0.0;
+    run(&mut e, json!({"cmd":"pushpull","face":c,"distance": if up { 3.0 } else { -3.0 }}));
+    run(&mut e, json!({"cmd":"end_group"}));
+    let g = run(&mut e, json!({"cmd":"solid","op":"subtract","ids":[drill,slab]}))["group"].as_u64().unwrap();
+    let v = volume(&mut e, g);
+    let hole = 24.0 / 2.0 * 0.5f64.powi(2) * (2.0 * std::f64::consts::PI / 24.0).sin() * 0.5;
+    assert!((v - (8.0 - hole)).abs() < 1e-6, "{v}");
+    // top face kept whole, with a hole in it
+    let top = e.model.faces.values().filter(|f| f.group == Some(g as u32) && !f.holes.is_empty()).count();
+    assert_eq!(top, 2, "top and bottom faces each get the hole");
+    // and it can be cut again
+    let b2 = box_group(&mut e, [3.0, 3.0, -1.0], [5.0, 5.0, 1.0], "Corner");
+    let g2 = run(&mut e, json!({"cmd":"solid","op":"subtract","ids":[b2,g]}))["group"].as_u64().unwrap();
+    assert!((volume(&mut e, g2) - (8.0 - hole - 0.5)).abs() < 1e-6);
+}
+
+#[test]
+fn open_shapes_are_not_solids() {
+    let mut e = Engine::new();
+    let g = run(&mut e, json!({"cmd":"begin_group","name":"Sheet"}))["group"].as_u64().unwrap();
+    run(&mut e, json!({"cmd":"rect","from":[0,0,0],"to":[1,1,0]}));
+    run(&mut e, json!({"cmd":"end_group"}));
+    let b = box_group(&mut e, [0.0, 0.0, 0.0], [1.0, 1.0, 1.0], "B");
+    assert_eq!(run(&mut e, json!({"cmd":"volume","id":g}))["solid"], false);
+    let r = e.exec_json(&json!({"cmd":"solid","op":"union","ids":[g,b]}).to_string());
+    assert_eq!(r["ok"], false);
+    assert!(r["error"].as_str().unwrap().contains("isn't a solid"));
+}
+
+#[test]
+fn a_machined_bracket_takes_seven_cuts_in_a_row() {
+    // plate + boss, then a bore, a slot and four bolt holes: every result
+    // has to stay a closed solid for the next cut, and pieces must not pile up
+    let cyl = |e: &mut Engine, c: [f64; 3], r: f64, h: f64| -> u64 {
+        let g = run(e, json!({"cmd":"begin_group","name":"Cyl"}))["group"].as_u64().unwrap();
+        let f = run(e, json!({"cmd":"circle","center":c,"radius":r,"segments":32}))["face"].as_u64().unwrap();
+        let up = e.model.normal(f as _).z > 0.0;
+        run(e, json!({"cmd":"pushpull","face":f,"distance": if up { h } else { -h }}));
+        run(e, json!({"cmd":"end_group"}));
+        g
+    };
+    let mut e = Engine::new();
+    let plate = box_group(&mut e, [0.0, 0.0, 0.0], [4.0, 2.5, 0.5], "Bracket");
+    let boss = cyl(&mut e, [1.2, 1.25, 0.5], 0.8, 1.0);
+    let mut u = run(&mut e, json!({"cmd":"solid","op":"union","ids":[plate,boss]}))["group"].as_u64().unwrap();
+    let bore = cyl(&mut e, [1.2, 1.25, -1.0], 0.45, 3.0);
+    u = run(&mut e, json!({"cmd":"solid","op":"subtract","ids":[bore,u]}))["group"].as_u64().unwrap();
+    let slot = box_group(&mut e, [2.6, 0.9, -1.0], [3.6, 1.6, 2.0], "Slot");
+    u = run(&mut e, json!({"cmd":"solid","op":"subtract","ids":[slot,u]}))["group"].as_u64().unwrap();
+    for x in [0.35, 3.65] {
+        for y in [0.35, 2.15] {
+            let h = cyl(&mut e, [x, y, -1.0], 0.12, 3.0);
+            u = run(&mut e, json!({"cmd":"solid","op":"subtract","ids":[h,u]}))["group"].as_u64().unwrap();
+        }
+    }
+    let ngon = |r: f64| 16.0 * r * r * (2.0 * std::f64::consts::PI / 32.0).sin();
+    let expect = 5.0 + ngon(0.8) * 1.0 - ngon(0.45) * 1.5 - 0.35 - 4.0 * ngon(0.12) * 0.5;
+    let v = volume(&mut e, u);
+    assert!((v - expect).abs() < 1e-6, "{v} vs {expect}");
+    let faces = e.model.faces.values().filter(|f| f.group == Some(u as u32)).count();
+    assert!(faces < 250, "faces stay merged: {faces}");
+}
