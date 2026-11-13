@@ -431,6 +431,10 @@ pub enum Command {
         #[serde(default)]
         path: Option<String>,
     },
+    /// App skins in ~/Documents/SketchCraft/Skins (.sketchskin files, JSON).
+    Skins,
+    /// Save a skin there (`skin` is its JSON); returns the file's path.
+    SaveSkin { name: String, skin: Value },
     /// Bevel (segments 1, a flat chamfer) or round (segments > 1) outside
     /// edges of solid groups by `size` meters.
     Bevel {
@@ -708,6 +712,8 @@ impl Command {
                 | Command::SaveToLibrary { .. }
                 | Command::LibraryAdd { .. }
                 | Command::Reveal { .. }
+                | Command::Skins
+                | Command::SaveSkin { .. }
                 | Command::Report { .. }
                 | Command::Section { .. }
                 | Command::Info
@@ -1442,6 +1448,31 @@ impl Engine {
                 json!({"added": crate::library::add_files(&d, &paths, collection.as_deref().unwrap_or(""))?})
             }
             Command::Purge => json!({"removed": crate::library::purge(m)}),
+            Command::Skins => {
+                let dir = skins_dir();
+                let mut out = Vec::new();
+                if let Ok(rd) = std::fs::read_dir(&dir) {
+                    let mut files: Vec<_> = rd.flatten().map(|e| e.path()).filter(|p| p.extension().and_then(|x| x.to_str()) == Some("sketchskin")).collect();
+                    files.sort();
+                    for p in files.into_iter().take(200) {
+                        // small JSON files only
+                        if std::fs::metadata(&p).map(|m| m.len() > 64 * 1024).unwrap_or(true) {
+                            continue;
+                        }
+                        if let Some(skin) = std::fs::read_to_string(&p).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok()) {
+                            out.push(json!({"path": p.to_string_lossy(), "name": p.file_stem().map(|s| s.to_string_lossy().to_string()), "skin": skin}));
+                        }
+                    }
+                }
+                json!({"dir": dir.to_string_lossy(), "skins": out})
+            }
+            Command::SaveSkin { name, skin } => {
+                let dir = skins_dir();
+                std::fs::create_dir_all(&dir)?;
+                let path = dir.join(format!("{}.sketchskin", crate::library::safe(&name)));
+                std::fs::write(&path, serde_json::to_string_pretty(&skin)?)?;
+                json!({"path": path.to_string_lossy()})
+            }
             Command::Reveal { path } => {
                 let p = path.map(std::path::PathBuf::from).unwrap_or_else(crate::library::default_dir);
                 std::fs::create_dir_all(if p.extension().is_some() { p.parent().unwrap_or(&p) } else { &p }).ok();
@@ -1565,4 +1596,9 @@ fn sun_at(model: &Model, date: Option<&str>, time: Option<&str>, utc_offset: Opt
     let utc_offset = utc_offset.unwrap_or((lon / 15.0).round());
     let (azimuth, altitude) = crate::pt::solar_position(lat, lon, y as i32, mo as u32, da as u32, h + m / 60.0, utc_offset);
     Ok(SunAt { azimuth, altitude, lat, lon, located, utc_offset })
+}
+
+/// Where app skins live: ~/Documents/SketchCraft/Skins.
+fn skins_dir() -> std::path::PathBuf {
+    crate::library::default_dir().parent().map(|p| p.join("Skins")).unwrap_or_else(|| std::path::PathBuf::from("Skins"))
 }
