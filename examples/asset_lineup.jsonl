@@ -1,0 +1,11 @@
+# Every built-in asset in a row.
+{"cmd":"insert","asset":"door","at":[0,0,0]}
+{"cmd":"insert","asset":"window","at":[2,0,0.8]}
+{"cmd":"insert","asset":"garage_door","at":[4,0,0]}
+{"cmd":"insert","asset":"tree","at":[10,0,0]}
+{"cmd":"insert","asset":"palm","at":[15,0,0]}
+{"cmd":"insert","asset":"car","at":[21,0,0]}
+{"cmd":"insert","asset":"streetlight","at":[26,0,0]}
+{"cmd":"insert","asset":"bench","at":[30,0,0]}
+{"cmd":"insert","asset":"hydrant","at":[33,0,0]}
+{"cmd":"render","out":"out/assets.png","width":1600,"height":700,"camera":{"eye":[17,-26,6],"target":[17,0,2.5],"fov":50}}
