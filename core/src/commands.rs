@@ -154,6 +154,16 @@ pub enum Command {
     /// Put groups/components on a tag (layer); null tag removes it.
     Tag { ids: Vec<Id>, tag: Option<String> },
     TagVisible { tag: String, visible: bool },
+    /// A tag's color (for Color by tag); null clears it.
+    TagColor { tag: String, color: Option<[f32; 3]> },
+    /// Rename a tag everywhere it's used.
+    RenameTag { tag: String, to: String },
+    /// Put groups and components inside a group (`parent`), or at the top (null).
+    SetParent { ids: Vec<Id>, parent: Option<Id> },
+    /// Dissolve a group: what's inside moves up a level.
+    Ungroup { id: Id },
+    /// Lock or unlock groups (locked: can't be moved, edited or deleted).
+    Lock { ids: Vec<Id>, #[serde(default = "yes")] locked: bool },
     /// Soft edges aren't drawn. `ids` edges or faces; `coplanar:true` softens every flat seam.
     Soften {
         #[serde(default)]
@@ -985,7 +995,8 @@ impl Engine {
                 json!({"group": m.begin_group(n)})
             }
             Command::EndGroup => {
-                m.active_group = None;
+                // back out one level (to the group this one sits in)
+                m.active_group = m.active_group.and_then(|g| m.groups.get(&g)).and_then(|g| g.parent);
                 json!({})
             }
             Command::Group { ids, name } => {
@@ -1082,6 +1093,48 @@ impl Engine {
             }
             Command::TagVisible { tag, visible } => {
                 m.tags.insert(tag, visible);
+                json!({})
+            }
+            Command::TagColor { tag, color } => {
+                match color {
+                    Some(c) => m.tag_colors.insert(tag, c),
+                    None => m.tag_colors.remove(&tag),
+                };
+                json!({})
+            }
+            Command::RenameTag { tag, to } => {
+                let to = to.trim().to_string();
+                if to.is_empty() {
+                    bail!("a tag needs a name");
+                }
+                if let Some(v) = m.tags.remove(&tag) {
+                    m.tags.insert(to.clone(), v);
+                }
+                if let Some(c) = m.tag_colors.remove(&tag) {
+                    m.tag_colors.insert(to.clone(), c);
+                }
+                for g in m.groups.values_mut().filter(|g| g.tag.as_deref() == Some(tag.as_str())) {
+                    g.tag = Some(to.clone());
+                }
+                for i in m.instances.values_mut().filter(|i| i.tag.as_deref() == Some(tag.as_str())) {
+                    i.tag = Some(to.clone());
+                }
+                json!({"tag": to})
+            }
+            Command::SetParent { ids, parent } => {
+                m.set_parent(&ids, parent)?;
+                json!({})
+            }
+            Command::Ungroup { id } => {
+                m.check_unlocked(&[id])?;
+                m.ungroup(id)?;
+                json!({})
+            }
+            Command::Lock { ids, locked } => {
+                for id in &ids {
+                    let Some(g) = m.groups.get_mut(id) else { bail!("{id} is not a group") };
+                    g.locked = locked;
+                }
                 json!({})
             }
             Command::Soften { ids, soft, coplanar } => {

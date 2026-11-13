@@ -47,6 +47,8 @@ ORGANIZE
 - bevel {edges, size m, segments?=1 (chamfer) | >1 (round)}: outside edges of solid groups. divide {edge, count}. slice {id, origin, normal}: two pieces
 - photoreal {out? (else data URL), samples?=32, bounces?=6, sun_azimuth? (deg from north; default lights the view), sun_altitude?=32, or date?="2026-06-21" + time?="15:30" (+ utc_offset?) for the real sun at the model location, exposure?, + render options (view/camera/width/height)}: path-traced render. material {name, color}: named material (glass/metal/light by name). save_image {path, data}
 - skins: app skins in ~/Documents/SketchCraft/Skins; save_skin {name, skin}: save one (JSON: name, dark, tokens {bg, panel, line, line-strong, text, muted, faint, accent, accent-soft, accent-ink, danger, glass, radius, font}, backdrop?)
+- hierarchy: groups nest. group {ids} puts groups/components inside a new group (faces become its geometry); set_parent {ids, parent|null}; ungroup {id}; lock {ids, locked}; begin_group inside an open group nests, end_group backs out one level. Moving/deleting/copying a group carries everything inside it.
+- tags: tag {ids, tag}; tag_visible {tag, visible}; tag_color {tag, color|null}; rename_tag {tag, to}
 - sun {date?, time?, utc_offset?}: real sun azimuth/altitude at the model location
 - door_swing {hinge, strike, toward}: door swing symbol for plans. blueprint also takes notes:[...]; sheets takes notes:[...] (a line starting with a hash is a heading)
 - solid {op: union|subtract|intersect|trim|split|outer_shell, ids:[group or instance, ...]}: solid tools on closed shapes; subtract/trim: the first cuts the second. volume {id} -> {solid, volume m3}

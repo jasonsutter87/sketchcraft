@@ -15,6 +15,15 @@ impl Model {
     /// Apply `t` to everything named in `ids`. Returns how many vertices and
     /// instances moved.
     pub fn transform(&mut self, ids: &[Id], t: DMat4) -> Result<usize> {
+        self.check_unlocked(ids)?;
+        // a group carries the components placed inside it
+        let mut ids = ids.to_vec();
+        for g in ids.clone().iter().filter(|g| self.groups.contains_key(g)) {
+            let tree = self.subtree(*g);
+            ids.extend(self.instances.iter().filter(|(_, i)| i.parent.is_some_and(|p| tree.contains(&p))).map(|(&k, _)| k));
+        }
+        ids.sort();
+        ids.dedup();
         let (inst, geo): (Vec<Id>, Vec<Id>) = ids.iter().partition(|id| self.instances.contains_key(id));
         for id in &inst {
             let i = self.instances.get_mut(id).unwrap();

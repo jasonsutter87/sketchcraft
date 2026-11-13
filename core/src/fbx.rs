@@ -359,6 +359,6 @@ pub fn import(m: &mut Model, d: &[u8], name: &str, at: DVec3) -> Result<FbxResul
     let component = m.new_id();
     m.definitions.insert(component, Definition { name: name.to_string(), model: std::sync::Arc::new(def), attrs: Default::default(), source: None });
     let instance = m.new_id();
-    m.instances.insert(instance, Instance { def: component, name: name.to_string(), transform: DMat4::from_translation(at), tag: None, hidden: false, attrs: Default::default() });
+    m.instances.insert(instance, Instance { parent: None, def: component, name: name.to_string(), transform: DMat4::from_translation(at), tag: None, hidden: false, attrs: Default::default() });
     Ok(FbxResult { instance, component, meshes, faces })
 }

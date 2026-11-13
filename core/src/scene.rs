@@ -118,12 +118,12 @@ pub fn build(root: &Model, ctx: Option<u32>) -> Value {
     let groups: Vec<Value> = root
         .groups
         .iter()
-        .map(|(id, g)| json!({"id": id, "name": g.name, "tag": g.tag, "hidden": g.hidden, "faces": root.faces.values().filter(|f| f.group == Some(*id)).count()}))
+        .map(|(id, g)| json!({"id": id, "name": g.name, "tag": g.tag, "hidden": g.hidden, "parent": g.parent, "locked": g.locked, "faces": root.faces.values().filter(|f| f.group == Some(*id)).count()}))
         .collect();
     let instances: Vec<Value> = root
         .instances
         .iter()
-        .map(|(id, i)| json!({"id": id, "name": i.name, "component": i.def, "tag": i.tag, "hidden": i.hidden, "transform": i.transform.to_cols_array(), "attrs": i.attrs}))
+        .map(|(id, i)| json!({"id": id, "name": i.name, "component": i.def, "tag": i.tag, "hidden": i.hidden, "parent": i.parent, "transform": i.transform.to_cols_array(), "attrs": i.attrs}))
         .collect();
     let components: Vec<Value> = root
         .definitions
@@ -167,6 +167,7 @@ pub fn build(root: &Model, ctx: Option<u32>) -> Value {
         "editTriFace": edit_tri,
         "editTransform": t.to_cols_array(),
         "tags": root.tags,
+        "tagColors": root.tag_colors,
         "guides": root.guides.iter().map(|g| json!({"id": g.id, "p": g.p.to_array(), "dir": g.dir.map(|d| d.to_array())})).collect::<Vec<_>>(),
         "views": root.views,
         "classes": root.classes,

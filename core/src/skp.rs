@@ -772,7 +772,7 @@ pub fn import(m: &mut Model, d: &[u8], at: DVec3, name: &str) -> Result<ImportSu
         for (child, t) in &ents.instances {
             if let Some(&cid) = def_ids.get(child) {
                 let iid = dm.new_id();
-                dm.instances.insert(iid, Instance { def: cid, name: "part".into(), transform: s * *t * s_inv, tag: None, hidden: false, attrs: Default::default() });
+                dm.instances.insert(iid, Instance { parent: None, def: cid, name: "part".into(), transform: s * *t * s_inv, tag: None, hidden: false, attrs: Default::default() });
             }
         }
         // materials live on the document too, so the app can show their images
@@ -794,7 +794,7 @@ pub fn import(m: &mut Model, d: &[u8], at: DVec3, name: &str) -> Result<ImportSu
         for (child, t) in &root.instances {
             if let Some(&cid) = def_ids.get(child) {
                 let iid = m.new_id();
-                m.instances.insert(iid, Instance { def: cid, name: format!("{name} part"), transform: base * s * *t * s_inv, tag: None, hidden: false, attrs: Default::default() });
+                m.instances.insert(iid, Instance { parent: None, def: cid, name: format!("{name} part"), transform: base * s * *t * s_inv, tag: None, hidden: false, attrs: Default::default() });
                 placed += 1;
             }
         }
@@ -805,7 +805,7 @@ pub fn import(m: &mut Model, d: &[u8], at: DVec3, name: &str) -> Result<ImportSu
         let used: HashSet<u32> = file.definitions.values().flat_map(|(_, e)| e.instances.iter().map(|(d, _)| *d)).collect();
         for key in file.definitions.keys().filter(|k| !used.contains(k)) {
             let iid = m.new_id();
-            m.instances.insert(iid, Instance { def: def_ids[key], name: name.to_string(), transform: base, tag: None, hidden: false, attrs: Default::default() });
+            m.instances.insert(iid, Instance { parent: None, def: def_ids[key], name: name.to_string(), transform: base, tag: None, hidden: false, attrs: Default::default() });
             placed += 1;
         }
     }

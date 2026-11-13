@@ -1177,3 +1177,50 @@ fn photoreal_sharpens_progressively() {
     box_group(&mut e, [3.0, 0.0, 0.0], [4.0, 1.0, 1.0], "Another");
     assert_eq!(run(&mut e, pr)["spp"], 2);
 }
+
+#[test]
+fn groups_nest_move_copy_delete_and_lock_together() {
+    let mut e = Engine::new();
+    let wall = box_group(&mut e, [0.0, 0.0, 0.0], [4.0, 0.2, 3.0], "Wall") as u32;
+    let floor = box_group(&mut e, [0.0, 0.0, -0.2], [4.0, 4.0, 0.0], "Floor") as u32;
+    let door = run(&mut e, json!({"cmd":"insert","asset":"door","at":[1.0,0.0,0.0]}))["instance"].as_u64().unwrap() as u32;
+    // a room holding the wall, the floor and the door; a house holding the room
+    let room = run(&mut e, json!({"cmd":"group","ids":[wall, floor, door],"name":"Room"}))["group"].as_u64().unwrap() as u32;
+    let house = run(&mut e, json!({"cmd":"group","ids":[room],"name":"House"}))["group"].as_u64().unwrap() as u32;
+    assert_eq!(e.model.groups[&wall].parent, Some(room));
+    assert_eq!(e.model.groups[&room].parent, Some(house));
+    assert_eq!(e.model.instances[&door].parent, Some(room));
+    assert!(e.model.faces.values().filter(|f| f.group == Some(wall)).count() == 6, "the wall keeps its own faces");
+    // moving the house moves everything inside, the door included
+    let door_before = e.model.instances[&door].transform.w_axis;
+    run(&mut e, json!({"cmd":"move","ids":[house],"by":[10.0,0.0,0.0]}));
+    let (lo, _) = e.model.world_bounds().unwrap();
+    assert!((lo.x - 10.0).abs() < 1e-9, "everything moved: {lo:?}");
+    assert!((e.model.instances[&door].transform.w_axis.x - door_before.x - 10.0).abs() < 1e-9, "the door came along");
+    // copying the house copies the whole tree
+    let groups_before = e.model.groups.len();
+    let copy = run(&mut e, json!({"cmd":"copy","group":house,"by":[0.0,10.0,0.0]}))["group"].as_u64().unwrap() as u32;
+    assert_eq!(e.model.groups.len(), groups_before * 2, "house, room, wall, floor copied");
+    assert_eq!(e.model.instances.len(), 2, "and the door");
+    assert!(e.model.subtree(copy).len() == 4);
+    // locked: no moving, no deleting, until unlocked
+    run(&mut e, json!({"cmd":"lock","ids":[room]}));
+    let r = e.exec_json(&json!({"cmd":"move","ids":[wall],"by":[1.0,0.0,0.0]}).to_string());
+    assert_eq!(r["ok"], false, "something inside a locked group can't move");
+    assert!(r["error"].as_str().unwrap().contains("Room is locked"));
+    run(&mut e, json!({"cmd":"lock","ids":[room],"locked":false}));
+    // reparenting can't make loops; ungroup moves things up a level
+    let r = e.exec_json(&json!({"cmd":"set_parent","ids":[house],"parent":wall}).to_string());
+    assert_eq!(r["ok"], false, "a group can't go inside itself");
+    run(&mut e, json!({"cmd":"ungroup","id":room}));
+    assert_eq!(e.model.groups[&wall].parent, Some(house));
+    assert_eq!(e.model.instances[&door].parent, Some(house));
+    // hiding the house hides what's inside
+    let faces_shown = e.model.world_faces().len();
+    run(&mut e, json!({"cmd":"hide","ids":[house]}));
+    assert!(e.model.world_faces().len() < faces_shown);
+    // deleting the copy takes its tree with it
+    run(&mut e, json!({"cmd":"delete","ids":[copy]}));
+    assert_eq!(e.model.instances.len(), 1);
+    assert!(e.model.groups.values().all(|g| g.name != "House copy"));
+}

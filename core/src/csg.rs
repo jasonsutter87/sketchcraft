@@ -612,6 +612,9 @@ pub fn solid(m: &mut Model, op: &str, ids: &[Id]) -> Result<Vec<Id>> {
         if std::env::var("CSG_DEBUG").is_ok() { eprintln!("operand {id}: {} triangles", polys.last().unwrap().len()); }
     }
     let name = |m: &Model, id: Id| name_of(m, id);
+    // results land where the shape being worked on sat in the hierarchy
+    let keep = if matches!(op, "subtract" | "trim") { ids[1] } else { ids[0] };
+    let parent = m.groups.get(&keep).and_then(|g| g.parent).or_else(|| m.instances.get(&keep).and_then(|i| i.parent));
     let out = match op {
         "union" | "outer_shell" => {
             let nm = name(m, ids[0]);
@@ -659,6 +662,11 @@ pub fn solid(m: &mut Model, op: &str, ids: &[Id]) -> Result<Vec<Id>> {
         }
         _ => bail!("unknown solid tool {op:?} (union, subtract, intersect, trim, split, outer_shell)"),
     };
+    for g in &out {
+        if let Some(x) = m.groups.get_mut(g) {
+            x.parent = parent;
+        }
+    }
     Ok(out)
 }
 

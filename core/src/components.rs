@@ -35,7 +35,8 @@ impl Model {
     }
 
     fn group_visible(&self, g: Option<Id>) -> bool {
-        g.and_then(|g| self.groups.get(&g)).map_or(true, |g| !g.hidden && self.tag_visible(&g.tag))
+        // hidden or tag-hidden anywhere up the chain hides it
+        self.ancestors(g).iter().all(|g| self.groups.get(g).map_or(true, |g| !g.hidden && self.tag_visible(&g.tag)))
     }
 
     pub fn world_faces(&self) -> Vec<WFace> {
@@ -222,7 +223,7 @@ impl Model {
         let name = name.unwrap_or_else(|| d.name.clone());
         let t = DMat4::from_translation(at) * DMat4::from_rotation_z(rotate_deg.to_radians());
         let id = self.new_id();
-        self.instances.insert(id, Instance { def, name, transform: t, tag: None, hidden: false, attrs: Default::default() });
+        self.instances.insert(id, Instance { parent: self.active_group, def, name, transform: t, tag: None, hidden: false, attrs: Default::default() });
         Ok(id)
     }
 

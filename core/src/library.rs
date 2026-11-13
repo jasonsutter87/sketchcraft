@@ -180,7 +180,7 @@ pub fn thumbnail_of(root: &Model, def: Id, px: u32) -> Result<Vec<u8>> {
         bail!("no component {def}");
     }
     let mut scene = Model { definitions: root.definitions.clone(), materials: root.materials.clone(), ..Default::default() };
-    scene.instances.insert(u32::MAX - 1, Instance { def, name: String::new(), transform: DMat4::IDENTITY, tag: None, hidden: false, attrs: Default::default() });
+    scene.instances.insert(u32::MAX - 1, Instance { parent: None, def, name: String::new(), transform: DMat4::IDENTITY, tag: None, hidden: false, attrs: Default::default() });
     let opts = RenderOpts { width: px, height: px, paper: true, grid: false, annotations: false, view: "iso".into(), ..Default::default() };
     let img = render::render(&scene, &opts);
     let mut out = std::io::Cursor::new(Vec::new());

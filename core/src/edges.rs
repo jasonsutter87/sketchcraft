@@ -93,8 +93,11 @@ impl Model {
                 result = csg::boolean(result, wedge, Op::Subtract)?;
             }
             let name = csg::name_of(self, g);
+            let parent = self.groups.get(&g).and_then(|x| x.parent);
             self.delete(&[g])?;
-            out.push(csg::to_group(self, &result, &name)?);
+            let ng = csg::to_group(self, &result, &name)?;
+            self.groups.get_mut(&ng).unwrap().parent = parent;
+            out.push(ng);
         }
         Ok(out)
     }
@@ -143,7 +146,12 @@ impl Model {
             bail!("the plane doesn't go through it");
         }
         let name = csg::name_of(self, id);
+        let parent = self.groups.get(&id).and_then(|x| x.parent).or_else(|| self.instances.get(&id).and_then(|i| i.parent));
         self.delete(&[id])?;
-        Ok(vec![csg::to_group(self, &front, &format!("{name} (1)"))?, csg::to_group(self, &back, &format!("{name} (2)"))?])
+        let out = vec![csg::to_group(self, &front, &format!("{name} (1)"))?, csg::to_group(self, &back, &format!("{name} (2)"))?];
+        for g in &out {
+            self.groups.get_mut(g).unwrap().parent = parent;
+        }
+        Ok(out)
     }
 }

@@ -65,6 +65,12 @@ pub struct Group {
     pub tag: Option<String>,
     #[serde(default, skip_serializing_if = "is_false")]
     pub hidden: bool,
+    /// the group this one sits inside (None: top level)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<Id>,
+    /// can't be moved, edited or deleted until unlocked
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub locked: bool,
 }
 
 /// A reusable piece (door, window, tree): geometry kept once, placed many
@@ -95,6 +101,9 @@ pub struct Instance {
     /// Dynamic Component attributes: values or "=formulas" (see `dynamic`)
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub attrs: BTreeMap<String, String>,
+    /// the group this placement sits inside (None: top level)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<Id>,
 }
 
 /// A construction guide: a line (with `dir`) or a point. Snappable, never exported.
@@ -175,6 +184,9 @@ pub struct Model {
     /// Tag name -> visible.
     #[serde(default)]
     pub tags: BTreeMap<String, bool>,
+    /// a color per tag (for Color by tag)
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub tag_colors: BTreeMap<String, [f32; 3]>,
     #[serde(default)]
     pub definitions: BTreeMap<Id, Definition>,
     #[serde(default)]
@@ -594,7 +606,8 @@ impl Model {
                 vs.insert(e.a);
                 vs.insert(e.b);
             } else if self.groups.contains_key(id) {
-                vs.extend(self.vertices.iter().filter(|(_, v)| v.group == Some(*id)).map(|(&k, _)| k));
+                let tree = self.subtree(*id);
+                vs.extend(self.vertices.iter().filter(|(_, v)| v.group.is_some_and(|g| tree.contains(&g))).map(|(&k, _)| k));
             } else if self.vertices.contains_key(id) {
                 vs.insert(*id);
             } else {
@@ -615,7 +628,8 @@ impl Model {
             if self.faces.contains_key(id) {
                 out.push(*id);
             } else if self.groups.contains_key(id) {
-                out.extend(self.faces.iter().filter(|(_, f)| f.group == Some(*id)).map(|(&k, _)| k));
+                let tree = self.subtree(*id);
+                out.extend(self.faces.iter().filter(|(_, f)| f.group.is_some_and(|g| tree.contains(&g))).map(|(&k, _)| k));
             } else {
                 bail!("{id} is not a face or group");
             }
@@ -623,7 +637,29 @@ impl Model {
         Ok(out)
     }
 
+    /// Refuse to change something locked (or inside a locked group).
+    pub fn check_unlocked(&self, ids: &[Id]) -> Result<()> {
+        for id in ids {
+            let g = if self.groups.contains_key(id) {
+                Some(*id)
+            } else if let Some(i) = self.instances.get(id) {
+                i.parent
+            } else if let Some(f) = self.faces.get(id) {
+                f.group
+            } else if let Some(e) = self.edges.get(id) {
+                e.group
+            } else {
+                None
+            };
+            if let Some(name) = self.locked_by(g) {
+                bail!("{name} is locked: unlock it in the Outliner first");
+            }
+        }
+        Ok(())
+    }
+
     pub fn delete(&mut self, ids: &[Id]) -> Result<()> {
+        self.check_unlocked(ids)?;
         for id in ids {
             if self.faces.remove(id).is_some() {
                 // a face's edges stay behind as lines, like a real modeler
@@ -637,12 +673,18 @@ impl Model {
                 self.annotations.remove(i);
             } else if self.instances.remove(id).is_some() {
                 // component placement removed; its definition stays in the library
-            } else if self.groups.remove(id).is_some() {
-                let gid = Some(*id);
-                self.faces.retain(|_, f| f.group != gid);
-                self.edges.retain(|_, e| e.group != gid);
-                self.vertices.retain(|_, v| v.group != gid);
-                if self.active_group == gid {
+            } else if self.groups.contains_key(id) {
+                // the group and everything nested in it
+                let tree = self.subtree(*id);
+                let inside = |g: &Option<Id>| g.is_some_and(|g| tree.contains(&g));
+                self.faces.retain(|_, f| !inside(&f.group));
+                self.edges.retain(|_, e| !inside(&e.group));
+                self.vertices.retain(|_, v| !inside(&v.group));
+                self.instances.retain(|_, i| !inside(&i.parent));
+                for g in &tree {
+                    self.groups.remove(g);
+                }
+                if inside(&self.active_group) {
                     self.active_group = None;
                 }
             } else {
@@ -667,9 +709,19 @@ impl Model {
     }
 
     pub fn group(&mut self, ids: &[Id], name: String) -> Result<Id> {
-        let faces = self.faces_of(ids)?;
+        // groups and placements go inside the new group as they are; loose
+        // faces become its own geometry
+        let (nest, loose): (Vec<Id>, Vec<Id>) = ids.iter().partition(|id| self.groups.contains_key(id) || self.instances.contains_key(id));
+        let faces = self.faces_of(&loose)?;
         let gid = self.new_id();
-        self.groups.insert(gid, Group { name, ..Default::default() });
+        self.groups.insert(gid, Group { name, parent: self.active_group, ..Default::default() });
+        for id in nest {
+            if let Some(g) = self.groups.get_mut(&id) {
+                g.parent = Some(gid);
+            } else if let Some(i) = self.instances.get_mut(&id) {
+                i.parent = Some(gid);
+            }
+        }
         let mut verts = BTreeSet::new();
         for f in &faces {
             let face = self.faces.get_mut(f).unwrap();
@@ -689,9 +741,28 @@ impl Model {
 
     /// Duplicate a group, offset by `by`. Returns the new group id.
     pub fn copy_group(&mut self, gid: Id, by: DVec3, name: Option<String>) -> Result<Id> {
+        let parent = self.groups.get(&gid).ok_or_else(|| anyhow!("{gid} is not a group"))?.parent;
+        self.copy_group_into(gid, by, name, parent)
+    }
+
+    /// Copy a group (and everything nested in it) into `parent`.
+    fn copy_group_into(&mut self, gid: Id, by: DVec3, name: Option<String>, parent: Option<Id>) -> Result<Id> {
         let g = self.groups.get(&gid).ok_or_else(|| anyhow!("{gid} is not a group"))?.clone();
         let new = self.new_id();
-        self.groups.insert(new, Group { name: name.unwrap_or_else(|| format!("{} copy", g.name)), tag: g.tag.clone(), hidden: false });
+        self.groups.insert(new, Group { name: name.unwrap_or_else(|| format!("{} copy", g.name)), tag: g.tag.clone(), hidden: false, parent, locked: false });
+        // nested groups and placements come along
+        let kids: Vec<Id> = self.groups.iter().filter(|(_, c)| c.parent == Some(gid)).map(|(&k, _)| k).collect();
+        for k in kids {
+            let n = self.groups[&k].name.clone();
+            self.copy_group_into(k, by, Some(n), Some(new))?;
+        }
+        let placed: Vec<crate::model::Instance> = self.instances.values().filter(|i| i.parent == Some(gid)).cloned().collect();
+        for mut i in placed {
+            i.parent = Some(new);
+            i.transform = glam::DMat4::from_translation(by) * i.transform;
+            let id = self.new_id();
+            self.instances.insert(id, i);
+        }
         let mut map: HashMap<Id, Id> = HashMap::new();
         let verts: Vec<(Id, DVec3)> =
             self.vertices.iter().filter(|(_, v)| v.group == Some(gid)).map(|(&k, v)| (k, v.p)).collect();
@@ -722,7 +793,8 @@ impl Model {
 
     pub fn begin_group(&mut self, name: String) -> Id {
         let gid = self.new_id();
-        self.groups.insert(gid, Group { name, ..Default::default() });
+        // inside an open group, the new one nests in it
+        self.groups.insert(gid, Group { name, parent: self.active_group, ..Default::default() });
         self.active_group = Some(gid);
         gid
     }
@@ -748,6 +820,85 @@ impl Model {
         }
         for f in self.faces_of(ids)? {
             self.faces.get_mut(&f).unwrap().material = Some(name.to_string());
+        }
+        Ok(())
+    }
+
+    /// A group and every group nested in it, at any depth.
+    pub fn subtree(&self, gid: Id) -> BTreeSet<Id> {
+        let mut out = BTreeSet::from([gid]);
+        loop {
+            let more: Vec<Id> = self.groups.iter().filter(|(k, g)| !out.contains(k) && g.parent.is_some_and(|p| out.contains(&p))).map(|(&k, _)| k).collect();
+            if more.is_empty() {
+                return out;
+            }
+            out.extend(more);
+        }
+    }
+
+    /// A group and the groups it sits inside, innermost first.
+    pub fn ancestors(&self, gid: Option<Id>) -> Vec<Id> {
+        let mut out = Vec::new();
+        let mut cur = gid;
+        while let Some(g) = cur {
+            if out.contains(&g) || out.len() > 256 {
+                break; // a loop (shouldn't happen): stop rather than spin
+            }
+            out.push(g);
+            cur = self.groups.get(&g).and_then(|x| x.parent);
+        }
+        out
+    }
+
+    /// Is this group, or anything it sits inside, locked? (Its name, if so.)
+    pub fn locked_by(&self, gid: Option<Id>) -> Option<String> {
+        self.ancestors(gid).into_iter().find(|g| self.groups[g].locked).map(|g| self.groups[&g].name.clone())
+    }
+
+    /// Put groups and placements inside `parent` (None: top level).
+    pub fn set_parent(&mut self, ids: &[Id], parent: Option<Id>) -> Result<()> {
+        if let Some(p) = parent {
+            if !self.groups.contains_key(&p) {
+                bail!("{p} is not a group");
+            }
+        }
+        for id in ids {
+            if self.groups.contains_key(id) {
+                if parent.is_some_and(|p| self.subtree(*id).contains(&p)) {
+                    bail!("a group can't go inside itself");
+                }
+                self.groups.get_mut(id).unwrap().parent = parent;
+            } else if let Some(i) = self.instances.get_mut(id) {
+                i.parent = parent;
+            } else {
+                bail!("{id} is not a group or component");
+            }
+        }
+        Ok(())
+    }
+
+    /// Dissolve a group: its geometry, groups and placements move up to
+    /// the group it sat in.
+    pub fn ungroup(&mut self, gid: Id) -> Result<()> {
+        let g = self.groups.remove(&gid).ok_or_else(|| anyhow!("{gid} is not a group"))?;
+        let up = g.parent;
+        for f in self.faces.values_mut().filter(|f| f.group == Some(gid)) {
+            f.group = up;
+        }
+        for e in self.edges.values_mut().filter(|e| e.group == Some(gid)) {
+            e.group = up;
+        }
+        for v in self.vertices.values_mut().filter(|v| v.group == Some(gid)) {
+            v.group = up;
+        }
+        for c in self.groups.values_mut().filter(|c| c.parent == Some(gid)) {
+            c.parent = up;
+        }
+        for i in self.instances.values_mut().filter(|i| i.parent == Some(gid)) {
+            i.parent = up;
+        }
+        if self.active_group == Some(gid) {
+            self.active_group = up;
         }
         Ok(())
     }
