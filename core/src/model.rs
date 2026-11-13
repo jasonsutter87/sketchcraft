@@ -522,11 +522,7 @@ impl Model {
     }
 
     pub fn translate(&mut self, ids: &[Id], by: DVec3) -> Result<usize> {
-        let vs = self.vertices_of(ids)?;
-        for v in &vs {
-            self.vertices.get_mut(v).unwrap().p += by;
-        }
-        Ok(vs.len())
+        self.transform(ids, glam::DMat4::from_translation(by))
     }
 
     /// Faces named directly, or every face of a named group.
