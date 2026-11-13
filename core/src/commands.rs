@@ -474,6 +474,10 @@ pub enum Command {
         /// hours the local clock is ahead of UTC (default: from the longitude)
         #[serde(default)]
         utc_offset: Option<f64>,
+        /// add `samples` more to the same render each call (it sharpens);
+        /// changing the camera, size, light or model starts over
+        #[serde(default)]
+        progressive: bool,
         #[serde(default = "pt_sun")]
         sun_strength: f32,
         #[serde(default = "yes")]
@@ -749,6 +753,10 @@ pub struct Engine {
     pub names: HashMap<String, Id>,
     /// Component definition being edited (`edit`), if any.
     pub ctx: Option<Id>,
+    /// bumps on every change to the model (progressive renders start over)
+    revision: u64,
+    /// a photoreal render in progress
+    pt: Option<crate::pt::Progress>,
 }
 
 const UNDO_LIMIT: usize = 200;
@@ -804,6 +812,9 @@ impl Engine {
 
     pub fn exec(&mut self, cmd: Command) -> Value {
         let mutates = cmd.mutates();
+        if mutates || matches!(cmd, Command::Undo | Command::Redo) {
+            self.revision += 1;
+        }
         let before = if mutates { Some(self.model.clone()) } else { None };
         match self.run(cmd) {
             Ok(mut v) => {
@@ -1168,7 +1179,7 @@ impl Engine {
                 self.undo.push(std::mem::replace(&mut self.model, next));
                 json!({})
             }
-            Command::Photoreal { out, samples, bounces, mut sun_azimuth, mut sun_altitude, sun_strength, denoise, exposure, date, time, utc_offset, opts } => {
+            Command::Photoreal { out, samples, bounces, mut sun_azimuth, mut sun_altitude, sun_strength, denoise, exposure, date, time, utc_offset, progressive, opts } => {
                 let model = &self.model;
                 let mut sun_note = None;
                 if date.is_some() || time.is_some() {
@@ -1202,7 +1213,17 @@ impl Engine {
                     exposure,
                 };
                 let t0 = std::time::Instant::now();
-                let img = crate::pt::render(model, &po);
+                let mut spp = po.samples;
+                let img = if progressive {
+                    // same picture as last time? keep adding to it
+                    let key = format!("{}|{:?}|{:?}|{}|{}|{}|{}|{}", self.revision, po.camera.eye, po.camera.target, po.camera.fov, po.width, po.height, po.sun, po.bounces) + &format!("|{}|{}", po.sun_strength, po.exposure);
+                    let (p, img) = crate::pt::progressive(self.pt.take(), key, model, &po);
+                    spp = p.spp;
+                    self.pt = Some(p);
+                    img
+                } else {
+                    crate::pt::render(model, &po)
+                };
                 let secs = t0.elapsed().as_secs_f64();
                 let data = if let Some(path) = &out {
                     if let Some(dir) = std::path::Path::new(path).parent() {
@@ -1216,7 +1237,7 @@ impl Engine {
                     img.write_to(&mut buf, image::ImageFormat::Png)?;
                     Some(format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(buf.into_inner())))
                 };
-                json!({"out": out, "data": data, "seconds": secs, "sun": sun_note, "camera": {"eye": camera.eye, "target": camera.target, "fov": camera.fov}})
+                json!({"out": out, "data": data, "seconds": secs, "spp": spp, "sun": sun_note, "camera": {"eye": camera.eye, "target": camera.target, "fov": camera.fov}})
             }
             Command::Render { out, opts } => {
                 let whole = &self.model;

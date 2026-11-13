@@ -631,39 +631,53 @@ fn denoise(color: &[Vec3], albedo: &[Vec3], normal: &[Vec3], w: usize, h: usize)
     let eps = Vec3::splat(0.02);
     let mut light: Vec<Vec3> = color.iter().zip(albedo).map(|(c, a)| *c / (*a + eps)).collect();
     const K: [f32; 5] = [1.0 / 16.0, 1.0 / 4.0, 3.0 / 8.0, 1.0 / 4.0, 1.0 / 16.0];
+    let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).min(16);
+    let rows_per = h.div_ceil(threads).max(1);
     for pass in 0..5 {
         let step = 1usize << pass;
         let src = light.clone();
         let sigma_l = 4.0 / (1 << pass) as f32 + 0.5;
-        for y in 0..h {
-            for x in 0..w {
-                let i = y * w + x;
-                let (c0, n0, a0) = (src[i], normal[i], albedo[i]);
-                let l0 = c0.dot(Vec3::new(0.2126, 0.7152, 0.0722));
-                let (mut sum, mut wsum) = (Vec3::ZERO, 0.0f32);
-                for (ky, wy) in K.iter().enumerate() {
-                    let yy = y as isize + (ky as isize - 2) * step as isize;
-                    if yy < 0 || yy >= h as isize {
-                        continue;
-                    }
-                    for (kx, wx) in K.iter().enumerate() {
-                        let xx = x as isize + (kx as isize - 2) * step as isize;
-                        if xx < 0 || xx >= w as isize {
-                            continue;
+        let src = &src;
+        // rows in parallel: each thread fills its own band of `light`
+        std::thread::scope(|s| {
+            for (band, out) in light.chunks_mut(rows_per * w).enumerate() {
+                s.spawn(move || {
+                    let y0 = band * rows_per;
+                    for (r, row) in out.chunks_mut(w).enumerate() {
+                        let y = y0 + r;
+                        for x in 0..w {
+                            let i = y * w + x;
+                            let (c0, n0, a0) = (src[i], normal[i], albedo[i]);
+                            let l0 = c0.dot(Vec3::new(0.2126, 0.7152, 0.0722));
+                            let (mut sum, mut wsum) = (Vec3::ZERO, 0.0f32);
+                            for (ky, wy) in K.iter().enumerate() {
+                                let yy = y as isize + (ky as isize - 2) * step as isize;
+                                if yy < 0 || yy >= h as isize {
+                                    continue;
+                                }
+                                for (kx, wx) in K.iter().enumerate() {
+                                    let xx = x as isize + (kx as isize - 2) * step as isize;
+                                    if xx < 0 || xx >= w as isize {
+                                        continue;
+                                    }
+                                    let j = yy as usize * w + xx as usize;
+                                    let wn = n0.dot(normal[j]).max(0.0).powi(32);
+                                    if wn < 1e-4 {
+                                        continue;
+                                    }
+                                    let lj = src[j].dot(Vec3::new(0.2126, 0.7152, 0.0722));
+                                    // albedo and brightness weights in one exp
+                                    let wt = wy * wx * wn * (-(a0 - albedo[j]).length_squared() * 60.0 - (l0 - lj).abs() / sigma_l).exp();
+                                    sum += src[j] * wt;
+                                    wsum += wt;
+                                }
+                            }
+                            row[x] = if wsum > 0.0 { sum / wsum } else { c0 };
                         }
-                        let j = yy as usize * w + xx as usize;
-                        let wn = n0.dot(normal[j]).max(0.0).powi(32);
-                        let wa = (-(a0 - albedo[j]).length_squared() * 60.0).exp();
-                        let lj = src[j].dot(Vec3::new(0.2126, 0.7152, 0.0722));
-                        let wl = (-(l0 - lj).abs() / sigma_l).exp();
-                        let wt = wy * wx * wn * wa * wl;
-                        sum += src[j] * wt;
-                        wsum += wt;
                     }
-                }
-                light[i] = if wsum > 0.0 { sum / wsum } else { c0 };
+                });
             }
-        }
+        });
     }
     light.iter().zip(albedo).map(|(l, a)| *l * (*a + eps)).collect()
 }
@@ -672,6 +686,51 @@ fn denoise(color: &[Vec3], albedo: &[Vec3], normal: &[Vec3], w: usize, h: usize)
 pub fn render(m: &Model, o: &PtOpts) -> RgbImage {
     let scene = build_scene(m, o);
     let (w, h) = (o.width.max(16) as usize, o.height.max(16) as usize);
+    let (c, a, n) = pass(&scene, o, w, h, 0, o.samples.max(1));
+    finish(&c, &a, &n, o.samples.max(1), w, h, o)
+}
+
+/// A render in progress: the scene, and every sample so far summed per
+/// pixel. Each `progressive` call adds more and returns the picture so far.
+pub struct Progress {
+    /// what it's a render of (camera, size, light, model revision)
+    pub key: String,
+    scene: Scene,
+    w: usize,
+    h: usize,
+    color: Vec<Vec3>,
+    albedo: Vec<Vec3>,
+    normal: Vec<Vec3>,
+    /// samples per pixel so far
+    pub spp: u32,
+    passes: u32,
+}
+
+/// Add `o.samples` samples per pixel to `prev` (when it's of the same
+/// thing, `key`), or start over. Returns the progress and the denoised
+/// picture so far.
+pub fn progressive(prev: Option<Progress>, key: String, m: &Model, o: &PtOpts) -> (Progress, RgbImage) {
+    let (w, h) = (o.width.max(16) as usize, o.height.max(16) as usize);
+    let mut p = match prev {
+        Some(p) if p.key == key && p.w == w && p.h == h => p,
+        _ => Progress { key, scene: build_scene(m, o), w, h, color: vec![Vec3::ZERO; w * h], albedo: vec![Vec3::ZERO; w * h], normal: vec![Vec3::ZERO; w * h], spp: 0, passes: 0 },
+    };
+    let add = o.samples.max(1);
+    let (c, a, n) = pass(&p.scene, o, w, h, p.passes + 1, add);
+    for i in 0..w * h {
+        p.color[i] += c[i];
+        p.albedo[i] += a[i];
+        p.normal[i] += n[i];
+    }
+    p.spp += add;
+    p.passes += 1;
+    let img = finish(&p.color, &p.albedo, &p.normal, p.spp, w, h, o);
+    (p, img)
+}
+
+/// Sums of `spp` samples per pixel (color, albedo, normal), on all cores.
+/// `seed` makes each pass's samples different from the last.
+fn pass(scene: &Scene, o: &PtOpts, w: usize, h: usize, seed: u32, spp: u32) -> (Vec<Vec3>, Vec<Vec3>, Vec<Vec3>) {
     let eye = DVec3::from(o.camera.eye).as_vec3();
     let target = DVec3::from(o.camera.target).as_vec3();
     let fwd = (target - eye).normalize();
@@ -707,15 +766,14 @@ pub fn render(m: &Model, o: &PtOpts) -> RgbImage {
         for (i, p) in parts.into_iter().enumerate() {
             buckets[i % threads].push(p);
         }
-        let scene = &scene;
         for bucket in buckets {
             s.spawn(move || {
                 for (cs, als, ns, ys) in bucket {
                     for (row, &y) in ys.iter().enumerate() {
                         for x in 0..w {
-                            let mut r = Rng::new(((y * w + x) as u64) << 8 | 1);
+                            let mut r = Rng::new(((y * w + x) as u64) << 8 | 1 ^ (seed as u64).wrapping_mul(0x2545_F491_4F6C_DD1D));
                             let (mut acc, mut aa, mut an) = (Vec3::ZERO, Vec3::ZERO, Vec3::ZERO);
-                            for _ in 0..o.samples.max(1) {
+                            for _ in 0..spp {
                                 let px = (x as f32 + r.f()) / w as f32 * 2.0 - 1.0;
                                 let py = 1.0 - (y as f32 + r.f()) / h as f32 * 2.0;
                                 let d = (fwd + right * (px * tan * aspect) + up * (py * tan)).normalize();
@@ -726,17 +784,25 @@ pub fn render(m: &Model, o: &PtOpts) -> RgbImage {
                                 aa += alb;
                                 an += nn;
                             }
-                            let k = 1.0 / o.samples.max(1) as f32;
                             let i = row * w + x;
-                            cs[i] = acc * k;
-                            als[i] = aa * k;
-                            ns[i] = an.normalize_or_zero();
+                            cs[i] = acc;
+                            als[i] = aa;
+                            ns[i] = an;
                         }
                     }
                 }
             });
         }
     });
+    (color, albedo, normal)
+}
+
+/// Averages, denoise, tone map.
+fn finish(color: &[Vec3], albedo: &[Vec3], normal: &[Vec3], spp: u32, w: usize, h: usize, o: &PtOpts) -> RgbImage {
+    let k = 1.0 / spp.max(1) as f32;
+    let color: Vec<Vec3> = color.iter().map(|c| *c * k).collect();
+    let albedo: Vec<Vec3> = albedo.iter().map(|c| *c * k).collect();
+    let normal: Vec<Vec3> = normal.iter().map(|c| c.normalize_or_zero()).collect();
     let final_color = if o.denoise { denoise(&color, &albedo, &normal, w, h) } else { color };
     let mut img = RgbImage::new(w as u32, h as u32);
     for (i, p) in img.pixels_mut().enumerate() {
