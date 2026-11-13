@@ -14,6 +14,7 @@ pub mod http;
 pub mod import;
 pub mod live;
 pub mod mcp;
+pub mod mesh;
 pub mod model;
 pub mod render;
 pub mod scene;
