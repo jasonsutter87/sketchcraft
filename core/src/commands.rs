@@ -358,6 +358,56 @@ pub enum Command {
         #[serde(default = "yes")]
         imagery: bool,
     },
+    /// The component library: files you can place (default folder
+    /// ~/Documents/SketchCraft/Library; subfolders are collections).
+    Library {
+        #[serde(default)]
+        dir: Option<String>,
+    },
+    /// A thumbnail (PNG data URL) of a component in the model, a built-in
+    /// asset, or a library file.
+    Thumbnail {
+        #[serde(default)]
+        component: Option<Id>,
+        #[serde(default)]
+        asset: Option<String>,
+        #[serde(default)]
+        path: Option<String>,
+        #[serde(default = "thumb_px")]
+        size: u32,
+    },
+    /// Place a library file as a component (the same file again reuses it).
+    InsertFile {
+        path: String,
+        at: [f64; 3],
+        #[serde(default)]
+        rotate: f64,
+    },
+    /// Save a component into the library (its parts come along).
+    SaveToLibrary {
+        component: Id,
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        collection: Option<String>,
+        #[serde(default)]
+        dir: Option<String>,
+    },
+    /// Copy model files into the library.
+    LibraryAdd {
+        paths: Vec<String>,
+        #[serde(default)]
+        collection: Option<String>,
+        #[serde(default)]
+        dir: Option<String>,
+    },
+    /// Remove components nothing places.
+    Purge,
+    /// Show a file or the library folder in Finder / Explorer.
+    Reveal {
+        #[serde(default)]
+        path: Option<String>,
+    },
     /// Volume of a closed group / component (m³), or not a solid.
     Volume { id: Id },
     /// Import a binary FBX (7.x): `path`, or the file as base64 in `data`.
@@ -431,6 +481,10 @@ pub enum Command {
 pub enum Factor {
     Uniform(f64),
     Axes([f64; 3]),
+}
+
+fn thumb_px() -> u32 {
+    160
 }
 
 fn loc_size() -> f64 {
@@ -540,6 +594,11 @@ impl Command {
             self,
             Command::Faces { .. }
                 | Command::Volume { .. }
+                | Command::Library { .. }
+                | Command::Thumbnail { .. }
+                | Command::SaveToLibrary { .. }
+                | Command::LibraryAdd { .. }
+                | Command::Reveal { .. }
                 | Command::Report { .. }
                 | Command::Section { .. }
                 | Command::Info
@@ -1054,7 +1113,7 @@ impl Engine {
                 let label = name.unwrap_or_else(|| {
                     path.as_deref()
                         .and_then(|p| std::path::Path::new(p).file_stem())
-                        .map(|s| s.to_string_lossy().to_string())
+                        .map(|s| crate::library::nice_name(&s.to_string_lossy()))
                         .unwrap_or_else(|| "SketchUp model".into())
                 });
                 let r = crate::skp::import(m, &bytes, v3(at), &label)?;
@@ -1151,6 +1210,66 @@ impl Engine {
             Command::AddLocation { lat, lon, size, cells, imagery } => {
                 let p = crate::geo::add_location(m, lat, lon, size, cells, imagery, &crate::geo::fetch)?;
                 json!({"group": p.group, "elevation": p.elevation, "zoom": p.zoom})
+            }
+            Command::Library { dir } => {
+                let d = dir.map(std::path::PathBuf::from).unwrap_or_else(crate::library::default_dir);
+                std::fs::create_dir_all(&d).ok();
+                json!({"dir": d.to_string_lossy(), "entries": crate::library::list(&d)})
+            }
+            Command::Thumbnail { component, asset, path, size } => {
+                use base64::Engine as _;
+                let px = size.clamp(32, 512);
+                let png = if let Some(c) = component {
+                    crate::library::thumbnail_of(m, c, px)?
+                } else if let Some(a) = asset {
+                    let mut scratch = Model::default();
+                    let id = crate::assets::definition(&mut scratch, &a)?;
+                    crate::library::thumbnail_of(&scratch, id, px)?
+                } else if let Some(p) = path {
+                    crate::library::thumbnail_of_file(&p, px)?
+                } else {
+                    bail!("thumbnail needs a component, asset or path");
+                };
+                json!({"data": format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(png))})
+            }
+            Command::InsertFile { path, at, rotate } => {
+                let def = crate::library::definition_for(m, &path)?;
+                json!({"instance": m.place(def, v3(at), rotate, None)?, "component": def})
+            }
+            Command::SaveToLibrary { component, name, collection, dir } => {
+                let model = crate::library::standalone(m, component)?;
+                let d = dir.map(std::path::PathBuf::from).unwrap_or_else(crate::library::default_dir);
+                let folder = match collection.as_deref().map(str::trim).filter(|c| !c.is_empty()) {
+                    Some(c) => d.join(crate::library::safe(c)),
+                    None => d,
+                };
+                std::fs::create_dir_all(&folder)?;
+                let base = crate::library::safe(&name.unwrap_or_else(|| m.definitions[&component].name.clone()));
+                let mut path = folder.join(format!("{base}.sketchcraft"));
+                let mut k = 2;
+                while path.exists() {
+                    path = folder.join(format!("{base} {k}.sketchcraft"));
+                    k += 1;
+                }
+                std::fs::write(&path, serde_json::to_string(&model)?)?;
+                json!({"path": path.to_string_lossy()})
+            }
+            Command::LibraryAdd { paths, collection, dir } => {
+                let d = dir.map(std::path::PathBuf::from).unwrap_or_else(crate::library::default_dir);
+                json!({"added": crate::library::add_files(&d, &paths, collection.as_deref().unwrap_or(""))?})
+            }
+            Command::Purge => json!({"removed": crate::library::purge(m)}),
+            Command::Reveal { path } => {
+                let p = path.map(std::path::PathBuf::from).unwrap_or_else(crate::library::default_dir);
+                std::fs::create_dir_all(if p.extension().is_some() { p.parent().unwrap_or(&p) } else { &p }).ok();
+                #[cfg(target_os = "macos")]
+                let r = if p.is_dir() { std::process::Command::new("open").arg(&p).status() } else { std::process::Command::new("open").arg("-R").arg(&p).status() };
+                #[cfg(target_os = "windows")]
+                let r = std::process::Command::new("explorer").arg(&p).status();
+                #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+                let r = std::process::Command::new("xdg-open").arg(if p.is_dir() { &p } else { p.parent().unwrap_or(&p) }).status();
+                anyhow::Context::context(r, "couldn't open the file browser")?;
+                json!({"path": p.to_string_lossy()})
             }
             Command::Intersect { ids, with } => json!({"lines": m.intersect(&ids, with != "selection")?}),
             Command::Flip { ids, axis } => json!({"moved": m.flip(&ids, axis_index(&axis)?)?}),

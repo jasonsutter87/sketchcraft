@@ -21,6 +21,7 @@ pub mod ifc;
 pub mod import;
 pub mod intersect;
 pub mod layout;
+pub mod library;
 pub mod live;
 pub mod mcp;
 pub mod mesh;

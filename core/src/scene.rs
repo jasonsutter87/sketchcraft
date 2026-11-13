@@ -128,7 +128,12 @@ pub fn build(root: &Model, ctx: Option<u32>) -> Value {
     let components: Vec<Value> = root
         .definitions
         .iter()
-        .map(|(id, d)| json!({"id": id, "name": d.name, "placed": root.instances.values().filter(|i| i.def == *id).count()}))
+        .map(|(id, d)| {
+            // placed in the model, and placed inside other components (parts)
+            let top = root.instances.values().filter(|i| i.def == *id).count();
+            let inside: usize = root.definitions.values().map(|o| o.model.instances.values().filter(|i| i.def == *id).count()).sum();
+            json!({"id": id, "name": d.name, "placed": top, "inside": inside, "source": d.source})
+        })
         .collect();
     // Rounded so big imports stay a few MB of JSON: 0.01 mm positions,
     // 1/1000 colors; texture coordinates only when something is textured.

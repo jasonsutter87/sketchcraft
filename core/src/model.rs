@@ -78,6 +78,9 @@ pub struct Definition {
     /// defaults for its placements' Dynamic Component attributes
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub attrs: BTreeMap<String, String>,
+    /// the library file it came from (placing that file again reuses it)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

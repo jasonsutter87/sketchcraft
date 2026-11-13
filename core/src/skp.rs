@@ -764,7 +764,7 @@ pub fn import(m: &mut Model, d: &[u8], at: DVec3, name: &str) -> Result<ImportSu
         let _ = ents;
         let label = file.definitions[&key].0.clone();
         let label = if label.is_empty() { format!("{name} part {}", def_ids.len()) } else { label };
-        m.definitions.insert(id, Definition { name: label, model: Default::default(), attrs: Default::default() });
+        m.definitions.insert(id, Definition { name: label, model: Default::default(), attrs: Default::default(), source: None });
     }
     for (&key, (_, ents)) in &file.definitions {
         let mut dm = Model::default();
