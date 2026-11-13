@@ -7,6 +7,7 @@
 pub mod commands;
 pub mod export;
 pub mod geom;
+pub mod mcp;
 pub mod model;
 pub mod render;
 
