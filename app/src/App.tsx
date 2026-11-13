@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { exec, loadScene, sync, type Reply, type Scene } from "./engine";
 import { Icons, Logo } from "./icons";
-import { BuildTools, ContextMenu, contextItems, EntityInfo, Library, Outliner, Views } from "./panels";
+import { BuildTools, ContextMenu, contextItems, EntityInfo, Library, Outliner, Textures, Views } from "./panels";
 import { EMPTY, isEmpty, selIds, type Sel } from "./selection";
 import { UNIT_OPTIONS } from "./units";
 import { pickOpen, pickSave, rememberedFile, rememberFile } from "./files";
@@ -76,7 +76,13 @@ export default function App() {
   const [scene, setScene] = useState<Scene | null>(null);
   const [tool, setTool] = useState<Tool>("rect");
   const [sel, setSel] = useState<Sel>(EMPTY);
-  const [color, setColor] = useState<[number, number, number]>(SWATCHES[1]);
+  const [color, setColorState] = useState<[number, number, number]>(SWATCHES[1]);
+  const [paintMaterial, setPaintMaterial] = useState<string | null>(null);
+  // picking a color stops painting with an image
+  const setColor = (c: [number, number, number]) => {
+    setColorState(c);
+    setPaintMaterial(null);
+  };
   const [measure, setMeasure] = useState({ label: "", value: "" });
   const [typed, setTyped] = useState("");
   const [toast, setToast] = useState<{ text: string; bad?: boolean } | null>(null);
@@ -409,6 +415,8 @@ export default function App() {
           setSel={setSel}
           color={color}
           setColor={setColor}
+          paintMaterial={paintMaterial}
+          setPaintMaterial={setPaintMaterial}
           styles={styles}
           placeAsset={placing}
           build={build}
@@ -517,7 +525,7 @@ export default function App() {
             {SWATCHES.map((c) => (
               <button
                 key={hex(c)}
-                className={`swatch ${hex(c) === hex(color) ? "on" : ""}`}
+                className={`swatch ${!paintMaterial && hex(c) === hex(color) ? "on" : ""}`}
                 style={{ background: hex(c) }}
                 onClick={() => {
                   setColor(c);
@@ -528,6 +536,20 @@ export default function App() {
             ))}
           </div>
         </div>
+        {scene && (
+          <Textures
+            scene={scene}
+            paintMaterial={paintMaterial}
+            choose={(n) => {
+              setPaintMaterial(n);
+              if (n) chooseTool(selCount ? tool : "paint");
+            }}
+            run={run}
+            camera={() => api.current!.camera()}
+            sel={sel}
+            onToast={say}
+          />
+        )}
         {selCount > 0 && (
           <div className="section">
             <div className="section-title">Arrange</div>

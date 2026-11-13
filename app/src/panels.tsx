@@ -7,6 +7,8 @@ import { Icons } from "./icons";
 import { EMPTY, isEmpty, selIds, type Sel } from "./selection";
 import { TEMPLATES } from "./templates";
 import { formatLength, parseLength } from "./units";
+import { prepareImage } from "./textures";
+import { useRef } from "react";
 import type { BuildSettings, Tool } from "./Viewport";
 import type { Cam } from "./Viewport";
 
@@ -400,4 +402,97 @@ export function formatArea(m2: number, units: string): string {
   if (units === "ft" || units === "in") return `${(m2 / 0.09290304).toFixed(1)} ft²`;
   if (units === "mm" || units === "cm") return `${(m2 * 10000).toFixed(0)} cm²`;
   return `${m2.toFixed(2)} m²`;
+}
+
+
+/** Image materials: add one from a photo, paint with it, size it, project it. */
+export function Textures({
+  scene,
+  paintMaterial,
+  choose,
+  run,
+  camera,
+  sel,
+  onToast,
+}: {
+  scene: Scene;
+  paintMaterial: string | null;
+  choose: (name: string | null) => void;
+  run: Run;
+  camera: () => Cam;
+  sel: Sel;
+  onToast: (t: string, bad?: boolean) => void;
+}) {
+  const input = useRef<HTMLInputElement>(null);
+  const textures = scene.materials.filter((m) => m.texture);
+  const active = textures.find((m) => m.name === paintMaterial);
+  const add = async (file: File) => {
+    try {
+      const img = await prepareImage(file);
+      let name = file.name.replace(/\.[^.]+$/, "") || "Image";
+      while (scene.materials.some((m) => m.name === name)) name += " 2";
+      const width = 1;
+      const r = await run({ cmd: "texture", name, data: img.data, width, height: width * img.aspect, color: img.color });
+      if (r.ok) {
+        choose(name);
+        onToast(`Added ${name}. Click faces with Paint, or set its size below.`);
+      }
+    } catch (e) {
+      onToast(String(e), true);
+    }
+  };
+  const project = async () => {
+    if (!active) return;
+    const c = camera();
+    const dir = [c.target[0] - c.eye[0], c.target[1] - c.eye[1], c.target[2] - c.eye[2]];
+    await run({ cmd: "texture", name: active.name, project: dir, origin: c.target });
+    onToast("Projected from this view: paint a whole group and the image runs across it.");
+  };
+  const ids = [...sel.faces, ...sel.groups];
+  return (
+    <div className="section">
+      <div className="section-title">Textures</div>
+      <div className="swatches">
+        {textures.map((m) => (
+          <button
+            key={m.name}
+            className={`swatch texture ${paintMaterial === m.name ? "on" : ""}`}
+            style={{ backgroundImage: `url(${m.texture!.data})` }}
+            title={m.name}
+            onClick={() => {
+              choose(m.name);
+              if (ids.length) run({ cmd: "paint", ids, material: m.name });
+            }}
+          />
+        ))}
+        <button className="swatch add" title="Add an image (photo of brick, wood, a facade...)" onClick={() => input.current?.click()}>
+          <Icons.plus />
+        </button>
+        <input ref={input} type="file" accept="image/*" hidden onChange={(e) => e.target.files?.[0] && add(e.target.files[0])} />
+      </div>
+      {active?.texture && (
+        <div className="build-options">
+          <p>
+            <b>{active.name}</b>: Paint (B) clicks apply it. {active.texture.project ? "Projected: it runs straight across every face it's painted on." : "Laid along each face it's painted on."}
+          </p>
+          <LengthInput
+            label="Tile width"
+            value={active.texture.width}
+            units={scene.units || "m"}
+            onChange={(w) => run({ cmd: "texture", name: active.name, width: w })}
+          />
+          <div className="row gap">
+            <button className="btn small" onClick={project}>
+              Project from this view
+            </button>
+            {active.texture.project && (
+              <button className="btn small ghost" onClick={() => run({ cmd: "texture", name: active.name, project: null })}>
+                Lay on faces
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
