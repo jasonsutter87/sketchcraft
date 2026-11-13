@@ -974,3 +974,45 @@ fn add_location_from_tiles() {
     // bad input is refused
     assert!(sketchcraft::geo::add_location(&mut e.model, 95.0, 0.0, 200.0, 10, false, &get).is_err());
 }
+
+#[test]
+fn component_library() {
+    let dir = std::env::temp_dir().join(format!("sketchcraft-lib-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let d = dir.to_string_lossy().to_string();
+    let mut e = Engine::new();
+    // a box component, saved into a "Furniture" collection
+    let g = box_group(&mut e, [0.0, 0.0, 0.0], [0.5, 0.5, 0.45], "Stool");
+    let c = run(&mut e, json!({"cmd":"make_component","ids":[g],"name":"Stool"}))["component"].as_u64().unwrap();
+    let saved = run(&mut e, json!({"cmd":"save_to_library","component":c,"collection":"Furniture","dir":d}))["path"].as_str().unwrap().to_string();
+    assert!(saved.ends_with("Furniture/Stool.sketchcraft"), "{saved}");
+    // an OBJ dropped in with its .mtl
+    let src = dir.join("src");
+    std::fs::create_dir_all(&src).unwrap();
+    std::fs::write(src.join("crate.mtl"), "newmtl Wood\nKd 0.6 0.4 0.2\n").unwrap();
+    std::fs::write(src.join("crate.obj"), "mtllib crate.mtl\no Crate\nusemtl Wood\nv 0 0 0\nv 1 0 0\nv 1 0 1\nv 0 0 1\nf 1 2 3 4\n").unwrap();
+    run(&mut e, json!({"cmd":"library_add","paths":[src.join("crate.obj").to_string_lossy()],"dir":d}));
+    assert!(dir.join("crate.mtl").exists(), "the .mtl came along");
+    let lib = run(&mut e, json!({"cmd":"library","dir":d}));
+    let entries = lib["entries"].as_array().unwrap();
+    let names: Vec<&str> = entries.iter().map(|x| x["name"].as_str().unwrap()).collect();
+    assert!(names.contains(&"Stool") && names.contains(&"crate"), "{names:?}");
+    assert!(entries.iter().any(|x| x["collection"] == "Furniture"));
+    // place the saved stool into a fresh model twice: one shared component
+    let mut e2 = Engine::new();
+    let a = run(&mut e2, json!({"cmd":"insert_file","path":saved,"at":[0,0,0]}));
+    let b = run(&mut e2, json!({"cmd":"insert_file","path":saved,"at":[2,0,0]}));
+    assert_eq!(a["component"], b["component"]);
+    assert_eq!(e2.model.world_faces().len(), 12, "two stools of six faces");
+    // thumbnails
+    let t = run(&mut e2, json!({"cmd":"thumbnail","path":saved,"size":64}));
+    assert!(t["data"].as_str().unwrap().starts_with("data:image/png;base64,"));
+    run(&mut e2, json!({"cmd":"thumbnail","asset":"tree","size":64}));
+    // purge drops what nothing places
+    let ids: Vec<u32> = e2.model.instances.keys().copied().collect();
+    run(&mut e2, json!({"cmd":"delete","ids":ids}));
+    assert_eq!(run(&mut e2, json!({"cmd":"purge"}))["removed"].as_u64().unwrap() as usize, 1);
+    assert!(e2.model.definitions.is_empty());
+    assert_eq!(sketchcraft::library::nice_name("Sink+Base+Cabinet_261102"), "Sink Base Cabinet");
+    std::fs::remove_dir_all(dir).ok();
+}
