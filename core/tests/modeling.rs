@@ -1053,6 +1053,14 @@ fn blueprint_finds_floors_and_draws_them() {
     let pdf = String::from_utf8_lossy(&std::fs::read(&path).unwrap()).to_string();
     assert!(pdf.contains("Main floor plan") && pdf.contains("Upper floor plan") && pdf.contains("Front elevation"));
     assert!(pdf.contains("1:50") || pdf.contains("1:75") || pdf.contains("1:100"), "a true scale");
+    assert!(pdf.contains("AREA") && pdf.contains("TOTAL"), "areas in the title block");
+    // 6 x 8 m outside: 48 m2 a floor
+    assert!(pdf.contains("48.0 m2"), "gross floor area");
+    // a door swing: hinge, strike, the side it opens to
+    let r = run(&mut e, json!({"cmd":"door_swing","hinge":[1,0,0.02],"strike":[2,0,0.02],"toward":[1.5,3,0]}));
+    let id = r["swing"].as_u64().unwrap() as u32;
+    let open = e.model.annotations.iter().find_map(|a| match a { sketchcraft::model::Annotation::Swing { id: i, to, .. } if *i == id => Some(*to), _ => None }).unwrap();
+    assert!((open - glam::DVec3::new(1.0, 1.0, 0.02)).length() < 1e-9, "opens square, into +y: {open:?}");
     std::fs::remove_dir_all(dir).ok();
 }
 
