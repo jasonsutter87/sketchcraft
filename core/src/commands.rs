@@ -142,6 +142,8 @@ pub enum Command {
     /// Construction guide: a line through `point` along `direction`, or a point.
     Guide { point: [f64; 3], #[serde(default)] direction: Option<[f64; 3]> },
     ClearGuides,
+    /// Display units: m, cm, mm, ft (feet-inches) or in. Geometry stays in meters.
+    Units { units: String },
     /// A dimension from `from` to `to`, drawn `offset` away (e.g. [0,-1,0] = 1 m toward the street).
     Dimension { from: [f64; 3], to: [f64; 3], #[serde(default)] offset: [f64; 3] },
     /// A text label at `at`, with an optional leader line to `leader`.
@@ -586,6 +588,13 @@ impl Engine {
                 m.next_id = id;
                 m.annotations.push(crate::model::Annotation::Text { id, at: v3(at), text, leader: leader.map(v3) });
                 json!({"text": id})
+            }
+            Command::Units { units } => {
+                if !["m", "cm", "mm", "ft", "in"].contains(&units.as_str()) {
+                    bail!("units must be m, cm, mm, ft or in");
+                }
+                self.model.units = units.clone();
+                json!({"units": units})
             }
             Command::ClearGuides => {
                 m.guides.clear();

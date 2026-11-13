@@ -243,8 +243,8 @@ impl Canvas {
 
 const ANNO: [f32; 3] = [0.2, 0.22, 0.3];
 
-pub fn format_length(m: f64) -> String {
-    format!("{m:.2} m")
+pub fn format_length(m: f64, units: &str) -> String {
+    crate::units::format(m, units)
 }
 
 fn draw_annotations(cv: &mut Canvas, model: &Model) {
@@ -274,7 +274,7 @@ fn draw_annotations(cv: &mut Canvas, model: &Model) {
                     cv.line2d((q.0 - t, q.1 + t), (q.0 + t, q.1 - t), ANNO, 0.9 * s);
                 }
                 let mid = ((qa.0 + qb.0) / 2.0, (qa.1 + qb.1) / 2.0);
-                cv.text(mid.0, mid.1, &format_length(a.distance(*b)), ANNO, 2 * SS / 2 + 1);
+                cv.text(mid.0, mid.1, &format_length(a.distance(*b), &model.units), ANNO, 2 * SS / 2 + 1);
             }
             Annotation::Text { at, text, leader, .. } => {
                 let Some(p) = cv.project(*at) else { continue };

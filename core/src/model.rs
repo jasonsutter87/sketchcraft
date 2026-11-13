@@ -149,6 +149,17 @@ pub struct Model {
     pub views: Vec<View>,
     #[serde(default)]
     pub annotations: Vec<Annotation>,
+    /// Display units: "m", "cm", "mm", "ft" (feet and inches) or "in". Geometry is always meters.
+    #[serde(default = "meters", skip_serializing_if = "is_meters")]
+    pub units: String,
+}
+
+fn meters() -> String {
+    "m".into()
+}
+
+fn is_meters(u: &String) -> bool {
+    u == "m"
 }
 
 pub fn pairs(l: &[Id]) -> impl Iterator<Item = (Id, Id)> + '_ {
