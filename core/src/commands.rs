@@ -349,6 +349,7 @@ impl Command {
         !matches!(
             self,
             Command::Faces { .. }
+                | Command::Volume { .. }
                 | Command::Info
                 | Command::Components
                 | Command::Pick { .. }
@@ -831,7 +832,8 @@ impl Engine {
                 let groups = crate::csg::solid(m, &op, &ids)?;
                 json!({"groups": groups, "group": groups.first()})
             }
-            Command::Volume { id } => match crate::csg::solid_info(m, id) {
+            // on a scratch copy: checking adds paint entries it doesn't need to keep
+            Command::Volume { id } => match crate::csg::solid_info(&mut m.clone(), id) {
                 Some(v) => json!({"solid": true, "volume": v}),
                 None => json!({"solid": false}),
             },
