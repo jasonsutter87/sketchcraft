@@ -210,6 +210,18 @@ pub enum Command {
         #[serde(flatten)]
         opts: RenderOpts,
     },
+    /// Drawing sheets as a PDF: pages of viewports (saved views or iso / top /
+    /// front / ..., optionally at a scale like "1:100"), labels, scale bars
+    /// and a title block. No pages: your saved views on one sheet.
+    Sheets {
+        path: String,
+        #[serde(default = "sheet_a3")]
+        sheet: String,
+        #[serde(default)]
+        project: Option<String>,
+        #[serde(default)]
+        pages: Vec<crate::layout::PageSpec>,
+    },
     /// Collada (.dae), Z up, meters: one object per group / component.
     ExportDae { path: String },
     /// 3D DXF: 3DFACE triangles in millimeters, a layer per object.
@@ -389,6 +401,10 @@ pub enum Factor {
     Axes([f64; 3]),
 }
 
+fn sheet_a3() -> String {
+    "a3".into()
+}
+
 fn photo_distance() -> f64 {
     15.0
 }
@@ -496,6 +512,7 @@ impl Command {
                 | Command::ExportGlb { .. }
                 | Command::ExportStl { .. }
                 | Command::ExportDae { .. }
+                | Command::Sheets { .. }
                 | Command::Animate { .. }
                 | Command::ExportDxf { .. }
                 | Command::ExportPdf { .. }
@@ -957,6 +974,10 @@ impl Engine {
             Command::Animate { path, fps, transition, delay, views, turntable, opts } => {
                 let a = crate::animate::Anim { fps, transition, delay, views, turntable };
                 json!({"path": path, "frames": crate::animate::animate(&self.model, &path, &a, &opts)?})
+            }
+            Command::Sheets { path, sheet, project, pages } => {
+                let project = project.unwrap_or_else(|| std::path::Path::new(&path).file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "Project".into()));
+                json!({"path": path, "pages": crate::layout::write_sheets(&self.model, &path, &sheet, &project, pages)?})
             }
             Command::ExportDae { path } => json!({"path": path, "triangles": crate::export2::write_dae(&self.model, &path)?}),
             Command::ExportDxf { path } => json!({"path": path, "triangles": crate::export2::write_dxf(&self.model, &path)?}),

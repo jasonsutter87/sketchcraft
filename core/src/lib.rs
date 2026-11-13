@@ -17,6 +17,7 @@ pub mod geom;
 pub mod http;
 pub mod import;
 pub mod intersect;
+pub mod layout;
 pub mod live;
 pub mod mcp;
 pub mod mesh;

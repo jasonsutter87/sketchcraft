@@ -55,11 +55,10 @@ pub fn solve(width: f64, height: f64, red: [[f64; 4]; 2], green: [[f64; 4]; 2], 
     let along = |l: [f64; 4]| DVec2::new(l[2] - l[0], l[1] - l[3]);
     let ahead = |vp: DVec2, l: [f64; 4]| if (vp - o).dot(along(l)) >= 0.0 { 1.0 } else { -1.0 };
     let x = DVec3::new(vr.x, vr.y, -f).normalize() * ahead(vr, red[0]);
-    let mut y = DVec3::new(vg.x, vg.y, -f).normalize() * ahead(vg, green[0]);
+    let y = DVec3::new(vg.x, vg.y, -f).normalize() * ahead(vg, green[0]);
     let mut z = x.cross(y).normalize();
     if z.y < 0.0 {
-        // blue must point up in the photo
-        y = -y;
+        // blue must point up in the photo (green follows from blue x red)
         z = -z;
     }
     let y = z.cross(x).normalize();

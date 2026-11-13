@@ -36,11 +36,15 @@ pub struct RenderOpts {
     pub annotations: bool,
     /// parallel projection (architectural elevations) instead of perspective
     pub parallel: bool,
+    /// parallel only: meters shown top to bottom (a drawing's scale)
+    pub ortho_height: Option<f64>,
+    /// plain white, no grid (drawings on a sheet)
+    pub paper: bool,
 }
 
 impl Default for RenderOpts {
     fn default() -> Self {
-        Self { width: 1280, height: 800, camera: None, view: "iso".into(), edges: true, grid: true, annotations: true, parallel: false }
+        Self { width: 1280, height: 800, camera: None, view: "iso".into(), edges: true, grid: true, annotations: true, parallel: false, ortho_height: None, paper: false }
     }
 }
 
@@ -323,7 +327,7 @@ pub fn render(model: &Model, opts: &RenderOpts) -> RgbImage {
     let view = DMat4::look_at_rh(eye, target, up);
     let aspect = w as f64 / h as f64;
     let proj = if opts.parallel {
-        let half = eye.distance(target) * (cam.fov.to_radians() * 0.5).tan();
+        let half = opts.ortho_height.map(|h| h / 2.0).unwrap_or_else(|| eye.distance(target) * (cam.fov.to_radians() * 0.5).tan());
         // a parallel camera still sits "in front", so keep w = 1 for clipping
         DMat4::orthographic_rh_gl(-half * aspect, half * aspect, -half, half, -100_000.0, 100_000.0)
     } else {
@@ -333,8 +337,7 @@ pub fn render(model: &Model, opts: &RenderOpts) -> RgbImage {
     let mut color = Vec::with_capacity(w * h);
     for y in 0..h {
         let t = y as f32 / h as f32;
-        let top = [0.86, 0.90, 0.96];
-        let bot = [0.97, 0.97, 0.96];
+        let (top, bot) = if opts.paper { ([1.0, 1.0, 1.0], [1.0, 1.0, 1.0]) } else { ([0.86, 0.90, 0.96], [0.97, 0.97, 0.96]) };
         color.extend(std::iter::repeat([
             top[0] + (bot[0] - top[0]) * t,
             top[1] + (bot[1] - top[1]) * t,
@@ -343,7 +346,7 @@ pub fn render(model: &Model, opts: &RenderOpts) -> RgbImage {
     }
     let mut cv = Canvas { w, h, color, depth: vec![0.0; w * h], vp: proj * view };
 
-    if opts.grid {
+    if opts.grid && !opts.paper {
         let (lo, hi) = model.world_bounds().unwrap_or((DVec3::splat(-5.0), DVec3::splat(5.0)));
         let pad = ((hi - lo).length() * 0.35).max(4.0);
         let gz = lo.z.min(0.0);
