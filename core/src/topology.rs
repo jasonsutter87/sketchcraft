@@ -73,9 +73,35 @@ impl Model {
         }
     }
 
-    /// Draw a straight line. Splits edges it lands on, cuts faces it crosses
-    /// edge-to-edge, and makes faces for loops it closes.
+    /// Draw a straight line. Where it crosses existing edges both are split,
+    /// so a transom across a mullion makes four panes. Each piece then splits
+    /// edges it lands on, cuts faces it crosses edge-to-edge, and closes loops.
     pub fn draw_line(&mut self, p: DVec3, q: DVec3) -> Result<LineResult> {
+        let g = self.active_group;
+        let mut cuts: Vec<(f64, DVec3)> = self
+            .edges
+            .values()
+            .filter(|e| e.group == g)
+            .filter_map(|e| crossing(p, q, self.p(e.a), self.p(e.b)))
+            .collect();
+        cuts.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+        cuts.dedup_by(|a, b| a.1.distance(b.1) < WELD);
+        if cuts.is_empty() {
+            return self.draw_segment(p, q);
+        }
+        let mut pts = vec![p];
+        pts.extend(cuts.into_iter().map(|c| c.1));
+        pts.push(q);
+        let mut out = LineResult { edges: vec![], faces: vec![] };
+        for w in pts.windows(2) {
+            let r = self.draw_segment(w[0], w[1])?;
+            out.edges.extend(r.edges);
+            out.faces.extend(r.faces);
+        }
+        Ok(out)
+    }
+
+    fn draw_segment(&mut self, p: DVec3, q: DVec3) -> Result<LineResult> {
         let a = self.vertex_on(p);
         let b = self.vertex_on(q);
         let mut out = LineResult { edges: vec![], faces: vec![] };
@@ -215,12 +241,16 @@ impl Model {
                 let op = geom::to2d(o, u, v);
                 geom::inside(mid, &op) || geom::inside(geom::to2d(&[interior_point(o, n)], u, v)[0], &poly)
             });
-            // and must not cover an existing coplanar face
+            // and must not overlap an existing coplanar face, either way round
+            let inner = interior_point(&pts, n);
             let covers = self.faces.values().any(|f| {
                 let fp = self.pts(&f.outer);
-                geom::newell(&fp).dot(n).abs() > 1.0 - 1e-9
-                    && (fp[0] - pts[0]).dot(n).abs() < 1e-6
-                    && geom::inside(geom::to2d(&[interior_point(&fp, n)], u, v)[0], &poly)
+                if geom::newell(&fp).dot(n).abs() < 1.0 - 1e-9 || (fp[0] - pts[0]).dot(n).abs() > 1e-6 {
+                    return false;
+                }
+                let fpoly = geom::to2d(&fp, u, v);
+                geom::inside(geom::to2d(&[interior_point(&fp, n)], u, v)[0], &poly)
+                    || geom::inside(geom::to2d(&[inner], u, v)[0], &fpoly)
             });
             if overlaps || covers {
                 continue;
@@ -232,6 +262,26 @@ impl Model {
         }
         made
     }
+}
+
+/// Where segment p-q crosses segment a-b in its interior (parameter along
+/// p-q, and the point), if they actually meet.
+fn crossing(p: DVec3, q: DVec3, a: DVec3, b: DVec3) -> Option<(f64, DVec3)> {
+    let (d1, d2, r) = (q - p, b - a, p - a);
+    let (aa, ee, f) = (d1.dot(d1), d2.dot(d2), d2.dot(r));
+    let (c, bb) = (d1.dot(r), d1.dot(d2));
+    let den = aa * ee - bb * bb;
+    if den.abs() < 1e-12 {
+        return None; // parallel
+    }
+    let t = (bb * f - c * ee) / den;
+    let s = (bb * t + f) / ee;
+    let tol = 1e-9;
+    if t <= tol || t >= 1.0 - tol || s < -tol || s > 1.0 + tol {
+        return None;
+    }
+    let (x, y) = (p + d1 * t, a + d2 * s);
+    (x.distance(y) < 1e-6).then_some((t, x))
 }
 
 fn same(a: &[Id], b: &[Id]) -> bool {
