@@ -1049,8 +1049,9 @@ fn blueprint_finds_floors_and_draws_them() {
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("bp.pdf").to_string_lossy().to_string();
     let r = run(&mut e, json!({"cmd":"blueprint","path":path,"sheet":"a3"}));
-    assert_eq!(r["pages"], 2);
+    assert_eq!(r["pages"], 3, "plans, elevations, building section");
     let pdf = String::from_utf8_lossy(&std::fs::read(&path).unwrap()).to_string();
+    assert!(pdf.contains("Section A") && pdf.contains("(A) Tj"), "section sheet and its marks on the plans");
     assert!(pdf.contains("Main floor plan") && pdf.contains("Upper floor plan") && pdf.contains("Front elevation"));
     assert!(pdf.contains("1:50") || pdf.contains("1:75") || pdf.contains("1:100"), "a true scale");
     assert!(pdf.contains("AREA") && pdf.contains("TOTAL"), "areas in the title block");
@@ -1058,14 +1059,13 @@ fn blueprint_finds_floors_and_draws_them() {
     let areas: Vec<&str> = pdf.lines().filter(|l| l.contains(" m2")).collect();
     assert!(pdf.contains("50.8 m2") && pdf.contains("TOTAL   101.7 m2"), "gross floor area: {areas:?}");
     // no doors or windows: no schedule page, but still a north arrow and level datums
-    assert_eq!(r["pages"], 2);
     assert!(pdf.contains("(N) Tj") && pdf.contains("UPPER FLOOR") && pdf.contains("ELEVATIONS"), "callouts");
     // a door and two windows: tags on the plan and a schedule page
     run(&mut e, json!({"cmd":"insert","asset":"door","at":[1.0,-0.1,0.0]}));
     run(&mut e, json!({"cmd":"insert","asset":"window","at":[3.5,-0.1,0.9]}));
     run(&mut e, json!({"cmd":"insert","asset":"window","at":[3.5,-0.1,3.9]}));
     let r2 = run(&mut e, json!({"cmd":"blueprint","path":path,"sheet":"a3"}));
-    assert_eq!(r2["pages"], 3, "schedule page");
+    assert_eq!(r2["pages"], 4, "schedule page");
     let pdf = String::from_utf8_lossy(&std::fs::read(&path).unwrap()).to_string();
     assert!(pdf.contains("(D1) Tj") && pdf.contains("(W1) Tj") && pdf.contains("SCHEDULE"), "tags and schedule");
     assert!(pdf.contains("Main, Upper"), "one window type on both floors");
