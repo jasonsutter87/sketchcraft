@@ -18,6 +18,3 @@ glam = { version = "0.30", features = ["serde"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-
-[profile.dev]
-opt-level = 1
