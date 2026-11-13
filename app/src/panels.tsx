@@ -407,6 +407,19 @@ export function EntityInfo({ scene, sel, run }: { scene: Scene; sel: Sel; run: R
           </>
         )}
       </div>
+      {taggable.length === 1 && selIds(sel).length === 1 && (
+        <label className="field">
+          <span>IFC type</span>
+          <select value={scene.classes?.[String(taggable[0])] ?? ""} onChange={(e) => run({ cmd: "classify", ids: taggable, class: e.target.value })}>
+            <option value="">{`(guess: ${guessIfc(groups[0]?.name ?? insts[0]?.name ?? "")})`}</option>
+            {IFC_TYPES.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       {insts.length === 1 && <AttrEditor key={insts[0].id} id={insts[0].id} attrs={insts[0].attrs ?? {}} run={run} />}
       {taggable.length > 0 && (
         <div className="row gap">
@@ -825,6 +838,82 @@ function AttrEditor({ id, attrs, run }: { id: number; attrs: Record<string, stri
         </button>
       </div>
       <p className="muted small">lenx / leny / lenz (m), copies, spacing, material, hidden. Formulas: =lenx*2, =if(a&gt;1, 2, 3), =parent!lenx</p>
+    </div>
+  );
+}
+
+
+const IFC_TYPES = ["IfcWall", "IfcSlab", "IfcRoof", "IfcDoor", "IfcWindow", "IfcColumn", "IfcBeam", "IfcStair", "IfcRailing", "IfcCovering", "IfcFurniture", "IfcPlate", "IfcMember", "IfcBuildingElementProxy"];
+
+/** The same name-based guess the IFC export makes. */
+function guessIfc(name: string): string {
+  const n = name.toLowerCase();
+  const has = (w: string) => n.includes(w);
+  if (has("wall")) return "IfcWall";
+  if (has("roof")) return "IfcRoof";
+  if (has("stair") || has("step")) return "IfcStair";
+  if (has("column") || has("post") || has("pillar")) return "IfcColumn";
+  if (has("door") || has("garage")) return "IfcDoor";
+  if (has("window")) return "IfcWindow";
+  if (has("slab") || has("floor") || has("foundation") || has("deck")) return "IfcSlab";
+  if (has("beam")) return "IfcBeam";
+  if (has("rail") || has("fence")) return "IfcRailing";
+  return "IfcBuildingElementProxy";
+}
+
+/** SketchUp's Add Location: real terrain (and map) around a place. */
+export function LocationDialog({ onAdd, onClose, current }: { onAdd: (p: { lat: number; lon: number; size: number; imagery: boolean }) => void; onClose: () => void; current?: { lat: number; lon: number } | null }) {
+  const [lat, setLat] = useState(current ? String(current.lat) : "");
+  const [lon, setLon] = useState(current ? String(current.lon) : "");
+  const [size, setSize] = useState("300");
+  const [imagery, setImagery] = useState(true);
+  const paste = (v: string) => {
+    // "37.8199, -122.4783" pasted into either box
+    const m = /(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)/.exec(v);
+    if (m) {
+      setLat(m[1]);
+      setLon(m[2]);
+      return true;
+    }
+    return false;
+  };
+  const ok = () => {
+    const [a, o, s] = [parseFloat(lat), parseFloat(lon), parseFloat(size)];
+    if (Number.isFinite(a) && Number.isFinite(o) && s > 0) onAdd({ lat: a, lon: o, size: s, imagery });
+  };
+  return (
+    <div className="sheet-backdrop" onClick={onClose}>
+      <div className="sheet" style={{ width: "min(420px, calc(100vw - 32px))" }} onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Add location">
+        <div className="sheet-head">
+          <b>Add location</b>
+          <span className="muted">Ground and map around a place.</span>
+        </div>
+        <label className="field">
+          <span>Latitude</span>
+          <input value={lat} placeholder="37.8199" onChange={(e) => paste(e.target.value) || setLat(e.target.value)} />
+        </label>
+        <label className="field">
+          <span>Longitude</span>
+          <input value={lon} placeholder="-122.4783" onChange={(e) => paste(e.target.value) || setLon(e.target.value)} />
+        </label>
+        <label className="field">
+          <span>Area (m across)</span>
+          <input value={size} onChange={(e) => setSize(e.target.value)} />
+        </label>
+        <label className="field check">
+          <input type="checkbox" checked={imagery} onChange={(e) => setImagery(e.target.checked)} />
+          <span>Map imagery (OpenStreetMap)</span>
+        </label>
+        <p className="muted small">Paste "lat, lon" from a map. The model's origin sits on the ground there, north up (+Y). Elevation: AWS Terrain Tiles; map © OpenStreetMap contributors.</p>
+        <div className="row gap" style={{ marginTop: 12 }}>
+          <button className="btn small" onClick={ok}>
+            Add
+          </button>
+          <button className="btn small ghost" onClick={onClose}>
+            Cancel
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

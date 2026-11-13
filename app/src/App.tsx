@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { exec, loadScene, sync, type Reply, type Scene } from "./engine";
 import { Icons, Logo } from "./icons";
-import { BuildTools, ContextMenu, contextItems, EntityInfo, Library, Outliner, Sandbox, SheetsDialog, ShortcutSheet, Textures, Views } from "./panels";
+import { BuildTools, ContextMenu, contextItems, EntityInfo, Library, LocationDialog, Outliner, Sandbox, SheetsDialog, ShortcutSheet, Textures, Views } from "./panels";
 import { EMPTY, isEmpty, selIds, type Sel } from "./selection";
 import { UNIT_OPTIONS } from "./units";
 import { pickOpen, pickSave, rememberedFile, rememberFile } from "./files";
@@ -134,6 +134,7 @@ export default function App() {
   const clip = useRef<{ ids: number[]; cut: boolean } | null>(null);
   const [showKeys, setShowKeys] = useState(false);
   const [showSheets, setShowSheets] = useState(false);
+  const [showLocation, setShowLocation] = useState(false);
   /** Match Photo in progress: the photo being lined up */
   const [matching, setMatching] = useState<{ src: string; width: number; height: number } | null>(null);
   const startMatch = async (file: File) => {
@@ -410,7 +411,7 @@ export default function App() {
       const path = await pickOpen();
       if (path) await importPath(path);
     },
-    export: async (kind: "obj" | "glb" | "stl" | "dae" | "dxf" | "pdf") => {
+    export: async (kind: "obj" | "glb" | "stl" | "dae" | "dxf" | "pdf" | "ifc") => {
       const base = (currentFile?.split("/").pop() ?? "model").replace(/\.sketchcraft$/, "");
       const path = await pickSave(`${base}.${kind}`, kind, kind.toUpperCase());
       if (!path) return;
@@ -492,6 +493,8 @@ export default function App() {
                   <button onClick={() => file.export("pdf")}>Export PDF (this view)…</button>
                   <button onClick={file.animation}>Export animation (MP4)…</button>
                   <button onClick={() => setShowSheets(true)}>Drawing sheets (PDF)…</button>
+                  <button onClick={() => file.export("ifc")}>Export IFC (BIM)…</button>
+                  <button onClick={() => setShowLocation(true)}>Add location…</button>
                   <button onClick={file.report}>Generate report (CSV)…</button>
                   <button onClick={file.render}>Render PNG…</button>
                   {section && (
@@ -657,6 +660,21 @@ export default function App() {
 
         {toast && <div className={`toast ${toast.bad ? "bad" : ""}`}>{toast.text}</div>}
         {showKeys && <ShortcutSheet onClose={() => setShowKeys(false)} />}
+        {showLocation && (
+          <LocationDialog
+            current={scene?.location}
+            onClose={() => setShowLocation(false)}
+            onAdd={async (p) => {
+              setShowLocation(false);
+              say("Fetching the ground and map…");
+              const r = await run({ cmd: "add_location", ...p });
+              if (r.ok) {
+                say(`Location added: ground ${Math.round(r.elevation as number)} m above sea level`);
+                api.current?.fitSoon();
+              }
+            }}
+          />
+        )}
         {showSheets && scene && (
           <SheetsDialog
             scene={scene}

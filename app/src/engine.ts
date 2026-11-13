@@ -76,6 +76,10 @@ export interface MaterialInfo {
 }
 
 export interface Scene {
+  /** Classifier: IFC type by group / placement id */
+  classes?: Record<string, string>;
+  /** geo-location of the origin */
+  location?: { lat: number; lon: number; elevation: number } | null;
   /** texture coordinates, two per vertex */
   uvs: number[];
   /** per triangle: index into `textures`, or -1 */
