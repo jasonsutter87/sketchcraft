@@ -9,6 +9,10 @@ import { pickOpen, pickSave, rememberedFile, rememberFile } from "./files";
 import Viewport, { type Backdrop, type BuildSettings, type FaceStyle, type Styles, type Tool, type ViewportApi } from "./Viewport";
 import { MatchPhoto, type PhotoMatch } from "./matchphoto";
 import { prepareImage } from "./textures";
+import { applySkin, readSkin, SKINS, store, type Skin } from "./skins";
+import { TOOL_INFO, WORKSPACES, withEdits, type WorkspaceEdits, type WorkspaceId } from "./workspace";
+import { AppearanceDialog, WorkspaceDialog } from "./appearance";
+import { WorkspaceStrip } from "./wsstrip";
 
 const DEFAULT_BUILD: BuildSettings = {
   wallThickness: 0.2,
@@ -122,6 +126,28 @@ const unhex = (h: string): [number, number, number] => [1, 3, 5].map((i) => pars
 
 type Tab = "outliner" | "library" | "views";
 
+/** the skin you wore last time (a built-in by id, or a saved one by its data) */
+function rememberedSkin(): Skin {
+  const id = store.get("sketchcraft.skin");
+  const built = SKINS.find((s) => s.id === id);
+  if (built) return built;
+  try {
+    const data = store.get("sketchcraft.skinData");
+    const s = data ? readSkin(JSON.parse(data), "My skin") : null;
+    if (s) return s;
+  } catch {
+    /* fall through */
+  }
+  return SKINS[0];
+}
+function rememberedEdits(): Partial<Record<WorkspaceId, WorkspaceEdits>> {
+  try {
+    return JSON.parse(store.get("sketchcraft.workspaceEdits") ?? "{}");
+  } catch {
+    return {};
+  }
+}
+
 export default function App() {
   const [scene, setScene] = useState<Scene | null>(null);
   const [tool, setTool] = useState<Tool>("rect");
@@ -139,6 +165,37 @@ export default function App() {
   const [tab, setTab] = useState<Tab>("outliner");
   const [styles, setStyles] = useState<Styles>({ xray: false, backEdges: false, shadows: false, edges: true, parallel: false, face: "textured", background: "default" });
   const [section, setSection] = useState(false);
+  // skin and workspace, remembered between launches
+  const [skin, setSkinState] = useState<Skin>(rememberedSkin);
+  useEffect(() => applySkin(skin), [skin]);
+  const wearSkin = (s: Skin, useBackdrop: boolean) => {
+    setSkinState(s);
+    store.set("sketchcraft.skin", s.id);
+    store.set("sketchcraft.skinData", JSON.stringify(s));
+    if (useBackdrop) setStyles((st) => ({ ...st, background: s.backdrop ?? "default" }));
+  };
+  const [wsId, setWsId] = useState<WorkspaceId>(() => (WORKSPACES.some((w) => w.id === store.get("sketchcraft.workspace")) ? (store.get("sketchcraft.workspace") as WorkspaceId) : "model"));
+  const [wsEdits, setWsEdits] = useState(rememberedEdits);
+  const ws = withEdits(WORKSPACES.find((w) => w.id === wsId)!, wsEdits[wsId]);
+  const editWs = (e: WorkspaceEdits | null) => {
+    const next = { ...wsEdits };
+    if (e) next[wsId] = { ...next[wsId], ...e };
+    else delete next[wsId];
+    setWsEdits(next);
+    store.set("sketchcraft.workspaceEdits", JSON.stringify(next));
+    if (e?.leftTab) setTab(e.leftTab);
+  };
+  const switchWs = (id: WorkspaceId) => {
+    const w = withEdits(WORKSPACES.find((x) => x.id === id)!, wsEdits[id]);
+    setWsId(id);
+    store.set("sketchcraft.workspace", id);
+    setTab(w.leftTab);
+    if (w.styles) setStyles((s) => ({ ...s, ...w.styles }));
+    // a tool that isn't on this workspace's toolbar: back to Select
+    if (!w.tools.flat().includes(tool)) chooseTool("select");
+  };
+  const [showSkins, setShowSkins] = useState(false);
+  const [showWs, setShowWs] = useState(false);
   const [placing, setPlacing] = useState<string | null>(null);
   const [build, setBuildState] = useState<BuildSettings>(loadBuild);
   const setBuild = (b: BuildSettings) => {
@@ -503,7 +560,7 @@ export default function App() {
   const selCount = selIds(sel).length;
 
   return (
-    <div className="app">
+    <div className={`app ${ws.showLeft ? "" : "no-left"} ${ws.showRight ? "" : "no-right"} ${ws.dock === "left" ? "dock-left" : ""}`}>
       <header className="topbar" data-tauri-drag-region>
         <div className="brand" data-tauri-drag-region>
           <Logo />
@@ -562,7 +619,20 @@ export default function App() {
             </button>
           )}
         </div>
+        <div className="ws-switch" role="tablist" aria-label="Workspace">
+          {WORKSPACES.map((w) => (
+            <button key={w.id} role="tab" aria-selected={wsId === w.id} className={wsId === w.id ? "on" : ""} title={w.blurb} onClick={() => switchWs(w.id)}>
+              {w.name}
+            </button>
+          ))}
+          <button title={`Customize the ${ws.name} workspace: tools, toolbar, panels`} onClick={() => setShowWs(true)} aria-label="Customize workspace">
+            ⋯
+          </button>
+        </div>
         <div className="top-actions">
+          <button className="icon-btn skin-btn" title="Skins: change how SketchCraft looks" onClick={() => setShowSkins(true)} aria-label="Skins">
+            <Icons.paint />
+          </button>
           <button className="icon-btn" title="Undo (⌘Z)" onClick={() => run({ cmd: "undo" })}>
             <Icons.undo />
           </button>
@@ -643,13 +713,16 @@ export default function App() {
         {matching && <MatchPhoto src={matching.src} width={matching.width} height={matching.height} defaultName={`Photo ${(scene?.views.filter((v) => v.photo).length ?? 0) + 1}`} onDone={finishMatch} onCancel={() => setMatching(null)} />}
 
         <nav className="toolbar">
-          {TOOL_GROUPS.map((g, i) => (
+          {ws.tools.map((g, i) => (
             <div key={i} className="tool-group">
-              {g.map((t) => (
-                <button key={t.id} className={`tool ${tool === t.id ? "on" : ""}`} onClick={() => chooseTool(t.id)} title={`${t.name} (${t.key})`}>
-                  {Icons[t.id]()}
-                </button>
-              ))}
+              {g.map((id) => {
+                const t = TOOL_INFO[id as keyof typeof TOOL_INFO];
+                return (
+                  <button key={id} className={`tool ${tool === id ? "on" : ""}`} onClick={() => chooseTool(id)} title={t.key ? `${t.name} (${t.key})` : t.name}>
+                    {Icons[id as keyof typeof Icons]()}
+                  </button>
+                );
+              })}
             </div>
           ))}
           <label className="chip" style={{ background: hex(color) }} title="Paint color">
@@ -674,9 +747,15 @@ export default function App() {
               ["shadows", "Shadows"],
               ["edges", "Edges"],
               ["parallel", "Parallel"],
+              ["notes", "Notes"],
             ] as [keyof Styles, string][]
           ).map(([k, label]) => (
-            <button key={k} className={styles[k] ? "on" : ""} onClick={() => setStyles((s) => ({ ...s, [k]: !s[k] }))}>
+            <button
+              key={k}
+              className={(k === "notes" ? styles.notes !== false : styles[k]) ? "on" : ""}
+              title={k === "notes" ? "Dimensions, labels and door swings" : undefined}
+              onClick={() => setStyles((s) => ({ ...s, [k]: k === "notes" ? s.notes === false : !s[k] }))}
+            >
               {label}
             </button>
           ))}
@@ -727,6 +806,24 @@ export default function App() {
           <input ref={typedRef} value={typed} placeholder={measure.value || "type, then Enter"} onChange={(e) => setTyped(e.target.value)} onKeyDown={(e) => e.key === "Escape" && (setTyped(""), typedRef.current?.blur())} />
         </form>
 
+        {scene && (
+          <WorkspaceStrip
+            ws={wsId}
+            scene={scene}
+            sel={sel}
+            setSel={setSel}
+            run={run}
+            api={api}
+            section={section}
+            setSection={(on) => {
+              setSection(on);
+              setSectionTick((t) => t + 1);
+            }}
+            actions={{ blueprint: file.blueprint, sheets: () => setShowSheets(true), location: () => setShowLocation(true), render: () => setShowRender(true), animation: file.animation }}
+          />
+        )}
+        {showSkins && <AppearanceDialog current={skin} onPick={wearSkin} onClose={() => setShowSkins(false)} onToast={say} />}
+        {showWs && <WorkspaceDialog ws={ws} onChange={editWs} onReset={() => editWs(null)} onClose={() => setShowWs(false)} />}
         {toast && <div className={`toast ${toast.bad ? "bad" : ""}`}>{toast.text}</div>}
         <AskHost />
         {showRender && api.current && (
