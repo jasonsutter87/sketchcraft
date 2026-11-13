@@ -25,15 +25,25 @@ pub struct Vertex {
     pub group: Option<Id>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Edge {
     pub a: Id,
     pub b: Id,
     #[serde(default)]
     pub group: Option<Id>,
+    /// Soft edges are drawn only in X-ray / hidden-line debug: the seams of a
+    /// curved surface, or the splits in a long street.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub soft: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub hidden: bool,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Face {
     /// Counter-clockwise about the face normal.
     pub outer: Vec<Id>,
@@ -44,11 +54,54 @@ pub struct Face {
     pub material: Option<String>,
     #[serde(default)]
     pub group: Option<Id>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub hidden: bool,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct Group {
+    pub name: String,
+    #[serde(default)]
+    pub tag: Option<String>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub hidden: bool,
+}
+
+/// A reusable piece (door, window, tree): geometry kept once, placed many
+/// times. Editing the definition updates every placement.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct Definition {
+    pub name: String,
+    pub model: Model,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Group {
+pub struct Instance {
+    pub def: Id,
     pub name: String,
+    pub transform: glam::DMat4,
+    #[serde(default)]
+    pub tag: Option<String>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub hidden: bool,
+}
+
+/// A construction guide: a line (with `dir`) or a point. Snappable, never exported.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Guide {
+    pub id: Id,
+    pub p: DVec3,
+    #[serde(default)]
+    pub dir: Option<DVec3>,
+}
+
+/// A saved camera ("scene" in other modelers).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct View {
+    pub name: String,
+    pub eye: [f64; 3],
+    pub target: [f64; 3],
+    pub fov: f64,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -66,6 +119,17 @@ pub struct Model {
     pub materials: BTreeMap<String, Material>,
     #[serde(default)]
     pub active_group: Option<Id>,
+    /// Tag name -> visible.
+    #[serde(default)]
+    pub tags: BTreeMap<String, bool>,
+    #[serde(default)]
+    pub definitions: BTreeMap<Id, Definition>,
+    #[serde(default)]
+    pub instances: BTreeMap<Id, Instance>,
+    #[serde(default)]
+    pub guides: Vec<Guide>,
+    #[serde(default)]
+    pub views: Vec<View>,
 }
 
 pub fn pairs(l: &[Id]) -> impl Iterator<Item = (Id, Id)> + '_ {
@@ -92,7 +156,7 @@ impl Face {
 }
 
 impl Model {
-    fn new_id(&mut self) -> Id {
+    pub(crate) fn new_id(&mut self) -> Id {
         self.next_id += 1;
         self.next_id
     }
@@ -134,7 +198,7 @@ impl Model {
         }
         let id = self.new_id();
         let group = self.vertices[&a].group;
-        self.edges.insert(id, Edge { a, b, group });
+        self.edges.insert(id, Edge { a, b, group, ..Default::default() });
         id
     }
 
@@ -176,7 +240,7 @@ impl Model {
     }
 
     /// Insert a face as given (no checks), creating its edges.
-    fn insert_face(&mut self, face: Face) -> Id {
+    pub(crate) fn insert_face(&mut self, face: Face) -> Id {
         for l in face.loops().cloned().collect::<Vec<_>>() {
             for (a, b) in pairs(&l) {
                 self.edge(a, b);
@@ -255,7 +319,7 @@ impl Model {
             // ground-like faces face up
             lp.reverse();
         }
-        Ok(self.insert_face(Face { outer: lp, holes: vec![], material: None, group }))
+        Ok(self.insert_face(Face { outer: lp, group, ..Default::default() }))
     }
 
     /// Remove the area of loop `cut` from face `pid` (they share an edge or
@@ -308,7 +372,7 @@ impl Model {
             let outer = to_ids(self, poly.exterior(), true);
             let holes = poly.interiors().iter().map(|h| to_ids(self, h, false)).collect::<Vec<_>>();
             if outer.len() >= 3 {
-                pieces.push(Face { outer, holes, material: parent.material.clone(), group: parent.group });
+                pieces.push(Face { outer, holes, material: parent.material.clone(), group: parent.group, ..Default::default() });
             }
         }
         self.faces.remove(&pid);
@@ -410,7 +474,7 @@ impl Model {
                 if carving {
                     quad.reverse();
                 }
-                sides.push(self.insert_face(Face { outer: quad, holes: vec![], material: f.material.clone(), group: f.group }));
+                sides.push(self.insert_face(Face { outer: quad, material: f.material.clone(), group: f.group, ..Default::default() }));
             }
         }
         let mut top = Face {
@@ -418,6 +482,7 @@ impl Model {
             holes: f.holes.iter().map(|h| h.iter().map(|v| map[v]).collect()).collect(),
             material: f.material.clone(),
             group: f.group,
+            ..Default::default()
         };
         if d < 0.0 && !carving {
             top.reverse();
@@ -521,7 +586,7 @@ impl Model {
     pub fn group(&mut self, ids: &[Id], name: String) -> Result<Id> {
         let faces = self.faces_of(ids)?;
         let gid = self.new_id();
-        self.groups.insert(gid, Group { name });
+        self.groups.insert(gid, Group { name, ..Default::default() });
         let mut verts = BTreeSet::new();
         for f in &faces {
             let face = self.faces.get_mut(f).unwrap();
@@ -543,7 +608,7 @@ impl Model {
     pub fn copy_group(&mut self, gid: Id, by: DVec3, name: Option<String>) -> Result<Id> {
         let g = self.groups.get(&gid).ok_or_else(|| anyhow!("{gid} is not a group"))?.clone();
         let new = self.new_id();
-        self.groups.insert(new, Group { name: name.unwrap_or_else(|| format!("{} copy", g.name)) });
+        self.groups.insert(new, Group { name: name.unwrap_or_else(|| format!("{} copy", g.name)), tag: g.tag.clone(), hidden: false });
         let mut map: HashMap<Id, Id> = HashMap::new();
         let verts: Vec<(Id, DVec3)> =
             self.vertices.iter().filter(|(_, v)| v.group == Some(gid)).map(|(&k, v)| (k, v.p)).collect();
@@ -555,7 +620,7 @@ impl Model {
         let edges: Vec<Edge> = self.edges.values().filter(|e| e.group == Some(gid)).cloned().collect();
         for e in edges {
             let id = self.new_id();
-            self.edges.insert(id, Edge { a: map[&e.a], b: map[&e.b], group: Some(new) });
+            self.edges.insert(id, Edge { a: map[&e.a], b: map[&e.b], group: Some(new), soft: e.soft, hidden: e.hidden });
         }
         let faces: Vec<Face> = self.faces.values().filter(|f| f.group == Some(gid)).cloned().collect();
         for f in faces {
@@ -565,6 +630,7 @@ impl Model {
                 holes: f.holes.iter().map(|h| h.iter().map(|v| map[v]).collect()).collect(),
                 material: f.material.clone(),
                 group: Some(new),
+                hidden: f.hidden,
             };
             self.faces.insert(id, face);
         }
@@ -573,7 +639,7 @@ impl Model {
 
     pub fn begin_group(&mut self, name: String) -> Id {
         let gid = self.new_id();
-        self.groups.insert(gid, Group { name });
+        self.groups.insert(gid, Group { name, ..Default::default() });
         self.active_group = Some(gid);
         gid
     }
