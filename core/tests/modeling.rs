@@ -428,3 +428,15 @@ fn glb_stl_and_obj_round_trip() {
     assert!((b["max"][2].as_f64().unwrap() - 6.0).abs() < 1e-3 || b["max"][2].as_f64().unwrap() > 4.0);
     std::fs::remove_dir_all(dir).ok();
 }
+
+#[test]
+fn crossing_lines_on_a_face_make_four_panes() {
+    let mut e = Engine::new();
+    run(&mut e, json!({"cmd":"rect","from":[0,0,0],"to":[4,3,0]}));
+    run(&mut e, json!({"cmd":"line","points":[[2,0,0],[2,3,0]]}));
+    run(&mut e, json!({"cmd":"line","points":[[0,2,0],[4,2,0]]}));
+    let fs = faces(&mut e);
+    assert_eq!(fs.len(), 4, "a mullion and a transom make four panes");
+    let total: f64 = fs.iter().map(|f| f["area"].as_f64().unwrap()).sum();
+    assert!((total - 12.0).abs() < 1e-9, "no overlapping faces");
+}
