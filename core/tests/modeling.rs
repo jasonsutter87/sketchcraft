@@ -735,3 +735,47 @@ fn section_cut_fills_walls_with_their_openings() {
     assert_eq!(d.matches("\nLINE\n").count(), 8, "outer and inner square");
     std::fs::remove_dir_all(dir).ok();
 }
+
+#[test]
+fn sandbox_contours_smoove_stamp_drape_flip() {
+    let mut e = Engine::new();
+    // two contour rings: a 20 m square at 0 m and a 10 m square at 2 m
+    let lines = |z: f64, h: f64| json!({"cmd":"line","points":[[-h,-h,z],[h,-h,z],[h,h,z],[-h,h,z],[-h,-h,z]]});
+    run(&mut e, lines(0.0, 10.0));
+    run(&mut e, lines(2.0, 5.0));
+    let ids: Vec<u32> = e.model.edges.keys().copied().collect();
+    // drawing closed rings made faces: the contours are the edges only
+    let g = run(&mut e, json!({"cmd":"terrain_from_contours","ids":ids,"spacing":2.5}))["group"].as_u64().unwrap() as u32;
+    let tris = e.model.faces.values().filter(|f| f.group == Some(g)).count();
+    assert!(tris > 20, "{tris}");
+    // every face is a triangle facing up; inside edges are soft, the rim is not
+    assert!(e.model.faces.iter().filter(|(_, f)| f.group == Some(g)).all(|(id, f)| f.outer.len() == 3 && e.model.normal(*id).z > 0.0));
+    let rim = e.model.edges.values().filter(|x| x.group == Some(g) && !x.soft).count();
+    assert!(rim >= 4 && rim < tris);
+    let top = |e: &Engine| e.model.vertices.values().map(|v| v.p.z).fold(f64::MIN, f64::max);
+    assert!((top(&e) - 2.0).abs() < 1e-9);
+
+    // smoove the middle up (the inner ring sits 5-7 m out)
+    run(&mut e, json!({"cmd":"smoove","group":g,"at":[0,0,0],"radius":12,"height":4}));
+    assert!(top(&e) > 4.0);
+
+    // stamp a 4 m pad at z = 1 in the middle: everything inside is flat at 1
+    let pad = run(&mut e, json!({"cmd":"polygon","points":[[-2,-2,1],[2,-2,1],[2,2,1],[-2,2,1]]}))["face"].as_u64().unwrap();
+    run(&mut e, json!({"cmd":"stamp","group":g,"face":pad,"offset":2}));
+    let inside: Vec<f64> = e.model.vertices.values().filter(|v| v.group == Some(g) && v.p.x.abs() <= 2.0 && v.p.y.abs() <= 2.0).map(|v| v.p.z).collect();
+    assert!(!inside.is_empty() && inside.iter().all(|z| (z - 1.0).abs() < 1e-9), "{inside:?}");
+
+    // drape a path across the terrain: it splits faces
+    let before = e.model.faces.values().filter(|f| f.group == Some(g)).count();
+    let path = run(&mut e, json!({"cmd":"line","points":[[-9,-7,10],[9,-7,10]]}))["edges"][0].as_u64().unwrap();
+    let r = run(&mut e, json!({"cmd":"drape","group":g,"ids":[path]}));
+    assert!(r["lines"].as_u64().unwrap() > 0);
+    assert!(e.model.faces.values().filter(|f| f.group == Some(g)).count() > before);
+
+    // flip an inside edge of a fresh grid
+    let grid = run(&mut e, json!({"cmd":"terrain_grid","at":[50,0,0],"width":2,"depth":1,"spacing":1}))["group"].as_u64().unwrap() as u32;
+    let diag = *e.model.edges.iter().find(|(_, x)| x.group == Some(grid) && x.soft).unwrap().0;
+    run(&mut e, json!({"cmd":"flip_edge","edge":diag}));
+    assert_eq!(e.model.faces.values().filter(|f| f.group == Some(grid)).count(), 4);
+    assert!(e.model.edges.get(&diag).is_none(), "the old diagonal is gone");
+}
