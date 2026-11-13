@@ -848,3 +848,68 @@ fn drawing_sheets_pdf() {
     assert_eq!(bad["ok"], false);
     std::fs::remove_dir_all(dir).ok();
 }
+
+#[test]
+fn dynamic_components_and_report() {
+    // a 1 x 0.1 x 1 m picket as a component
+    let mut e = Engine::new();
+    let g = run(&mut e, json!({"cmd":"begin_group","name":"Picket"}))["group"].as_u64().unwrap();
+    let f = run(&mut e, json!({"cmd":"polygon","points":[[0,0,0],[0.1,0,0],[0.1,0.1,0],[0,0.1,0]]}))["face"].as_u64().unwrap();
+    let up = e.model.normal(f as _).z > 0.0;
+    run(&mut e, json!({"cmd":"pushpull","face":f,"distance": if up { 1.0 } else { -1.0 }}));
+    run(&mut e, json!({"cmd":"end_group"}));
+    let inst = run(&mut e, json!({"cmd":"make_component","ids":[g],"name":"Picket"}))["instance"].as_u64().unwrap();
+    let faces0 = e.model.world_faces().len();
+
+    // a fence: 1.2 m tall pickets, 9 copies every 0.25 m, painted
+    let r = run(&mut e, json!({"cmd":"set_attrs","id":inst,"attrs":{"height":"1.2","lenz":"=height","copies":"=round(2/0.25)","spacing":"0.25","material":"#a05a2c"}}));
+    assert_eq!(r["values"]["copies"], 8.0);
+    let faces = e.model.world_faces();
+    assert_eq!(faces.len(), faces0 * 9, "the picket and 8 copies");
+    let top = faces.iter().flat_map(|f| f.outer.iter()).map(|p| p.z).fold(f64::MIN, f64::max);
+    assert!((top - 1.2).abs() < 1e-9, "stretched to 1.2 m: {top}");
+    let far = faces.iter().flat_map(|f| f.outer.iter()).map(|p| p.x).fold(f64::MIN, f64::max);
+    assert!((far - (2.0 + 0.1)).abs() < 1e-9, "last copy starts at 2 m: {far}");
+    assert!(faces.iter().all(|f| f.color.map_or(false, |c| (c[0] - 0xa0 as f32 / 255.0).abs() < 1e-6)));
+
+    // a formula error is reported, not saved silently broken
+    let bad = e.exec_json(&json!({"cmd":"set_attrs","id":inst,"attrs":{"lenx":"=nope*2"}}).to_string());
+    assert_eq!(bad["ok"], false);
+    run(&mut e, json!({"cmd":"set_attrs","id":inst,"attrs":{"lenx":""}}));
+
+    // hidden by formula
+    run(&mut e, json!({"cmd":"set_attrs","id":inst,"attrs":{"hidden":"=if(height>1, 1, 0)"}}));
+    assert_eq!(e.model.world_faces().len(), 0);
+    run(&mut e, json!({"cmd":"set_attrs","id":inst,"attrs":{"hidden":""}}));
+
+    // report
+    let dir = std::env::temp_dir().join(format!("sketchcraft-report-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let csv = dir.join("r.csv").to_string_lossy().to_string();
+    let r = run(&mut e, json!({"cmd":"report","path":csv}));
+    let row = &r["rows"][0];
+    assert_eq!(row["type"], "Component");
+    assert_eq!(row["size_z_m"], "1.2");
+    assert!(row["attributes"].as_str().unwrap().contains("copies=8"));
+    let text = std::fs::read_to_string(&csv).unwrap();
+    assert!(text.starts_with("type,id,name,component") && text.lines().count() == 2);
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[test]
+fn formulas() {
+    use sketchcraft::dynamic::eval;
+    let look = |n: &str| match n {
+        "a" => Ok(2.0),
+        _ => Err(anyhow::anyhow!("no {n}")),
+    };
+    assert_eq!(eval("=1+2*3", &look).unwrap(), 7.0);
+    assert_eq!(eval("(1+2)*3", &look).unwrap(), 9.0);
+    assert_eq!(eval("2^3^2", &look).unwrap(), 512.0);
+    assert_eq!(eval("-a + max(1, a, 3)", &look).unwrap(), 1.0);
+    assert_eq!(eval("if(a>=2, 10, 20)", &look).unwrap(), 10.0);
+    assert_eq!(eval("round(2.6)+floor(1.9)+ceil(0.1)", &look).unwrap(), 5.0);
+    assert!(eval("1/0", &look).is_err());
+    assert!(eval("b+1", &look).is_err());
+    assert!(eval("1+", &look).is_err());
+}
