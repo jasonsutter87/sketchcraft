@@ -779,3 +779,28 @@ fn sandbox_contours_smoove_stamp_drape_flip() {
     assert_eq!(e.model.faces.values().filter(|f| f.group == Some(grid)).count(), 4);
     assert!(e.model.edges.get(&diag).is_none(), "the old diagonal is gone");
 }
+
+#[test]
+fn exports_dae_dxf_pdf() {
+    let mut e = Engine::new();
+    make_box(&mut e);
+    let dir = std::env::temp_dir().join(format!("sketchcraft-x2-{}", std::process::id()));
+    let p = |n: &str| dir.join(n).to_string_lossy().to_string();
+    let r = run(&mut e, json!({"cmd":"export_dae","path":p("m.dae")}));
+    assert_eq!(r["triangles"], 12);
+    let dae = std::fs::read_to_string(p("m.dae")).unwrap();
+    assert!(dae.contains("<COLLADA") && dae.contains("<up_axis>Z_UP</up_axis>") && dae.contains("<triangles"));
+    let r = run(&mut e, json!({"cmd":"export_dxf","path":p("m.dxf")}));
+    let dxf = std::fs::read_to_string(p("m.dxf")).unwrap();
+    assert_eq!(dxf.matches("\n3DFACE\n").count() as u64, r["triangles"].as_u64().unwrap());
+    run(&mut e, json!({"cmd":"export_pdf","path":p("m.pdf"),"width":320,"height":200,"title":"Box"}));
+    let pdf = std::fs::read(p("m.pdf")).unwrap();
+    assert!(pdf.starts_with(b"%PDF-1.4") && pdf.ends_with(b"%%EOF\n"));
+    // the xref offsets point at the objects
+    let find = |needle: &[u8]| pdf.windows(needle.len()).rposition(|w| w == needle).unwrap();
+    let xref = find(b"\nxref\n") + 1;
+    let table = String::from_utf8(pdf[xref..].to_vec()).unwrap();
+    let first: usize = table.lines().nth(3).unwrap()[..10].parse().unwrap();
+    assert!(pdf[first..].starts_with(b"1 0 obj"));
+    std::fs::remove_dir_all(dir).ok();
+}
