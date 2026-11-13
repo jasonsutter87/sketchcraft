@@ -32,7 +32,14 @@ impl Model {
             bail!("the section plane needs a direction");
         }
         let n = normal.normalize();
-        let (u, v) = geom::basis(n);
+        // how the cut lies on paper: plans north-up (+X right, +Y up);
+        // elevations and side cuts with up as up
+        let (u, v) = if n.z.abs() > 0.9 {
+            (DVec3::X, DVec3::Y)
+        } else {
+            let right = DVec3::Z.cross(n).normalize();
+            (right, DVec3::Z)
+        };
         let w = n.dot(origin);
         let mut by_owner: HashMap<Id, Vec<(DVec3, DVec3)>> = HashMap::new();
         let mut segments = Vec::new();
