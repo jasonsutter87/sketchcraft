@@ -299,6 +299,21 @@ pub enum Command {
     Drape { group: Id, ids: Vec<Id> },
     /// Sandbox Flip Edge: swap the diagonal between two triangles.
     FlipEdge { edge: Id },
+    /// Match Photo: solve the camera from two red and two green lines drawn
+    /// along a photo's edges (pixels, first line of each pair toward +axis)
+    /// and the origin's spot; saves it as a view that keeps the photo.
+    MatchPhoto {
+        name: String,
+        width: f64,
+        height: f64,
+        red: [[f64; 4]; 2],
+        green: [[f64; 4]; 2],
+        origin: [f64; 2],
+        #[serde(default = "photo_distance")]
+        distance: f64,
+        #[serde(default)]
+        photo: Option<String>,
+    },
     /// Volume of a closed group / component (m³), or not a solid.
     Volume { id: Id },
     /// Import a binary FBX (7.x): `path`, or the file as base64 in `data`.
@@ -372,6 +387,10 @@ pub enum Command {
 pub enum Factor {
     Uniform(f64),
     Axes([f64; 3]),
+}
+
+fn photo_distance() -> f64 {
+    15.0
 }
 
 fn anim_fps() -> f64 {
@@ -867,8 +886,22 @@ impl Engine {
             }
             Command::SaveView { name, eye, target, fov } => {
                 m.views.retain(|v| v.name != name);
-                m.views.push(crate::model::View { name, eye, target, fov });
+                // re-saving a matched photo's scene keeps its photo
+                let photo = m.views.iter().find(|v| v.name == name).and_then(|v| v.photo.clone());
+                m.views.retain(|v| v.name != name);
+                m.views.push(crate::model::View { name, eye, target, fov, photo });
                 json!({})
+            }
+            Command::MatchPhoto { name, width, height, red, green, origin, distance, photo } => {
+                let cam = crate::matchphoto::solve(width, height, red, green, origin, distance)?;
+                if let Some(p) = &photo {
+                    if !p.starts_with("data:image/") {
+                        bail!("photo must be a data:image/... URL");
+                    }
+                }
+                m.views.retain(|v| v.name != name);
+                m.views.push(crate::model::View { name: name.clone(), eye: cam.eye.to_array(), target: cam.target.to_array(), fov: cam.fov, photo });
+                json!({"view": name, "eye": cam.eye.to_array(), "target": cam.target.to_array(), "fov": cam.fov})
             }
             Command::DeleteView { name } => {
                 m.views.retain(|v| v.name != name);

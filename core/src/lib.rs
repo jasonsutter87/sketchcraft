@@ -20,6 +20,7 @@ pub mod intersect;
 pub mod live;
 pub mod mcp;
 pub mod mesh;
+pub mod matchphoto;
 pub mod model;
 pub mod render;
 pub mod sandbox;

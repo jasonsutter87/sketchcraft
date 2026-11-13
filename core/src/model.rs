@@ -121,6 +121,9 @@ pub struct View {
     pub eye: [f64; 3],
     pub target: [f64; 3],
     pub fov: f64,
+    /// Match Photo: the photo seen from this camera (data URL)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub photo: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
