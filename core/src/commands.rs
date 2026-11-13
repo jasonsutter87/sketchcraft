@@ -105,6 +105,46 @@ pub enum Command {
     Copy { group: Id, by: [f64; 3], #[serde(default)] name: Option<String> },
     /// Counts, bounds, groups, materials.
     Info,
+    /// Make faces or a group into a reusable component (placed where it was).
+    MakeComponent { ids: Vec<Id>, #[serde(default)] name: Option<String> },
+    /// Place a component (by id or name) at a point, optionally turned about Z.
+    Place {
+        component: Value,
+        at: [f64; 3],
+        #[serde(default)]
+        rotate: f64,
+        #[serde(default)]
+        name: Option<String>,
+    },
+    /// Open a group, or a component's definition through one of its placements; `close` to finish.
+    Edit { id: Id },
+    Close,
+    /// Turn a component placement back into plain geometry.
+    Explode { id: Id },
+    /// List the component library.
+    Components,
+    Hide { ids: Vec<Id> },
+    /// Unhide `ids`, or everything if none given.
+    Unhide { #[serde(default)] ids: Vec<Id> },
+    /// Put groups/components on a tag (layer); null tag removes it.
+    Tag { ids: Vec<Id>, tag: Option<String> },
+    TagVisible { tag: String, visible: bool },
+    /// Soft edges aren't drawn. `ids` edges or faces; `coplanar:true` softens every flat seam.
+    Soften {
+        #[serde(default)]
+        ids: Vec<Id>,
+        #[serde(default = "yes")]
+        soft: bool,
+        #[serde(default)]
+        coplanar: bool,
+    },
+    Rename { id: Id, name: String },
+    /// Construction guide: a line through `point` along `direction`, or a point.
+    Guide { point: [f64; 3], #[serde(default)] direction: Option<[f64; 3]> },
+    ClearGuides,
+    /// Save a camera as a named view.
+    SaveView { name: String, eye: [f64; 3], target: [f64; 3], #[serde(default = "fov")] fov: f64 },
+    DeleteView { name: String },
     Undo,
     Redo,
     /// Render a PNG. Without `out`, just reports the camera it would use.
@@ -135,6 +175,14 @@ fn arc_segments() -> usize {
     12
 }
 
+fn yes() -> bool {
+    true
+}
+
+fn fov() -> f64 {
+    45.0
+}
+
 fn up() -> [f64; 3] {
     [0.0, 0.0, 1.0]
 }
@@ -145,6 +193,7 @@ impl Command {
             self,
             Command::Faces { .. }
                 | Command::Info
+                | Command::Components
                 | Command::Pick { .. }
                 | Command::Undo
                 | Command::Redo
@@ -163,6 +212,8 @@ pub struct Engine {
     /// Script names: `"as":"front"` on a command stores its result id,
     /// and any later `"@front"` value is replaced by it.
     pub names: HashMap<String, Id>,
+    /// Component definition being edited (`edit`), if any.
+    pub ctx: Option<Id>,
 }
 
 const UNDO_LIMIT: usize = 200;
@@ -236,7 +287,17 @@ impl Engine {
     }
 
     fn run(&mut self, cmd: Command) -> Result<Value> {
-        let m = &mut self.model;
+        // inside `edit`, geometry commands work on the component's definition
+        if let Some(d) = self.ctx {
+            if !self.model.definitions.contains_key(&d) {
+                self.ctx = None;
+            }
+        }
+        let ctx = self.ctx;
+        let m: &mut Model = match ctx {
+            Some(d) => &mut self.model.definitions.get_mut(&d).unwrap().model,
+            None => &mut self.model,
+        };
         Ok(match cmd {
             Command::New => {
                 *m = Model::default();
@@ -385,8 +446,91 @@ impl Engine {
                 json!({"face": face, "exact": on.is_some()})
             }
             Command::Copy { group, by, name } => json!({"group": m.copy_group(group, v3(by), name)?}),
+            Command::MakeComponent { ids, name } => {
+                let n = name.unwrap_or_else(|| format!("Component {}", m.definitions.len() + 1));
+                let inst = m.make_component(&ids, n)?;
+                json!({"instance": inst, "component": m.instances[&inst].def})
+            }
+            Command::Place { component, at, rotate, name } => {
+                let key = match &component {
+                    Value::String(s) => s.clone(),
+                    other => other.to_string(),
+                };
+                let Some(def) = m.find_definition(&key) else { bail!("no component {key}") };
+                json!({"instance": m.place(def, v3(at), rotate, name)?})
+            }
+            Command::Edit { id } => {
+                if m.groups.contains_key(&id) {
+                    m.active_group = Some(id); // new geometry and lines go inside the group
+                    return Ok(json!({"editing_group": id}));
+                }
+                let Some(i) = self.model.instances.get(&id) else { bail!("{id} is not a group or component placement") };
+                self.ctx = Some(i.def);
+                json!({"editing": i.def})
+            }
+            Command::Close => {
+                m.active_group = None;
+                self.ctx = None;
+                json!({})
+            }
+            Command::Explode { id } => json!({"group": m.explode(id)?}),
+            Command::Components => json!({"components": m.definitions.iter().map(|(id, d)| json!({
+                "id": id, "name": d.name, "faces": d.model.faces.len(),
+                "placed": m.instances.values().filter(|i| i.def == *id).count(),
+            })).collect::<Vec<_>>()}),
+            Command::Hide { ids } => {
+                m.set_hidden(&ids, true)?;
+                json!({})
+            }
+            Command::Unhide { ids } => {
+                if ids.is_empty() { m.unhide_all() } else { m.set_hidden(&ids, false)? }
+                json!({})
+            }
+            Command::Tag { ids, tag } => {
+                m.set_tag(&ids, tag)?;
+                json!({})
+            }
+            Command::TagVisible { tag, visible } => {
+                m.tags.insert(tag, visible);
+                json!({})
+            }
+            Command::Soften { ids, soft, coplanar } => {
+                let n = if coplanar { m.soften_coplanar() } else { m.soften(&ids, soft)? };
+                json!({"edges": n})
+            }
+            Command::Rename { id, name } => {
+                if let Some(g) = m.groups.get_mut(&id) {
+                    g.name = name;
+                } else if let Some(i) = m.instances.get_mut(&id) {
+                    i.name = name;
+                } else if let Some(d) = m.definitions.get_mut(&id) {
+                    d.name = name;
+                } else {
+                    bail!("{id} can't be renamed (groups and components only)");
+                }
+                json!({})
+            }
+            Command::Guide { point, direction } => {
+                let id = m.next_id + 1;
+                m.next_id = id;
+                m.guides.push(crate::model::Guide { id, p: v3(point), dir: direction.map(|d| v3(d).normalize()) });
+                json!({"guide": id})
+            }
+            Command::ClearGuides => {
+                m.guides.clear();
+                json!({})
+            }
+            Command::SaveView { name, eye, target, fov } => {
+                m.views.retain(|v| v.name != name);
+                m.views.push(crate::model::View { name, eye, target, fov });
+                json!({})
+            }
+            Command::DeleteView { name } => {
+                m.views.retain(|v| v.name != name);
+                json!({})
+            }
             Command::Info => {
-                let b = m.bounds().map(|(lo, hi)| json!({"min": lo.to_array(), "max": hi.to_array()}));
+                let b = m.world_bounds().map(|(lo, hi)| json!({"min": lo.to_array(), "max": hi.to_array()}));
                 json!({
                     "vertices": m.vertices.len(),
                     "edges": m.edges.len(),
@@ -394,6 +538,10 @@ impl Engine {
                     "groups": m.groups.iter().map(|(id, g)| json!({"id": id, "name": g.name})).collect::<Vec<_>>(),
                     "materials": m.materials.keys().collect::<Vec<_>>(),
                     "active_group": m.active_group,
+                    "editing": ctx,
+                    "instances": m.instances.iter().map(|(id, i)| json!({"id": id, "name": i.name, "component": i.def})).collect::<Vec<_>>(),
+                    "tags": &m.tags,
+                    "views": m.views.iter().map(|v| &v.name).collect::<Vec<_>>(),
                     "bounds": b,
                 })
             }
@@ -408,12 +556,13 @@ impl Engine {
                 json!({})
             }
             Command::Render { out, opts } => {
-                let cam = render::camera_for(m, &opts);
+                let whole = &self.model;
+                let cam = render::camera_for(whole, &opts);
                 if let Some(path) = &out {
                     if let Some(dir) = std::path::Path::new(path).parent() {
                         std::fs::create_dir_all(dir).ok();
                     }
-                    render::render(m, &opts).save(path)?;
+                    render::render(whole, &opts).save(path)?;
                 }
                 json!({"out": out, "camera": {"eye": cam.eye, "target": cam.target, "fov": cam.fov}})
             }
