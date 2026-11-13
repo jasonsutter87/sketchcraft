@@ -121,9 +121,28 @@ pub struct View {
     pub fov: f64,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Material {
+    /// The color (for textures: the image's average color, used by renders).
     pub color: [f32; 3],
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub texture: Option<Texture>,
+}
+
+/// An image material. Faces show it at `width` x `height` meters per tile,
+/// laid along each face, or, with `project`, projected along one direction so
+/// the picture runs across every face it's painted on.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Texture {
+    /// a data: URL (PNG or JPEG)
+    pub data: String,
+    pub width: f64,
+    pub height: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project: Option<[f64; 3]>,
+    /// for projected textures: a point the image's corner sits on
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<[f64; 3]>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -682,11 +701,22 @@ impl Model {
             (color[1].clamp(0.0, 1.0) * 255.0).round() as u8,
             (color[2].clamp(0.0, 1.0) * 255.0).round() as u8
         );
-        self.materials.entry(name.clone()).or_insert(Material { color });
+        self.materials.entry(name.clone()).or_insert(Material { color, texture: None });
         for f in self.faces_of(ids)? {
             self.faces.get_mut(&f).unwrap().material = Some(name.clone());
         }
         Ok(name)
+    }
+
+    /// Paint faces (or whole groups) with an existing material by name.
+    pub fn paint_material(&mut self, ids: &[Id], name: &str) -> Result<()> {
+        if !self.materials.contains_key(name) {
+            bail!("no material {name}");
+        }
+        for f in self.faces_of(ids)? {
+            self.faces.get_mut(&f).unwrap().material = Some(name.to_string());
+        }
+        Ok(())
     }
 
     pub fn bounds(&self) -> Option<(DVec3, DVec3)> {
