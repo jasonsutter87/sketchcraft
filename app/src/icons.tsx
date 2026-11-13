@@ -106,6 +106,29 @@ export const Icons = {
       <path d="M5 6.5V5h14v1.5M12 5v14M9.5 19h5" />
     </Svg>
   ),
+  wall: () => (
+    <Svg>
+      <path d="M3 19V9l6-3v10M9 16l12-3V7L9 6" />
+      <path d="M3 19l6-3M21 13v-0" />
+    </Svg>
+  ),
+  stairs: () => (
+    <Svg>
+      <path d="M3 20h4v-4h4v-4h4V8h4V4" />
+      <path d="M3 20V4" strokeDasharray="1.5 2" />
+    </Svg>
+  ),
+  roof: () => (
+    <Svg>
+      <path d="M2.5 12 12 4.5l9.5 7.5" />
+      <path d="M5.5 10v9.5h13V10" />
+    </Svg>
+  ),
+  column: () => (
+    <Svg>
+      <path d="M7 4h10M7 20h10M9 4v16M15 4v16" />
+    </Svg>
+  ),
   paint: () => (
     <Svg>
       <path d="M14.5 4.5 19.5 9.5 11 18l-5-5z" />
