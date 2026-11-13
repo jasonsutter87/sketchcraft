@@ -5,6 +5,7 @@
 //! all drive exactly the same thing.
 
 pub mod commands;
+pub mod components;
 pub mod export;
 pub mod geom;
 pub mod http;

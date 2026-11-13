@@ -551,6 +551,8 @@ impl Model {
                 for f in dead {
                     self.faces.remove(&f);
                 }
+            } else if self.instances.remove(id).is_some() {
+                // component placement removed; its definition stays in the library
             } else if self.groups.remove(id).is_some() {
                 let gid = Some(*id);
                 self.faces.retain(|_, f| f.group != gid);
