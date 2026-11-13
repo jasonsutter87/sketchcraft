@@ -861,18 +861,31 @@ export function ShortcutSheet({ onClose }: { onClose: () => void }) {
 }
 
 /** LayOut-lite: pick views (and scales) for a PDF set of drawing sheets. */
-export function SheetsDialog({ scene, onMake, onClose }: { scene: Scene; onMake: (spec: { sheet: string; project: string; pages: { title: string; viewports: { view: string; scale?: string; label?: string }[] }[] }) => void; onClose: () => void }) {
+export function SheetsDialog({ scene, onMake, onClose }: { scene: Scene; onMake: (spec: { sheet: string; project: string; blueprint: boolean; pages: { title: string; viewports: { view: string; scale?: string; label?: string; cut?: number }[] }[] }) => void; onClose: () => void }) {
   const standard = ["iso", "top", "front", "right", "back", "left"];
-  const all = [...scene.views.map((v) => v.name), ...standard];
+  // floor plans, one per floor the engine finds
+  const [levels, setLevels] = useState<number[]>([]);
+  useEffect(() => {
+    exec({ cmd: "levels" }).then((r) => {
+      if (!r.ok) return;
+      const lv = r.levels as number[];
+      setLevels(lv);
+      setPicked((p) => ({ ...p, ...Object.fromEntries(lv.map((_, i) => [`plan:${i}`, { on: true, scale: "1:100" }])) }));
+    });
+  }, []);
+  const [blueprint, setBlueprint] = useState(false);
+  const all = [...levels.map((_, i) => `plan:${i}`), ...scene.views.map((v) => v.name), ...standard];
   const [sheet, setSheet] = useState("a3");
   const [project, setProject] = useState("Project");
   const [perPage, setPerPage] = useState(false);
   const [picked, setPicked] = useState<Record<string, { on: boolean; scale: string }>>(() =>
     Object.fromEntries(all.map((n, i) => [n, { on: scene.views.length ? i < scene.views.length && i < 4 : ["top", "front", "right", "iso"].includes(n), scale: ["top", "front", "right", "back", "left"].includes(n) ? "1:100" : "" }]))
   );
-  const label = (n: string) => (standard.includes(n) ? { iso: "Iso view", top: "Plan (top)", front: "Front elevation", right: "Right elevation", back: "Back elevation", left: "Left elevation" }[n] ?? n : n);
+  const label = (n: string) => (n.startsWith("plan:") ? `${["Main floor", "Upper floor"][Number(n.slice(5))] ?? `Floor ${Number(n.slice(5)) + 1}`} plan` : standard.includes(n) ? { iso: "Iso view", top: "Plan (top)", front: "Front elevation", right: "Right elevation", back: "Back elevation", left: "Left elevation" }[n] ?? n : n);
   const make = () => {
-    const chosen = all.filter((n) => picked[n]?.on).map((n) => ({ view: n, scale: picked[n].scale.trim() || undefined, label: label(n) }));
+    const chosen = all
+      .filter((n) => picked[n]?.on)
+      .map((n) => (n.startsWith("plan:") ? { view: "top", cut: levels[Number(n.slice(5))] + 1.22, scale: picked[n].scale.trim() || undefined, label: label(n) } : { view: n, scale: picked[n].scale.trim() || undefined, label: label(n) }));
     if (!chosen.length) return;
     const pages = [];
     const per = perPage ? 1 : 4;
@@ -880,7 +893,7 @@ export function SheetsDialog({ scene, onMake, onClose }: { scene: Scene; onMake:
       const vs = chosen.slice(i, i + per);
       pages.push({ title: perPage ? vs[0].label : `Sheet ${pages.length + 1}`, viewports: vs });
     }
-    onMake({ sheet, project: project.trim() || "Project", pages });
+    onMake({ sheet, project: project.trim() || "Project", pages, blueprint });
   };
   return (
     <div className="sheet-backdrop" onClick={onClose}>
@@ -906,6 +919,10 @@ export function SheetsDialog({ scene, onMake, onClose }: { scene: Scene; onMake:
         <label className="field check">
           <input type="checkbox" checked={perPage} onChange={(e) => setPerPage(e.target.checked)} />
           <span>One view per sheet</span>
+        </label>
+        <label className="field check">
+          <input type="checkbox" checked={blueprint} onChange={(e) => setBlueprint(e.target.checked)} />
+          <span>Blueprint (white lines on blue)</span>
         </label>
         <div className="section-title" style={{ marginTop: 10 }}>
           Views <span className="muted">(scale like 1:100 for a true-scale drawing; blank to fit)</span>

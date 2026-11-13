@@ -464,6 +464,14 @@ export default function App() {
       const r = await run({ cmd: "section", ...plane, path });
       if (r.ok) say(`Exported the section cut to ${path.split("/").pop()}`);
     },
+    blueprint: async () => {
+      const base = (currentFile?.split("/").pop() ?? "model").replace(/\.sketchcraft$/, "");
+      const path = await pickSave(`${base} blueprint.pdf`, "pdf", "PDF");
+      if (!path) return;
+      say("Drawing the blueprint: every floor plan and four elevations…");
+      const r = await run({ cmd: "blueprint", path, project: base });
+      if (r.ok) say(`Blueprint ready: ${(r.levels as number[]).length} floor plan${(r.levels as number[]).length === 1 ? "" : "s"} + 4 elevations in ${path.split("/").pop()}`);
+    },
     report: async () => {
       const base = (currentFile?.split("/").pop() ?? "model").replace(/\.sketchcraft$/, "");
       const path = await pickSave(`${base} report.csv`, "csv", "CSV");
@@ -523,6 +531,7 @@ export default function App() {
                   <button onClick={() => file.export("dxf")}>Export 3D DXF (mm)…</button>
                   <button onClick={() => file.export("pdf")}>Export PDF (this view)…</button>
                   <button onClick={file.animation}>Export animation (MP4)…</button>
+                  <button onClick={file.blueprint}>Make blueprint (PDF)…</button>
                   <button onClick={() => setShowSheets(true)}>Drawing sheets (PDF)…</button>
                   <button onClick={() => file.export("ifc")}>Export IFC (BIM)…</button>
                   <button onClick={() => setShowLocation(true)}>Add location…</button>
