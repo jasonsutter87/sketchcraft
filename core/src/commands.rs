@@ -193,6 +193,23 @@ pub enum Command {
     ExportGlb { path: String },
     /// Binary STL for 3D printing; `scale` 1000 gives millimeters.
     ExportStl { path: String, #[serde(default = "one")] scale: f64 },
+    /// Animation through saved views (or a turntable): `path` .mp4/.mov
+    /// (needs ffmpeg) or a folder for PNG frames. Render options apply.
+    Animate {
+        path: String,
+        #[serde(default = "anim_fps")]
+        fps: f64,
+        #[serde(default = "anim_transition")]
+        transition: f64,
+        #[serde(default = "one")]
+        delay: f64,
+        #[serde(default)]
+        views: Vec<String>,
+        #[serde(default = "anim_turntable")]
+        turntable: f64,
+        #[serde(flatten)]
+        opts: RenderOpts,
+    },
     /// Collada (.dae), Z up, meters: one object per group / component.
     ExportDae { path: String },
     /// 3D DXF: 3DFACE triangles in millimeters, a layer per object.
@@ -357,6 +374,18 @@ pub enum Factor {
     Axes([f64; 3]),
 }
 
+fn anim_fps() -> f64 {
+    24.0
+}
+
+fn anim_transition() -> f64 {
+    2.0
+}
+
+fn anim_turntable() -> f64 {
+    8.0
+}
+
 fn contour_spacing() -> f64 {
     1.0
 }
@@ -448,6 +477,7 @@ impl Command {
                 | Command::ExportGlb { .. }
                 | Command::ExportStl { .. }
                 | Command::ExportDae { .. }
+                | Command::Animate { .. }
                 | Command::ExportDxf { .. }
                 | Command::ExportPdf { .. }
                 | Command::Assets
@@ -891,6 +921,10 @@ impl Engine {
             }
             Command::ExportGlb { path } => json!({"path": path, "triangles": export::write_glb(&self.model, &path)?}),
             Command::ExportStl { path, scale } => json!({"path": path, "triangles": export::write_stl(&self.model, &path, scale)?}),
+            Command::Animate { path, fps, transition, delay, views, turntable, opts } => {
+                let a = crate::animate::Anim { fps, transition, delay, views, turntable };
+                json!({"path": path, "frames": crate::animate::animate(&self.model, &path, &a, &opts)?})
+            }
             Command::ExportDae { path } => json!({"path": path, "triangles": crate::export2::write_dae(&self.model, &path)?}),
             Command::ExportDxf { path } => json!({"path": path, "triangles": crate::export2::write_dxf(&self.model, &path)?}),
             Command::ExportPdf { path, title, opts } => {

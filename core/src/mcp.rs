@@ -37,6 +37,7 @@ ORGANIZE
 - Sandbox: terrain_from_contours {ids: contour edges/groups, spacing?=1}; terrain_grid {at?, width, depth, spacing?=1}; smoove {group, at, radius, height}; stamp {group, face: footprint, offset?=1}; drape {group, ids: edges}; flip_edge {edge}
 - export_dae {path} (Collada), export_dxf {path} (3D faces, mm), export_pdf {path, title?, + render options}
 - import_fbx {path | data(base64), at?, name?}: binary FBX 7.x -> one component, a group per mesh, material colors
+- animate {path: .mp4|.mov|folder, fps?=24, transition?=2 s, delay?=1 s, views?: names, turntable?=8 s, + render options}: scene animation (turntable with <2 views)
 - solid {op: union|subtract|intersect|trim|split|outer_shell, ids:[group or instance, ...]}: solid tools on closed shapes; subtract/trim: the first cuts the second. volume {id} -> {solid, volume m3}
 - import_skp {path | data(base64)}: SketchUp files, legacy 6-8 and modern 2013+ (geometry, nested components, colors, textures)
 - insert {asset, at, rotate?}: built-ins door, window, garage_door, tree, palm, car, streetlight, bench, hydrant (doors/windows face -Y, origin bottom-left on the wall).
