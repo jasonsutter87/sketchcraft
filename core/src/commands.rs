@@ -164,7 +164,11 @@ pub enum Command {
     ExportStl { path: String, #[serde(default = "one")] scale: f64 },
     /// Import an OBJ file; each object becomes a group. `up` "y" (default) or "z".
     ImportObj {
-        path: String,
+        #[serde(default)]
+        path: Option<String>,
+        /// the file's contents, instead of a path (the app sends this)
+        #[serde(default)]
+        text: Option<String>,
         #[serde(default = "y_up")]
         up: String,
         #[serde(default = "one")]
@@ -615,8 +619,12 @@ impl Engine {
             }
             Command::ExportGlb { path } => json!({"path": path, "triangles": export::write_glb(&self.model, &path)?}),
             Command::ExportStl { path, scale } => json!({"path": path, "triangles": export::write_stl(&self.model, &path, scale)?}),
-            Command::ImportObj { path, up, scale, at } => {
-                let text = std::fs::read_to_string(&path)?;
+            Command::ImportObj { path, text, up, scale, at } => {
+                let text = match (text, path) {
+                    (Some(t), _) => t,
+                    (None, Some(p)) => std::fs::read_to_string(&p)?,
+                    _ => bail!("import_obj needs a path or text"),
+                };
                 let r = crate::import::import_obj(m, &text, up.eq_ignore_ascii_case("y"), scale, v3(at))?;
                 json!({"groups": r.groups, "group": r.groups.first(), "faces": r.faces, "skipped": r.skipped})
             }
