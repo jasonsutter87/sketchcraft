@@ -45,7 +45,8 @@ ORGANIZE
 - add_location {lat, lon, size?=300 m, cells?=60, imagery?=true}: real terrain (+ OpenStreetMap imagery) around a place; origin at ground, +Y north
 - blueprint {path(.pdf), sheet?=a3, project?}: every floor plan + 4 elevations, white on blue, true scale. levels: floor heights. sheets also takes blueprint:true
 - bevel {edges, size m, segments?=1 (chamfer) | >1 (round)}: outside edges of solid groups. divide {edge, count}. slice {id, origin, normal}: two pieces
-- photoreal {out? (else data URL), samples?=32, bounces?=6, sun_azimuth? (deg from north; default lights the view), sun_altitude?=32, exposure?, + render options (view/camera/width/height)}: path-traced render. material {name, color}: named material (glass/metal/light by name). save_image {path, data}
+- photoreal {out? (else data URL), samples?=32, bounces?=6, sun_azimuth? (deg from north; default lights the view), sun_altitude?=32, or date?="2026-06-21" + time?="15:30" (+ utc_offset?) for the real sun at the model location, exposure?, + render options (view/camera/width/height)}: path-traced render. material {name, color}: named material (glass/metal/light by name). save_image {path, data}
+- sun {date?, time?, utc_offset?}: real sun azimuth/altitude at the model location
 - door_swing {hinge, strike, toward}: door swing symbol for plans. blueprint also takes notes:[...]; sheets takes notes:[...] (a line starting with a hash is a heading)
 - solid {op: union|subtract|intersect|trim|split|outer_shell, ids:[group or instance, ...]}: solid tools on closed shapes; subtract/trim: the first cuts the second. volume {id} -> {solid, volume m3}
 - import_skp {path | data(base64)}: SketchUp files, legacy 6-8 and modern 2013+ (geometry, nested components, colors, textures)

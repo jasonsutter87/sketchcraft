@@ -751,6 +751,37 @@ pub fn camera(m: &Model, opts: &RenderOpts) -> CameraSpec {
     render::camera_for(m, opts)
 }
 
+/// Where the sun is (compass azimuth from north, clockwise; altitude above
+/// the horizon; degrees) at a place and local clock time. NOAA's solar
+/// position equations: good to a fraction of a degree for 1900-2100.
+/// `utc_offset` is the local clock's hours ahead of UTC (-7 for US Pacific
+/// summer time).
+pub fn solar_position(lat: f64, lon: f64, year: i32, month: u32, day: u32, hour: f64, utc_offset: f64) -> (f64, f64) {
+    // day of the year
+    let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
+    let before = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334][(month.clamp(1, 12) - 1) as usize] + if leap && month > 2 { 1 } else { 0 };
+    let n = (before + day) as f64;
+    let days_in_year = if leap { 366.0 } else { 365.0 };
+    let g = 2.0 * std::f64::consts::PI / days_in_year * (n - 1.0 + (hour - 12.0) / 24.0);
+    // equation of time (minutes) and declination (radians)
+    let eqt = 229.18 * (0.000075 + 0.001868 * g.cos() - 0.032077 * g.sin() - 0.014615 * (2.0 * g).cos() - 0.040849 * (2.0 * g).sin());
+    let decl = 0.006918 - 0.399912 * g.cos() + 0.070257 * g.sin() - 0.006758 * (2.0 * g).cos() + 0.000907 * (2.0 * g).sin() - 0.002697 * (3.0 * g).cos() + 0.00148 * (3.0 * g).sin();
+    // true solar time (minutes) and hour angle
+    let tst = hour * 60.0 + eqt + 4.0 * lon - 60.0 * utc_offset;
+    let ha = (tst / 4.0 - 180.0).to_radians();
+    let phi = lat.to_radians();
+    let cos_zen = (phi.sin() * decl.sin() + phi.cos() * decl.cos() * ha.cos()).clamp(-1.0, 1.0);
+    let zen = cos_zen.acos();
+    let altitude = 90.0 - zen.to_degrees();
+    // azimuth, clockwise from north
+    let az = (decl.sin() - phi.sin() * cos_zen) / (phi.cos() * zen.sin()).max(1e-9);
+    let mut azimuth = az.clamp(-1.0, 1.0).acos().to_degrees();
+    if ha > 0.0 {
+        azimuth = 360.0 - azimuth;
+    }
+    (azimuth, altitude)
+}
+
 /// Sun direction from compass azimuth (degrees from north, clockwise) and altitude.
 pub fn sun_dir(azimuth: f64, altitude: f64) -> DVec3 {
     let (az, al) = (azimuth.to_radians(), altitude.to_radians());

@@ -461,6 +461,15 @@ pub enum Command {
         sun_azimuth: Option<f64>,
         #[serde(default = "pt_altitude")]
         sun_altitude: f64,
+        /// the real sun for the model's location (add_location; else 40°N
+        /// 98°W): date "2026-06-21" and local time "15:30"
+        #[serde(default)]
+        date: Option<String>,
+        #[serde(default)]
+        time: Option<String>,
+        /// hours the local clock is ahead of UTC (default: from the longitude)
+        #[serde(default)]
+        utc_offset: Option<f64>,
         #[serde(default = "pt_sun")]
         sun_strength: f32,
         #[serde(default = "yes")]
@@ -469,6 +478,15 @@ pub enum Command {
         exposure: f32,
         #[serde(flatten)]
         opts: RenderOpts,
+    },
+    /// Where the real sun is for the model's location at a local date and time.
+    Sun {
+        #[serde(default)]
+        date: Option<String>,
+        #[serde(default)]
+        time: Option<String>,
+        #[serde(default)]
+        utc_offset: Option<f64>,
     },
     /// Write an image the app already has (a PNG data URL) to a file.
     SaveImage { path: String, data: String },
@@ -684,6 +702,7 @@ impl Command {
                 | Command::Volume { .. }
                 | Command::Photoreal { .. }
                 | Command::SaveImage { .. }
+                | Command::Sun { .. }
                 | Command::Library { .. }
                 | Command::Thumbnail { .. }
                 | Command::SaveToLibrary { .. }
@@ -1143,8 +1162,18 @@ impl Engine {
                 self.undo.push(std::mem::replace(&mut self.model, next));
                 json!({})
             }
-            Command::Photoreal { out, samples, bounces, sun_azimuth, sun_altitude, sun_strength, denoise, exposure, opts } => {
+            Command::Photoreal { out, samples, bounces, mut sun_azimuth, mut sun_altitude, sun_strength, denoise, exposure, date, time, utc_offset, opts } => {
                 let model = &self.model;
+                let mut sun_note = None;
+                if date.is_some() || time.is_some() {
+                    let s = sun_at(model, date.as_deref(), time.as_deref(), utc_offset)?;
+                    if s.altitude < 1.0 {
+                        bail!("the sun is down then ({:.0}° below the horizon); pick a daytime hour", -s.altitude);
+                    }
+                    sun_azimuth = Some(s.azimuth);
+                    sun_altitude = s.altitude;
+                    sun_note = Some(serde_json::to_value(&s)?);
+                }
                 let camera = crate::pt::camera(model, &opts);
                 let po = crate::pt::PtOpts {
                     width: opts.width.min(4096),
@@ -1181,7 +1210,7 @@ impl Engine {
                     img.write_to(&mut buf, image::ImageFormat::Png)?;
                     Some(format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(buf.into_inner())))
                 };
-                json!({"out": out, "data": data, "seconds": secs, "camera": {"eye": camera.eye, "target": camera.target, "fov": camera.fov}})
+                json!({"out": out, "data": data, "seconds": secs, "sun": sun_note, "camera": {"eye": camera.eye, "target": camera.target, "fov": camera.fov}})
             }
             Command::Render { out, opts } => {
                 let whole = &self.model;
@@ -1213,6 +1242,7 @@ impl Engine {
                 json!({"path": path, "pages": crate::layout::blueprint(&self.model, &path, &sheet, &project, &notes)?, "levels": crate::layout::floor_levels(&self.model)})
             }
             Command::Levels => json!({"levels": crate::layout::floor_levels(&self.model)}),
+            Command::Sun { date, time, utc_offset } => serde_json::to_value(sun_at(&self.model, date.as_deref(), time.as_deref(), utc_offset)?)?,
             Command::DoorSwing { hinge, strike, toward } => {
                 let (h, s, t) = (v3(hinge), v3(strike), v3(toward));
                 let across = DVec3::new(s.x - h.x, s.y - h.y, 0.0);
@@ -1506,4 +1536,33 @@ fn tidy_name(stem: &str) -> String {
     let start = words.iter().position(|w| !matches!(w.to_ascii_lowercase().as_str(), "uploads" | "files" | "upload" | "file") && !w.chars().all(|c| c.is_ascii_digit())).unwrap_or(0);
     let name = words[start..].join(" ");
     if name.is_empty() { stem.to_string() } else { name }
+}
+
+#[derive(serde::Serialize)]
+struct SunAt {
+    azimuth: f64,
+    altitude: f64,
+    lat: f64,
+    lon: f64,
+    /// false: no location set, so a default (40 N, 98 W) was used
+    located: bool,
+    utc_offset: f64,
+}
+
+/// The real sun for the model's location at a local date ("2026-06-21") and time ("15:30").
+fn sun_at(model: &Model, date: Option<&str>, time: Option<&str>, utc_offset: Option<f64>) -> Result<SunAt> {
+    let located = model.location.is_some();
+    let (lat, lon) = model.location.as_ref().map(|l| (l.lat, l.lon)).unwrap_or((40.0, -98.0));
+    let parts: Vec<&str> = date.unwrap_or("2026-06-21").split('-').collect();
+    let num = |i: usize| parts.get(i).and_then(|s| s.trim().parse::<i64>().ok());
+    let (Some(y), Some(mo), Some(da)) = (num(0), num(1), num(2)) else { bail!("date is year-month-day, like 2026-06-21") };
+    if !(1..=12).contains(&mo) || !(1..=31).contains(&da) {
+        bail!("date is year-month-day, like 2026-06-21");
+    }
+    let hm: Vec<&str> = time.unwrap_or("15:00").split(':').collect();
+    let Some(h) = hm.first().and_then(|s| s.trim().parse::<f64>().ok()) else { bail!("time is hours:minutes, like 15:30") };
+    let m = hm.get(1).and_then(|s| s.trim().parse::<f64>().ok()).unwrap_or(0.0);
+    let utc_offset = utc_offset.unwrap_or((lon / 15.0).round());
+    let (azimuth, altitude) = crate::pt::solar_position(lat, lon, y as i32, mo as u32, da as u32, h + m / 60.0, utc_offset);
+    Ok(SunAt { azimuth, altitude, lat, lon, located, utc_offset })
 }
