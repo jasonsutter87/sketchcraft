@@ -764,7 +764,7 @@ pub fn import(m: &mut Model, d: &[u8], at: DVec3, name: &str) -> Result<ImportSu
         let _ = ents;
         let label = file.definitions[&key].0.clone();
         let label = if label.is_empty() { format!("{name} part {}", def_ids.len()) } else { label };
-        m.definitions.insert(id, Definition { name: label, model: Model::default() });
+        m.definitions.insert(id, Definition { name: label, model: Default::default() });
     }
     for (&key, (_, ents)) in &file.definitions {
         let mut dm = Model::default();
@@ -780,7 +780,7 @@ pub fn import(m: &mut Model, d: &[u8], at: DVec3, name: &str) -> Result<ImportSu
             m.materials.entry(k.clone()).or_insert(mat.clone());
         }
         let id = def_ids[&key];
-        m.definitions.get_mut(&id).unwrap().model = dm;
+        m.definitions.get_mut(&id).unwrap().model = std::sync::Arc::new(dm);
     }
 
     // the model's own entities
@@ -825,55 +825,31 @@ pub struct ImportSummary {
     pub group: Id,
 }
 
-/// Add faces and loose lines (inches -> meters) to a model.
+/// Add faces and loose lines (inches -> meters) to a model, in bulk.
 fn fill(m: &mut Model, e: &Entities, file: &SkpFile) -> usize {
-    let mats = &file.materials;
-    let mut n = 0;
+    let mut keys: HashMap<u32, String> = HashMap::new();
     for f in &e.faces {
-        let outer: Vec<DVec3> = f.outer.iter().map(|p| *p * INCH).collect();
-        let normal = geom::newell(&outer);
-        if normal == DVec3::ZERO {
+        if keys.contains_key(&f.material) {
             continue;
         }
-        let ids: Vec<Id> = outer.iter().map(|p| m.vertex(*p)).collect();
-        let mut dedup = ids.clone();
-        dedup.dedup();
-        if dedup.len() < 3 {
-            continue;
-        }
-        let holes: Vec<Vec<Id>> = f
-            .holes
-            .iter()
-            .map(|h| {
-                let mut ring: Vec<Id> = h.iter().map(|p| m.vertex(*p * INCH)).collect();
-                // holes run clockwise about the face normal
-                let pts: Vec<DVec3> = h.iter().map(|p| *p * INCH).collect();
-                if geom::newell(&pts).dot(normal) > 0.0 {
-                    ring.reverse();
-                }
-                ring
-            })
-            .collect();
-        let material = mats.get(&f.material).map(|(name, rgb)| {
+        if let Some((name, rgb)) = file.materials.get(&f.material) {
             let key = format!("skp:{name}");
             let texture = file.textures.get(&f.material).map(|t| crate::model::Texture { data: t.data.clone(), width: t.tile, height: t.tile * t.aspect, project: None, origin: None });
             m.materials.entry(key.clone()).or_insert(crate::model::Material { color: *rgb, texture });
-            key
-        });
-        m.insert_face(Face { outer: ids, holes, material, ..Default::default() });
-        n += 1;
-    }
-    for (a, b, soft) in &e.lines {
-        let (va, vb) = (m.vertex(*a * INCH), m.vertex(*b * INCH));
-        if va != vb {
-            let id = m.edge(va, vb);
-            m.edges.get_mut(&id).unwrap().soft = *soft;
+            keys.insert(f.material, key);
         }
     }
-    // soften edges between nearly coplanar faces (curved surfaces)
-    let all: Vec<Id> = m.faces.keys().copied().collect();
-    m.soften_smooth(&all);
-    n
+    let group = m.active_group;
+    let mut mesh = crate::mesh::Mesh::new(m, group);
+    for f in &e.faces {
+        let outer: Vec<DVec3> = f.outer.iter().map(|p| *p * INCH).collect();
+        let holes: Vec<Vec<DVec3>> = f.holes.iter().map(|h| h.iter().map(|p| *p * INCH).collect()).collect();
+        mesh.face(&outer, &holes, keys.get(&f.material).cloned());
+    }
+    for (a, b, soft) in &e.lines {
+        mesh.line(*a * INCH, *b * INCH, *soft);
+    }
+    mesh.finish().0
 }
 
 /// Copy a model's geometry into `m` under group `gid`, transformed.
