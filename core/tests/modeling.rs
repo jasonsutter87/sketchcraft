@@ -826,3 +826,25 @@ fn animation_frames_through_saved_views() {
     assert!((d0 - d1).abs() < 1e-9, "circles at a constant distance");
     std::fs::remove_dir_all(dir).ok();
 }
+
+#[test]
+fn drawing_sheets_pdf() {
+    let mut e = Engine::new();
+    make_box(&mut e);
+    run(&mut e, json!({"cmd":"save_view","name":"Corner","eye":[10,-10,8],"target":[0,0,0]}));
+    let dir = std::env::temp_dir().join(format!("sketchcraft-sheets-{}", std::process::id()));
+    let path = dir.join("set.pdf").to_string_lossy().to_string();
+    let r = run(&mut e, json!({"cmd":"sheets","path":path,"sheet":"a4","project":"Box","pages":[
+        {"title":"Plan","viewports":[{"view":"top","scale":"1:50"}]},
+        {"title":"Views"}
+    ]}));
+    assert_eq!(r["pages"], 2);
+    let pdf = std::fs::read(&path).unwrap();
+    let text = String::from_utf8_lossy(&pdf);
+    assert!(text.contains("/Count 2"));
+    assert!(text.contains("Sheet 1 of 2") && text.contains("1:50"));
+    // a bad scale is an error, not a broken file
+    let bad = e.exec_json(&json!({"cmd":"sheets","path":path,"pages":[{"title":"x","viewports":[{"view":"top","scale":"one to fifty"}]}]}).to_string());
+    assert_eq!(bad["ok"], false);
+    std::fs::remove_dir_all(dir).ok();
+}
