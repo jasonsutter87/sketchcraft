@@ -387,6 +387,13 @@ export function contextItems(scene: Scene, sel: Sel, run: Run, setSel: (s: Sel) 
       },
     });
   }
+  // Intersect Faces and Flip Along (SketchUp's Edit / context menu)
+  const shapes = [...sel.faces, ...sel.groups, ...sel.instances];
+  if (shapes.length) {
+    items.push({ label: "Intersect Faces: with model", run: () => run({ cmd: "intersect", ids: shapes, with: "model" }) });
+    if (shapes.length > 1) items.push({ label: "Intersect Faces: with selection", run: () => run({ cmd: "intersect", ids: shapes, with: "selection" }) });
+    for (const [axis, name] of [["red", "Red"], ["green", "Green"], ["blue", "Blue"]]) items.push({ label: `Flip Along: ${name}`, run: () => run({ cmd: "flip", ids: shapes, axis }) });
+  }
   // Solid Tools: in pick order (for Subtract and Trim the first one cuts the second)
   const solids = [...sel.groups, ...sel.instances];
   if (solids.length >= 2 && !sel.faces.length && !sel.edges.length) {
