@@ -10,6 +10,7 @@ pub mod commands;
 pub mod components;
 pub mod csg;
 pub mod export;
+pub mod export2;
 pub mod geom;
 pub mod http;
 pub mod import;

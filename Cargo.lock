@@ -3255,6 +3255,7 @@ dependencies = [
  "base64 0.22.1",
  "delaunator",
  "earcutr",
+ "flate2",
  "font8x8",
  "geo",
  "glam",

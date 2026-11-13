@@ -193,6 +193,18 @@ pub enum Command {
     ExportGlb { path: String },
     /// Binary STL for 3D printing; `scale` 1000 gives millimeters.
     ExportStl { path: String, #[serde(default = "one")] scale: f64 },
+    /// Collada (.dae), Z up, meters: one object per group / component.
+    ExportDae { path: String },
+    /// 3D DXF: 3DFACE triangles in millimeters, a layer per object.
+    ExportDxf { path: String },
+    /// PDF: a rendered view (same options as render) on a landscape A4 sheet.
+    ExportPdf {
+        path: String,
+        #[serde(default)]
+        title: Option<String>,
+        #[serde(flatten)]
+        opts: RenderOpts,
+    },
     /// Import an OBJ file; each object becomes a group. `up` "y" (default) or "z".
     ImportObj {
         #[serde(default)]
@@ -423,6 +435,9 @@ impl Command {
                 | Command::ExportObj { .. }
                 | Command::ExportGlb { .. }
                 | Command::ExportStl { .. }
+                | Command::ExportDae { .. }
+                | Command::ExportDxf { .. }
+                | Command::ExportPdf { .. }
                 | Command::Assets
         )
     }
@@ -864,6 +879,14 @@ impl Engine {
             }
             Command::ExportGlb { path } => json!({"path": path, "triangles": export::write_glb(&self.model, &path)?}),
             Command::ExportStl { path, scale } => json!({"path": path, "triangles": export::write_stl(&self.model, &path, scale)?}),
+            Command::ExportDae { path } => json!({"path": path, "triangles": crate::export2::write_dae(&self.model, &path)?}),
+            Command::ExportDxf { path } => json!({"path": path, "triangles": crate::export2::write_dxf(&self.model, &path)?}),
+            Command::ExportPdf { path, title, opts } => {
+                let img = render::render(&self.model, &opts);
+                let t = title.unwrap_or_else(|| std::path::Path::new(&path).file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default());
+                crate::export2::write_pdf(&img, &format!("{t}  -  SketchCraft"), &path)?;
+                json!({"path": path})
+            }
             Command::ImportObj { path, text, up, scale, at, name } => {
                 let text = match (text, &path) {
                     (Some(t), _) => t,
