@@ -1034,3 +1034,24 @@ fn parallel_elevations_hide_edges_behind_walls() {
     assert!(dark < 20, "{dark} dark pixels: hidden edges are showing");
     std::fs::remove_dir_all(dir).ok();
 }
+
+#[test]
+fn blueprint_finds_floors_and_draws_them() {
+    // two stories: walls on the ground, a floor slab at 3 m, walls on it
+    let mut e = Engine::new();
+    run(&mut e, json!({"cmd":"wall","points":[[0,0,0],[6,0,0],[6,8,0],[0,8,0]],"closed":true,"height":2.8}));
+    box_group(&mut e, [0.0, 0.0, 2.8], [6.0, 8.0, 3.0], "Floor");
+    run(&mut e, json!({"cmd":"wall","points":[[0,0,3],[6,0,3],[6,8,3],[0,8,3]],"closed":true,"height":2.6}));
+    let lv = run(&mut e, json!({"cmd":"levels"}))["levels"].as_array().unwrap().iter().map(|v| v.as_f64().unwrap()).collect::<Vec<_>>();
+    assert_eq!(lv.len(), 2, "ground and the slab, not the wall tops: {lv:?}");
+    assert!((lv[1] - 3.0).abs() < 1e-6);
+    let dir = std::env::temp_dir().join(format!("sketchcraft-bp-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("bp.pdf").to_string_lossy().to_string();
+    let r = run(&mut e, json!({"cmd":"blueprint","path":path,"sheet":"a3"}));
+    assert_eq!(r["pages"], 2);
+    let pdf = String::from_utf8_lossy(&std::fs::read(&path).unwrap()).to_string();
+    assert!(pdf.contains("Main floor plan") && pdf.contains("Upper floor plan") && pdf.contains("Front elevation"));
+    assert!(pdf.contains("1:50") || pdf.contains("1:75") || pdf.contains("1:100"), "a true scale");
+    std::fs::remove_dir_all(dir).ok();
+}
