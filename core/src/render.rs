@@ -238,7 +238,13 @@ pub fn render(model: &Model, opts: &RenderOpts) -> RgbImage {
         let n = f.normal;
         let front = (eye - geom::centroid(&f.outer)).dot(n) >= 0.0;
         let base = f.color.unwrap_or(DEFAULT_FRONT);
-        let col = if front { shade(base, n) } else { shade(BACK, -n) };
+        // painted faces show their paint on both sides; bare backs stay blue
+        // so you can still see which way unpainted faces point
+        let col = match (front, f.color) {
+            (true, _) => shade(base, n),
+            (false, Some(c)) => shade([c[0] * 0.85, c[1] * 0.85, c[2] * 0.85], -n),
+            (false, None) => shade(BACK, -n),
+        };
         for tri in geom::triangulate(&f.outer, &f.holes, n) {
             cv.triangle(tri, col);
         }
