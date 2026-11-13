@@ -3,6 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
+import { GTAOPass } from "three/examples/jsm/postprocessing/GTAOPass.js";
+import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { Line2 } from "three/examples/jsm/lines/Line2.js";
 import { LineGeometry } from "three/examples/jsm/lines/LineGeometry.js";
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
@@ -39,8 +43,22 @@ export interface BuildSettings {
   contourSpacing: number;
 }
 
+export type FaceStyle = "textured" | "shaded" | "monochrome" | "hiddenline" | "wireframe";
+export type Backdrop = "default" | "paper" | "blueprint" | "night";
+
 export interface Styles {
   xray: boolean;
+  /** SketchUp's face styles */
+  face?: FaceStyle;
+  /** bold outlines around shapes */
+  profiles?: boolean;
+  /** hand-drawn, doubled edges */
+  sketchy?: boolean;
+  /** edges run a little past their ends */
+  extensions?: boolean;
+  /** ambient occlusion: soft shading where surfaces meet */
+  ao?: boolean;
+  background?: Backdrop;
   /** hidden edges shown dashed (SketchUp's Back Edges, K) */
   backEdges: boolean;
   shadows: boolean;
@@ -90,6 +108,101 @@ interface Props {
 
 const ACCENT = 0x6b5cff;
 const EDGE_COLOR = 0x23252d;
+
+/** Clear color, line color, and whether the ground grid shows, per background. */
+const BACKGROUNDS: Record<Backdrop, { clear: number; line: number; face: number; grid: boolean }> = {
+  default: { clear: 0xf3f4f8, line: EDGE_COLOR, face: 0xffffff, grid: true },
+  paper: { clear: 0xf6f1e4, line: 0x2b2a27, face: 0xfbf8f0, grid: false },
+  blueprint: { clear: 0x1d4f8c, line: 0xeaf2ff, face: 0x1d4f8c, grid: false },
+  night: { clear: 0x16181f, line: 0xd8dbe6, face: 0x2a2d38, grid: false },
+};
+
+/** Little deterministic noise for sketchy lines. */
+function jitter(i: number): number {
+  const x = Math.sin(i * 12.9898 + 78.233) * 43758.5453;
+  return x - Math.floor(x) - 0.5;
+}
+
+/** Edge segments, lengthened past their ends and/or doubled and wobbled. */
+function styledEdges(seg: number[], size: number, extend: boolean, sketchy: boolean): number[] {
+  const out: number[] = [];
+  const a = new THREE.Vector3(), b = new THREE.Vector3(), d = new THREE.Vector3(), side = new THREE.Vector3();
+  const ext = extend ? size * 0.012 : 0;
+  for (let i = 0; i < seg.length; i += 6) {
+    a.fromArray(seg, i);
+    b.fromArray(seg, i + 3);
+    d.subVectors(b, a);
+    const len = d.length();
+    if (len < 1e-9) continue;
+    d.divideScalar(len);
+    const copies = sketchy ? 2 : 1;
+    // run-ons and wobble scale with the edge itself, so small things stay tidy
+    const cap = Math.min(ext, len * 0.18);
+    const wob = Math.min(size * 0.003, len * 0.02);
+    for (let c = 0; c < copies; c++) {
+      const k = i / 6 + c * 7919;
+      const e0 = cap + (sketchy ? Math.abs(jitter(k)) * Math.min(size * 0.01, len * 0.12) : 0);
+      const e1 = cap + (sketchy ? Math.abs(jitter(k + 1)) * Math.min(size * 0.01, len * 0.12) : 0);
+      const p = a.clone().addScaledVector(d, -e0);
+      const q = b.clone().addScaledVector(d, e1);
+      if (sketchy) {
+        // a small sideways wobble, different at each end
+        side.set(-d.y, d.x, d.z * 0.3).normalize();
+        if (side.lengthSq() < 1e-6) side.set(1, 0, 0);
+        p.addScaledVector(side, jitter(k + 2) * wob);
+        q.addScaledVector(side, jitter(k + 3) * wob);
+      }
+      out.push(p.x, p.y, p.z, q.x, q.y, q.z);
+    }
+  }
+  return out;
+}
+
+/** Normals averaged at every shared corner (for the profile outline). */
+function averagedNormals(pos: number[]): Float32Array {
+  const acc = new Map<string, THREE.Vector3>();
+  const key = (i: number) => `${Math.round(pos[i] * 1e4)},${Math.round(pos[i + 1] * 1e4)},${Math.round(pos[i + 2] * 1e4)}`;
+  const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+  for (let t = 0; t < pos.length; t += 9) {
+    a.fromArray(pos, t);
+    b.fromArray(pos, t + 3);
+    c.fromArray(pos, t + 6);
+    const n = b.clone().sub(a).cross(c.clone().sub(a)).normalize();
+    for (let k = 0; k < 3; k++) {
+      const id = key(t + k * 3);
+      const v = acc.get(id);
+      if (v) v.add(n);
+      else acc.set(id, n.clone());
+    }
+  }
+  const out = new Float32Array(pos.length);
+  for (let v = 0; v < pos.length; v += 3) {
+    const n = acc.get(key(v))!.clone().normalize();
+    out[v] = n.x;
+    out[v + 1] = n.y;
+    out[v + 2] = n.z;
+  }
+  return out;
+}
+
+/** Back faces pushed out by a few screen pixels: a silhouette outline. */
+function profileMaterial(color: number, px: number, clip: THREE.Plane[]): THREE.MeshBasicMaterial {
+  const m = new THREE.MeshBasicMaterial({ color, side: THREE.BackSide, clippingPlanes: clip });
+  m.onBeforeCompile = (shader) => {
+    shader.uniforms.profilePx = { value: px };
+    shader.vertexShader = shader.vertexShader
+      .replace("#include <common>", "#include <common>\nuniform float profilePx;")
+      .replace(
+        "#include <project_vertex>",
+        `#include <project_vertex>
+        vec4 clipN = projectionMatrix * modelViewMatrix * vec4(normal, 0.0);
+        vec2 dir = length(clipN.xy) > 1e-6 ? normalize(clipN.xy) : vec2(0.0);
+        // pixels -> clip space (approximate viewport of 1000 px tall)
+        gl_Position.xy += dir * profilePx * gl_Position.w / 500.0;`
+      );
+  };
+  return m;
+}
 const UP = new THREE.Vector3(0, 0, 1);
 const r4 = (x: number) => Math.round(x * 1e4) / 1e4;
 const arr = (v: THREE.Vector3): Vec3 => [r4(v.x), r4(v.y), r4(v.z)];
@@ -274,6 +387,8 @@ export default function Viewport(props: Props) {
 
   /** newest section-fill request (older answers are dropped) */
   const sectionTicket = useRef(0);
+  /** ambient occlusion post-processing, made the first time it's turned on */
+  const ao = useRef<{ composer: EffectComposer; rp: RenderPass; gt: GTAOPass } | null>(null);
   const [backdrop, setBackdrop] = useState<string | null>(null);
   const backdropOn = useRef(false);
   const st = useRef<{
@@ -414,6 +529,8 @@ export default function Viewport(props: Props) {
     const resize = () => {
       const { clientWidth: w, clientHeight: h } = el;
       renderer.setSize(w, h);
+      ao.current?.composer.setSize(w, h);
+      ao.current?.gt.setSize(w, h);
       persp.aspect = w / Math.max(h, 1);
       persp.updateProjectionMatrix();
       syncOrtho(false);
@@ -425,7 +542,26 @@ export default function Viewport(props: Props) {
     let raf = 0;
     const loop = () => {
       controls.update();
-      renderer.render(world, t.current!.camera);
+      const cam = t.current!.camera;
+      if (live.current.styles.ao) {
+        // ambient occlusion: render through a post-processing chain (built on first use)
+        if (!ao.current) {
+          const size = renderer.getSize(new THREE.Vector2());
+          const composer = new EffectComposer(renderer);
+          const rp = new RenderPass(world, cam);
+          const gt = new GTAOPass(world, cam, size.x, size.y);
+          gt.output = GTAOPass.OUTPUT.Default;
+          composer.addPass(rp);
+          composer.addPass(gt);
+          composer.addPass(new OutputPass());
+          composer.setPixelRatio(renderer.getPixelRatio());
+          composer.setSize(size.x, size.y);
+          ao.current = { composer, rp, gt };
+        }
+        ao.current.rp.camera = cam;
+        ao.current.gt.camera = cam;
+        ao.current.composer.render();
+      } else renderer.render(world, cam);
       placeLabels();
       raf = requestAnimationFrame(loop);
     };
@@ -480,7 +616,7 @@ export default function Viewport(props: Props) {
     T.catcher.visible = styles.shadows;
     buildModel();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [styles.xray, styles.shadows, styles.edges, styles.parallel, styles.backEdges]);
+  }, [styles.xray, styles.shadows, styles.edges, styles.parallel, styles.backEdges, styles.face, styles.profiles, styles.sketchy, styles.extensions, styles.background]);
 
   // ---------------------------------------------------------------- labels
   /** Keep one DOM label per spec; positions are updated every frame. */
@@ -593,26 +729,40 @@ export default function Viewport(props: Props) {
     geo.setAttribute("normal", new THREE.BufferAttribute(smoothNormals(s.positions), 3));
     const bgeo = geo.clone();
     bgeo.setAttribute("color", corners(s.backColors));
-    const mat = (side: THREE.Side) =>
-      new THREE.MeshLambertMaterial({
-        vertexColors: true,
-        side,
-        polygonOffset: true,
-        polygonOffsetFactor: 1,
-        polygonOffsetUnits: 1,
-        transparent: xray,
-        opacity: xray ? 0.42 : 1,
-        depthWrite: !xray,
-        clippingPlanes: clip,
-      });
+    const sty = live.current.styles;
+    const faceStyle: FaceStyle = sty.face ?? "textured";
+    const bg = BACKGROUNDS[sty.background ?? "default"];
+    const common = { side: THREE.FrontSide as THREE.Side, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1, transparent: xray, opacity: xray ? 0.42 : 1, depthWrite: !xray, clippingPlanes: clip };
+    const mat = (side: THREE.Side): THREE.Material => {
+      if (faceStyle === "hiddenline" || faceStyle === "wireframe") {
+        // flat background-colored faces hide what's behind (wireframe: invisible, still clickable)
+        const m = new THREE.MeshBasicMaterial({ ...common, side, color: bg.face });
+        if (faceStyle === "wireframe") m.visible = false;
+        return m;
+      }
+      if (faceStyle === "monochrome") return new THREE.MeshLambertMaterial({ ...common, side, color: 0xeceef3 });
+      return new THREE.MeshLambertMaterial({ ...common, side, vertexColors: true });
+    };
     const front = new THREE.Mesh(geo, mat(THREE.FrontSide));
     const back = new THREE.Mesh(bgeo, mat(THREE.BackSide));
     front.castShadow = back.castShadow = live.current.styles.shadows;
     front.receiveShadow = live.current.styles.shadows;
     T.model.add(front, back);
 
+    // profiles: an outline around every shape
+    const box = new THREE.Box3().setFromBufferAttribute(geo.getAttribute("position") as THREE.BufferAttribute);
+    const size = box.isEmpty() ? 10 : box.getSize(new THREE.Vector3()).length();
+    if (sty.profiles && !xray && faceStyle !== "wireframe" && s.positions.length) {
+      const pg = new THREE.BufferGeometry();
+      pg.setAttribute("position", new THREE.Float32BufferAttribute(s.positions, 3));
+      pg.setAttribute("normal", new THREE.BufferAttribute(averagedNormals(s.positions), 3));
+      const outline = new THREE.Mesh(pg, profileMaterial(bg.line, 2.2, clip));
+      outline.raycast = () => {}; // not pickable
+      T.model.add(outline);
+    }
+
     // textured faces: drawn over the base mesh with their images
-    if (s.triTex?.some((i) => i >= 0)) {
+    if (faceStyle === "textured" && s.triTex?.some((i) => i >= 0)) {
       const byTex = new Map<number, { pos: number[]; uv: number[] }>();
       s.triTex.forEach((ti, tri) => {
         if (ti < 0) return;
@@ -637,10 +787,16 @@ export default function Viewport(props: Props) {
       }
     }
 
-    if (live.current.styles.edges) {
+    if (sty.edges || faceStyle === "wireframe" || faceStyle === "hiddenline") {
       const eg = new THREE.BufferGeometry();
-      eg.setAttribute("position", new THREE.Float32BufferAttribute(s.edges, 3));
-      T.model.add(new THREE.LineSegments(eg, new THREE.LineBasicMaterial({ color: EDGE_COLOR, clippingPlanes: clip })));
+      const segs = sty.sketchy || sty.extensions ? styledEdges(s.edges, size, !!sty.extensions || !!sty.sketchy, !!sty.sketchy) : s.edges;
+      eg.setAttribute("position", new THREE.Float32BufferAttribute(segs, 3));
+      T.model.add(new THREE.LineSegments(eg, new THREE.LineBasicMaterial({ color: bg.line, clippingPlanes: clip, transparent: !!sty.sketchy, opacity: sty.sketchy ? 0.8 : 1 })));
+    }
+    // background and ground for the style (a matched photo overrides)
+    if (!backdropOn.current) {
+      T.renderer.setClearColor(bg.clear, 1);
+      T.ground.visible = bg.grid;
     }
     // section fill: the cut faces of walls and solids, dark, with a heavy outline
     if (st.current.section) {
@@ -704,7 +860,7 @@ export default function Viewport(props: Props) {
     if (ann.length) {
       const ag = new THREE.BufferGeometry();
       ag.setAttribute("position", new THREE.Float32BufferAttribute(ann, 3));
-      const al = new THREE.LineSegments(ag, new THREE.LineBasicMaterial({ color: 0x33384d, depthTest: false }));
+      const al = new THREE.LineSegments(ag, new THREE.LineBasicMaterial({ color: (live.current.styles.background ?? "default") === "default" ? 0x33384d : BACKGROUNDS[live.current.styles.background!].line, depthTest: false }));
       al.renderOrder = 10;
       T.model.add(al);
     }
