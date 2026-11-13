@@ -5,6 +5,7 @@
 //! all drive exactly the same thing.
 
 pub mod assets;
+pub mod builders;
 pub mod commands;
 pub mod components;
 pub mod export;
