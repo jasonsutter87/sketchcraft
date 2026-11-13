@@ -13,6 +13,7 @@ pub mod mcp;
 pub mod model;
 pub mod render;
 pub mod scene;
+pub mod topology;
 
 pub use commands::{Command, Engine};
 pub use model::{Id, Model};
