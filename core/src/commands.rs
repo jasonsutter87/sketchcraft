@@ -234,6 +234,14 @@ pub enum Command {
     },
     /// Flip Along an axis (red/x, green/y, blue/z) across the pick's middle.
     Flip { ids: Vec<Id>, axis: String },
+    /// Section cut through `origin` facing `normal`: the cut lines and filled
+    /// regions per object. With `path` (.svg or .dxf), writes it flat, in mm.
+    Section {
+        origin: [f64; 3],
+        normal: [f64; 3],
+        #[serde(default)]
+        path: Option<String>,
+    },
     /// Volume of a closed group / component (m³), or not a solid.
     Volume { id: Id },
     /// Walls along a path: `thickness` and `height`; `closed` makes a room.
@@ -372,6 +380,7 @@ impl Command {
             self,
             Command::Faces { .. }
                 | Command::Volume { .. }
+                | Command::Section { .. }
                 | Command::Info
                 | Command::Components
                 | Command::Pick { .. }
@@ -849,6 +858,24 @@ impl Engine {
                 });
                 let r = crate::skp::import(m, &bytes, v3(at), &label)?;
                 json!({"group": r.group, "version": r.version, "faces": r.faces, "components": r.components, "placed": r.placed})
+            }
+            Command::Section { origin, normal, path } => {
+                let cut = m.section(v3(origin), v3(normal))?;
+                if let Some(p) = &path {
+                    let text = if p.to_ascii_lowercase().ends_with(".dxf") { cut.dxf() } else { cut.svg() };
+                    std::fs::write(p, text)?;
+                }
+                // fills as triangles, ready to draw
+                let mut fill: Vec<f64> = Vec::new();
+                let mut owners: Vec<Id> = Vec::new();
+                for (owner, o, h) in &cut.regions {
+                    for t in crate::geom::triangulate(o, h, cut.n) {
+                        fill.extend(t.iter().flat_map(|p| [p.x, p.y, p.z]));
+                        owners.push(*owner);
+                    }
+                }
+                let lines: Vec<f64> = cut.segments.iter().flat_map(|(a, b)| [a.x, a.y, a.z, b.x, b.y, b.z]).collect();
+                json!({"regions": cut.regions.len(), "fill": fill, "fillOwners": owners, "lines": lines, "path": path})
             }
             Command::Intersect { ids, with } => json!({"lines": m.intersect(&ids, with != "selection")?}),
             Command::Flip { ids, axis } => json!({"moved": m.flip(&ids, axis_index(&axis)?)?}),

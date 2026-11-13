@@ -59,6 +59,19 @@ fn inside_intervals(f: &WFace, o: DVec3, d: DVec3) -> Vec<(f64, f64)> {
     out
 }
 
+/// Where the plane `n · x = w` (n unit) cuts a face: pieces of line inside it.
+pub fn plane_crossing(f: &WFace, n: DVec3, w: f64) -> Vec<(DVec3, DVec3)> {
+    let n1 = f.normal.normalize_or_zero();
+    let d = n1.cross(n);
+    if d.length_squared() < 1e-12 {
+        return vec![];
+    }
+    let w1 = n1.dot(f.outer[0]);
+    let o = (n.cross(d) * w1 + d.cross(n1) * w) / d.length_squared();
+    let d = d.normalize();
+    inside_intervals(f, o, d).into_iter().filter(|(a, b)| b - a > 1e-9).map(|(a, b)| (o + d * a, o + d * b)).collect()
+}
+
 /// The pieces of line where two faces cross.
 pub fn face_crossing(a: &WFace, b: &WFace) -> Vec<(DVec3, DVec3)> {
     let (n1, n2) = (a.normal.normalize_or_zero(), b.normal.normalize_or_zero());

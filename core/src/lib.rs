@@ -20,6 +20,7 @@ pub mod mesh;
 pub mod model;
 pub mod render;
 pub mod scene;
+pub mod section;
 pub mod shapes;
 pub mod skp;
 pub mod skp_vff;
