@@ -766,7 +766,7 @@ export default function App() {
             }}
           />
         )}
-        {menu && scene && <ContextMenu x={menu.x} y={menu.y} close={() => setMenu(null)} items={contextItems(scene, sel, run, setSel, () => api.current?.fit())} />}
+        {menu && scene && <ContextMenu x={menu.x} y={menu.y} close={() => setMenu(null)} items={contextItems(scene, sel, run, setSel, () => api.current?.fit(), api.current?.sectionPlane())} />}
       </main>
 
       <aside className="panel right">

@@ -574,7 +574,7 @@ export interface MenuItem {
   run: () => void;
 }
 
-export function contextItems(scene: Scene, sel: Sel, run: Run, setSel: (s: Sel) => void, fitSel: () => void): MenuItem[] {
+export function contextItems(scene: Scene, sel: Sel, run: Run, setSel: (s: Sel) => void, fitSel: () => void, section?: { origin: number[]; normal: number[] } | null): MenuItem[] {
   const ids = selIds(sel);
   const items: MenuItem[] = [];
   if (isEmpty(sel)) {
@@ -598,6 +598,43 @@ export function contextItems(scene: Scene, sel: Sel, run: Run, setSel: (s: Sel) 
         if (name) run({ cmd: "make_component", ids: [...sel.faces, ...sel.groups], name }).then(() => setSel(EMPTY));
       },
     });
+  }
+  // edge tools: bevel / round outside edges of solids, divide an edge
+  if (sel.edges.length) {
+    const units = scene.units || "m";
+    const askSize = async (title: string) => {
+      const t = await ask(title, units === "ft" || units === "in" ? `2"` : "0.05", "A length, in any units (2\", 5cm, 0.1).");
+      if (t == null) return null;
+      const v = parseLength(t, units);
+      return Number.isFinite(v) && v > 0 ? v : null;
+    };
+    items.push({
+      label: "Bevel (chamfer)…",
+      run: async () => {
+        const size = await askSize("Bevel these edges by");
+        if (size) run({ cmd: "bevel", edges: sel.edges, size, segments: 1 }).then((r) => r.ok && setSel(EMPTY));
+      },
+    });
+    items.push({
+      label: "Round…",
+      run: async () => {
+        const size = await askSize("Round these edges with a radius of");
+        if (size) run({ cmd: "bevel", edges: sel.edges, size, segments: 8 }).then((r) => r.ok && setSel(EMPTY));
+      },
+    });
+    if (sel.edges.length === 1)
+      items.push({
+        label: "Divide…",
+        run: async () => {
+          const t = await ask("Divide this edge into how many parts?", "4");
+          const n = t ? parseInt(t, 10) : NaN;
+          if (n >= 2) run({ cmd: "divide", edge: sel.edges[0], count: n });
+        },
+      });
+  }
+  // slice a solid along the section cut you've placed
+  if (section && sel.groups.length + sel.instances.length === 1 && !sel.faces.length) {
+    items.push({ label: "Slice along the section cut", run: () => run({ cmd: "slice", id: [...sel.groups, ...sel.instances][0], origin: section.origin, normal: section.normal }).then((r) => r.ok && setSel(EMPTY)) });
   }
   // Intersect Faces and Flip Along (SketchUp's Edit / context menu)
   const shapes = [...sel.faces, ...sel.groups, ...sel.instances];
