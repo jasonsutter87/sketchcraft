@@ -399,6 +399,14 @@ export default function App() {
       const r = await run({ cmd: "section", ...plane, path });
       if (r.ok) say(`Exported the section cut to ${path.split("/").pop()}`);
     },
+    animation: async () => {
+      const base = (currentFile?.split("/").pop() ?? "model").replace(/\.sketchcraft$/, "");
+      const path = await pickSave(`${base}.mp4`, "mp4", "MP4 video");
+      if (!path) return;
+      say(scene?.views.length && scene.views.length > 1 ? "Rendering the tour through your saved views…" : "No saved views to visit: rendering a turntable…");
+      const r = await run({ cmd: "animate", path, width: 1280, height: 720, fps: 24, transition: 2, delay: 1 });
+      if (r.ok) say(`Exported ${r.frames} frames to ${path.split("/").pop()}`);
+    },
     render: async () => {
       const base = (currentFile?.split("/").pop() ?? "model").replace(/\.sketchcraft$/, "");
       const path = await pickSave(`${base}.png`, "png", "PNG image");
@@ -442,6 +450,7 @@ export default function App() {
                   <button onClick={() => file.export("dae")}>Export Collada (.dae)…</button>
                   <button onClick={() => file.export("dxf")}>Export 3D DXF (mm)…</button>
                   <button onClick={() => file.export("pdf")}>Export PDF (this view)…</button>
+                  <button onClick={file.animation}>Export animation (MP4)…</button>
                   <button onClick={file.render}>Render PNG…</button>
                   {section && (
                     <>
