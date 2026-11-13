@@ -241,16 +241,16 @@ impl Model {
                 let op = geom::to2d(o, u, v);
                 geom::inside(mid, &op) || geom::inside(geom::to2d(&[interior_point(o, n)], u, v)[0], &poly)
             });
-            // and must not overlap an existing coplanar face, either way round
-            let inner = interior_point(&pts, n);
+            // and must not cover an existing coplanar face. (A loop drawn
+            // inside a face is fine: add_face makes it a hole in that face
+            // plus a new face, like a rectangle drawn on a wall.)
             let covers = self.faces.values().any(|f| {
                 let fp = self.pts(&f.outer);
                 if geom::newell(&fp).dot(n).abs() < 1.0 - 1e-9 || (fp[0] - pts[0]).dot(n).abs() > 1e-6 {
                     return false;
                 }
-                let fpoly = geom::to2d(&fp, u, v);
-                geom::inside(geom::to2d(&[interior_point(&fp, n)], u, v)[0], &poly)
-                    || geom::inside(geom::to2d(&[inner], u, v)[0], &fpoly)
+                // covered = its whole outline is within the new loop
+                geom::to2d(&fp, u, v).iter().all(|q| geom::inside_or_on(*q, &poly)) && geom::inside(geom::to2d(&[interior_point(&fp, n)], u, v)[0], &poly)
             });
             if overlaps || covers {
                 continue;
