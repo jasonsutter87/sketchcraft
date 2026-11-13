@@ -1,0 +1,23 @@
+[package]
+name = "riseline-core"
+version = "0.1.0"
+edition = "2021"
+description = "Riseline engine: draw outlines, pull them up. Every action is a command."
+
+[lib]
+name = "riseline"
+
+[[bin]]
+name = "riseline"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+earcutr = "0.4"
+glam = { version = "0.30", features = ["serde"] }
+image = { version = "0.25", default-features = false, features = ["png"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.dev]
+opt-level = 1
