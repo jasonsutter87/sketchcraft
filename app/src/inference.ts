@@ -71,11 +71,12 @@ export function infer(env: InferEnv, e: { clientX: number; clientY: number }, op
   const mx = e.clientX - env.rect.left;
   const my = e.clientY - env.rect.top;
   const ray = rayFrom(env, e);
-  const camPos = (env.camera as THREE.PerspectiveCamera).position;
   const hit = env.pick(e);
   const plane = opts.plane;
   const onPlane = (q: THREE.Vector3) => !plane || Math.abs(q.clone().sub(plane.origin).dot(plane.normal)) < 1e-3;
-  const visible = (q: THREE.Vector3) => !hit || q.distanceTo(camPos) <= hit.distance + 0.05;
+  // hidden behind the surface under the cursor? (distance along the view ray, with slack
+  // so points on the edges of that very surface still count as visible)
+  const visible = (q: THREE.Vector3) => !hit || q.clone().sub(ray.origin).dot(ray.direction) <= hit.distance * 1.02 + 0.15;
   const up = new THREE.Vector3(0, 0, 1);
   const planeN = plane?.normal ?? (hit?.face ? V(hit.face.normal) : up);
 

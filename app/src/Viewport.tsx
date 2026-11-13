@@ -460,7 +460,6 @@ export default function Viewport(props: Props) {
     const r = rect();
     const m = new THREE.Vector2(e.clientX - r.left, e.clientY - r.top);
     const hit = pick(e);
-    const camPos = T.camera.position;
     const R = ray(e);
     const sc = (p: THREE.Vector3) => {
       const q = p.clone().project(T.camera);
@@ -476,7 +475,7 @@ export default function Viewport(props: Props) {
       const d = a.clone().addScaledVector(ab, tt).distanceTo(m);
       if (d > 5 || (best && d >= best.d)) continue;
       const q = closestOnLine(R, V(ed.a), V(ed.b).sub(V(ed.a)).normalize());
-      if (hit && q.distanceTo(camPos) > hit.distance + 0.05) continue;
+      if (hit && q.clone().sub(R.origin).dot(R.direction) > hit.distance * 1.02 + 0.15) continue;
       best = { id: ed.id, d };
     }
     return best ? (best as { id: number }).id : null;
