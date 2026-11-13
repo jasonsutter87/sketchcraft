@@ -6,4 +6,5 @@
 {"cmd":"pushpull","face":"@inner","distance":-0.06,"as":"glass"}
 {"cmd":"end_group"}
 {"cmd":"paint","ids":["@frame"],"color":[0.97,0.97,0.95]}
-{"cmd":"paint","ids":["@glass"],"color":[0.45,0.6,0.72]}
+{"cmd":"material","name":"Glass","color":[0.45,0.6,0.72]}
+{"cmd":"paint","ids":["@glass"],"material":"Glass"}

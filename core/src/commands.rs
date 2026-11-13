@@ -434,6 +434,35 @@ pub enum Command {
     Divide { edge: Id, count: usize },
     /// Cut a solid group / component in two along a plane.
     Slice { id: Id, origin: [f64; 3], normal: [f64; 3] },
+    /// A named material with a color (paint with it by name). Names say what
+    /// it is to the photoreal renderer: glass / window, metal / steel /
+    /// chrome, light / lamp; anything else is paint.
+    Material { name: String, color: [f32; 3] },
+    /// Photoreal render (path traced): sun from azimuth (degrees from north,
+    /// clockwise) and altitude; `samples` per pixel (16 preview, 128+ final).
+    Photoreal {
+        #[serde(default)]
+        out: Option<String>,
+        #[serde(default = "pt_samples")]
+        samples: u32,
+        #[serde(default = "pt_bounces")]
+        bounces: u32,
+        /// sun direction; default: front-left of the view, for shadows
+        #[serde(default)]
+        sun_azimuth: Option<f64>,
+        #[serde(default = "pt_altitude")]
+        sun_altitude: f64,
+        #[serde(default = "pt_sun")]
+        sun_strength: f32,
+        #[serde(default = "yes")]
+        denoise: bool,
+        #[serde(default = "pt_exposure")]
+        exposure: f32,
+        #[serde(flatten)]
+        opts: RenderOpts,
+    },
+    /// Write an image the app already has (a PNG data URL) to a file.
+    SaveImage { path: String, data: String },
     /// Volume of a closed group / component (m³), or not a solid.
     Volume { id: Id },
     /// Import a binary FBX (7.x): `path`, or the file as base64 in `data`.
@@ -507,6 +536,26 @@ pub enum Command {
 pub enum Factor {
     Uniform(f64),
     Axes([f64; 3]),
+}
+
+fn pt_samples() -> u32 {
+    32
+}
+
+fn pt_bounces() -> u32 {
+    6
+}
+
+fn pt_altitude() -> f64 {
+    32.0
+}
+
+fn pt_sun() -> f32 {
+    2.4
+}
+
+fn pt_exposure() -> f32 {
+    1.0
 }
 
 fn one_seg() -> usize {
@@ -624,6 +673,8 @@ impl Command {
             self,
             Command::Faces { .. }
                 | Command::Volume { .. }
+                | Command::Photoreal { .. }
+                | Command::SaveImage { .. }
                 | Command::Library { .. }
                 | Command::Thumbnail { .. }
                 | Command::SaveToLibrary { .. }
@@ -1083,6 +1134,46 @@ impl Engine {
                 self.undo.push(std::mem::replace(&mut self.model, next));
                 json!({})
             }
+            Command::Photoreal { out, samples, bounces, sun_azimuth, sun_altitude, sun_strength, denoise, exposure, opts } => {
+                let model = &self.model;
+                let camera = crate::pt::camera(model, &opts);
+                let po = crate::pt::PtOpts {
+                    width: opts.width.min(4096),
+                    height: opts.height.min(4096),
+                    samples: samples.clamp(1, 4096),
+                    bounces: bounces.clamp(1, 16),
+                    camera: camera.clone(),
+                    sun: crate::pt::sun_dir(
+                        sun_azimuth.unwrap_or_else(|| {
+                            // three-quarter light: over the camera's right shoulder, so the face you see is lit and shadows fall beside it
+                            let (e, t) = (glam::DVec3::from(camera.eye), glam::DVec3::from(camera.target));
+                            let back = e - t;
+                            let az = back.x.atan2(back.y).to_degrees();
+                            az + 45.0
+                        }),
+                        sun_altitude,
+                    ),
+                    sun_strength,
+                    denoise,
+                    exposure,
+                };
+                let t0 = std::time::Instant::now();
+                let img = crate::pt::render(model, &po);
+                let secs = t0.elapsed().as_secs_f64();
+                let data = if let Some(path) = &out {
+                    if let Some(dir) = std::path::Path::new(path).parent() {
+                        std::fs::create_dir_all(dir).ok();
+                    }
+                    img.save(path)?;
+                    None
+                } else {
+                    use base64::Engine as _;
+                    let mut buf = std::io::Cursor::new(Vec::new());
+                    img.write_to(&mut buf, image::ImageFormat::Png)?;
+                    Some(format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(buf.into_inner())))
+                };
+                json!({"out": out, "data": data, "seconds": secs, "camera": {"eye": camera.eye, "target": camera.target, "fov": camera.fov}})
+            }
             Command::Render { out, opts } => {
                 let whole = &self.model;
                 let cam = render::camera_for(whole, &opts);
@@ -1316,6 +1407,21 @@ impl Engine {
             Command::Slice { id, origin, normal } => {
                 let groups = m.slice(id, v3(origin), v3(normal))?;
                 json!({"groups": groups, "group": groups.first()})
+            }
+            Command::Material { name, color } => {
+                let mat = m.materials.entry(name.clone()).or_default();
+                mat.color = color;
+                json!({"material": name})
+            }
+            Command::SaveImage { path, data } => {
+                use base64::Engine as _;
+                let b64 = data.strip_prefix("data:image/png;base64,").ok_or_else(|| anyhow::anyhow!("expected a PNG data URL"))?;
+                let bytes = base64::engine::general_purpose::STANDARD.decode(b64)?;
+                if let Some(dir) = std::path::Path::new(&path).parent() {
+                    std::fs::create_dir_all(dir).ok();
+                }
+                std::fs::write(&path, bytes)?;
+                json!({"path": path})
             }
             Command::Intersect { ids, with } => json!({"lines": m.intersect(&ids, with != "selection")?}),
             Command::Flip { ids, axis } => json!({"moved": m.flip(&ids, axis_index(&axis)?)?}),
