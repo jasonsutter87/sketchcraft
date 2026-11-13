@@ -1055,3 +1055,45 @@ fn blueprint_finds_floors_and_draws_them() {
     assert!(pdf.contains("1:50") || pdf.contains("1:75") || pdf.contains("1:100"), "a true scale");
     std::fs::remove_dir_all(dir).ok();
 }
+
+#[test]
+fn bevel_round_divide_slice() {
+    let close = |a: f64, b: f64| (a - b).abs() < 1e-6;
+    // a 2 m cube: chamfer its four top edges by 0.2 m
+    let mut e = Engine::new();
+    let g = box_group(&mut e, [0.0, 0.0, 0.0], [2.0, 2.0, 2.0], "Block");
+    let top: Vec<u32> = e.model.edges.iter().filter(|(_, x)| x.group == Some(g as u32) && (e.model.p(x.a).z - 2.0).abs() < 1e-9 && (e.model.p(x.b).z - 2.0).abs() < 1e-9).map(|(k, _)| *k).collect();
+    assert_eq!(top.len(), 4);
+    let r = run(&mut e, json!({"cmd":"bevel","edges":top,"size":0.2}));
+    let g2 = r["group"].as_u64().unwrap();
+    // each chamfer removes a 0.2 x 0.2 / 2 wedge along 2 m; the four corners overlap
+    // (a pyramid each counted twice): 8 - 4 * 0.04 + 4 * (0.2^3 / 3)
+    let v = volume(&mut e, g2);
+    let expect = 8.0 - 4.0 * 0.02 * 2.0 + 4.0 * (0.008 / 3.0);
+    assert!(close(v, expect), "{v} vs {expect}");
+
+    // round one vertical edge of a fresh cube with 8 segments: close to a quarter circle
+    let mut e = Engine::new();
+    let g = box_group(&mut e, [0.0, 0.0, 0.0], [2.0, 2.0, 1.0], "Block");
+    let edge = *e.model.edges.iter().find(|(_, x)| x.group == Some(g as u32) && { let (a, b) = (e.model.p(x.a), e.model.p(x.b)); a.x.abs() < 1e-9 && a.y.abs() < 1e-9 && b.x.abs() < 1e-9 && b.y.abs() < 1e-9 }).unwrap().0;
+    let r = run(&mut e, json!({"cmd":"bevel","edges":[edge],"size":0.5,"segments":8}));
+    let v = volume(&mut e, r["group"].as_u64().unwrap());
+    // removed: 0.5^2 - quarter circle area (as a 8-sided arc), times 1 m
+    let arc = 8.0 * 0.5 * 0.25 * (std::f64::consts::FRAC_PI_2 / 8.0).sin();
+    let expect = 4.0 - (0.25 - arc);
+    assert!(close(v, expect), "{v} vs {expect}");
+
+    // divide an edge in 4
+    let mut e = Engine::new();
+    run(&mut e, json!({"cmd":"line","points":[[0,0,0],[4,0,0]]}));
+    let edge = *e.model.edges.keys().next().unwrap();
+    assert_eq!(run(&mut e, json!({"cmd":"divide","edge":edge,"count":4}))["points"].as_array().unwrap().len(), 3);
+    assert_eq!(e.model.edges.len(), 4);
+
+    // slice a cube in two at x = 0.5
+    let mut e = Engine::new();
+    let g = box_group(&mut e, [0.0, 0.0, 0.0], [2.0, 1.0, 1.0], "Bar");
+    let r = run(&mut e, json!({"cmd":"slice","id":g,"origin":[0.5,0,0],"normal":[1,0,0]}));
+    let gs: Vec<u64> = r["groups"].as_array().unwrap().iter().map(|x| x.as_u64().unwrap()).collect();
+    assert!(close(volume(&mut e, gs[0]), 1.5) && close(volume(&mut e, gs[1]), 0.5));
+}
