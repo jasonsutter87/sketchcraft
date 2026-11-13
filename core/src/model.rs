@@ -198,7 +198,7 @@ impl Model {
             bail!("a face needs at least 3 distinct points");
         }
         let pts = self.pts(&lp);
-        let mut n = geom::newell(&pts);
+        let n = geom::newell(&pts);
         if n == DVec3::ZERO {
             bail!("points are in a line; no face");
         }
@@ -210,40 +210,123 @@ impl Model {
             return Ok(id);
         }
 
-        // Drawn inside an existing coplanar face? Then it becomes a hole there.
+        // Drawn on an existing coplanar face? Strictly inside: it becomes a hole
+        // there. Touching the face's edge (a door at the bottom of a wall): the
+        // face is split around it.
         let (u, v) = geom::basis(n);
         let mine = geom::to2d(&pts, u, v);
-        let parent = self.faces.iter().find_map(|(&id, f)| {
+        let mid = mine.iter().copied().sum::<glam::DVec2>() / mine.len() as f64;
+        let mut hole_in = None;
+        let mut split = None;
+        for (&id, f) in &self.faces {
             if f.group != group {
-                return None;
+                continue;
             }
             let fp = self.pts(&f.outer);
             let fnorm = geom::newell(&fp);
             if fnorm.dot(n).abs() < 1.0 - 1e-9 || (fp[0] - pts[0]).dot(n).abs() > PLANAR {
-                return None;
+                continue;
             }
             let outer2 = geom::to2d(&fp, u, v);
             let holes2: Vec<_> = f.holes.iter().map(|h| geom::to2d(&self.pts(h), u, v)).collect();
-            let ok = mine
-                .iter()
-                .all(|p| geom::inside(*p, &outer2) && !holes2.iter().any(|h| geom::inside(*p, h)));
-            ok.then_some((id, fnorm))
-        });
+            let in_hole = |p: &glam::DVec2| holes2.iter().any(|h| geom::inside(*p, h));
+            if mine.iter().all(|p| geom::inside(*p, &outer2) && !in_hole(p)) {
+                hole_in = Some((id, fnorm));
+                break;
+            }
+            if mine.iter().all(|p| geom::inside_or_on(*p, &outer2) && !in_hole(p)) && geom::inside(mid, &outer2) && !in_hole(&mid) {
+                split = Some((id, fnorm));
+                break;
+            }
+        }
 
-        if let Some((pid, fnorm)) = parent {
+        if let Some((pid, fnorm)) = hole_in.or(split) {
             if fnorm.dot(n) < 0.0 {
                 lp.reverse();
-                n = -n;
             }
-            let mut hole = lp.clone();
-            hole.reverse();
-            self.faces.get_mut(&pid).unwrap().holes.push(hole);
+            if hole_in.is_some() {
+                let mut hole = lp.clone();
+                hole.reverse();
+                self.faces.get_mut(&pid).unwrap().holes.push(hole);
+            } else {
+                self.cut_from(pid, &lp)?;
+            }
         } else if n.z < -0.999 {
             // ground-like faces face up
             lp.reverse();
         }
-        let _ = n;
         Ok(self.insert_face(Face { outer: lp, holes: vec![], material: None, group }))
+    }
+
+    /// Remove the area of loop `cut` from face `pid` (they share an edge or
+    /// touch), rebuilding its outline. Pieces left over become extra faces.
+    fn cut_from(&mut self, pid: Id, cut: &[Id]) -> Result<()> {
+        use geo::{BooleanOps, Coord, LineString, Polygon};
+        let parent = self.faces[&pid].clone();
+        let fp = self.pts(&parent.outer);
+        let n = geom::newell(&fp);
+        let (u, v) = geom::basis(n);
+        let depth = fp[0].dot(n);
+        let ring = |ids: &[Id]| -> LineString<f64> {
+            LineString::from(geom::to2d(&self.pts(ids), u, v).iter().map(|p| Coord { x: p.x, y: p.y }).collect::<Vec<_>>())
+        };
+        let ppoly = Polygon::new(ring(&parent.outer), parent.holes.iter().map(|h| ring(h)).collect());
+        let cpoly = Polygon::new(ring(cut), vec![]);
+        let result = ppoly.difference(&cpoly);
+
+        // reuse existing vertices wherever the result lands on one
+        let mut known: Vec<(glam::DVec2, Id)> = Vec::new();
+        for id in parent.loops().flatten().chain(cut.iter()) {
+            let p = self.p(*id);
+            known.push((glam::DVec2::new(p.dot(u), p.dot(v)), *id));
+        }
+        let mut to_ids = |m: &mut Model, ls: &LineString<f64>, ccw: bool| -> Vec<Id> {
+            let mut pts2: Vec<glam::DVec2> = ls.coords().map(|c| glam::DVec2::new(c.x, c.y)).collect();
+            if pts2.len() > 1 && pts2.first() == pts2.last() {
+                pts2.pop();
+            }
+            if (geom::signed_area(&pts2) > 0.0) != ccw {
+                pts2.reverse();
+            }
+            let mut ids: Vec<Id> = pts2
+                .iter()
+                .map(|q| {
+                    if let Some((_, id)) = known.iter().find(|(k, _)| k.distance(*q) < 1e-6) {
+                        *id
+                    } else {
+                        let id = m.vertex_in(u * q.x + v * q.y + n * depth, parent.group);
+                        known.push((*q, id));
+                        id
+                    }
+                })
+                .collect();
+            ids.dedup();
+            ids
+        };
+        let mut pieces = Vec::new();
+        for poly in result.0.iter() {
+            let outer = to_ids(self, poly.exterior(), true);
+            let holes = poly.interiors().iter().map(|h| to_ids(self, h, false)).collect::<Vec<_>>();
+            if outer.len() >= 3 {
+                pieces.push(Face { outer, holes, material: parent.material.clone(), group: parent.group });
+            }
+        }
+        self.faces.remove(&pid);
+        let mut first = true;
+        for piece in pieces {
+            if first {
+                for l in piece.loops().cloned().collect::<Vec<_>>() {
+                    for (a, b) in pairs(&l) {
+                        self.edge(a, b);
+                    }
+                }
+                self.faces.insert(pid, piece); // keep the id stable
+                first = false;
+            } else {
+                self.insert_face(piece);
+            }
+        }
+        Ok(())
     }
 
     pub fn add_polygon(&mut self, points: &[DVec3]) -> Result<Id> {
@@ -285,7 +368,17 @@ impl Model {
             .iter()
             .find(|(&id, g)| id != fid && g.holes.iter().any(|h| same_set(h, &f.outer)))
             .map(|(&id, _)| id);
-        let carving = parent.is_some() && d < 0.0;
+        // Part of a bigger flat surface (a window in a wall, or a door cut from
+        // its edge)? Then pushing carves into the solid and the base disappears.
+        let embedded = parent.is_some()
+            || loops.iter().any(|l| {
+                pairs(l).any(|(a, b)| {
+                    self.faces_using_edge(a, b)
+                        .into_iter()
+                        .any(|g| g != fid && self.normal(g).dot(n) > 1.0 - 1e-9)
+                })
+            });
+        let carving = embedded && d < 0.0;
 
         let mut map: HashMap<Id, Id> = HashMap::new();
         for &v in loops.iter().flatten() {
@@ -321,7 +414,7 @@ impl Model {
         out.push(top_id);
         out.extend(sides);
 
-        if parent.is_some() {
+        if embedded {
             self.faces.remove(&fid); // now inside the solid / open to the recess
         } else if d > 0.0 {
             self.faces.get_mut(&fid).unwrap().reverse(); // becomes the bottom
