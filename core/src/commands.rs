@@ -206,6 +206,9 @@ pub enum Command {
         scale: f64,
         #[serde(default)]
         at: [f64; 3],
+        /// component name (default: the file name)
+        #[serde(default)]
+        name: Option<String>,
     },
     /// Import a SketchUp file (SketchUp 6-8 era). `path`, or the file as base64 in `data`.
     ImportSkp {
@@ -451,7 +454,7 @@ impl Engine {
         }
         let ctx = self.ctx;
         let m: &mut Model = match ctx {
-            Some(d) => &mut self.model.definitions.get_mut(&d).unwrap().model,
+            Some(d) => std::sync::Arc::make_mut(&mut self.model.definitions.get_mut(&d).unwrap().model),
             None => &mut self.model,
         };
         Ok(match cmd {
@@ -791,14 +794,16 @@ impl Engine {
             }
             Command::ExportGlb { path } => json!({"path": path, "triangles": export::write_glb(&self.model, &path)?}),
             Command::ExportStl { path, scale } => json!({"path": path, "triangles": export::write_stl(&self.model, &path, scale)?}),
-            Command::ImportObj { path, text, up, scale, at } => {
-                let text = match (text, path) {
+            Command::ImportObj { path, text, up, scale, at, name } => {
+                let text = match (text, &path) {
                     (Some(t), _) => t,
-                    (None, Some(p)) => std::fs::read_to_string(&p)?,
+                    (None, Some(p)) => std::fs::read_to_string(p)?,
                     _ => bail!("import_obj needs a path or text"),
                 };
-                let r = crate::import::import_obj(m, &text, up.eq_ignore_ascii_case("y"), scale, v3(at))?;
-                json!({"groups": r.groups, "group": r.groups.first(), "faces": r.faces, "skipped": r.skipped})
+                let p = path.as_deref().map(std::path::Path::new);
+                let label = name.or_else(|| p.and_then(|p| p.file_stem()).map(|s| tidy_name(&s.to_string_lossy()))).unwrap_or_else(|| "Imported".into());
+                let r = crate::import::import_obj(m, &text, p.and_then(|p| p.parent()), &label, up.eq_ignore_ascii_case("y"), scale, v3(at))?;
+                json!({"instance": r.instance, "component": r.component, "groups": r.groups, "faces": r.faces, "skipped": r.skipped})
             }
             Command::ImportSkp { path, data, at, name } => {
                 use base64::Engine as _;
@@ -841,4 +846,15 @@ impl Engine {
 
 fn round(x: f64) -> f64 {
     (x * 1000.0).round() / 1000.0
+}
+
+/// A readable name from a download's file name: "uploads_files_2787791_Mercedes+Benz+GLS+580"
+/// -> "Mercedes Benz GLS 580".
+fn tidy_name(stem: &str) -> String {
+    let s = stem.replace(['+', '_'], " ");
+    let words: Vec<&str> = s.split_whitespace().collect();
+    // drop store prefixes like "uploads files 2787791"
+    let start = words.iter().position(|w| !matches!(w.to_ascii_lowercase().as_str(), "uploads" | "files" | "upload" | "file") && !w.chars().all(|c| c.is_ascii_digit())).unwrap_or(0);
+    let name = words[start..].join(" ");
+    if name.is_empty() { stem.to_string() } else { name }
 }

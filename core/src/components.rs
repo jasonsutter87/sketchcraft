@@ -176,7 +176,7 @@ impl Model {
         self.edges.retain(|_, e| !(verts.contains(&e.a) && verts.contains(&e.b)) || self.faces.values().any(|f| f.uses_edge(e.a, e.b)));
         self.gc();
         let did = self.new_id();
-        self.definitions.insert(did, Definition { name: name.clone(), model: def });
+        self.definitions.insert(did, Definition { name: name.clone(), model: std::sync::Arc::new(def) });
         self.place(did, lo, 0.0, None)
     }
 

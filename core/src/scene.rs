@@ -46,10 +46,11 @@ pub fn build(root: &Model, ctx: Option<u32>) -> Value {
         // painted faces show paint on both sides; bare backs are blue
         let back = f.color.map(|c| [c[0] * 0.85, c[1] * 0.85, c[2] * 0.85]).unwrap_or(BACK_COLOR);
         for t in geom::triangulate(&f.outer, &f.holes, f.normal) {
+            // one color per triangle (the app spreads it to the corners)
+            colors.extend(color);
+            back_colors.extend(back);
             for p in t {
                 positions.extend([p.x as f32, p.y as f32, p.z as f32]);
-                colors.extend(color);
-                back_colors.extend(back);
                 let q = p - origin;
                 uvs.extend([(q.dot(tu) / w) as f32, (q.dot(tv) / h) as f32]);
             }
@@ -72,7 +73,7 @@ pub fn build(root: &Model, ctx: Option<u32>) -> Value {
     let (m, t) = match ctx.and_then(|d| root.definitions.get(&d).map(|def| (d, def))) {
         Some((d, def)) => {
             let t = root.instances.values().find(|i| i.def == d).map(|i| i.transform).unwrap_or_default();
-            (&def.model, t)
+            (&*def.model, t)
         }
         None => (root, glam::DMat4::IDENTITY),
     };
@@ -129,11 +130,15 @@ pub fn build(root: &Model, ctx: Option<u32>) -> Value {
         .iter()
         .map(|(id, d)| json!({"id": id, "name": d.name, "placed": root.instances.values().filter(|i| i.def == *id).count()}))
         .collect();
+    // Rounded so big imports stay a few MB of JSON: 0.01 mm positions,
+    // 1/1000 colors; texture coordinates only when something is textured.
+    let q = |v: &[f32], step: f64| -> Vec<f64> { v.iter().map(|x| (*x as f64 / step).round() * step).map(|x| (x * 1e6).round() / 1e6).collect() };
+    let textured = tri_tex.iter().any(|t| *t >= 0);
     json!({
-        "positions": positions,
-        "colors": colors,
-        "backColors": back_colors,
-        "uvs": uvs,
+        "positions": q(&positions, 1e-5),
+        "colors": q(&colors, 1e-3),
+        "backColors": q(&back_colors, 1e-3),
+        "uvs": if textured { q(&uvs, 1e-4) } else { Vec::new() },
         "triTex": tri_tex,
         "textures": textures,
         "materials": root.materials.iter().map(|(name, m)| json!({
@@ -144,7 +149,7 @@ pub fn build(root: &Model, ctx: Option<u32>) -> Value {
         "triFace": tri_face,
         "faces": faces,
         "edgeList": edge_list,
-        "edges": edges,
+        "edges": q(&edges, 1e-5),
         "edgeIds": edge_ids,
         "softEdges": soft_edges,
         "groups": groups,

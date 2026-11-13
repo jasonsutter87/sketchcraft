@@ -72,7 +72,9 @@ pub struct Group {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Definition {
     pub name: String,
-    pub model: Model,
+    /// Shared, not copied, between undo steps: a 200,000-triangle import
+    /// stays one copy until the component itself is edited.
+    pub model: std::sync::Arc<Model>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
