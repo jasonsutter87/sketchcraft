@@ -1,11 +1,32 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { exec, loadScene, sync, type Reply, type Scene } from "./engine";
 import { Icons, Logo } from "./icons";
-import { ContextMenu, contextItems, EntityInfo, Library, Outliner, Views } from "./panels";
+import { BuildTools, ContextMenu, contextItems, EntityInfo, Library, Outliner, Views } from "./panels";
 import { EMPTY, isEmpty, selIds, type Sel } from "./selection";
 import { UNIT_OPTIONS } from "./units";
 import { pickOpen, pickSave, rememberedFile, rememberFile } from "./files";
-import Viewport, { type Styles, type Tool, type ViewportApi } from "./Viewport";
+import Viewport, { type BuildSettings, type Styles, type Tool, type ViewportApi } from "./Viewport";
+
+const DEFAULT_BUILD: BuildSettings = {
+  wallThickness: 0.2,
+  wallHeight: 2.7,
+  stairWidth: 1.0,
+  stairRise: 2.7,
+  roofKind: "gable",
+  roofPitch: 30,
+  roofOverhang: 0.4,
+  columnSize: 0.3,
+  columnHeight: 2.7,
+  columnRound: false,
+};
+
+function loadBuild(): BuildSettings {
+  try {
+    return { ...DEFAULT_BUILD, ...JSON.parse(localStorage.getItem("sketchcraft.build") ?? "{}") };
+  } catch {
+    return DEFAULT_BUILD;
+  }
+}
 
 const TOOL_GROUPS: { id: Tool; name: string; key: string }[][] = [
   [{ id: "select", name: "Select", key: "Space" }],
@@ -63,6 +84,15 @@ export default function App() {
   const [styles, setStyles] = useState<Styles>({ xray: false, shadows: false, edges: true, parallel: false });
   const [section, setSection] = useState(false);
   const [placing, setPlacing] = useState<string | null>(null);
+  const [build, setBuildState] = useState<BuildSettings>(loadBuild);
+  const setBuild = (b: BuildSettings) => {
+    setBuildState(b);
+    try {
+      localStorage.setItem("sketchcraft.build", JSON.stringify(b));
+    } catch {
+      /* settings just won't persist */
+    }
+  };
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [fileMenu, setFileMenu] = useState(false);
   const [currentFile, setCurrentFileState] = useState<string | null>(rememberedFile());
@@ -354,6 +384,7 @@ export default function App() {
         </div>
         <div className="section grow">
           {scene && tab === "outliner" && <Outliner scene={scene} sel={sel} setSel={setSel} run={run} />}
+          {scene && tab === "library" && <BuildTools tool={tool} setTool={chooseTool} build={build} setBuild={setBuild} units={scene.units || "m"} />}
           {scene && tab === "library" && (
             <Library
               scene={scene}
@@ -380,6 +411,7 @@ export default function App() {
           setColor={setColor}
           styles={styles}
           placeAsset={placing}
+          build={build}
           run={run}
           onMeasure={(label, value) => setMeasure({ label, value })}
           onContext={(x, y) => setMenu({ x, y })}
