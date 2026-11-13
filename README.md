@@ -28,7 +28,15 @@ drive with the mouse.
   shadows, parallel projection, headless PNG renders.
 - **Library:** doors, windows, garage doors, trees, palms, cars, streetlights,
   benches and hydrants, all built from editable command scripts.
-- **Files:** `.sketchcraft` documents, glTF (.glb), OBJ and STL export, OBJ import.
+- **Build blocks:** walls along a path (or closed rooms), code-friendly stairs from a
+  total rise, gable/hip/shed roofs on any top face, columns.
+- **Textures:** add a photo as a material, paint faces with it at a real-world tile
+  size, or project it across a whole model from your view.
+- **Units:** meters, centimeters, millimeters, feet & inches, or inches. Type
+  lengths any way: `12'`, `8'6"`, `250cm`, `2.5m`.
+- **Files:** a File menu with New / Open / Save / Save As; `.sketchcraft` documents,
+  glTF (.glb), OBJ and STL export; OBJ import; and **legacy SketchUp (.skp) import**
+  for SketchUp 6–8 files (geometry, colors, components and placements).
 
 ## Install
 
@@ -100,11 +108,12 @@ sketchcraft bridge                                 # the app's UI in a browser
 | Shape | `pushpull`, `follow_me` |
 | Transform | `move`, `rotate`, `scale`, `duplicate`, `array`, `copy` |
 | Organize | `begin_group`/`end_group`, `group`, `edit`/`close`, `make_component`, `place`, `explode`, `components`, `rename` |
-| Library | `insert`, `assets` |
+| Library | `insert`, `assets`, `wall`, `stairs`, `roof`, `column` |
+| Materials | `paint` (color or material), `texture`, `units` |
 | Visibility | `hide`, `unhide`, `tag`, `tag_visible`, `soften` |
 | Notes | `dimension`, `text`, `guide`, `clear_guides`, `save_view`, `delete_view` |
 | Inspect | `pick`, `faces`, `info`, `undo`, `redo`, `new` |
-| Files | `save`, `open`, `export_obj`, `export_glb`, `export_stl`, `import_obj`, `render` |
+| Files | `save`, `open`, `export_obj`, `export_glb`, `export_stl`, `import_obj`, `import_skp`, `render` |
 
 ## AI agents (MCP)
 
@@ -115,9 +124,13 @@ This repo's `.mcp.json` sets it up for Claude Code.
 
 ## Status
 
-Young and moving fast. Next up: photo match (project photos onto faces),
-image textures, solid tools (union/subtract), intersect faces, and parallel /
-perpendicular inference.
+Young and moving fast. Next up: photo match (line a photo up with the model),
+textures in exports, newer SketchUp files (2013+), solid tools
+(union/subtract), intersect faces, and parallel / perpendicular inference.
+
+The `.skp` importer is a clean-room reader for the legacy MFC CArchive format,
+worked out from sample files for interoperability. It skips what it doesn't
+understand (dimensions, text, textures inside the file) rather than guess.
 
 ## License and trademarks
 
