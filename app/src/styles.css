@@ -11,9 +11,11 @@
   --accent-soft: #efedff;
   --accent-ink: #4a3df0;
   --danger: #e5484d;
+  --glass: rgba(255, 255, 255, 0.94);
+  --font: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", system-ui, sans-serif;
   --radius: 10px;
   --shadow: 0 1px 2px rgba(20, 22, 40, 0.06), 0 8px 24px rgba(20, 22, 40, 0.08);
-  font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", system-ui, sans-serif;
+  font-family: var(--font);
   font-size: 13px;
   color: var(--text);
   background: var(--bg);
@@ -162,7 +164,7 @@ input {
 }
 
 .btn.small:hover {
-  background: #e2deff;
+  background: color-mix(in srgb, var(--accent-soft) 70%, var(--accent) 30%);
 }
 
 .btn.small.ghost {
@@ -308,7 +310,7 @@ button.tile:hover .tile-art {
 }
 
 .tiles.muted .tile-art {
-  background: repeating-linear-gradient(135deg, #f3f4f8 0 6px, #eceef4 6px 12px);
+  background: repeating-linear-gradient(135deg, var(--bg) 0 6px, var(--line) 6px 12px);
 }
 
 .kv {
@@ -920,9 +922,9 @@ button.tile:hover .tile-art {
   gap: 2px;
   padding: 2px 7px;
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.94);
-  border: 1px solid #d7d9e3;
-  color: #2c3040;
+  background: var(--glass);
+  border: 1px solid var(--line-strong);
+  color: var(--text);
   font-size: 11.5px;
   font-weight: 560;
   font-variant-numeric: tabular-nums;
@@ -1312,7 +1314,7 @@ button.link {
 
 .thumb.loading {
   display: block;
-  background: linear-gradient(90deg, #f1f2f6, #fafbfd, #f1f2f6);
+  background: linear-gradient(90deg, var(--bg), var(--panel), var(--bg));
   background-size: 200% 100%;
   animation: shimmer 1.2s infinite linear;
 }
@@ -1350,7 +1352,7 @@ button.link {
   place-items: center;
   border: 0;
   border-radius: 6px;
-  background: #fff;
+  background: var(--panel);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
   cursor: pointer;
 }
@@ -1412,7 +1414,7 @@ details.panel-fold {
   max-width: 280px;
   padding: 10px 12px;
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.94);
+  background: var(--glass);
   box-shadow: 0 4px 18px rgba(20, 22, 40, 0.12), 0 0 0 1px rgba(20, 22, 40, 0.05);
   font-size: 12.5px;
   line-height: 1.4;
@@ -1435,7 +1437,7 @@ details.panel-fold {
 }
 
 .coach-step {
-  color: #22242e;
+  color: var(--text);
 }
 
 .coach-keys {
@@ -1466,7 +1468,7 @@ details.panel-fold {
   width: 22px;
   height: 22px;
   border-radius: 6px;
-  background: #fff;
+  background: var(--panel);
   color: var(--accent-ink, #5b4bdb);
   box-shadow: 0 1px 4px rgba(20, 22, 40, 0.25);
   pointer-events: none;
@@ -1491,7 +1493,7 @@ details.panel-fold {
   margin-bottom: 12px;
   border-radius: 10px;
   overflow: hidden;
-  background: #e9ebf1;
+  background: var(--line);
 }
 
 .render-view img {
@@ -1534,9 +1536,367 @@ details.panel-fold {
 }
 
 .seg button.on {
-  background: #fff;
+  background: var(--panel);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
 }
 .render-controls .warn {
   color: var(--danger, #c0392b);
+}
+
+/* ---------- workspaces: panels on/off, toolbar docked left ---------- */
+.app.no-left {
+  grid-template-columns: 0 1fr 272px;
+}
+.app.no-right {
+  grid-template-columns: 248px 1fr 0;
+}
+.app.no-left.no-right {
+  grid-template-columns: 0 1fr 0;
+}
+.app.no-left .panel.left,
+.app.no-right .panel.right {
+  display: none;
+}
+.app.dock-left .toolbar {
+  left: 14px;
+  top: 14px;
+  bottom: auto;
+  transform: none;
+  flex-direction: column;
+  flex-wrap: wrap;
+  max-height: calc(100% - 28px);
+  align-content: flex-start;
+}
+.app.dock-left .tool-group {
+  flex-direction: column;
+  padding: 4px 0;
+  border-right: none;
+  border-bottom: 1px solid var(--line);
+}
+.app.dock-left .tool-group:last-of-type {
+  border-bottom: none;
+}
+.app.dock-left .chip {
+  margin: 6px 0 2px;
+}
+.app.dock-left .coach {
+  left: auto;
+  right: 14px;
+}
+
+.ws-switch {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: calc(var(--radius) + 2px);
+  background: var(--bg);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.ws-switch button {
+  height: 26px;
+  padding: 0 12px;
+  border-radius: var(--radius);
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 560;
+}
+.ws-switch button:hover {
+  color: var(--text);
+}
+.ws-switch button.on {
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+/* the strip of quick actions for the workspace, over the model */
+.ws-strip {
+  position: absolute;
+  left: 50%;
+  bottom: 76px;
+  transform: translateX(-50%);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: calc(100% - 340px);
+  overflow-x: auto;
+  padding: 4px;
+  border-radius: calc(var(--radius) + 2px);
+  background: var(--glass);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+  white-space: nowrap;
+}
+.app.dock-left .ws-strip {
+  bottom: 18px;
+}
+.ws-strip .lbl {
+  padding: 0 6px 0 4px;
+  color: var(--faint);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.ws-strip button {
+  height: 26px;
+  padding: 0 10px;
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 12px;
+}
+.ws-strip button:hover:not(:disabled) {
+  background: var(--bg);
+}
+.ws-strip button.on {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+.ws-strip button:disabled {
+  color: var(--faint);
+}
+.ws-strip .hint {
+  padding: 0 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.ws-strip .sep {
+  width: 1px;
+  height: 18px;
+  margin: 0 4px;
+  background: var(--line);
+}
+
+/* skin picker */
+.skin-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+  max-height: 52vh;
+  overflow-y: auto;
+  padding: 2px;
+}
+.skin-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border-radius: var(--radius);
+  text-align: left;
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.skin-card:hover {
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+.skin-card.on {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+.skin-card .mini {
+  display: grid;
+  grid-template-columns: 22% 1fr 26%;
+  grid-template-rows: 9px 1fr;
+  height: 64px;
+  overflow: hidden;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+}
+.skin-card .mini i {
+  display: block;
+}
+.skin-card .mini .top {
+  grid-column: 1 / -1;
+}
+.skin-card .mini .mstage {
+  position: relative;
+}
+.skin-card .mini .mstage b {
+  position: absolute;
+  left: 30%;
+  right: 30%;
+  bottom: 5px;
+  height: 7px;
+  border-radius: 3px;
+}
+.skin-card .name {
+  font-weight: 600;
+}
+.skin-card .blurb {
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.3;
+}
+.skin-edit {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 6px 14px;
+  margin-top: 12px;
+}
+.skin-edit label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.skin-edit input[type="color"] {
+  width: 34px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: none;
+}
+.skin-edit input[type="text"],
+.skin-edit select {
+  width: 110px;
+}
+.ws-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 8px 0 4px;
+}
+.ws-tools button {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius);
+  color: var(--faint);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.ws-tools button.on {
+  color: var(--accent-ink);
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+/* ---------- dark skins: things that were drawn for a light page ---------- */
+[data-dark="1"] .tool.on,
+[data-dark="1"] .btn.primary {
+  color: var(--bg);
+}
+[data-dark="1"] input,
+[data-dark="1"] select,
+[data-dark="1"] textarea {
+  background: var(--bg);
+  color: var(--text);
+  border-color: var(--line-strong);
+}
+[data-dark="1"] .toast {
+  background: var(--text);
+  color: var(--bg);
+}
+
+/* ---------- Cassette Deck: an original retro media-player look ---------- */
+[data-skin="cassette"] .topbar {
+  background: linear-gradient(180deg, #4a505d 0%, #343842 48%, #2a2d35 52%, #31353e 100%);
+  border-bottom: 1px solid #111;
+}
+[data-skin="cassette"] .panel,
+[data-skin="cassette"] .toolbar,
+[data-skin="cassette"] .views,
+[data-skin="cassette"] .ws-strip,
+[data-skin="cassette"] .sheet {
+  background: repeating-linear-gradient(90deg, #2e323b 0 2px, #30343d 2px 3px);
+  border: 2px solid;
+  border-color: #59606e #15171b #15171b #59606e;
+  box-shadow: none;
+}
+[data-skin="cassette"] .tool,
+[data-skin="cassette"] .views button,
+[data-skin="cassette"] .ws-strip button,
+[data-skin="cassette"] .ws-switch button,
+[data-skin="cassette"] .btn {
+  background: linear-gradient(180deg, #474d5a, #2f333c);
+  border: 1px solid;
+  border-color: #6c7383 #121418 #121418 #6c7383;
+  color: #cfd5df;
+  border-radius: 0;
+}
+[data-skin="cassette"] .tool:active,
+[data-skin="cassette"] .btn:active,
+[data-skin="cassette"] .tool.on,
+[data-skin="cassette"] .views button.on,
+[data-skin="cassette"] .ws-strip button.on,
+[data-skin="cassette"] .ws-switch button.on {
+  background: #15171b;
+  border-color: #121418 #6c7383 #6c7383 #121418;
+  color: #39ff6a;
+  text-shadow: 0 0 6px rgba(57, 255, 106, 0.6);
+}
+[data-skin="cassette"] .tool.on svg {
+  filter: drop-shadow(0 0 3px rgba(57, 255, 106, 0.7));
+}
+/* the doc name and the measurement box are the LCD */
+[data-skin="cassette"] .doc,
+[data-skin="cassette"] .measure input,
+[data-skin="cassette"] .measure label {
+  font-family: "SF Mono", Menlo, monospace;
+  color: #39ff6a;
+  text-shadow: 0 0 6px rgba(57, 255, 106, 0.55);
+}
+[data-skin="cassette"] .doc {
+  display: inline-block;
+  max-width: 220px;
+  padding: 3px 10px;
+  overflow: hidden;
+  background: #070a07;
+  border: 1px solid;
+  border-color: #121418 #6c7383 #6c7383 #121418;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+[data-skin="cassette"] .measure {
+  background: #070a07;
+  border: 2px solid;
+  border-color: #15171b #59606e #59606e #15171b;
+}
+[data-skin="cassette"] .measure input {
+  background: transparent;
+}
+[data-skin="cassette"] .section-title,
+[data-skin="cassette"] .ws-strip .lbl {
+  color: #8fe3a5;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-size: 10.5px;
+}
+
+/* ---------- Synthwave: a little glow ---------- */
+[data-skin="synthwave"] .tool.on,
+[data-skin="synthwave"] .btn.primary {
+  box-shadow: 0 0 12px rgba(255, 63, 180, 0.65);
+}
+[data-skin="synthwave"] .topbar {
+  background: linear-gradient(90deg, #20123f, #2c1150 60%, #3a0f4f);
+  border-bottom: 1px solid #ff3fb4;
+}
+[data-skin="synthwave"] .section-title {
+  color: #5ef2ff;
+}
+
+/* ---------- Blueprint: lines, not fills ---------- */
+[data-skin="blueprint"] .tool.on,
+[data-skin="blueprint"] .btn.primary {
+  background: transparent;
+  color: #fff;
+  box-shadow: inset 0 0 0 1.5px #fff;
+}
+[data-skin="blueprint"] .panel,
+[data-skin="blueprint"] .stage {
+  background-image: linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+  background-size: 16px 16px;
+}
+[data-skin="blueprint"] .section-title {
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+[data-skin="blueprint"] .btn.primary:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+[data-skin="cassette"] .btn.primary {
+  color: #39ff6a;
+  text-shadow: 0 0 6px rgba(57, 255, 106, 0.55);
 }
