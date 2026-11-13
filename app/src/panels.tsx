@@ -6,6 +6,7 @@ import { ASSETS, type Reply, type Scene } from "./engine";
 import { Icons } from "./icons";
 import { EMPTY, isEmpty, selIds, type Sel } from "./selection";
 import { TEMPLATES } from "./templates";
+import { formatLength } from "./units";
 import type { Cam } from "./Viewport";
 
 type Run = (cmd: Record<string, unknown>) => Promise<Reply>;
@@ -194,13 +195,13 @@ export function EntityInfo({ scene, sel, run }: { scene: Scene; sel: Sel; run: R
         {faces.length > 0 && (
           <>
             <span>Area</span>
-            <b>{faces.reduce((a, f) => a + f.area, 0).toFixed(2)} m²</b>
+            <b>{formatArea(faces.reduce((a, f) => a + f.area, 0), scene.units)}</b>
           </>
         )}
         {edges.length > 0 && (
           <>
             <span>Length</span>
-            <b>{len.toFixed(2)} m</b>
+            <b>{formatLength(len, scene.units)}</b>
           </>
         )}
         {insts.length === 1 && (
@@ -293,4 +294,10 @@ export function ContextMenu({ x, y, items, close }: { x: number; y: number; item
       </div>
     </div>
   );
+}
+
+export function formatArea(m2: number, units: string): string {
+  if (units === "ft" || units === "in") return `${(m2 / 0.09290304).toFixed(1)} ft²`;
+  if (units === "mm" || units === "cm") return `${(m2 * 10000).toFixed(0)} cm²`;
+  return `${m2.toFixed(2)} m²`;
 }

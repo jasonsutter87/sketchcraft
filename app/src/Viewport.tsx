@@ -9,6 +9,7 @@ import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import type { FaceInfo, Reply, Scene, Vec3 } from "./engine";
 import { AXIS_COLORS, closestOnLine, infer, rayFrom, V, type Axis, type InferEnv, type Pick, type Snap } from "./inference";
 import { EMPTY, merge, selIds, toggle, type Sel } from "./selection";
+import { formatLength, parseLengths } from "./units";
 
 export type Tool =
   | "select" | "line" | "arc" | "rect" | "circle" | "polygon"
@@ -61,7 +62,9 @@ const EDGE_COLOR = 0x23252d;
 const UP = new THREE.Vector3(0, 0, 1);
 const r4 = (x: number) => Math.round(x * 1e4) / 1e4;
 const arr = (v: THREE.Vector3): Vec3 => [r4(v.x), r4(v.y), r4(v.z)];
-const fmt = (x: number) => `${x.toFixed(2)} m`;
+// display units come from the model; set whenever a scene arrives
+let units = "m";
+const fmt = (x: number) => formatLength(x, units);
 
 /** In-plane axes for a normal: u horizontal when possible, v = n x u. */
 function basis(n: THREE.Vector3): [THREE.Vector3, THREE.Vector3] {
@@ -560,6 +563,7 @@ export default function Viewport(props: Props) {
 
   useEffect(() => {
     if (!t.current || !scene) return;
+    units = scene.units || "m";
     buildModel();
     if (!st.current.fitted || st.current.fitNext) {
       st.current.fitted = true;
@@ -880,6 +884,8 @@ export default function Viewport(props: Props) {
     if (!s) return;
     const op = st.current.op;
     const nums = s.split(/[ ,;]+/).map(Number).filter((x) => !Number.isNaN(x));
+    // lengths understand units: 8, 8m, 250cm, 8', 10'6", 96"
+    const lens = parseLengths(s, units);
     const L = live.current;
 
     // "24s": sides for circles and polygons
@@ -907,35 +913,39 @@ export default function Viewport(props: Props) {
     switch (op?.t) {
       case "line": {
         const dir = op.cur.clone().sub(op.p0);
-        if (dir.length() > 1e-9) await commitLine(op.p0.clone().addScaledVector(dir.normalize(), nums[0]));
+        if (dir.length() > 1e-9 && lens.length) await commitLine(op.p0.clone().addScaledVector(dir.normalize(), lens[0]));
         return;
       }
       case "rect":
-        if (nums.length < 2) return L.onToast("Type width, height", true);
-        op.a = Math.sign(op.a || 1) * Math.abs(nums[0]);
-        op.b = Math.sign(op.b || 1) * Math.abs(nums[1]);
+        if (lens.length < 2) return L.onToast("Type width, height (e.g. 12',16' or 4,6)", true);
+        op.a = Math.sign(op.a || 1) * Math.abs(lens[0]);
+        op.b = Math.sign(op.b || 1) * Math.abs(lens[1]);
         return void (await commitRect());
       case "circle":
-        op.r = Math.abs(nums[0]);
+        if (!lens.length) return;
+        op.r = Math.abs(lens[0]);
         return void (await commitCircle());
       case "arc":
         if (!op.b) return;
-        op.bulge = Math.sign(op.bulge || 1) * Math.abs(nums[0]);
+        if (!lens.length) return;
+        op.bulge = Math.sign(op.bulge || 1) * Math.abs(lens[0]);
         return void (await commitArc());
       case "push":
-        op.d = nums[0];
+        if (!lens.length) return;
+        op.d = lens[0];
         return void (await commitPush());
       case "offset":
-        op.d = nums[0];
+        if (!lens.length) return;
+        op.d = lens[0];
         return void (await commitOffset());
       case "tape": {
         const dir = op.cur.clone().sub(op.p0);
-        if (dir.length() > 1e-9) await commitTape(op.p0.clone().addScaledVector(dir.normalize(), nums[0]));
+        if (dir.length() > 1e-9 && lens.length) await commitTape(op.p0.clone().addScaledVector(dir.normalize(), lens[0]));
         return;
       }
       case "move":
-        if (op.delta.length() < 1e-9) return;
-        op.delta = op.delta.clone().normalize().multiplyScalar(nums[0]);
+        if (op.delta.length() < 1e-9 || !lens.length) return;
+        op.delta = op.delta.clone().normalize().multiplyScalar(lens[0]);
         return void (await commitMove());
       case "rotate":
         if (!op.ref) return;
@@ -946,13 +956,15 @@ export default function Viewport(props: Props) {
         return void (await commitScale());
     }
     // nothing in progress: retype the last push / move / rotate / scale
-    if (!last) return;
+    if (!last || (["push", "move"].includes(last.t) && !lens.length)) return;
     await L.run({ cmd: "undo" });
     if (last.t === "push") {
-      await run({ cmd: "pushpull", face: last.face, distance: nums[0] });
-      st.current.last = { ...last, d: nums[0] };
+      if (!lens.length) return;
+      await run({ cmd: "pushpull", face: last.face, distance: lens[0] });
+      st.current.last = { ...last, d: lens[0] };
     } else if (last.t === "move") {
-      const by = last.by.clone().normalize().multiplyScalar(nums[0]);
+      if (!lens.length) return;
+      const by = last.by.clone().normalize().multiplyScalar(lens[0]);
       await run({ cmd: last.copy ? "duplicate" : "move", ids: last.ids, by: arr(by) });
       st.current.last = { ...last, by };
     } else if (last.t === "rotate") {

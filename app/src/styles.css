@@ -957,3 +957,14 @@ button.tile:hover .tile-art {
   color: #fff;
   pointer-events: none;
 }
+
+.units-select {
+  justify-self: end;
+  height: 26px;
+  padding: 0 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  background: var(--panel);
+  font: inherit;
+  font-size: 12px;
+}

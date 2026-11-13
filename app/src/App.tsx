@@ -3,6 +3,7 @@ import { exec, loadScene, sync, type Reply, type Scene } from "./engine";
 import { Icons, Logo } from "./icons";
 import { ContextMenu, contextItems, EntityInfo, Library, Outliner, Views } from "./panels";
 import { EMPTY, isEmpty, selIds, type Sel } from "./selection";
+import { UNIT_OPTIONS } from "./units";
 import Viewport, { type Styles, type Tool, type ViewportApi } from "./Viewport";
 
 const TOOL_GROUPS: { id: Tool; name: string; key: string }[][] = [
@@ -384,6 +385,14 @@ export default function App() {
               <b>{scene?.groups.length ?? 0}</b>
               <span>Components</span>
               <b>{scene?.instances.length ?? 0}</b>
+              <span>Units</span>
+              <select className="units-select" value={scene?.units || "m"} onChange={(e) => run({ cmd: "units", units: e.target.value })}>
+                {UNIT_OPTIONS.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.label}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
         )}

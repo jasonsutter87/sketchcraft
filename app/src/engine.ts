@@ -91,6 +91,7 @@ export interface Scene {
   guides: GuideInfo[];
   views: SavedView[];
   annotations: Annotation[];
+  units: string;
   doc: string;
 }
 
