@@ -338,3 +338,53 @@ fn follow_me_around_a_roof_makes_a_closed_cornice() {
     assert_eq!(r["faces"].as_array().unwrap().len(), 16, "4 profile sides x 4 roof edges, closed");
     assert!(faces(&mut e).iter().all(|f| f["id"] != prof), "profile used up");
 }
+
+#[test]
+fn components_place_edit_explode() {
+    let mut e = Engine::new();
+    let g = run(&mut e, json!({"cmd":"begin_group","name":"Door"}))["group"].clone();
+    let f = run(&mut e, json!({"cmd":"rect","from":[0,0,0],"to":[1,0.1,0]}))["face"].clone();
+    run(&mut e, json!({"cmd":"pushpull","face":f,"distance":2.1}));
+    run(&mut e, json!({"cmd":"end_group"}));
+    let r = run(&mut e, json!({"cmd":"make_component","ids":[g],"name":"Door"}));
+    let first = r["instance"].clone();
+    assert_eq!(run(&mut e, json!({"cmd":"info"}))["faces"], 0, "geometry moved into the component");
+    run(&mut e, json!({"cmd":"place","component":"Door","at":[5,0,0],"rotate":90}));
+    run(&mut e, json!({"cmd":"duplicate","ids":[first],"by":[0,5,0]}));
+    assert_eq!(e.model.world_faces().len(), 18);
+    // edit through one placement: every placement grows
+    run(&mut e, json!({"cmd":"edit","id":first}));
+    let top = run(&mut e, json!({"cmd":"faces","facing":[0,0,1]}))["faces"][0]["id"].clone();
+    run(&mut e, json!({"cmd":"pushpull","face":top,"distance":0.4}));
+    run(&mut e, json!({"cmd":"close"}));
+    let b = run(&mut e, json!({"cmd":"info"}))["bounds"].clone();
+    assert!((b["max"][2].as_f64().unwrap() - 2.5).abs() < 1e-9);
+    assert!(e.model.world_faces().iter().all(|f| f.outer.iter().all(|p| p.z <= 2.5 + 1e-9)));
+    // explode one back to plain geometry
+    run(&mut e, json!({"cmd":"explode","id":first}));
+    assert_eq!(run(&mut e, json!({"cmd":"info"}))["faces"], 6);
+    assert_eq!(e.model.world_faces().len(), 18);
+}
+
+#[test]
+fn hide_tags_and_soften() {
+    let mut e = Engine::new();
+    let g = run(&mut e, json!({"cmd":"begin_group","name":"A"}))["group"].clone();
+    make_box(&mut e);
+    run(&mut e, json!({"cmd":"end_group"}));
+    run(&mut e, json!({"cmd":"tag","ids":[g],"tag":"Trees"}));
+    run(&mut e, json!({"cmd":"tag_visible","tag":"Trees","visible":false}));
+    assert_eq!(e.model.world_faces().len(), 0);
+    run(&mut e, json!({"cmd":"tag_visible","tag":"Trees","visible":true}));
+    run(&mut e, json!({"cmd":"hide","ids":[g]}));
+    assert_eq!(e.model.world_faces().len(), 0);
+    run(&mut e, json!({"cmd":"unhide"}));
+    assert_eq!(e.model.world_faces().len(), 6);
+    // open the group, split the roof, then soften the now-coplanar seam
+    run(&mut e, json!({"cmd":"edit","id":g}));
+    run(&mut e, json!({"cmd":"line","points":[[0,6,6],[8,6,6]]}));
+    run(&mut e, json!({"cmd":"close"}));
+    let r = run(&mut e, json!({"cmd":"soften","coplanar":true}));
+    assert_eq!(r["edges"], 1);
+    assert_eq!(e.model.world_edges().iter().filter(|x| !x.soft).count(), 12 + 2, "box edges plus the two wall splits, not the seam");
+}
