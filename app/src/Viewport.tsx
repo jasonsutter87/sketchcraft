@@ -191,6 +191,9 @@ export default function Viewport(props: Props) {
     labelEls: Map<string, HTMLDivElement>;
   }>({ press: null, labels: [], liveLabels: [], labelEls: new Map(), op: null, last: null, lock: null, hover: null, hoverEdge: null, space: false, spaceUsed: false, fitted: false, fitNext: false, section: null, segs: { circle: 24, polygon: 6 }, rightDown: null, selOverride: null });
 
+  // dev builds: inspect the tool state from the console (window.__sketchcraft)
+  if (import.meta.env.DEV) (window as unknown as { __sketchcraft: unknown }).__sketchcraft = st;
+
   // ---------------------------------------------------------------- setup
   useEffect(() => {
     const el = host.current!;
