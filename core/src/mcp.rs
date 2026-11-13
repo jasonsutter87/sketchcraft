@@ -14,19 +14,29 @@ use base64::Engine as _;
 use serde_json::{json, Value};
 use std::io::{BufRead, Write};
 
-const REFERENCE: &str = r#"Riseline commands (JSON objects). Units meters, Z up. Add "as":"name" to remember a result id; use "@name" anywhere an id goes.
-- rect {from:[x,y,z], to:[x,y,z]}: axis-aligned rectangle; corners share one coordinate. Drawn inside an existing coplanar face it cuts a hole there (windows, doors).
-- polygon {points:[[x,y,z],...]}: planar face (footprint, gable end, stair profile).
-- line {points}: edges; closing the loop makes a face.
-- pushpull {face, distance}: + pulls out along the face normal, - pushes in. Pushing a face that fills a hole recesses it (window); pulling the top of a box again just raises it.
-- pick {at:[x,y,z], facing?:[x,y,z]}: id of the face under a point.
-- faces {group?, facing?}: list faces (id, normal, center, area, holes, group, material).
-- move {ids, by}; copy {group, by, name?}; delete {ids}; reverse {ids}
-- begin_group {name} / end_group: new geometry goes in that group (groups don't weld to each other). group {ids, name?}
-- paint {ids, color:[r,g,b] 0..1}: faces or whole groups.
-- undo / redo; info; new
-- save {path} / open {path} (.riseline JSON); export_obj {path}; render {out, view?, camera?, width?, height?}
-Ground faces face +Z. A rect on the ground at z=0 pulled up makes a building. Holes must be strictly inside the face (not touching its edge)."#;
+const REFERENCE: &str = r#"Riseline commands (JSON objects). Units meters, Z up, front of a street usually faces -Y. Add "as":"name" to remember a result id (face, group, instance, first of ids/edges); use "@name" anywhere an id goes.
+DRAW
+- rect {from, to}: axis-aligned rectangle (corners share one coordinate). On an existing face: strictly inside cuts a hole (window); touching its edge splits it (door at ground).
+- polygon {points}: planar face (within 1 cm is flattened).
+- line {points}: edges. Ending mid-edge splits it; edge-to-edge across a face cuts the face in two; closing a flat loop makes a face.
+- circle {center, radius, normal?=[0,0,1], segments?=24}; arc {start, end, bulge, normal?, segments?=12}
+- offset {face, distance}: + inward (new face inside), - outward (ring).
+MODIFY
+- pushpull {face, distance}: + out along normal, - in. Faces in a bigger surface carve recesses.
+- follow_me {face, points | edges | around:faceId}: sweep a profile (cornice, trim, eave).
+- move {ids, by}; rotate {ids, center, axis?=[0,0,1], angle(deg)}; scale {ids, center, factor: n | [x,y,z]}. Moving an edge/vertex reshapes faces (raise a ridge line for a gable; bent faces auto-fold).
+- duplicate {ids, by}; array {ids, by, count}; copy {group, by}; delete {ids}; reverse {ids}; paint {ids, color:[r,g,b] 0..1}
+ORGANIZE
+- begin_group {name} / end_group; group {ids, name?}; edit {id} (open a group or component) / close
+- make_component {ids, name}; place {component(id|name), at, rotate?}; explode {id}; components
+- insert {asset, at, rotate?}: built-ins door, window, garage_door, tree, palm, car, streetlight, bench, hydrant (doors/windows face -Y, origin bottom-left on the wall).
+- hide {ids}; unhide {ids?}; tag {ids, tag}; tag_visible {tag, visible}; soften {ids | coplanar:true}; rename {id, name}
+- guide {point, direction?}; clear_guides; save_view {name, eye, target, fov?}; delete_view {name}
+INSPECT / FILES
+- pick {at, facing?}: face under a point; faces {group?, facing?}; info; undo; redo; new
+- save/open {path} (.riseline); export_obj/export_glb {path}; export_stl {path, scale?}; import_obj {path, up?="y", scale?, at?}
+- render {out, view?: iso|front|back|left|right|top|<saved view>, camera?, width?, height?}
+Tips: build each house in its own group; pick faces by point after pulls; check your work with riseline_render."#;
 
 fn mtime(doc: &Option<String>) -> Option<std::time::SystemTime> {
     doc.as_ref().and_then(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok())
