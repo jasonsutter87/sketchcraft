@@ -202,7 +202,7 @@ impl Model {
             let fs = self.faces_using_edge(a, b);
             if fs.len() == 2 && fs.iter().any(|f| set.contains(f)) {
                 let (n1, n2) = (self.normal(fs[0]), self.normal(fs[1]));
-                if n1.dot(n2) > 0.0f64.max((25.0f64).to_radians().cos()) && n1.dot(n2) < 1.0 - 1e-9 {
+                if n1.dot(n2) > 0.0f64.max((35.0f64).to_radians().cos()) && n1.dot(n2) < 1.0 - 1e-9 {
                     self.edges.get_mut(&k).unwrap().soft = true;
                 }
             }
