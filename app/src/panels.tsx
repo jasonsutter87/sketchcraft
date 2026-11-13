@@ -407,6 +407,7 @@ export function EntityInfo({ scene, sel, run }: { scene: Scene; sel: Sel; run: R
           </>
         )}
       </div>
+      {insts.length === 1 && <AttrEditor key={insts[0].id} id={insts[0].id} attrs={insts[0].attrs ?? {}} run={run} />}
       {taggable.length > 0 && (
         <div className="row gap">
           <input className="num wide-input" placeholder="Tag (e.g. Trees)" value={tag} onChange={(e) => setTag(e.target.value)} list="tag-list" />
@@ -783,6 +784,47 @@ export function SheetsDialog({ scene, onMake, onClose }: { scene: Scene; onMake:
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+
+/** Dynamic Component attributes of one placement: values or =formulas. */
+function AttrEditor({ id, attrs, run }: { id: number; attrs: Record<string, string>; run: Run }) {
+  const [rows, setRows] = useState<[string, string][]>(() => [...Object.entries(attrs), ["", ""]]);
+  const [err, setErr] = useState<string | null>(null);
+  const [vals, setVals] = useState<Record<string, number>>({});
+  const apply = async () => {
+    const next: Record<string, string> = {};
+    for (const [k, v] of rows) if (k.trim()) next[k.trim()] = v;
+    // names that were removed
+    for (const k of Object.keys(attrs)) if (!(k in next)) next[k] = "";
+    const r = await run({ cmd: "set_attrs", id, attrs: next });
+    if (r.ok) {
+      setErr(null);
+      setVals((r.values as Record<string, number>) ?? {});
+      setRows([...Object.entries(r.attrs as Record<string, string>), ["", ""]]);
+    } else setErr(r.error ?? "That didn't work");
+  };
+  return (
+    <div className="attrs">
+      <div className="section-title sub">Attributes</div>
+      {rows.map(([k, v], i) => (
+        <div key={i} className="attr-row">
+          <input placeholder="name" value={k} onChange={(e) => setRows((r) => r.map((x, j) => (j === i ? [e.target.value, x[1]] : x)))} />
+          <input placeholder="value or =formula" value={v} onChange={(e) => setRows((r) => r.map((x, j) => (j === i ? [x[0], e.target.value] : x)))} onKeyDown={(e) => e.key === "Enter" && apply()} title={k && vals[k.toLowerCase()] != null ? `= ${vals[k.toLowerCase()]}` : undefined} />
+        </div>
+      ))}
+      {err && <p className="attr-err">{err}</p>}
+      <div className="row gap">
+        <button className="btn small" onClick={apply}>
+          Apply
+        </button>
+        <button className="btn small ghost" onClick={() => setRows((r) => [...r, ["", ""]])}>
+          + Row
+        </button>
+      </div>
+      <p className="muted small">lenx / leny / lenz (m), copies, spacing, material, hidden. Formulas: =lenx*2, =if(a&gt;1, 2, 3), =parent!lenx</p>
     </div>
   );
 }

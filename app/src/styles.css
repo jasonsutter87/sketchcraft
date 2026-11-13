@@ -1215,3 +1215,33 @@ button.tile:hover .tile-art {
   gap: 2px 8px;
   margin-top: 8px;
 }
+
+.attrs {
+  margin-top: 10px;
+}
+
+.attr-row {
+  display: grid;
+  grid-template-columns: 0.8fr 1.2fr;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.attr-row input {
+  min-width: 0;
+  padding: 4px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--line-strong, #d7d9e2);
+  font: 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.attr-err {
+  color: #c4282d;
+  font-size: 12px;
+  margin: 4px 0;
+}
+
+.muted.small {
+  font-size: 11px;
+  margin-top: 6px;
+}

@@ -40,6 +40,8 @@ export interface InstanceInfo {
   tag: string | null;
   hidden: boolean;
   transform: number[];
+  /** Dynamic Component attributes (values or "=formulas") */
+  attrs?: Record<string, string>;
 }
 
 export interface ComponentInfo {

@@ -432,6 +432,13 @@ export default function App() {
       const r = await run({ cmd: "section", ...plane, path });
       if (r.ok) say(`Exported the section cut to ${path.split("/").pop()}`);
     },
+    report: async () => {
+      const base = (currentFile?.split("/").pop() ?? "model").replace(/\.sketchcraft$/, "");
+      const path = await pickSave(`${base} report.csv`, "csv", "CSV");
+      if (!path) return;
+      const r = await run({ cmd: "report", path });
+      if (r.ok) say(`Report: ${(r.rows as unknown[]).length} groups and components in ${path.split("/").pop()}`);
+    },
     animation: async () => {
       const base = (currentFile?.split("/").pop() ?? "model").replace(/\.sketchcraft$/, "");
       const path = await pickSave(`${base}.mp4`, "mp4", "MP4 video");
@@ -485,6 +492,7 @@ export default function App() {
                   <button onClick={() => file.export("pdf")}>Export PDF (this view)…</button>
                   <button onClick={file.animation}>Export animation (MP4)…</button>
                   <button onClick={() => setShowSheets(true)}>Drawing sheets (PDF)…</button>
+                  <button onClick={file.report}>Generate report (CSV)…</button>
                   <button onClick={file.render}>Render PNG…</button>
                   {section && (
                     <>
