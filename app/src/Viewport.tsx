@@ -62,6 +62,9 @@ interface Props {
   setSel: (s: Sel) => void;
   color: [number, number, number];
   setColor: (c: [number, number, number]) => void;
+  /** an image material to paint with (instead of the color) */
+  paintMaterial: string | null;
+  setPaintMaterial: (m: string | null) => void;
   styles: Styles;
   placeAsset: string | null;
   build: BuildSettings;
@@ -78,6 +81,21 @@ const EDGE_COLOR = 0x23252d;
 const UP = new THREE.Vector3(0, 0, 1);
 const r4 = (x: number) => Math.round(x * 1e4) / 1e4;
 const arr = (v: THREE.Vector3): Vec3 => [r4(v.x), r4(v.y), r4(v.z)];
+// images for textured faces, loaded once per material and image
+const textureCache = new Map<string, THREE.Texture>();
+function textureFor(name: string, data: string): THREE.Texture {
+  const key = `${name}:${data.length}:${data.slice(-32)}`;
+  let t = textureCache.get(key);
+  if (!t) {
+    t = new THREE.TextureLoader().load(data);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.anisotropy = 8;
+    textureCache.set(key, t);
+  }
+  return t;
+}
+
 // display units come from the model; set whenever a scene arrives
 let units = "m";
 const fmt = (x: number) => formatLength(x, units);
@@ -509,6 +527,32 @@ export default function Viewport(props: Props) {
     front.castShadow = back.castShadow = live.current.styles.shadows;
     front.receiveShadow = live.current.styles.shadows;
     T.model.add(front, back);
+
+    // textured faces: drawn over the base mesh with their images
+    if (s.triTex?.some((i) => i >= 0)) {
+      const byTex = new Map<number, { pos: number[]; uv: number[] }>();
+      s.triTex.forEach((ti, tri) => {
+        if (ti < 0) return;
+        const g = byTex.get(ti) ?? { pos: [], uv: [] };
+        for (let k = 0; k < 9; k++) g.pos.push(s.positions[tri * 9 + k]);
+        for (let k = 0; k < 6; k++) g.uv.push(s.uvs[tri * 6 + k]);
+        byTex.set(ti, g);
+      });
+      for (const [ti, g] of byTex) {
+        const mat = s.materials.find((m) => m.name === s.textures[ti]);
+        if (!mat?.texture) continue;
+        const geo2 = new THREE.BufferGeometry();
+        geo2.setAttribute("position", new THREE.Float32BufferAttribute(g.pos, 3));
+        geo2.setAttribute("uv", new THREE.Float32BufferAttribute(g.uv, 2));
+        geo2.computeVertexNormals();
+        const mesh = new THREE.Mesh(
+          geo2,
+          new THREE.MeshLambertMaterial({ map: textureFor(mat.name, mat.texture.data), side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 0, polygonOffsetUnits: 0, transparent: xray, opacity: xray ? 0.42 : 1, depthWrite: !xray, clippingPlanes: clip })
+        );
+        mesh.receiveShadow = live.current.styles.shadows;
+        T.model.add(mesh);
+      }
+    }
 
     if (live.current.styles.edges) {
       const eg = new THREE.BufferGeometry();
@@ -1601,15 +1645,19 @@ export default function Viewport(props: Props) {
           const h = pick(e);
           if (!h) return;
           if (e.altKey) {
-            // eyedropper
+            // eyedropper: a texture if the face has one, else its color
             const s = L.scene;
             const i = s.triFace.indexOf(h.owner);
-            if (i >= 0) L.setColor([s.colors[i * 9], s.colors[i * 9 + 1], s.colors[i * 9 + 2]]);
+            if (i >= 0 && s.triTex?.[i] >= 0) return L.setPaintMaterial(s.textures[s.triTex[i]]);
+            if (i >= 0) {
+              L.setPaintMaterial(null);
+              L.setColor([s.colors[i * 9], s.colors[i * 9 + 1], s.colors[i * 9 + 2]]);
+            }
             return;
           }
           const ent = entityOf(h);
           if (ent.kind === "instances") return L.onToast("Double-click a component with Select to open it, then paint inside.", true);
-          await run({ cmd: "paint", ids: [ent.id], color: L.color });
+          await run(L.paintMaterial ? { cmd: "paint", ids: [ent.id], material: L.paintMaterial } : { cmd: "paint", ids: [ent.id], color: L.color });
           return;
         }
         case "erase": {
