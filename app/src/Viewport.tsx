@@ -12,6 +12,8 @@ import { Line2 } from "three/examples/jsm/lines/Line2.js";
 import { LineGeometry } from "three/examples/jsm/lines/LineGeometry.js";
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import { exec, type FaceInfo, type Reply, type Scene, type Vec3 } from "./engine";
+import { guide, type Guide } from "./guide";
+import { Icons } from "./icons";
 import { AXIS_COLORS, closestOnLine, infer, rayFrom, V, type Axis, type InferEnv, type Pick, type Snap } from "./inference";
 import { combine, EMPTY, selIds, selMode, toggle, type Sel, type SelMode } from "./selection";
 import { formatLength, parseLengths } from "./units";
@@ -83,6 +85,10 @@ export interface ViewportApi {
   clearSection: () => void;
   /** the active section plane (a point on it and its normal), if any */
   sectionPlane: () => { origin: Vec3; normal: Vec3 } | null;
+  /** a floor-plan cut: everything above `height` (m) taken away */
+  planCut: (height: number) => void;
+  /** slide the cut along its direction (m; + moves it deeper into what's kept) */
+  moveSection: (by: number) => void;
 }
 
 interface Props {
@@ -391,6 +397,11 @@ export default function Viewport(props: Props) {
   /** ambient occlusion post-processing, made the first time it's turned on */
   const ao = useRef<{ composer: EffectComposer; rp: RenderPass; gt: GTAOPass } | null>(null);
   const [backdrop, setBackdrop] = useState<string | null>(null);
+  /** what the current tool wants next (shown top-left) */
+  const [coach, setCoach] = useState<Guide | null>(null);
+  const coachKey = useRef("");
+  /** the tool's icon riding along with the cursor */
+  const badge = useRef<HTMLDivElement>(null);
   const backdropOn = useRef(false);
   const st = useRef<{
     op: Op | null;
@@ -563,6 +574,7 @@ export default function Viewport(props: Props) {
         ao.current.gt.camera = cam;
         ao.current.composer.render();
       } else renderer.render(world, cam);
+      updateCoach();
       placeLabels();
       raf = requestAnimationFrame(loop);
     };
@@ -922,6 +934,7 @@ export default function Viewport(props: Props) {
     if (!t.current) return;
     cancel();
     setOrbitButtons();
+    drawOverlay(); // the hover preview depends on the tool (red for erase, paint color...)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tool]);
 
@@ -1031,12 +1044,12 @@ export default function Viewport(props: Props) {
     return out;
   }
 
-  function overlayMesh(pos: number[], opacity: number): THREE.Mesh {
+  function overlayMesh(pos: number[], opacity: number, color: number = ACCENT): THREE.Mesh {
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
     return new THREE.Mesh(
       g,
-      new THREE.MeshBasicMaterial({ color: ACCENT, transparent: true, opacity, side: THREE.DoubleSide, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 })
+      new THREE.MeshBasicMaterial({ color, transparent: true, opacity, side: THREE.DoubleSide, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 })
     );
   }
 
@@ -1078,15 +1091,38 @@ export default function Viewport(props: Props) {
       const b = new THREE.Box3().setFromBufferAttribute(new THREE.Float32BufferAttribute(pos, 3));
       T.overlay.add(new THREE.Box3Helper(b, new THREE.Color(ACCENT)));
     }
+    // what a click would do, shown on what it would do it to
+    const tool = live.current.tool;
+    const RED = 0xe5484d;
     const h = st.current.hover;
-    if (h != null && !owners.has(h)) {
-      const hp = trianglesOf(hoverOwners(h));
-      if (hp.length) T.overlay.add(overlayMesh(hp, 0.1));
+    if (h != null && (!owners.has(h) || tool !== "select")) {
+      const hp = trianglesOf(tool === "push" || tool === "offset" ? new Set([h]) : hoverOwners(h));
+      if (hp.length) {
+        if (tool === "erase") T.overlay.add(overlayMesh(hp, 0.35, RED));
+        else if (tool === "paint") {
+          const c = live.current.color;
+          T.overlay.add(overlayMesh(hp, 0.7, new THREE.Color(c[0], c[1], c[2]).getHex()));
+        } else if (tool === "push" || tool === "offset") T.overlay.add(overlayMesh(hp, 0.22));
+        else T.overlay.add(overlayMesh(hp, 0.1));
+      }
     }
     const he = st.current.hoverEdge;
     if (he != null) {
       const e = s.edgeList.find((x) => x.id === he);
-      if (e) T.overlay.add(lines([...e.a, ...e.b], ACCENT, false));
+      if (e) T.overlay.add(lines([...e.a, ...e.b], tool === "erase" ? RED : ACCENT, false));
+    }
+  }
+
+  /** Work out the guidance for the tool and step in progress. */
+  function updateCoach() {
+    const L = live.current;
+    const op = st.current.op;
+    const stage = op?.t === "arc" ? (op.b ? 2 : 1) : op?.t === "rotate" ? (op.ref ? 2 : 1) : op?.t === "dim" ? (op.b ? 2 : 1) : undefined;
+    const g = guide(L.tool, { op: op?.t ?? null, stage, selected: selIds(selNow()).length, placing: L.placeAsset });
+    const key = `${g.title}|${g.step}|${g.keys.length}`;
+    if (key !== coachKey.current) {
+      coachKey.current = key;
+      setCoach(g);
     }
   }
 
@@ -1371,6 +1407,20 @@ export default function Viewport(props: Props) {
       const o = p.coplanarPoint(new THREE.Vector3());
       return { origin: [o.x, o.y, o.z], normal: [p.normal.x, p.normal.y, p.normal.z] };
     },
+    planCut: (height: number) => {
+      // keep what's below: normal points down, plane at z = height
+      st.current.section = new THREE.Plane(new THREE.Vector3(0, 0, -1), height);
+      buildModel();
+      live.current.onSection(true);
+    },
+    moveSection: (by: number) => {
+      const p = st.current.section;
+      if (!p) return;
+      // normal points into what's kept; moving "by" along it
+      p.constant -= by;
+      buildModel();
+      live.current.onSection(true);
+    },
   };
 
   // ---------------------------------------------------------------- commits
@@ -1516,6 +1566,13 @@ export default function Viewport(props: Props) {
     const el = T.renderer.domElement;
 
     const move = (e: PointerEvent) => {
+      const b = badge.current;
+      if (b) {
+        const r = el.getBoundingClientRect();
+        // below-left of the pointer, clear of the snap label on its right
+        b.style.transform = `translate(${e.clientX - r.left - 30}px, ${e.clientY - r.top + 12}px)`;
+        b.style.opacity = "1";
+      }
       const L = live.current;
       if (st.current.space && e.buttons & 1) st.current.spaceUsed = true;
       if (L.tool === "zoom" && e.buttons & 1 && st.current.zoomY != null) {
@@ -2208,7 +2265,10 @@ export default function Viewport(props: Props) {
     };
 
     const noMenu = (e: MouseEvent) => e.preventDefault();
-    const leave = () => setHint(null);
+    const leave = () => {
+      setHint(null);
+      if (badge.current) badge.current.style.opacity = "0";
+    };
     el.addEventListener("pointermove", move);
     el.addEventListener("pointerdown", down);
     el.addEventListener("pointerup", up);
@@ -2232,6 +2292,29 @@ export default function Viewport(props: Props) {
   return (
     <div className="viewport" ref={host} style={{ cursor }}>
       {backdrop && <img className="backdrop" src={backdrop} alt="" />}
+      {coach && coach.step && (
+        <div className="coach" aria-live="polite">
+          <div className="coach-head">
+            <span className="coach-icon">{(Icons as unknown as Record<string, () => React.ReactNode>)[tool]?.()}</span>
+            <b>{coach.title}</b>
+          </div>
+          <div className="coach-step">{coach.step}</div>
+          {coach.keys.length > 0 && (
+            <div className="coach-keys">
+              {coach.keys.map(([k, what]) => (
+                <span key={k}>
+                  <kbd>{k}</kbd> {what}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      {tool !== "select" && (
+        <div className="cursor-badge" ref={badge}>
+          {(Icons as unknown as Record<string, () => React.ReactNode>)[tool]?.()}
+        </div>
+      )}
       <div className="labels" ref={labelLayer} />
       {hint && (
         <div className="snap" style={{ left: hint.x, top: hint.y }}>
