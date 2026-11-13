@@ -49,7 +49,7 @@ function screen(env: InferEnv, p: THREE.Vector3) {
   return { x: (q.x * 0.5 + 0.5) * env.rect.width, y: (-q.y * 0.5 + 0.5) * env.rect.height, behind: q.z > 1 };
 }
 
-export function rayFrom(env: InferEnv, e: { clientX: number; clientY: number }): THREE.Ray {
+export function rayFrom(env: { camera: THREE.Camera; rect: DOMRect }, e: { clientX: number; clientY: number }): THREE.Ray {
   const ndc = new THREE.Vector2(((e.clientX - env.rect.left) / env.rect.width) * 2 - 1, -((e.clientY - env.rect.top) / env.rect.height) * 2 + 1);
   const rc = new THREE.Raycaster();
   rc.setFromCamera(ndc, env.camera);

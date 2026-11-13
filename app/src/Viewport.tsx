@@ -431,7 +431,7 @@ export default function Viewport(props: Props) {
   }
 
   function ray(e: { clientX: number; clientY: number }): THREE.Ray {
-    return rayFrom({ camera: t.current!.camera, rect: rect() } as InferEnv, e);
+    return rayFrom({ camera: t.current!.camera, rect: rect() }, e);
   }
 
   function pick(e: { clientX: number; clientY: number }): Pick | null {
