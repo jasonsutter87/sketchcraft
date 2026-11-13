@@ -44,6 +44,7 @@ ORGANIZE
 - classify {ids, class: IfcWall|IfcSlab|IfcRoof|IfcDoor|IfcWindow|IfcColumn|IfcBeam|IfcStair|IfcRailing|IfcCovering|IfcFurniture|IfcPlate|IfcMember|"" }; export_ifc {path, project?}: IFC4 (unclassified things typed from their names)
 - add_location {lat, lon, size?=300 m, cells?=60, imagery?=true}: real terrain (+ OpenStreetMap imagery) around a place; origin at ground, +Y north
 - blueprint {path(.pdf), sheet?=a3, project?}: every floor plan + 4 elevations, white on blue, true scale. levels: floor heights. sheets also takes blueprint:true
+- bevel {edges, size m, segments?=1 (chamfer) | >1 (round)}: outside edges of solid groups. divide {edge, count}. slice {id, origin, normal}: two pieces
 - solid {op: union|subtract|intersect|trim|split|outer_shell, ids:[group or instance, ...]}: solid tools on closed shapes; subtract/trim: the first cuts the second. volume {id} -> {solid, volume m3}
 - import_skp {path | data(base64)}: SketchUp files, legacy 6-8 and modern 2013+ (geometry, nested components, colors, textures)
 - insert {asset, at, rotate?}: built-ins door, window, garage_door, tree, palm, car, streetlight, bench, hydrant (doors/windows face -Y, origin bottom-left on the wall).

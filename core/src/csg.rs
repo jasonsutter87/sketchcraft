@@ -294,16 +294,7 @@ pub fn solid_polys(m: &mut Model, id: Id) -> Result<Vec<Poly>> {
     }
     let mut out = Vec::new();
     for f in faces {
-        // keep the look: a named material if the document has it, else the color
-        let material = match (&f.material, f.color) {
-            (Some(k), _) if m.materials.contains_key(k) => Some(k.clone()),
-            (_, Some(c)) => {
-                let key = format!("#{:02x}{:02x}{:02x}", (c[0] * 255.0).round() as u8, (c[1] * 255.0).round() as u8, (c[2] * 255.0).round() as u8);
-                m.materials.entry(key.clone()).or_insert(Material { color: c, texture: None });
-                Some(key)
-            }
-            _ => None,
-        };
+        let material = material_key(m, &f);
         // straight runs don't matter to the boolean (the result gets its
         // shared corners back), and they'd triangulate into slivers
         let outer = simplify(&f.outer);
@@ -337,7 +328,39 @@ fn simplify(l: &[DVec3]) -> Vec<DVec3> {
     c
 }
 
-fn name_of(m: &Model, id: Id) -> String {
+/// A face's look as a document material name: its named material if the
+/// document has it, else its color (registered as a paint).
+pub fn material_key(m: &mut Model, f: &crate::components::WFace) -> Option<String> {
+    match (&f.material, f.color) {
+        (Some(k), _) if m.materials.contains_key(k) => Some(k.clone()),
+        (_, Some(c)) => {
+            let key = format!("#{:02x}{:02x}{:02x}", (c[0] * 255.0).round() as u8, (c[1] * 255.0).round() as u8, (c[2] * 255.0).round() as u8);
+            m.materials.entry(key.clone()).or_insert(Material { color: c, texture: None });
+            Some(key)
+        }
+        _ => None,
+    }
+}
+
+/// A closed prism: `profile` (a flat loop) swept along `along`.
+pub fn prism(profile: &[DVec3], along: DVec3, material: Option<String>) -> Vec<Poly> {
+    let mut p = profile.to_vec();
+    if geom::newell(&p).dot(along) < 0.0 {
+        p.reverse(); // counter-clockwise seen from the far end
+    }
+    let mut out = Vec::new();
+    let start: Vec<DVec3> = p.iter().rev().copied().collect();
+    let end: Vec<DVec3> = p.iter().map(|q| *q + along).collect();
+    out.extend(Poly::new(start, material.clone()));
+    out.extend(Poly::new(end, material.clone()));
+    for i in 0..p.len() {
+        let (a, b) = (p[i], p[(i + 1) % p.len()]);
+        out.extend(Poly::new(vec![a, b, b + along, a + along], material.clone()));
+    }
+    out
+}
+
+pub fn name_of(m: &Model, id: Id) -> String {
     m.groups.get(&id).map(|g| g.name.clone()).or_else(|| m.instances.get(&id).map(|i| i.name.clone())).filter(|n| !n.is_empty()).unwrap_or_else(|| format!("#{id}"))
 }
 

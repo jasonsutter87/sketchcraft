@@ -422,6 +422,18 @@ pub enum Command {
         #[serde(default)]
         path: Option<String>,
     },
+    /// Bevel (segments 1, a flat chamfer) or round (segments > 1) outside
+    /// edges of solid groups by `size` meters.
+    Bevel {
+        edges: Vec<Id>,
+        size: f64,
+        #[serde(default = "one_seg")]
+        segments: usize,
+    },
+    /// Split an edge into `count` equal parts.
+    Divide { edge: Id, count: usize },
+    /// Cut a solid group / component in two along a plane.
+    Slice { id: Id, origin: [f64; 3], normal: [f64; 3] },
     /// Volume of a closed group / component (m³), or not a solid.
     Volume { id: Id },
     /// Import a binary FBX (7.x): `path`, or the file as base64 in `data`.
@@ -495,6 +507,10 @@ pub enum Command {
 pub enum Factor {
     Uniform(f64),
     Axes([f64; 3]),
+}
+
+fn one_seg() -> usize {
+    1
 }
 
 fn thumb_px() -> u32 {
@@ -1291,6 +1307,15 @@ impl Engine {
                 let r = std::process::Command::new("xdg-open").arg(if p.is_dir() { &p } else { p.parent().unwrap_or(&p) }).status();
                 anyhow::Context::context(r, "couldn't open the file browser")?;
                 json!({"path": p.to_string_lossy()})
+            }
+            Command::Bevel { edges, size, segments } => {
+                let groups = m.bevel(&edges, size, segments)?;
+                json!({"groups": groups, "group": groups.first()})
+            }
+            Command::Divide { edge, count } => json!({"points": m.divide(edge, count)?}),
+            Command::Slice { id, origin, normal } => {
+                let groups = m.slice(id, v3(origin), v3(normal))?;
+                json!({"groups": groups, "group": groups.first()})
             }
             Command::Intersect { ids, with } => json!({"lines": m.intersect(&ids, with != "selection")?}),
             Command::Flip { ids, axis } => json!({"moved": m.flip(&ids, axis_index(&axis)?)?}),
