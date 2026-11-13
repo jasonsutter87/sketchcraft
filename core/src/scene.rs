@@ -17,7 +17,31 @@ pub fn build(root: &Model, ctx: Option<u32>) -> Value {
     let mut colors: Vec<f32> = Vec::new();
     let mut back_colors: Vec<f32> = Vec::new();
     let mut tri_face: Vec<u32> = Vec::new();
+    // image materials: texture coordinates per vertex, a texture index per triangle
+    let mut uvs: Vec<f32> = Vec::new();
+    let mut tri_tex: Vec<i32> = Vec::new();
+    let mut textures: Vec<Value> = Vec::new();
+    let mut tex_index: std::collections::HashMap<String, i32> = std::collections::HashMap::new();
     for f in root.world_faces() {
+        let tex = f.material.as_ref().and_then(|name| root.find_material(name).and_then(|m| m.texture.as_ref()).map(|t| (name.clone(), t)));
+        let ti = match &tex {
+            Some((name, t)) => *tex_index.entry(name.clone()).or_insert_with(|| {
+                let _ = t;
+                textures.push(json!(name));
+                textures.len() as i32 - 1
+            }),
+            None => -1,
+        };
+        // tile axes: along the face, or along the projection direction
+        let (tu, tv, origin, w, h) = match &tex {
+            Some((_, t)) => {
+                let dir = t.project.map(|p| glam::DVec3::from(p).normalize_or_zero()).filter(|d| *d != glam::DVec3::ZERO);
+                let (u, v) = geom::basis(dir.map(|d| -d).unwrap_or(f.normal));
+                let o = if dir.is_some() { t.origin.map(glam::DVec3::from).unwrap_or_default() } else { glam::DVec3::ZERO };
+                (u, v, o, t.width.max(1e-6), t.height.max(1e-6))
+            }
+            None => (glam::DVec3::X, glam::DVec3::Y, glam::DVec3::ZERO, 1.0, 1.0),
+        };
         let color = f.color.unwrap_or(DEFAULT_COLOR);
         // painted faces show paint on both sides; bare backs are blue
         let back = f.color.map(|c| [c[0] * 0.85, c[1] * 0.85, c[2] * 0.85]).unwrap_or(BACK_COLOR);
@@ -26,8 +50,11 @@ pub fn build(root: &Model, ctx: Option<u32>) -> Value {
                 positions.extend([p.x as f32, p.y as f32, p.z as f32]);
                 colors.extend(color);
                 back_colors.extend(back);
+                let q = p - origin;
+                uvs.extend([(q.dot(tu) / w) as f32, (q.dot(tv) / h) as f32]);
             }
             tri_face.push(f.owner);
+            tri_tex.push(ti);
         }
     }
     let (mut edges, mut edge_ids, mut soft_edges) = (Vec::<f32>::new(), Vec::<u32>::new(), Vec::<f32>::new());
@@ -106,6 +133,14 @@ pub fn build(root: &Model, ctx: Option<u32>) -> Value {
         "positions": positions,
         "colors": colors,
         "backColors": back_colors,
+        "uvs": uvs,
+        "triTex": tri_tex,
+        "textures": textures,
+        "materials": root.materials.iter().map(|(name, m)| json!({
+            "name": name,
+            "color": m.color,
+            "texture": m.texture.as_ref().map(|t| json!({"data": t.data, "width": t.width, "height": t.height, "project": t.project})),
+        })).collect::<Vec<_>>(),
         "triFace": tri_face,
         "faces": faces,
         "edgeList": edge_list,
