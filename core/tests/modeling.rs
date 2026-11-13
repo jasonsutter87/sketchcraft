@@ -239,3 +239,40 @@ fn line_ending_mid_edge_splits_it() {
     run(&mut e, json!({"cmd":"line","points":[[4,0,0],[4,5,0]]}));
     assert_eq!(run(&mut e, json!({"cmd":"info"}))["edges"], 3);
 }
+
+#[test]
+fn rotate_scale_duplicate_array() {
+    let mut e = Engine::new();
+    let g = run(&mut e, json!({"cmd":"begin_group","name":"A"}))["group"].clone();
+    make_box(&mut e);
+    run(&mut e, json!({"cmd":"end_group"}));
+    run(&mut e, json!({"cmd":"rotate","ids":[g],"center":[0,0,0],"angle":90}));
+    let b = run(&mut e, json!({"cmd":"info"}))["bounds"].clone();
+    assert!((b["min"][0].as_f64().unwrap() + 12.0).abs() < 1e-9 && (b["max"][1].as_f64().unwrap() - 8.0).abs() < 1e-9);
+    run(&mut e, json!({"cmd":"scale","ids":[g],"center":[0,0,0],"factor":0.5}));
+    let b = run(&mut e, json!({"cmd":"info"}))["bounds"].clone();
+    assert!((b["max"][2].as_f64().unwrap() - 3.0).abs() < 1e-9);
+    let r = run(&mut e, json!({"cmd":"array","ids":[g],"by":[0,10,0],"count":3}));
+    assert_eq!(r["ids"].as_array().unwrap().len(), 3);
+    assert_eq!(run(&mut e, json!({"cmd":"info"}))["faces"], 24);
+    // mirror keeps faces pointing out
+    run(&mut e, json!({"cmd":"scale","ids":[g],"center":[0,0,0],"factor":[-1,1,1]}));
+    let faces = run(&mut e, json!({"cmd":"faces","group":g}))["faces"].as_array().unwrap().clone();
+    let c = faces.iter().map(|f| vec3(&f["center"])).sum::<DVec3>() / faces.len() as f64;
+    for f in faces {
+        assert!(vec3(&f["normal"]).dot(vec3(&f["center"]) - c) > 0.0);
+    }
+}
+
+#[test]
+fn pulling_one_corner_up_folds_the_face() {
+    let mut e = Engine::new();
+    let f = run(&mut e, json!({"cmd":"rect","from":[0,0,0],"to":[4,4,0]}))["face"].clone();
+    let _ = f;
+    // grab the corner vertex and lift it: the square can't stay flat
+    let v = e.model.vertices.iter().find(|(_, v)| v.p == DVec3::new(4.0, 4.0, 0.0)).map(|(k, _)| *k).unwrap();
+    run(&mut e, json!({"cmd":"move","ids":[v],"by":[0,0,2]}));
+    let info = run(&mut e, json!({"cmd":"info"}));
+    assert_eq!(info["faces"], 2, "folded into two flat triangles");
+    assert!(e.model.edges.values().any(|e| e.soft), "fold line is soft");
+}
