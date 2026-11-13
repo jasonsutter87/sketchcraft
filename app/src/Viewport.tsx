@@ -3,6 +3,9 @@
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { Line2 } from "three/examples/jsm/lines/Line2.js";
+import { LineGeometry } from "three/examples/jsm/lines/LineGeometry.js";
+import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import type { FaceInfo, Reply, Scene, Vec3 } from "./engine";
 import { AXIS_COLORS, closestOnLine, infer, rayFrom, V, type Axis, type InferEnv, type Pick, type Snap } from "./inference";
 import { EMPTY, merge, selIds, toggle, type Sel } from "./selection";
@@ -10,7 +13,7 @@ import { EMPTY, merge, selIds, toggle, type Sel } from "./selection";
 export type Tool =
   | "select" | "line" | "arc" | "rect" | "circle" | "polygon"
   | "push" | "offset" | "followme" | "move" | "rotate" | "scale"
-  | "tape" | "paint" | "erase" | "orbit" | "section" | "place";
+  | "tape" | "dimension" | "text" | "paint" | "erase" | "orbit" | "section" | "place";
 
 export interface Styles {
   xray: boolean;
@@ -120,7 +123,18 @@ type Op =
   | { t: "rotate"; center: THREE.Vector3; n: THREE.Vector3; ref: THREE.Vector3 | null; angle: number; ids: number[] }
   | { t: "scale"; center: THREE.Vector3; start: THREE.Vector3; factor: number; ids: number[] }
   | { t: "tape"; p0: THREE.Vector3; along: THREE.Vector3 | null; cur: THREE.Vector3 }
-  | { t: "box"; x0: number; y0: number; x1: number; y1: number; additive: boolean };
+  | { t: "box"; x0: number; y0: number; x1: number; y1: number; additive: boolean }
+  | { t: "dim"; a: THREE.Vector3; b: THREE.Vector3 | null; off: THREE.Vector3; cur: THREE.Vector3 }
+  | { t: "text"; leader: THREE.Vector3; cur: THREE.Vector3 };
+
+interface LabelSpec {
+  key: string;
+  p: THREE.Vector3;
+  text: string;
+  live?: boolean;
+  /** annotation id, for the delete button */
+  id?: number;
+}
 
 type Last =
   | { t: "push"; face: number; d: number }
@@ -132,6 +146,7 @@ type Last =
 export default function Viewport(props: Props) {
   const { scene, tool, styles, placeAsset } = props;
   const host = useRef<HTMLDivElement>(null);
+  const labelLayer = useRef<HTMLDivElement>(null);
   const [hint, setHint] = useState<{ x: number; y: number; label: string; kind: string } | null>(null);
   const [box, setBox] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
 
@@ -170,7 +185,11 @@ export default function Viewport(props: Props) {
     segs: { circle: number; polygon: number };
     rightDown: { x: number; y: number } | null;
     selOverride: Sel | null;
-  }>({ op: null, last: null, lock: null, hover: null, hoverEdge: null, space: false, spaceUsed: false, fitted: false, fitNext: false, section: null, segs: { circle: 24, polygon: 6 }, rightDown: null, selOverride: null });
+    press: { x: number; y: number; fresh: boolean } | null;
+    labels: LabelSpec[];
+    liveLabels: LabelSpec[];
+    labelEls: Map<string, HTMLDivElement>;
+  }>({ press: null, labels: [], liveLabels: [], labelEls: new Map(), op: null, last: null, lock: null, hover: null, hoverEdge: null, space: false, spaceUsed: false, fitted: false, fitNext: false, section: null, segs: { circle: 24, polygon: 6 }, rightDown: null, selOverride: null });
 
   // ---------------------------------------------------------------- setup
   useEffect(() => {
@@ -238,6 +257,7 @@ export default function Viewport(props: Props) {
     const loop = () => {
       controls.update();
       renderer.render(world, t.current!.camera);
+      placeLabels();
       raf = requestAnimationFrame(loop);
     };
     loop();
@@ -292,6 +312,95 @@ export default function Viewport(props: Props) {
     buildModel();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [styles.xray, styles.shadows, styles.edges, styles.parallel]);
+
+  // ---------------------------------------------------------------- labels
+  /** Keep one DOM label per spec; positions are updated every frame. */
+  function syncLabels() {
+    const layer = labelLayer.current;
+    if (!layer) return;
+    const specs = [...st.current.labels, ...st.current.liveLabels];
+    const keep = new Set(specs.map((x) => x.key));
+    for (const [k, el] of st.current.labelEls) {
+      if (!keep.has(k)) {
+        el.remove();
+        st.current.labelEls.delete(k);
+      }
+    }
+    for (const spec of specs) {
+      let el = st.current.labelEls.get(spec.key);
+      if (!el) {
+        el = document.createElement("div");
+        el.className = spec.live ? "label live" : "label";
+        const span = document.createElement("span");
+        el.appendChild(span);
+        if (spec.id != null) {
+          const x = document.createElement("button");
+          x.textContent = "×";
+          x.title = "Delete";
+          const id = spec.id;
+          x.onclick = (e) => {
+            e.stopPropagation();
+            live.current.run({ cmd: "delete", ids: [id] });
+          };
+          el.appendChild(x);
+        }
+        layer.appendChild(el);
+        st.current.labelEls.set(spec.key, el);
+      }
+      (el.firstChild as HTMLSpanElement).textContent = spec.text;
+    }
+  }
+
+  function placeLabels() {
+    const T = t.current;
+    if (!T || !st.current.labelEls.size) return;
+    const r = T.renderer.domElement;
+    const w = r.clientWidth;
+    const h = r.clientHeight;
+    for (const spec of [...st.current.labels, ...st.current.liveLabels]) {
+      const el = st.current.labelEls.get(spec.key);
+      if (!el) continue;
+      const q = spec.p.clone().project(T.camera);
+      const hidden = q.z > 1 || (st.current.section != null && !spec.live && st.current.section.distanceToPoint(spec.p) < -0.01);
+      el.style.display = hidden ? "none" : "";
+      el.style.transform = `translate(${(q.x * 0.5 + 0.5) * w}px, ${(-q.y * 0.5 + 0.5) * h}px) translate(-50%, -50%)`;
+    }
+  }
+
+  function setLive(specs: { p: THREE.Vector3; text: string }[]) {
+    st.current.liveLabels = specs.map((x, i) => ({ key: `live${i}`, p: x.p, text: x.text, live: true }));
+    syncLabels();
+  }
+
+  /** Dimension lines (extension lines, dimension line, ticks) as line segments. */
+  function dimSegments(a: THREE.Vector3, b: THREE.Vector3, off: THREE.Vector3): number[] {
+    const a2 = a.clone().add(off);
+    const b2 = b.clone().add(off);
+    const out: number[] = [];
+    const seg = (p: THREE.Vector3, q: THREE.Vector3) => out.push(p.x, p.y, p.z, q.x, q.y, q.z);
+    if (off.length() > 1e-6) {
+      const o = off.clone().normalize();
+      seg(a.clone().addScaledVector(o, Math.min(0.1, off.length() * 0.2)), a2.clone().addScaledVector(o, 0.12));
+      seg(b.clone().addScaledVector(o, Math.min(0.1, off.length() * 0.2)), b2.clone().addScaledVector(o, 0.12));
+    }
+    seg(a2, b2);
+    // architectural ticks
+    const u = b2.clone().sub(a2).normalize();
+    const o = off.length() > 1e-6 ? off.clone().normalize() : new THREE.Vector3(0, 0, 1);
+    const tick = u.clone().add(o).normalize().multiplyScalar(0.12);
+    for (const p of [a2, b2]) seg(p.clone().sub(tick), p.clone().add(tick));
+    return out;
+  }
+
+  function annotationSpecs(): LabelSpec[] {
+    const s = live.current.scene;
+    if (!s) return [];
+    return s.annotations.map((an) =>
+      an.kind === "dimension"
+        ? { key: `a${an.id}`, id: an.id, p: V(an.a).add(V(an.b)).multiplyScalar(0.5).add(V(an.offset)), text: fmt(V(an.a).distanceTo(V(an.b))) }
+        : { key: `a${an.id}`, id: an.id, p: V(an.at), text: an.text }
+    );
+  }
 
   // ---------------------------------------------------------------- model
   function buildModel() {
@@ -349,6 +458,21 @@ export default function Viewport(props: Props) {
       line.computeLineDistances();
       T.model.add(line);
     }
+    // dimensions and text leaders, always on top
+    const ann: number[] = [];
+    for (const an of s.annotations) {
+      if (an.kind === "dimension") ann.push(...dimSegments(V(an.a), V(an.b), V(an.offset)));
+      else if (an.leader) ann.push(...an.leader, ...an.at);
+    }
+    if (ann.length) {
+      const ag = new THREE.BufferGeometry();
+      ag.setAttribute("position", new THREE.Float32BufferAttribute(ann, 3));
+      const al = new THREE.LineSegments(ag, new THREE.LineBasicMaterial({ color: 0x33384d, depthTest: false }));
+      al.renderOrder = 10;
+      T.model.add(al);
+    }
+    st.current.labels = annotationSpecs();
+    syncLabels();
     T.pickMesh = front;
 
     T.editMesh = null;
@@ -527,10 +651,18 @@ export default function Viewport(props: Props) {
     return new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color, depthTest }));
   }
 
-  function polyline(points: THREE.Vector3[], color = ACCENT, loop = false): THREE.Line {
-    const g = new THREE.BufferGeometry().setFromPoints(points);
-    const m = new THREE.LineBasicMaterial({ color, depthTest: false });
-    return loop ? new THREE.LineLoop(g, m) : new THREE.Line(g, m);
+  /** A 2 px preview line that's easy to see (WebGL's own lines are 1 px). */
+  function polyline(points: THREE.Vector3[], color = ACCENT, loop = false, dashed = false): Line2 {
+    const pts = loop ? [...points, points[0]] : points;
+    const g = new LineGeometry();
+    g.setPositions(pts.flatMap((p) => [p.x, p.y, p.z]));
+    const el = t.current!.renderer.domElement;
+    const m = new LineMaterial({ color, linewidth: dashed ? 1.5 : 2.2, depthTest: false, dashed, dashSize: 0.25, gapSize: 0.18 });
+    m.resolution.set(el.clientWidth, el.clientHeight);
+    const l = new Line2(g, m);
+    if (dashed) l.computeLineDistances();
+    l.renderOrder = 20;
+    return l;
   }
 
   function drawOverlay() {
@@ -584,6 +716,7 @@ export default function Viewport(props: Props) {
     if (!T) return;
     T.preview.children.forEach((c) => (c as THREE.Mesh).geometry?.dispose());
     T.preview.clear();
+    if (st.current.liveLabels.length) setLive([]);
   }
 
   function cancel() {
@@ -596,6 +729,7 @@ export default function Viewport(props: Props) {
   }
 
   function showSnap(sn: Snap) {
+    if (sn.from) t.current!.preview.add(polyline([sn.from, sn.p], sn.axis != null ? AXIS_COLORS[sn.axis] : 0x8a8ea0, false, true));
     const r = rect();
     const q = sn.p.clone().project(t.current!.camera);
     setHint({ x: (q.x * 0.5 + 0.5) * r.width, y: (-q.y * 0.5 + 0.5) * r.height, label: sn.label, kind: sn.kind });
@@ -921,9 +1055,41 @@ export default function Viewport(props: Props) {
         case "tape": {
           const sn = infer(E, e, { anchor: op.p0, lock });
           op.cur = sn.p;
-          T.preview.add(polyline([op.p0, sn.p], axisColor(sn)));
+          T.preview.add(polyline([op.p0, sn.p], axisColor(sn), false, op.t === "tape"));
           showSnap(sn);
+          setLive([{ p: op.p0.clone().add(sn.p).multiplyScalar(0.5), text: fmt(sn.p.distanceTo(op.p0)) }]);
           L.onMeasure("Length", fmt(sn.p.distanceTo(op.p0)));
+          return;
+        }
+        case "dim": {
+          if (!op.b) {
+            const sn = infer(E, e, { anchor: op.a, lock });
+            op.cur = sn.p;
+            T.preview.add(polyline([op.a, sn.p], axisColor(sn)));
+            showSnap(sn);
+            setLive([{ p: op.a.clone().add(sn.p).multiplyScalar(0.5), text: fmt(sn.p.distanceTo(op.a)) }]);
+            return;
+          }
+          // pull the dimension out, in the plane of the measured line that faces you
+          const u = op.b.clone().sub(op.a).normalize();
+          const view = new THREE.Vector3();
+          T.camera.getWorldDirection(view);
+          const n = u.clone().cross(view).cross(u).normalize();
+          const q = ray(e).intersectPlane(new THREE.Plane().setFromNormalAndCoplanarPoint(n.lengthSq() > 0.5 ? n : UP, op.a), new THREE.Vector3());
+          if (!q) return;
+          const d = q.clone().sub(op.a);
+          op.off = d.sub(u.clone().multiplyScalar(d.dot(u)));
+          const segs = dimSegments(op.a, op.b, op.off);
+          for (let i = 0; i < segs.length; i += 6) T.preview.add(polyline([V(segs.slice(i, i + 3)), V(segs.slice(i + 3, i + 6))], 0x33384d));
+          setLive([{ p: op.a.clone().add(op.b).multiplyScalar(0.5).add(op.off), text: fmt(op.a.distanceTo(op.b)) }]);
+          L.onMeasure("Dimension", fmt(op.a.distanceTo(op.b)));
+          return;
+        }
+        case "text": {
+          const sn = infer(E, e, {});
+          op.cur = sn.p;
+          T.preview.add(polyline([op.leader, sn.p], 0x33384d));
+          setHint(null);
           return;
         }
         case "rect": {
@@ -936,6 +1102,10 @@ export default function Viewport(props: Props) {
           const fill = new THREE.BufferGeometry().setFromPoints([pts[0], pts[1], pts[2], pts[0], pts[2], pts[3]]);
           T.preview.add(new THREE.Mesh(fill, new THREE.MeshBasicMaterial({ color: ACCENT, transparent: true, opacity: 0.14, side: THREE.DoubleSide, depthWrite: false })));
           showSnap(sn);
+          setLive([
+            { p: pts[0].clone().add(pts[1]).multiplyScalar(0.5), text: fmt(Math.abs(op.a)) },
+            { p: pts[1].clone().add(pts[2]).multiplyScalar(0.5), text: fmt(Math.abs(op.b)) },
+          ]);
           L.onMeasure("Dimensions", `${Math.abs(op.a).toFixed(2)}, ${Math.abs(op.b).toFixed(2)}`);
           return;
         }
@@ -950,6 +1120,7 @@ export default function Viewport(props: Props) {
           T.preview.add(polyline(pts, ACCENT, true));
           T.preview.add(polyline([op.c, sn.p], 0x8a8ea0));
           showSnap(sn);
+          setLive([{ p: op.c.clone().add(sn.p).multiplyScalar(0.5), text: `r ${fmt(op.r)}` }]);
           L.onMeasure("Radius", fmt(op.r));
           return;
         }
@@ -989,6 +1160,8 @@ export default function Viewport(props: Props) {
           const cap = overlayMesh(trianglesOf(new Set([op.face.id])), 0.2);
           cap.position.copy(off);
           T.preview.add(cap);
+          const mid = top.reduce((a, p) => a.add(p), new THREE.Vector3()).divideScalar(top.length);
+          setLive([{ p: mid, text: fmt(op.d) }]);
           L.onMeasure("Distance", fmt(op.d));
           return;
         }
@@ -1009,6 +1182,7 @@ export default function Viewport(props: Props) {
           T.preview.add(polyline([op.base, sn.p], axisColor(sn)));
           ghost(new THREE.Matrix4().makeTranslation(op.delta.x, op.delta.y, op.delta.z));
           showSnap(sn);
+          setLive([{ p: op.base.clone().add(sn.p).multiplyScalar(0.5), text: fmt(op.delta.length()) }]);
           L.onMeasure(op.copy ? "Copy" : "Distance", fmt(op.delta.length()));
           return;
         }
@@ -1050,7 +1224,7 @@ export default function Viewport(props: Props) {
       }
 
       // nothing in progress: show what a click would hit
-      if (["line", "arc", "rect", "circle", "polygon", "tape", "move", "rotate", "scale", "place"].includes(L.tool)) showSnap(infer(E, e, {}));
+      if (["line", "arc", "rect", "circle", "polygon", "tape", "dimension", "text", "move", "rotate", "scale", "place"].includes(L.tool)) showSnap(infer(E, e, {}));
       else setHint(null);
       if (["select", "erase", "paint", "push", "offset", "followme", "section", "move", "rotate", "scale"].includes(L.tool)) {
         const he = ["select", "erase", "move"].includes(L.tool) ? pickEdge(e) : null;
@@ -1074,6 +1248,9 @@ export default function Viewport(props: Props) {
       const E = env();
       const op = st.current.op;
       const sel = selNow();
+      // remember the press: dragging and releasing finishes the shape (click-drag drawing)
+      st.current.press = { x: e.clientX, y: e.clientY, fresh: !op };
+      if (["line", "rect", "circle", "polygon", "tape", "dimension", "move"].includes(L.tool)) el.setPointerCapture(e.pointerId);
 
       switch (L.tool) {
         case "select": {
@@ -1212,6 +1389,34 @@ export default function Viewport(props: Props) {
           st.current.op = { t: "tape", p0: sn.p, along: sn.kind === "on-edge" && sn.along ? sn.along : null, cur: sn.p };
           return;
         }
+        case "dimension": {
+          if (op?.t === "dim") {
+            if (!op.b) {
+              const sn = infer(E, e, { anchor: op.a, lock: st.current.lock });
+              if (sn.p.distanceTo(op.a) > 1e-4) op.b = sn.p;
+              return;
+            }
+            st.current.op = null;
+            clearPreview();
+            await run({ cmd: "dimension", from: arr(op.a), to: arr(op.b), offset: arr(op.off) });
+            return;
+          }
+          const sn = infer(E, e, {});
+          st.current.op = { t: "dim", a: sn.p, b: null, off: new THREE.Vector3(), cur: sn.p };
+          return;
+        }
+        case "text": {
+          if (op?.t === "text") {
+            st.current.op = null;
+            clearPreview();
+            const text = window.prompt("Label text", "");
+            if (text?.trim()) await run({ cmd: "text", at: arr(op.cur), text: text.trim(), leader: arr(op.leader) });
+            return;
+          }
+          const sn = infer(E, e, {});
+          st.current.op = { t: "text", leader: sn.p, cur: sn.p };
+          return;
+        }
         case "paint": {
           const h = pick(e);
           if (!h) return;
@@ -1280,6 +1485,21 @@ export default function Viewport(props: Props) {
         return;
       }
       const op = st.current.op;
+      const press = st.current.press;
+      st.current.press = null;
+      if (el.hasPointerCapture(e.pointerId) && op?.t !== "push" && op?.t !== "box") el.releasePointerCapture(e.pointerId);
+      if (press?.fresh && op && Math.hypot(e.clientX - press.x, e.clientY - press.y) > 6) {
+        // a press-drag-release: finish where the mouse let go
+        if (op.t === "line") return void (await commitLine(op.cur));
+        if (op.t === "rect") return void (await commitRect());
+        if (op.t === "circle") return void (await commitCircle());
+        if (op.t === "tape") return void (await commitTape(op.cur));
+        if (op.t === "move") return void (await commitMove());
+        if (op.t === "dim" && !op.b && op.cur.distanceTo(op.a) > 1e-4) {
+          op.b = op.cur;
+          return;
+        }
+      }
       if (op?.t === "push" && op.dragged) {
         el.releasePointerCapture(e.pointerId);
         if (Math.abs(op.d) > 1e-3) await commitPush();
@@ -1388,6 +1608,7 @@ export default function Viewport(props: Props) {
   const cursor = tool === "orbit" ? "grab" : tool === "select" ? "default" : "crosshair";
   return (
     <div className="viewport" ref={host} style={{ cursor }}>
+      <div className="labels" ref={labelLayer} />
       {hint && (
         <div className="snap" style={{ left: hint.x, top: hint.y }}>
           <span className={`snap-dot ${hint.kind}`} />
