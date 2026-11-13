@@ -1,8 +1,8 @@
-# Riseline
+# SketchCraft
 
 **Draw an outline. Pull it up.**
 
-Riseline is a push/pull 3D modeler for buildings and streets, written in Rust.
+SketchCraft is a push/pull 3D modeler for buildings and streets, written in Rust.
 The engine is headless: every action is a JSON command, so the desktop app,
 scripts, the CLI and AI agents (over MCP) all drive the same thing.
 
@@ -30,7 +30,7 @@ use `"@name"` anywhere an id goes. Units are meters; Z is up.
 | Visibility | `hide`, `unhide`, `tag`, `tag_visible`, `soften` (edges, or `coplanar:true`) |
 | Construction | `guide` (line or point), `clear_guides`, `save_view`, `delete_view` |
 | Inspect | `pick`, `faces`, `info`, `undo`, `redo`, `new` |
-| Files | `save`/`open` (.riseline), `export_obj`, `export_glb`, `export_stl`, `import_obj`, `render` (PNG, any view or saved view) |
+| Files | `save`/`open` (.sketchcraft), `export_obj`, `export_glb`, `export_stl`, `import_obj`, `render` (PNG, any view or saved view) |
 
 ## The app
 
@@ -49,13 +49,13 @@ M move (Option copies, then `x5` / `/5` for arrays), Q rotate, S scale,
 T tape measure (guides), B paint (Option samples), E erase (Shift hides),
 O orbit, X section, G group, H hide, ⇧Z zoom extents. Snapping shows
 endpoints, midpoints, edges, faces and the red/green/blue axes; arrow keys
-lock an axis. Type a number and press Enter for exact sizes. The model lives in `~/Documents/Riseline/live.riseline`; the app
+lock an axis. Type a number and press Enter for exact sizes. The model lives in `~/Documents/SketchCraft/live.sketchcraft`; the app
 reloads it when Claude edits it over MCP, so you can build together.
 
 ## Claude (MCP)
 
-`.mcp.json` registers `riseline mcp` for Claude Code in this repo. Claude gets
-`riseline_run` (commands), `riseline_render` (sees a PNG) and `riseline_info`,
+`.mcp.json` registers `sketchcraft mcp` for Claude Code in this repo. Claude gets
+`sketchcraft_run` (commands), `sketchcraft_render` (sees a PNG) and `sketchcraft_info`,
 all on the same live model as the app. Build the binary first:
 `cargo build --release`.
 
@@ -63,15 +63,15 @@ all on the same live model as the app. Build the binary first:
 
 ```sh
 python3 tools/twin_import.py ../googledriver/twin/20th-ave out/20th_ave.jsonl
-cargo run --release -- run out/20th_ave.jsonl --save ~/Documents/Riseline/live.riseline
+cargo run --release -- run out/20th_ave.jsonl --save ~/Documents/SketchCraft/live.sketchcraft
 ```
 
 ## Run modes
 
-- `riseline run script.jsonl [--open f] [--save f]`: run a script.
-- `riseline serve [--open f]`: JSON commands on stdin, replies on stdout.
-- `riseline mcp [--doc f]`: MCP server for AI agents.
-- `riseline bridge [--port 5175]`: localhost HTTP bridge for the browser UI.
+- `sketchcraft run script.jsonl [--open f] [--save f]`: run a script.
+- `sketchcraft serve [--open f]`: JSON commands on stdin, replies on stdout.
+- `sketchcraft mcp [--doc f]`: MCP server for AI agents.
+- `sketchcraft bridge [--port 5175]`: localhost HTTP bridge for the browser UI.
 
 ## Roadmap
 

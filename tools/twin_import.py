@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Turn a googledriver twin block into a Riseline command script.
+"""Turn a googledriver twin block into a SketchCraft command script.
 
   python3 tools/twin_import.py <twin_dir> <out.jsonl>
 
