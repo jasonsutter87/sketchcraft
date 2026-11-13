@@ -39,11 +39,20 @@ export const TOKEN_LABELS: Record<SkinToken, string> = {
 const SYSTEM = `-apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", system-ui, sans-serif`;
 const MONO = `"SF Mono", Menlo, Monaco, Consolas, monospace`;
 
+const BRICOLAGE = `"Bricolage Grotesque", "Avenir Next", ${SYSTEM}`;
+
 export const SKINS: Skin[] = [
+  {
+    id: "workshop",
+    name: "Workshop",
+    blurb: "SketchCraft's own: drafting paper, ink and beaver violet. The default.",
+    dark: false,
+    tokens: { bg: "#f6f1e4", panel: "#fffdf7", line: "#e9e1cc", "line-strong": "#d8cfb8", text: "#15131c", muted: "#4b4658", faint: "#958d7a", accent: "#6f4df0", "accent-soft": "#ece6ff", "accent-ink": "#4a2fc4", danger: "#c8372d", glass: "rgba(255,253,247,0.95)", radius: "10px", font: BRICOLAGE },
+  },
   {
     id: "studio",
     name: "Studio",
-    blurb: "Light and roomy. The default.",
+    blurb: "Light, cool and roomy.",
     dark: false,
     tokens: { bg: "#f3f4f8", panel: "#ffffff", line: "#e7e8ef", "line-strong": "#d9dbe5", text: "#1d1e24", muted: "#6c6f7d", faint: "#a3a6b4", accent: "#6b5cff", "accent-soft": "#efedff", "accent-ink": "#4a3df0", danger: "#e5484d", glass: "rgba(255,255,255,0.94)", radius: "10px", font: SYSTEM },
   },

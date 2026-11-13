@@ -1928,3 +1928,36 @@ details.panel-fold {
   font-size: 11.5px;
   color: var(--text);
 }
+
+/* ---------- Workshop: SketchCraft's own look ---------- */
+[data-skin="workshop"] .btn.primary,
+[data-skin="workshop"] .tool.on {
+  box-shadow: inset 0 -2px 0 #3a22a8;
+}
+[data-skin="workshop"] .btn.ghost,
+[data-skin="workshop"] .btn.small,
+[data-skin="workshop"] .views button.on,
+[data-skin="workshop"] .ws-switch button.on {
+  box-shadow: inset 0 -1.5px 0 var(--line-strong);
+}
+/* commands, numbers and labels in mono, like a drafting readout */
+[data-skin="workshop"] .measure input,
+[data-skin="workshop"] .measure label,
+[data-skin="workshop"] kbd,
+[data-skin="workshop"] .section-title,
+[data-skin="workshop"] .ws-strip .lbl {
+  font-family: "IBM Plex Mono", "SF Mono", Menlo, monospace;
+}
+[data-skin="workshop"] .section-title {
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 10.5px;
+}
+/* the pencil: one yellow mark under the active workspace */
+[data-skin="workshop"] .ws-switch button.on {
+  box-shadow: inset 0 -2px 0 #f2c230;
+}
+[data-skin="workshop"] .brand-name {
+  font-weight: 750;
+  letter-spacing: -0.02em;
+}
