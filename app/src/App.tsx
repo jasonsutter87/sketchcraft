@@ -4,6 +4,7 @@ import { Icons, Logo } from "./icons";
 import { ContextMenu, contextItems, EntityInfo, Library, Outliner, Views } from "./panels";
 import { EMPTY, isEmpty, selIds, type Sel } from "./selection";
 import { UNIT_OPTIONS } from "./units";
+import { pickOpen, pickSave, rememberedFile, rememberFile } from "./files";
 import Viewport, { type Styles, type Tool, type ViewportApi } from "./Viewport";
 
 const TOOL_GROUPS: { id: Tool; name: string; key: string }[][] = [
@@ -63,7 +64,12 @@ export default function App() {
   const [section, setSection] = useState(false);
   const [placing, setPlacing] = useState<string | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
-  const [exportOpen, setExportOpen] = useState(false);
+  const [fileMenu, setFileMenu] = useState(false);
+  const [currentFile, setCurrentFileState] = useState<string | null>(rememberedFile());
+  const setCurrentFile = (p: string | null) => {
+    setCurrentFileState(p);
+    rememberFile(p);
+  };
   const api = useRef<ViewportApi | null>(null);
   const typedRef = useRef<HTMLInputElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -124,6 +130,14 @@ export default function App() {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
       const mod = e.metaKey || e.ctrlKey;
       const k = e.key.toLowerCase();
+      if (mod && ["n", "o", "s", "i"].includes(k)) {
+        e.preventDefault();
+        const f = fileRef2.current;
+        if (k === "n") return void f.new();
+        if (k === "o") return void f.open();
+        if (k === "s") return void f.save(e.shiftKey);
+        if (k === "i") return void f.import();
+      }
       if (mod && k === "z") {
         e.preventDefault();
         await run({ cmd: e.shiftKey ? "redo" : "undo" });
@@ -181,7 +195,6 @@ export default function App() {
   const importFile = async (file: File) => {
     let r: Reply;
     if (file.name.toLowerCase().endsWith(".skp")) {
-      // binary: send it as base64
       const bytes = new Uint8Array(await file.arrayBuffer());
       let bin = "";
       for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
@@ -196,15 +209,76 @@ export default function App() {
     }
   };
 
-  const doExport = async (kind: "obj" | "glb" | "stl") => {
-    setExportOpen(false);
-    const path = scene!.doc.replace(/[^/]+$/, `exports/sketchcraft-${Date.now()}.${kind}`);
-    const cmd = kind === "obj" ? { cmd: "export_obj", path } : kind === "glb" ? { cmd: "export_glb", path } : { cmd: "export_stl", path, scale: 1000 };
-    const r = await run(cmd);
-    if (r.ok) say(`Exported ${path}`);
+  const importPath = async (path: string) => {
+    const lower = path.toLowerCase();
+    const r = lower.endsWith(".skp") ? await run({ cmd: "import_skp", path }) : await run({ cmd: "import_obj", path, up: "y" });
+    if (r.ok) {
+      say(`Imported ${path.split("/").pop()}: ${r.faces} faces`);
+      api.current?.fitSoon();
+      await refresh();
+    }
+    return r.ok;
   };
 
-  const docName = scene?.doc.split("/").pop()?.replace(/\.sketchcraft$/, "") ?? "";
+  const file = {
+    new: async () => {
+      await run({ cmd: "new" });
+      setCurrentFile(null);
+      setSel(EMPTY);
+      say("New model. ⌘Z brings the last one back.");
+    },
+    open: async () => {
+      const path = await pickOpen();
+      if (!path) return;
+      if (path.toLowerCase().endsWith(".sketchcraft")) {
+        const r = await run({ cmd: "open", path });
+        if (!r.ok) return;
+        setCurrentFile(path);
+        api.current?.fitSoon();
+        await refresh();
+      } else {
+        await run({ cmd: "new" });
+        if (await importPath(path)) setCurrentFile(null);
+      }
+      setSel(EMPTY);
+    },
+    save: async (as = false) => {
+      let path = currentFile;
+      if (!path || as) {
+        path = await pickSave(currentFile?.split("/").pop() ?? "Untitled.sketchcraft", "sketchcraft", "SketchCraft model");
+        if (!path) return;
+        if (!path.toLowerCase().endsWith(".sketchcraft")) path += ".sketchcraft";
+      }
+      const r = await run({ cmd: "save", path });
+      if (r.ok) {
+        setCurrentFile(path);
+        say(`Saved ${path.split("/").pop()}`);
+      }
+    },
+    import: async () => {
+      const path = await pickOpen();
+      if (path) await importPath(path);
+    },
+    export: async (kind: "obj" | "glb" | "stl") => {
+      const base = (currentFile?.split("/").pop() ?? "model").replace(/\.sketchcraft$/, "");
+      const path = await pickSave(`${base}.${kind}`, kind, kind.toUpperCase());
+      if (!path) return;
+      const cmd = kind === "obj" ? { cmd: "export_obj", path } : kind === "glb" ? { cmd: "export_glb", path } : { cmd: "export_stl", path, scale: 1000 };
+      const r = await run(cmd);
+      if (r.ok) say(`Exported ${path.split("/").pop()}`);
+    },
+    render: async () => {
+      const base = (currentFile?.split("/").pop() ?? "model").replace(/\.sketchcraft$/, "");
+      const path = await pickSave(`${base}.png`, "png", "PNG image");
+      if (!path) return;
+      const r = await run({ cmd: "render", out: path, width: 1920, height: 1080, camera: api.current!.camera() });
+      if (r.ok) say(`Rendered ${path.split("/").pop()}`);
+    },
+  };
+  const fileRef2 = useRef(file);
+  fileRef2.current = file;
+
+  const docName = currentFile ? currentFile.split("/").pop()!.replace(/\.sketchcraft$/, "") : "Untitled";
   const selCount = selIds(sel).length;
 
   return (
@@ -214,6 +288,30 @@ export default function App() {
           <Logo />
           <span className="brand-name">SketchCraft</span>
           <span className="sep">/</span>
+          <div className="dropdown">
+            <button className="file-btn" onClick={() => setFileMenu((o) => !o)}>
+              File ▾
+            </button>
+            {fileMenu && (
+              <>
+                <div className="menu-scrim" onPointerDown={() => setFileMenu(false)} />
+                <div className="dropdown-menu file-menu" onClick={() => setFileMenu(false)}>
+                  <button onClick={file.new}>New <kbd>⌘N</kbd></button>
+                  <button onClick={file.open}>Open… <kbd>⌘O</kbd></button>
+                  <button onClick={() => file.save(false)}>Save <kbd>⌘S</kbd></button>
+                  <button onClick={() => file.save(true)}>Save As… <kbd>⇧⌘S</kbd></button>
+                  <hr />
+                  <button onClick={file.import}>Import SketchUp or OBJ… <kbd>⌘I</kbd></button>
+                  <button onClick={() => fileRef.current?.click()}>Import from browser upload…</button>
+                  <hr />
+                  <button onClick={() => file.export("glb")}>Export glTF (.glb)…</button>
+                  <button onClick={() => file.export("obj")}>Export OBJ…</button>
+                  <button onClick={() => file.export("stl")}>Export STL (mm)…</button>
+                  <button onClick={file.render}>Render PNG…</button>
+                </div>
+              </>
+            )}
+          </div>
           <span className="doc">{docName}</span>
           <span className="live" title="Claude can edit this model over MCP; changes show up here">
             <i /> Live
@@ -231,22 +329,7 @@ export default function App() {
           <button className="icon-btn" title="Redo (⇧⌘Z)" onClick={() => run({ cmd: "redo" })}>
             <Icons.redo />
           </button>
-          <button className="btn ghost" onClick={() => fileRef.current?.click()} title="Import a SketchUp (.skp, versions 6-8) or OBJ file">
-            <Icons.import /> Import
-          </button>
           <input ref={fileRef} type="file" accept=".obj,.skp" hidden onChange={(e) => e.target.files?.[0] && importFile(e.target.files[0])} />
-          <div className="dropdown">
-            <button className="btn ghost" onClick={() => setExportOpen((o) => !o)}>
-              <Icons.export /> Export
-            </button>
-            {exportOpen && (
-              <div className="dropdown-menu">
-                <button onClick={() => doExport("glb")}>glTF (.glb) <small>Blender, web, game engines</small></button>
-                <button onClick={() => doExport("obj")}>OBJ + MTL <small>everything opens it</small></button>
-                <button onClick={() => doExport("stl")}>STL <small>3D printing, millimeters</small></button>
-              </div>
-            )}
-          </div>
           <button
             className="btn primary"
             onClick={async () => {
