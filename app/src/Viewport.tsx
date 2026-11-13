@@ -57,6 +57,7 @@ export default function Viewport({ scene, tool, selected, color, run, onPick, on
     model: THREE.Group;
     overlay: THREE.Group;
     preview: THREE.Group;
+    ground: THREE.Group;
     pickMesh: THREE.Mesh | null;
   } | null>(null);
 
@@ -100,7 +101,9 @@ export default function Viewport({ scene, tool, selected, color, run, onPick, on
     const grid = new THREE.GridHelper(400, 400, 0xd5d8e2, 0xe4e6ee);
     grid.rotation.x = Math.PI / 2;
     (grid.material as THREE.Material).depthWrite = false;
-    world.add(grid);
+    const ground = new THREE.Group(); // grid + axes, kept at the model's lowest point
+    ground.add(grid);
+    world.add(ground);
     const axes = new THREE.Group();
     const axis = (to: Vec3, c: number) => {
       const g = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), V(to)]);
@@ -109,14 +112,14 @@ export default function Viewport({ scene, tool, selected, color, run, onPick, on
     axis([200, 0, 0], 0xe5484d);
     axis([0, 200, 0], 0x30a46c);
     axis([0, 0, 200], 0x3e63dd);
-    world.add(axes);
+    ground.add(axes);
 
     const model = new THREE.Group();
     const overlay = new THREE.Group();
     const preview = new THREE.Group();
     world.add(model, overlay, preview);
 
-    t.current = { renderer, camera, controls, world, model, overlay, preview, pickMesh: null };
+    t.current = { renderer, camera, controls, world, model, overlay, preview, ground, pickMesh: null };
 
     const resize = () => {
       const { clientWidth: w, clientHeight: h } = el;
@@ -170,6 +173,9 @@ export default function Viewport({ scene, tool, selected, color, run, onPick, on
     eg.setAttribute("position", new THREE.Float32BufferAttribute(scene.edges, 3));
     const edges = new THREE.LineSegments(eg, new THREE.LineBasicMaterial({ color: 0x23252d }));
     T.model.add(front, back, edges);
+    let minZ = Infinity;
+    for (let i = 2; i < scene.positions.length; i += 3) minZ = Math.min(minZ, scene.positions[i]);
+    T.ground.position.z = Number.isFinite(minZ) ? Math.min(minZ, 0) - 0.01 : 0;
     T.pickMesh = front; // hitFace() picks it from either side
 
     // frame the model when the app opens or after a template, never while drawing
