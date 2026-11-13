@@ -976,7 +976,8 @@ export default function Viewport(props: Props) {
       await run({ cmd: "array", ids: last.ids, by: arr(by), count: n });
       return;
     }
-    if (!nums.length) return;
+    // plain numbers (angles, factors) or lengths with units (12', 8'6", 250cm)
+    if (!nums.length && !lens.length) return;
 
     switch (op?.t) {
       case "wall": {
