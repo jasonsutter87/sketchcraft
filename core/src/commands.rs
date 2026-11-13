@@ -14,6 +14,7 @@ use anyhow::{bail, Result};
 use glam::DVec3;
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::collections::HashMap;
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "cmd", rename_all = "snake_case")]
@@ -48,6 +49,13 @@ pub enum Command {
         #[serde(default)]
         facing: Option<[f64; 3]>,
     },
+    /// The face under a point (on its plane, inside its outline), or the
+    /// nearest face center if none contains it. Optional facing filter.
+    Pick {
+        at: [f64; 3],
+        #[serde(default)]
+        facing: Option<[f64; 3]>,
+    },
     /// Counts, bounds, groups, materials.
     Info,
     Undo,
@@ -71,6 +79,7 @@ impl Command {
             self,
             Command::Faces { .. }
                 | Command::Info
+                | Command::Pick { .. }
                 | Command::Undo
                 | Command::Redo
                 | Command::Render { .. }
@@ -85,6 +94,9 @@ pub struct Engine {
     pub model: Model,
     undo: Vec<Model>,
     redo: Vec<Model>,
+    /// Script names: `"as":"front"` on a command stores its result id,
+    /// and any later `"@front"` value is replaced by it.
+    pub names: HashMap<String, Id>,
 }
 
 const UNDO_LIMIT: usize = 200;
@@ -100,10 +112,37 @@ impl Engine {
 
     /// Run one JSON command line and return a JSON reply (never panics on bad input).
     pub fn exec_json(&mut self, line: &str) -> Value {
-        match serde_json::from_str::<Command>(line) {
-            Ok(cmd) => self.exec(cmd),
-            Err(e) => json!({"ok": false, "error": format!("bad command: {e}")}),
+        let mut v: Value = match serde_json::from_str(line) {
+            Ok(v) => v,
+            Err(e) => return json!({"ok": false, "error": format!("bad JSON: {e}")}),
+        };
+        let name = v.as_object_mut().and_then(|o| o.remove("as")).and_then(|n| n.as_str().map(String::from));
+        if let Err(e) = self.resolve(&mut v) {
+            return json!({"ok": false, "error": e.to_string()});
         }
+        let r = match serde_json::from_value::<Command>(v) {
+            Ok(cmd) => self.exec(cmd),
+            Err(e) => return json!({"ok": false, "error": format!("bad command: {e}")}),
+        };
+        if let (Some(n), true) = (name, r["ok"] == true) {
+            if let Some(id) = ["face", "group"].iter().find_map(|k| r[*k].as_u64()) {
+                self.names.insert(n, id as Id);
+            }
+        }
+        r
+    }
+
+    fn resolve(&self, v: &mut Value) -> Result<()> {
+        match v {
+            Value::String(s) if s.starts_with('@') => {
+                let Some(id) = self.names.get(&s[1..]) else { bail!("unknown name {s}") };
+                *v = json!(id);
+            }
+            Value::Array(a) => a.iter_mut().try_for_each(|x| self.resolve(x))?,
+            Value::Object(o) => o.values_mut().try_for_each(|x| self.resolve(x))?,
+            _ => {}
+        }
+        Ok(())
     }
 
     pub fn exec(&mut self, cmd: Command) -> Value {
@@ -220,6 +259,24 @@ impl Engine {
                     })
                     .collect();
                 json!({"faces": list})
+            }
+            Command::Pick { at, facing } => {
+                let p = v3(at);
+                let dir = facing.map(|f| v3(f).normalize_or_zero());
+                let candidates: Vec<Id> = m
+                    .faces
+                    .keys()
+                    .copied()
+                    .filter(|&id| dir.map_or(true, |d| m.normal(id).dot(d) > 0.94))
+                    .collect();
+                let on = candidates.iter().copied().find(|&id| m.contains(id, p));
+                let face = on.or_else(|| {
+                    candidates.iter().copied().min_by(|a, b| {
+                        m.center(*a).distance(p).partial_cmp(&m.center(*b).distance(p)).unwrap()
+                    })
+                });
+                let Some(face) = face else { bail!("no face there") };
+                json!({"face": face, "exact": on.is_some()})
             }
             Command::Info => {
                 let b = m.bounds().map(|(lo, hi)| json!({"min": lo.to_array(), "max": hi.to_array()}));
