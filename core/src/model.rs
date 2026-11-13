@@ -434,6 +434,38 @@ impl Model {
         Ok(gid)
     }
 
+    /// Duplicate a group, offset by `by`. Returns the new group id.
+    pub fn copy_group(&mut self, gid: Id, by: DVec3, name: Option<String>) -> Result<Id> {
+        let g = self.groups.get(&gid).ok_or_else(|| anyhow!("{gid} is not a group"))?.clone();
+        let new = self.new_id();
+        self.groups.insert(new, Group { name: name.unwrap_or_else(|| format!("{} copy", g.name)) });
+        let mut map: HashMap<Id, Id> = HashMap::new();
+        let verts: Vec<(Id, DVec3)> =
+            self.vertices.iter().filter(|(_, v)| v.group == Some(gid)).map(|(&k, v)| (k, v.p)).collect();
+        for (k, p) in verts {
+            let id = self.new_id();
+            self.vertices.insert(id, Vertex { p: p + by, group: Some(new) });
+            map.insert(k, id);
+        }
+        let edges: Vec<Edge> = self.edges.values().filter(|e| e.group == Some(gid)).cloned().collect();
+        for e in edges {
+            let id = self.new_id();
+            self.edges.insert(id, Edge { a: map[&e.a], b: map[&e.b], group: Some(new) });
+        }
+        let faces: Vec<Face> = self.faces.values().filter(|f| f.group == Some(gid)).cloned().collect();
+        for f in faces {
+            let id = self.new_id();
+            let face = Face {
+                outer: f.outer.iter().map(|v| map[v]).collect(),
+                holes: f.holes.iter().map(|h| h.iter().map(|v| map[v]).collect()).collect(),
+                material: f.material.clone(),
+                group: Some(new),
+            };
+            self.faces.insert(id, face);
+        }
+        Ok(new)
+    }
+
     pub fn begin_group(&mut self, name: String) -> Id {
         let gid = self.new_id();
         self.groups.insert(gid, Group { name });
