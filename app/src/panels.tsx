@@ -302,8 +302,9 @@ function TemplateTiles({ onTemplate }: { onTemplate: (lines: string[]) => void }
   );
 }
 
-export function Views({ scene, run, camera, goTo }: { scene: Scene; run: Run; camera: () => Cam; goTo: (c: Cam) => void }) {
+export function Views({ scene, run, camera, goTo, onMatchPhoto }: { scene: Scene; run: Run; camera: () => Cam; goTo: (c: Cam & { photo?: string }) => void; onMatchPhoto: (f: File) => void }) {
   const [name, setName] = useState("");
+  const photoInput = useRef<HTMLInputElement>(null);
   const save = async () => {
     const n = name.trim() || `View ${scene.views.length + 1}`;
     await run({ cmd: "save_view", name: n, ...camera() });
@@ -317,10 +318,16 @@ export function Views({ scene, run, camera, goTo }: { scene: Scene; run: Run; ca
           <Icons.plus /> Save
         </button>
       </div>
+      <div className="row" style={{ marginTop: 8 }}>
+        <button className="btn small ghost" onClick={() => photoInput.current?.click()} title="Line a photo up with the axes and model over it">
+          <Icons.camera /> Match photo…
+        </button>
+        <input ref={photoInput} type="file" accept="image/*" hidden onChange={(e) => e.target.files?.[0] && (onMatchPhoto(e.target.files[0]), (e.target.value = ""))} />
+      </div>
       <ul className="layers views-list">
         {scene.views.map((v) => (
           <li key={v.name} onClick={() => goTo(v)}>
-            <Icons.camera />
+            {v.photo ? <img className="view-thumb" src={v.photo} alt="" /> : <Icons.camera />}
             <span className="name">{v.name}</span>
             <button
               className="eye"

@@ -6,9 +6,11 @@ export interface Prepared {
   data: string;
   color: [number, number, number];
   aspect: number; // height / width
+  width: number;
+  height: number;
 }
 
-export async function prepareImage(file: File): Promise<Prepared> {
+export async function prepareImage(file: File, max = 1024): Promise<Prepared> {
   const url = URL.createObjectURL(file);
   try {
     const img = await new Promise<HTMLImageElement>((ok, bad) => {
@@ -17,7 +19,7 @@ export async function prepareImage(file: File): Promise<Prepared> {
       i.onerror = () => bad(new Error("That file isn't an image the browser can read"));
       i.src = url;
     });
-    const scale = Math.min(1, 1024 / Math.max(img.naturalWidth, img.naturalHeight));
+    const scale = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
     const w = Math.max(1, Math.round(img.naturalWidth * scale));
     const h = Math.max(1, Math.round(img.naturalHeight * scale));
     const c = document.createElement("canvas");
@@ -35,7 +37,7 @@ export async function prepareImage(file: File): Promise<Prepared> {
       if (px[i + 3] < 250) alpha = true;
     }
     const data = alpha ? c.toDataURL("image/png") : c.toDataURL("image/jpeg", 0.86);
-    return { data, color: [r / n / 255, gg / n / 255, b / n / 255], aspect: h / w };
+    return { data, color: [r / n / 255, gg / n / 255, b / n / 255], aspect: h / w, width: w, height: h };
   } finally {
     URL.revokeObjectURL(url);
   }

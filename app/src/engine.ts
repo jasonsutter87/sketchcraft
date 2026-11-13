@@ -59,6 +59,8 @@ export interface SavedView {
   eye: Vec3;
   target: Vec3;
   fov: number;
+  /** Match Photo: the photo behind this view (data URL) */
+  photo?: string;
 }
 
 export type Annotation =

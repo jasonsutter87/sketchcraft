@@ -6,6 +6,8 @@ import { EMPTY, isEmpty, selIds, type Sel } from "./selection";
 import { UNIT_OPTIONS } from "./units";
 import { pickOpen, pickSave, rememberedFile, rememberFile } from "./files";
 import Viewport, { type BuildSettings, type Styles, type Tool, type ViewportApi } from "./Viewport";
+import { MatchPhoto, type PhotoMatch } from "./matchphoto";
+import { prepareImage } from "./textures";
 
 const DEFAULT_BUILD: BuildSettings = {
   wallThickness: 0.2,
@@ -120,6 +122,25 @@ export default function App() {
   /** ⌘C / ⌘X: what to paste, and whether it was cut */
   const clip = useRef<{ ids: number[]; cut: boolean } | null>(null);
   const [showKeys, setShowKeys] = useState(false);
+  /** Match Photo in progress: the photo being lined up */
+  const [matching, setMatching] = useState<{ src: string; width: number; height: number } | null>(null);
+  const startMatch = async (file: File) => {
+    try {
+      const img = await prepareImage(file, 1600);
+      setMatching({ src: img.data, width: img.width, height: img.height });
+    } catch (e) {
+      say(String(e), true);
+    }
+  };
+  const finishMatch = async (mp: PhotoMatch) => {
+    const m = matching;
+    if (!m) return;
+    const r = await run({ cmd: "match_photo", name: mp.name, width: m.width, height: m.height, red: mp.red, green: mp.green, origin: mp.origin, distance: mp.distance, photo: m.src });
+    if (!r.ok) return; // keep the editor open to fix the lines
+    setMatching(null);
+    api.current?.goTo({ eye: r.eye as [number, number, number], target: r.target as [number, number, number], fov: r.fov as number, photo: m.src });
+    say(`Matched. Model over the photo; orbit to leave, click "${mp.name}" in Views to come back.`);
+  };
   const showKeysRef = useRef(false);
   showKeysRef.current = showKeys;
 
@@ -521,7 +542,7 @@ export default function App() {
               }}
             />
           )}
-          {scene && tab === "views" && <Views scene={scene} run={run} camera={() => api.current!.camera()} goTo={(c) => api.current?.goTo(c)} />}
+          {scene && tab === "views" && <Views scene={scene} run={run} camera={() => api.current!.camera()} goTo={(c) => api.current?.goTo(c)} onMatchPhoto={startMatch} />}
         </div>
       </aside>
 
@@ -546,6 +567,7 @@ export default function App() {
           onSection={setSection}
           api={api}
         />
+        {matching && <MatchPhoto src={matching.src} width={matching.width} height={matching.height} defaultName={`Photo ${(scene?.views.filter((v) => v.photo).length ?? 0) + 1}`} onDone={finishMatch} onCancel={() => setMatching(null)} />}
 
         <nav className="toolbar">
           {TOOL_GROUPS.map((g, i) => (

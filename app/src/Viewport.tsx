@@ -60,7 +60,7 @@ export interface ViewportApi {
   fitSoon: () => void;
   view: (name: "iso" | "top" | "front" | "right" | "back" | "left") => void;
   camera: () => Cam;
-  goTo: (c: Cam) => void;
+  goTo: (c: Cam & { photo?: string }) => void;
   clearSection: () => void;
   /** the active section plane (a point on it and its normal), if any */
   sectionPlane: () => { origin: Vec3; normal: Vec3 } | null;
@@ -274,6 +274,8 @@ export default function Viewport(props: Props) {
 
   /** newest section-fill request (older answers are dropped) */
   const sectionTicket = useRef(0);
+  const [backdrop, setBackdrop] = useState<string | null>(null);
+  const backdropOn = useRef(false);
   const st = useRef<{
     op: Op | null;
     last: Last;
@@ -306,7 +308,8 @@ export default function Viewport(props: Props) {
   // ---------------------------------------------------------------- setup
   useEffect(() => {
     const el = host.current!;
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    // alpha: a matched photo can show through behind the model
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setPixelRatio(window.devicePixelRatio);
     renderer.setClearColor(0xf3f4f8);
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -373,6 +376,9 @@ export default function Viewport(props: Props) {
       if (cam === T.ortho) T.persp.position.copy(cam.position);
     };
     renderer.domElement.addEventListener("wheel", wheel, { passive: false });
+    // moving the camera leaves a matched photo's view (as in SketchUp)
+    controls.addEventListener("start", () => backdropOn.current && showBackdrop(null));
+    renderer.domElement.addEventListener("wheel", () => backdropOn.current && showBackdrop(null));
 
     const world = new THREE.Scene();
     world.add(new THREE.HemisphereLight(0xffffff, 0xe2e4ec, 2.7));
@@ -982,6 +988,16 @@ export default function Viewport(props: Props) {
     T.controls.update();
   }
 
+  /** Match Photo backdrop: the photo behind a see-through canvas, no grid. */
+  function showBackdrop(photo: string | null) {
+    const T = t.current;
+    if (!T) return;
+    setBackdrop(photo);
+    backdropOn.current = !!photo;
+    T.renderer.setClearColor(0xf3f4f8, photo ? 0 : 1);
+    T.ground.visible = !photo;
+  }
+
   function showSnap(sn: Snap) {
     st.current.snap = sn;
     if (sn.from) t.current!.preview.add(polyline([sn.from, sn.p], sn.axis != null ? AXIS_COLORS[sn.axis] : 0x8a8ea0, false, true));
@@ -1055,8 +1071,9 @@ export default function Viewport(props: Props) {
     T.persp.updateProjectionMatrix();
   }
 
-  function goTo(c: Cam) {
+  function goTo(c: Cam & { photo?: string }) {
     const T = t.current!;
+    showBackdrop(c.photo ?? null);
     setFov(c.fov || 40); // a saved view keeps its lens
     const from = { e: T.camera.position.clone(), t: T.controls.target.clone() };
     const to = { e: V(c.eye), t: V(c.target) };
@@ -2053,6 +2070,7 @@ export default function Viewport(props: Props) {
   const cursor = tool === "orbit" ? "grab" : tool === "select" ? "default" : "crosshair";
   return (
     <div className="viewport" ref={host} style={{ cursor }}>
+      {backdrop && <img className="backdrop" src={backdrop} alt="" />}
       <div className="labels" ref={labelLayer} />
       {hint && (
         <div className="snap" style={{ left: hint.x, top: hint.y }}>
