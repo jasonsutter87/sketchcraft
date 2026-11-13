@@ -526,9 +526,9 @@ export default function App() {
       const base = (currentFile?.split("/").pop() ?? "model").replace(/\.sketchcraft$/, "");
       const path = await pickSave(`${base} blueprint.pdf`, "pdf", "PDF");
       if (!path) return;
-      say("Drawing the blueprint: every floor plan and four elevations…");
+      say("Drawing the blueprint: plans with dimensions and tags, elevations with levels…");
       const r = await run({ cmd: "blueprint", path, project: base });
-      if (r.ok) say(`Blueprint ready: ${(r.levels as number[]).length} floor plan${(r.levels as number[]).length === 1 ? "" : "s"} + 4 elevations in ${path.split("/").pop()}`);
+      if (r.ok) say(`Blueprint ready: ${(r.levels as number[]).length} floor plan${(r.levels as number[]).length === 1 ? "" : "s"} + 4 elevations${(r.pages as number) > 2 ? " + door and window schedule" : ""} in ${path.split("/").pop()}`);
     },
     report: async () => {
       const base = (currentFile?.split("/").pop() ?? "model").replace(/\.sketchcraft$/, "");
