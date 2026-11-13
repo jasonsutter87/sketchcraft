@@ -95,6 +95,23 @@ pub struct Guide {
     pub dir: Option<DVec3>,
 }
 
+/// A note on the model: a dimension between two points (drawn `offset`
+/// away from them), or a text label (with an optional leader to a point).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Annotation {
+    Dimension { id: Id, a: DVec3, b: DVec3, offset: DVec3 },
+    Text { id: Id, at: DVec3, text: String, #[serde(default)] leader: Option<DVec3> },
+}
+
+impl Annotation {
+    pub fn id(&self) -> Id {
+        match self {
+            Annotation::Dimension { id, .. } | Annotation::Text { id, .. } => *id,
+        }
+    }
+}
+
 /// A saved camera ("scene" in other modelers).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct View {
@@ -130,6 +147,8 @@ pub struct Model {
     pub guides: Vec<Guide>,
     #[serde(default)]
     pub views: Vec<View>,
+    #[serde(default)]
+    pub annotations: Vec<Annotation>,
 }
 
 pub fn pairs(l: &[Id]) -> impl Iterator<Item = (Id, Id)> + '_ {
@@ -551,6 +570,8 @@ impl Model {
                 for f in dead {
                     self.faces.remove(&f);
                 }
+            } else if let Some(i) = self.annotations.iter().position(|a| a.id() == *id) {
+                self.annotations.remove(i);
             } else if self.instances.remove(id).is_some() {
                 // component placement removed; its definition stays in the library
             } else if self.groups.remove(id).is_some() {
