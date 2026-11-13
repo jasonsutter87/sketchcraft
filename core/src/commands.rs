@@ -504,6 +504,25 @@ pub enum Command {
         #[serde(flatten)]
         opts: RenderOpts,
     },
+    /// Model from several matched photos: corners marked in two or more
+    /// photos are solved to 3D together with each photo's distance (see
+    /// photomodel). Places guide points; `build` draws `edges` between them.
+    PhotoSolve {
+        points: Vec<crate::photomodel::PhotoPoint>,
+        /// point index pairs to connect with lines (with `build`)
+        #[serde(default)]
+        edges: Vec<[usize; 2]>,
+        /// keep this photo's distance (default: the first one marked)
+        #[serde(default)]
+        fixed: Option<String>,
+        /// a known length: {a, b, length} (point indexes, meters)
+        #[serde(default)]
+        scale: Option<KnownLength>,
+        #[serde(default = "yes")]
+        place: bool,
+        #[serde(default)]
+        build: bool,
+    },
     /// Put the model in a ready-made setting: suburban, city, park, desert,
     /// waterfront, studio; or none to take it away.
     Environment { kind: String },
@@ -1411,6 +1430,41 @@ impl Engine {
                 json!({"path": path, "pages": crate::layout::blueprint(&building, &path, &sheet, &project, &notes)?, "levels": crate::layout::floor_levels(&building)})
             }
             Command::Levels => json!({"levels": crate::layout::floor_levels(&crate::environment::without(&self.model))}),
+            Command::PhotoSolve { points, edges, fixed, scale, place, build } => {
+                let sol = crate::photomodel::solve(m, &points, fixed.as_deref(), scale.map(|s| (s.a, s.b, s.length)))?;
+                // each photo's camera slides to its solved distance (same direction, same lens)
+                for v in m.views.iter_mut() {
+                    if let Some(d) = sol.distances.get(&v.name) {
+                        let eye = DVec3::from(v.eye);
+                        let moved = eye.normalize_or_zero() * *d;
+                        v.target = (DVec3::from(v.target) + (moved - eye)).to_array();
+                        v.eye = moved.to_array();
+                    }
+                }
+                m.photo_points = points;
+                m.photo_edges = edges.clone();
+                if place {
+                    let old = std::mem::take(&mut m.photo_guides);
+                    m.guides.retain(|g| !old.contains(&g.id));
+                    for p in sol.points.iter().flatten() {
+                        let id = m.new_id();
+                        m.guides.push(crate::model::Guide { id, p: DVec3::from(*p), dir: None });
+                        m.photo_guides.push(id);
+                    }
+                }
+                let mut built = 0;
+                if build {
+                    for [a, b] in &edges {
+                        if let (Some(Some(p)), Some(Some(q))) = (sol.points.get(*a), sol.points.get(*b)) {
+                            m.draw_line(DVec3::from(*p), DVec3::from(*q))?;
+                            built += 1;
+                        }
+                    }
+                }
+                let mut v = serde_json::to_value(&sol)?;
+                v["built"] = json!(built);
+                v
+            }
             Command::Environment { .. } => bail!("environment runs through Engine::exec"),
             Command::Sun { date, time, utc_offset } => serde_json::to_value(sun_at(&self.model, date.as_deref(), time.as_deref(), utc_offset)?)?,
             Command::DoorSwing { hinge, strike, toward } => {
@@ -1731,6 +1785,13 @@ fn tidy_name(stem: &str) -> String {
     let start = words.iter().position(|w| !matches!(w.to_ascii_lowercase().as_str(), "uploads" | "files" | "upload" | "file") && !w.chars().all(|c| c.is_ascii_digit())).unwrap_or(0);
     let name = words[start..].join(" ");
     if name.is_empty() { stem.to_string() } else { name }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct KnownLength {
+    pub a: usize,
+    pub b: usize,
+    pub length: f64,
 }
 
 #[derive(serde::Serialize)]

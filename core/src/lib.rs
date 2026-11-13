@@ -30,6 +30,7 @@ pub mod mcp;
 pub mod mesh;
 pub mod matchphoto;
 pub mod model;
+pub mod photomodel;
 pub mod pt;
 pub mod render;
 pub mod sandbox;

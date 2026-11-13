@@ -173,6 +173,8 @@ pub fn build(root: &Model, ctx: Option<u32>) -> Value {
         "classes": root.classes,
         "location": root.location,
         "environment": root.environment,
+        "photoPoints": root.photo_points,
+        "photoEdges": root.photo_edges,
         "annotations": root.annotations,
         "units": root.units,
     })

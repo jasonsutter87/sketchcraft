@@ -49,6 +49,7 @@ ORGANIZE
 - skins: app skins in ~/Documents/SketchCraft/Skins; save_skin {name, skin}: save one (JSON: name, dark, tokens {bg, panel, line, line-strong, text, muted, faint, accent, accent-soft, accent-ink, danger, glass, radius, font}, backdrop?)
 - hierarchy: groups nest. group {ids} puts groups/components inside a new group (faces become its geometry); set_parent {ids, parent|null}; ungroup {id}; lock {ids, locked}; begin_group inside an open group nests, end_group backs out one level. Moving/deleting/copying a group carries everything inside it.
 - tags: tag {ids, tag}; tag_visible {tag, visible}; tag_color {tag, color|null}; rename_tag {tag, to}
+- photo_solve {points:[{name?, marks:{viewName:[u,v]}}], edges?:[[i,j]], fixed?, scale?:{a,b,length}, place?=true, build?}: multi-photo modeling. Marks are photo-centered, y up, in half-photo-heights. Corners marked in 2+ matched photos (all matched with the origin on the same real corner) are solved to 3D along with each photo distance; returns points, misses (m), distances
 - environment {kind: suburban|city|park|desert|waterfront|studio|none}: a ready-made setting around the model (locked group tagged Environment; studio = seamless backdrop + softbox lights, renders without sky/sun). pushpull also takes toward:[x,y,z]
 - sun {date?, time?, utc_offset?}: real sun azimuth/altitude at the model location
 - door_swing {hinge, strike, toward}: door swing symbol for plans. blueprint also takes notes:[...]; sheets takes notes:[...] (a line starting with a hash is a heading)

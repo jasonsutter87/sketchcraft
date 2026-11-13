@@ -196,6 +196,15 @@ pub struct Model {
     pub instances: BTreeMap<Id, Instance>,
     #[serde(default)]
     pub guides: Vec<Guide>,
+    /// corners marked across matched photos (Photo modeling), kept with the model
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub photo_points: Vec<crate::photomodel::PhotoPoint>,
+    /// lines to build between photo points (index pairs)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub photo_edges: Vec<[usize; 2]>,
+    /// the guide points the last photo solve placed (replaced on the next)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub photo_guides: Vec<Id>,
     #[serde(default)]
     pub views: Vec<View>,
     #[serde(default)]

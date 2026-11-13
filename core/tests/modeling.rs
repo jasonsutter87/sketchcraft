@@ -1262,3 +1262,66 @@ fn environments_build_around_the_model_as_one_undo_step() {
     run(&mut e, json!({"cmd":"set_parent","ids":[house],"parent":folder}));
     assert_eq!(e.model.groups[&house].parent, Some(folder));
 }
+
+#[test]
+fn photos_solve_corners_and_camera_distances_together() {
+    use sketchcraft::model::View;
+    use sketchcraft::photomodel::{project, PhotoPoint};
+    use glam::DVec3;
+    // the truth: a 6 x 4 x 3 m box at the origin, three photos from different places
+    let corners: Vec<DVec3> = [(0.0, 0.0, 0.0), (6.0, 0.0, 0.0), (6.0, 4.0, 0.0), (0.0, 4.0, 0.0), (0.0, 0.0, 3.0), (6.0, 0.0, 3.0), (6.0, 4.0, 3.0), (0.0, 4.0, 3.0)]
+        .iter()
+        .map(|c| DVec3::new(c.0, c.1, c.2))
+        .collect();
+    let truth = [("North-east", DVec3::new(14.0, 12.0, 4.0)), ("South", DVec3::new(3.0, -15.0, 2.0)), ("West", DVec3::new(-12.0, 6.0, 6.0))];
+    let mut e = Engine::new();
+    let target = DVec3::new(3.0, 2.0, 1.5);
+    let views: Vec<View> = truth.iter().map(|(n, eye)| View { name: n.to_string(), eye: eye.to_array(), target: target.to_array(), fov: 45.0, photo: Some("data:image/png;base64,AA==".into()) }).collect();
+    // marks where the true corners appear in each photo
+    let points: Vec<PhotoPoint> = corners
+        .iter()
+        .enumerate()
+        .map(|(i, c)| PhotoPoint { name: format!("C{i}"), marks: views.iter().filter_map(|v| project(v, *c).map(|at| (v.name.clone(), at))).collect() })
+        .collect();
+    // Match Photo got two of the distances wrong (same direction through the origin, wrong range)
+    for (i, mut v) in views.into_iter().enumerate() {
+        let k = [1.0, 0.55, 1.8][i];
+        let eye = DVec3::from(v.eye);
+        let moved = eye * k;
+        v.target = (DVec3::from(v.target) + (moved - eye)).to_array();
+        v.eye = moved.to_array();
+        e.model.views.push(v);
+    }
+    // project() above used the true cameras, so the marks are exact; moving a camera
+    // along its line through the origin keeps the origin's mark but nothing else
+    let r = run(&mut e, json!({"cmd":"photo_solve","points":points,"fixed":"North-east","edges":[[0,1],[1,2],[2,3],[3,0]],"build":true}));
+    for (i, c) in corners.iter().enumerate() {
+        let p = r["points"][i].as_array().unwrap().iter().map(|x| x.as_f64().unwrap()).collect::<Vec<_>>();
+        assert!(DVec3::new(p[0], p[1], p[2]).distance(*c) < 1e-4, "corner {i}: {p:?} vs {c:?}");
+    }
+    for (n, eye) in truth {
+        let d = r["distances"][n].as_f64().unwrap();
+        assert!((d - eye.length()).abs() < 1e-4, "{n}: {d} vs {}", eye.length());
+        let v = e.model.views.iter().find(|v| v.name == n).unwrap();
+        assert!(DVec3::from(v.eye).distance(eye) < 1e-4, "{n}'s camera moved back where it was");
+    }
+    assert_eq!(e.model.photo_guides.len(), 8, "a guide point per corner");
+    assert_eq!(r["built"], 4);
+    assert_eq!(e.model.faces.len(), 1, "the four floor edges close into a face");
+    assert_eq!(e.model.photo_points.len(), 8, "the marks are kept with the model");
+
+    // every photo's scale wrong: a known length (6 m along the front) fixes it
+    for v in e.model.views.iter_mut() {
+        let eye = DVec3::from(v.eye);
+        v.eye = (eye * 0.5).to_array();
+        v.target = (DVec3::from(v.target) - eye * 0.5).to_array();
+    }
+    let kept = e.model.photo_points.clone();
+    let r = run(&mut e, json!({"cmd":"photo_solve","points":kept,"scale":{"a":0,"b":1,"length":6.0}}));
+    let p = |i: usize| { let a = r["points"][i].as_array().unwrap(); DVec3::new(a[0].as_f64().unwrap(), a[1].as_f64().unwrap(), a[2].as_f64().unwrap()) };
+    assert!(p(6).distance(corners[6]) < 1e-4, "{:?}", p(6));
+    assert_eq!(e.model.photo_guides.len(), 8, "the old guides were replaced, not added to");
+    // a corner in only one photo can't be placed
+    let one = run(&mut e, json!({"cmd":"photo_solve","points":[{"marks":{"South":[0.1,0.2]}}, {"marks":{"South":[0.0,0.0],"West":[0.0,0.0]}}],"place":false}));
+    assert!(one["points"][0].is_null());
+}
