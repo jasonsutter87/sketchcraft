@@ -28,7 +28,12 @@ const REFERENCE: &str = r#"Riseline commands (JSON objects). Units meters, Z up.
 - save {path} / open {path} (.riseline JSON); export_obj {path}; render {out, view?, camera?, width?, height?}
 Ground faces face +Z. A rect on the ground at z=0 pulled up makes a building. Holes must be strictly inside the face (not touching its edge)."#;
 
+fn mtime(doc: &Option<String>) -> Option<std::time::SystemTime> {
+    doc.as_ref().and_then(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok())
+}
+
 pub fn serve(mut engine: Engine, doc: Option<String>) {
+    let mut seen = mtime(&doc);
     let stdin = std::io::stdin();
     let mut out = std::io::stdout().lock();
     for line in stdin.lock().lines() {
@@ -45,7 +50,16 @@ pub fn serve(mut engine: Engine, doc: Option<String>) {
             })),
             "ping" => Some(json!({})),
             "tools/list" => Some(json!({"tools": tools()})),
-            "tools/call" => Some(call(&mut engine, &doc, &msg["params"])),
+            "tools/call" => {
+                // the app (or a person) may have changed the model since our last call
+                let now = mtime(&doc);
+                if now.is_some() && now != seen {
+                    engine.exec_json(&json!({"cmd": "open", "path": doc}).to_string());
+                }
+                let r = call(&mut engine, &doc, &msg["params"]);
+                seen = mtime(&doc);
+                Some(r)
+            }
             _ => None,
         };
         let Some(id) = id else { continue }; // notification
@@ -112,6 +126,9 @@ fn call(engine: &mut Engine, doc: &Option<String>, params: &Value) -> Value {
                 }
             }
             if let Some(path) = doc {
+                if let Some(dir) = std::path::Path::new(path).parent() {
+                    std::fs::create_dir_all(dir).ok();
+                }
                 engine.exec_json(&json!({"cmd": "save", "path": path}).to_string());
             }
             text(lines.join("\n"), failed)
