@@ -6,7 +6,7 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { Line2 } from "three/examples/jsm/lines/Line2.js";
 import { LineGeometry } from "three/examples/jsm/lines/LineGeometry.js";
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
-import type { FaceInfo, Reply, Scene, Vec3 } from "./engine";
+import { exec, type FaceInfo, type Reply, type Scene, type Vec3 } from "./engine";
 import { AXIS_COLORS, closestOnLine, infer, rayFrom, V, type Axis, type InferEnv, type Pick, type Snap } from "./inference";
 import { combine, EMPTY, selIds, selMode, toggle, type Sel, type SelMode } from "./selection";
 import { formatLength, parseLengths } from "./units";
@@ -54,6 +54,8 @@ export interface ViewportApi {
   camera: () => Cam;
   goTo: (c: Cam) => void;
   clearSection: () => void;
+  /** the active section plane (a point on it and its normal), if any */
+  sectionPlane: () => { origin: Vec3; normal: Vec3 } | null;
 }
 
 interface Props {
@@ -212,6 +214,8 @@ export default function Viewport(props: Props) {
     groundZ: number;
   } | null>(null);
 
+  /** newest section-fill request (older answers are dropped) */
+  const sectionTicket = useRef(0);
   const st = useRef<{
     op: Op | null;
     last: Last;
@@ -572,6 +576,33 @@ export default function Viewport(props: Props) {
       const eg = new THREE.BufferGeometry();
       eg.setAttribute("position", new THREE.Float32BufferAttribute(s.edges, 3));
       T.model.add(new THREE.LineSegments(eg, new THREE.LineBasicMaterial({ color: EDGE_COLOR, clippingPlanes: clip })));
+    }
+    // section fill: the cut faces of walls and solids, dark, with a heavy outline
+    if (st.current.section) {
+      const plane = st.current.section;
+      const o = plane.coplanarPoint(new THREE.Vector3());
+      const ticket = ++sectionTicket.current;
+      void exec({ cmd: "section", origin: [o.x, o.y, o.z], normal: [plane.normal.x, plane.normal.y, plane.normal.z] }).then((r) => {
+        const T2 = t.current;
+        if (!r.ok || !T2 || ticket !== sectionTicket.current) return;
+        const fill = r.fill as number[];
+        const lines = r.lines as number[];
+        // nudge toward the viewer side so the cap isn't clipped away
+        const lift = plane.normal.clone().multiplyScalar(0.002);
+        const shift = (a: number[]) => a.map((v, i) => v + [lift.x, lift.y, lift.z][i % 3]);
+        if (fill.length) {
+          const g = new THREE.BufferGeometry();
+          g.setAttribute("position", new THREE.Float32BufferAttribute(shift(fill), 3));
+          const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: 0x3a3d4a, side: THREE.DoubleSide }));
+          m.userData.sectionFill = true;
+          T2.model.add(m);
+        }
+        if (lines.length) {
+          const g = new THREE.BufferGeometry();
+          g.setAttribute("position", new THREE.Float32BufferAttribute(shift(lines), 3));
+          T2.model.add(new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: 0x0b0c10 })));
+        }
+      });
     }
     if (live.current.styles.backEdges && !xray && s.edges.length) {
       // the same edges again, dashed and drawn through faces
@@ -1100,6 +1131,12 @@ export default function Viewport(props: Props) {
     clearSection: () => {
       st.current.section = null;
       buildModel();
+    },
+    sectionPlane: () => {
+      const p = st.current.section;
+      if (!p) return null;
+      const o = p.coplanarPoint(new THREE.Vector3());
+      return { origin: [o.x, o.y, o.z], normal: [p.normal.x, p.normal.y, p.normal.z] };
     },
   };
 
@@ -1741,7 +1778,8 @@ export default function Viewport(props: Props) {
           const h = pick(e);
           if (!h?.face) return;
           const n = V(h.face.normal).negate();
-          st.current.section = new THREE.Plane().setFromNormalAndCoplanarPoint(n, h.point.clone().addScaledVector(n, -0.01));
+          // 1 cm into the solid behind the clicked face, keeping the far side
+          st.current.section = new THREE.Plane().setFromNormalAndCoplanarPoint(n, h.point.clone().addScaledVector(n, 0.01));
           buildModel();
           L.onSection(true);
           L.setTool("select");
