@@ -83,7 +83,7 @@ fn esc(s: &str) -> String {
     s.chars().filter(|c| c.is_ascii() && !c.is_ascii_control()).map(|c| if matches!(c, '(' | ')' | '\\') { format!("\\{c}") } else { c.to_string() }).collect()
 }
 
-pub fn write_sheets(m: &Model, path: &str, sheet: &str, project: &str, mut pages: Vec<PageSpec>) -> Result<usize> {
+pub fn write_sheets(m: &Model, path: &str, sheet: &str, project: &str, mut pages: Vec<PageSpec>, blueprint: bool) -> Result<usize> {
     let (sw, sh) = sheet_mm(sheet)?;
     // saved views in a grid, or the four standard views
     let defaults: Vec<ViewportSpec> = if m.views.is_empty() { ["iso", "top", "front", "right"].iter().map(|s| s.to_string()).collect::<Vec<_>>() } else { m.views.iter().take(4).map(|v| v.name.clone()).collect() }
@@ -108,15 +108,20 @@ pub fn write_sheets(m: &Model, path: &str, sheet: &str, project: &str, mut pages
         place(&mut page.viewports, sw, sh);
         let y = |mm: f64| (sh - mm) * PT; // top-left mm -> PDF points
         let mut c = String::new();
+        if blueprint {
+            // the whole sheet blueprint blue; frames, text and lines in white
+            let b = crate::render::BLUEPRINT;
+            c += &format!("{} {} {} rg 0 0 {:.2} {:.2} re f 0.93 0.96 1 rg 0.93 0.96 1 RG\n", b[0], b[1], b[2], sw * PT, sh * PT);
+        }
         let mut images = Vec::new();
         // sheet border
         c += &format!("0.6 w {:.2} {:.2} {:.2} {:.2} re S\n", 10.0 * PT, 10.0 * PT, (sw - 20.0) * PT, (sh - 20.0) * PT);
         for v in &page.viewports {
             if let Some(z) = v.cut {
-                c += &plan_cut(m, v, z, &y)?;
+                c += &plan_cut(m, v, z, &y, blueprint)?;
                 continue;
             }
-            let mut o = RenderOpts { paper: true, grid: false, ..Default::default() };
+            let mut o = RenderOpts { paper: true, grid: false, blueprint, ..Default::default() };
             let px_per_mm = (6.0f64).min(4000.0 / v.w.max(v.h));
             o.width = (v.w * px_per_mm) as u32;
             o.height = (v.h * px_per_mm) as u32;
@@ -159,7 +164,7 @@ pub fn write_sheets(m: &Model, path: &str, sheet: &str, project: &str, mut pages
 
 /// A floor plan viewport: the section at height `z` as vector paths, to
 /// scale (or fitted), with its caption and scale bar.
-fn plan_cut(m: &Model, v: &ViewportSpec, z: f64, y: &dyn Fn(f64) -> f64) -> Result<String> {
+fn plan_cut(m: &Model, v: &ViewportSpec, z: f64, y: &dyn Fn(f64) -> f64, blueprint: bool) -> Result<String> {
     let cut = m.section(glam::DVec3::new(0.0, 0.0, z), glam::DVec3::new(0.0, 0.0, -1.0))?;
     let pts: Vec<(f64, f64)> = cut.segments.iter().flat_map(|(a, b)| [(a.x, a.y), (b.x, b.y)]).collect();
     if pts.is_empty() {
@@ -180,7 +185,8 @@ fn plan_cut(m: &Model, v: &ViewportSpec, z: f64, y: &dyn Fn(f64) -> f64) -> Resu
     let mut c = String::new();
     c += &format!("q {:.2} {:.2} {:.2} {:.2} re W n\n", v.x * PT, y(v.y + v.h), v.w * PT, v.h * PT);
     // cut walls: dark fill, holes left open (even-odd)
-    c += "0.16 0.17 0.2 rg 0.1 0.1 0.12 RG 0.4 w\n";
+    // cut walls: solid dark on paper; pale with white outlines on a blueprint
+    c += if blueprint { "0.62 0.74 0.88 rg 0.93 0.96 1 RG 0.5 w\n" } else { "0.16 0.17 0.2 rg 0.1 0.1 0.12 RG 0.4 w\n" };
     for (_, outer, holes) in &cut.regions {
         for ring in std::iter::once(outer).chain(holes.iter()) {
             for (i, p) in ring.iter().enumerate() {
@@ -192,12 +198,12 @@ fn plan_cut(m: &Model, v: &ViewportSpec, z: f64, y: &dyn Fn(f64) -> f64) -> Resu
         c += "B*\n";
     }
     // everything else the cut passes through (glass, frames): thin lines
-    c += "0.25 w 0.15 0.15 0.18 RG\n";
+    c += if blueprint { "0.25 w 0.93 0.96 1 RG\n" } else { "0.25 w 0.15 0.15 0.18 RG\n" };
     for (a, b) in &cut.segments {
         let (p, q) = (to(a.x, a.y), to(b.x, b.y));
         c += &format!("{:.2} {:.2} m {:.2} {:.2} l S\n", p.0, p.1, q.0, q.1);
     }
-    c += "Q 0 g 0 G\n";
+    c += if blueprint { "Q 0.93 0.96 1 rg 0.93 0.96 1 RG\n" } else { "Q 0 g 0 G\n" };
     let label = v.label.clone().unwrap_or_else(|| format!("Plan at {z:.2} m"));
     let label = if v.scale.is_some() { format!("{label}   1:{denom}") } else { label };
     c += &format!("0.3 w {:.2} {:.2} {:.2} {:.2} re S\n", v.x * PT, y(v.y + v.h), v.w * PT, v.h * PT);
@@ -287,4 +293,112 @@ fn write_pdf(path: &str, pw: f64, ph: f64, pages: &[Page]) -> Result<()> {
     }
     std::fs::write(path, out)?;
     Ok(())
+}
+
+/// The floors of a building: heights of big upward faces (slabs, floors,
+/// the ground) where a cut 4 ft above actually goes through something.
+pub fn floor_levels(m: &Model) -> Vec<f64> {
+    let faces = m.world_faces();
+    let Some((lo, hi)) = m.world_bounds() else { return vec![] };
+    let mut zs: Vec<(f64, f64)> = faces
+        .iter()
+        .filter(|f| f.normal.normalize_or_zero().z > 0.99)
+        .filter_map(|f| {
+            // a floor is a filled area: the top of a ring of walls isn't
+            let net = crate::geom::area(&f.outer) - f.holes.iter().map(|h| crate::geom::area(h)).sum::<f64>();
+            let (mut a, mut b) = (f.outer[0], f.outer[0]);
+            for p in &f.outer {
+                a = a.min(*p);
+                b = b.max(*p);
+            }
+            let boxed = ((b.x - a.x) * (b.y - a.y)).max(1e-9);
+            (net > 4.0 && net / boxed > 0.5).then_some((f.outer[0].z, net))
+        })
+        .collect();
+    zs.push((lo.z.max(0.0).min(hi.z), f64::MAX)); // the ground
+    zs.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let mut levels: Vec<f64> = Vec::new();
+    for (z, _) in zs {
+        if levels.last().map_or(true, |l| z - l > 1.8) {
+            let cut_at = z + 1.22;
+            if cut_at < hi.z && m.section(glam::DVec3::new(0.0, 0.0, cut_at), glam::DVec3::new(0.0, 0.0, -1.0)).map_or(false, |c| !c.regions.is_empty()) {
+                levels.push(z);
+            }
+        }
+    }
+    levels
+}
+
+/// A blueprint set: every floor's plan, then the four elevations, white on
+/// blue, at the largest true scale that fits the sheet.
+pub fn blueprint(m: &Model, path: &str, sheet: &str, project: &str) -> Result<usize> {
+    let (sw, sh) = sheet_mm(sheet)?;
+    let Some((lo, hi)) = m.world_bounds() else { bail!("nothing to draw") };
+    let size = hi - lo;
+    let levels = floor_levels(m);
+    if levels.is_empty() {
+        bail!("no floors found to draw plans of (draw walls standing on a floor or the ground)");
+    }
+    let fit = |w_m: f64, h_m: f64, w_mm: f64, h_mm: f64| -> String {
+        let d = [50.0, 75.0, 100.0, 150.0, 200.0, 250.0, 500.0, 1000.0].into_iter().find(|d| w_m * 1000.0 / d <= w_mm * 0.92 && h_m * 1000.0 / d <= h_mm * 0.92).unwrap_or(2000.0);
+        format!("1:{d}")
+    };
+    let (left, right, top, bottom) = (15.0, 15.0, 15.0, 52.0);
+    let usable_w = sw - left - right;
+    let usable_h = sh - top - bottom;
+    // plans side by side (wrap to two rows past three floors)
+    let n = levels.len();
+    let cols = n.min(3);
+    let rows = n.div_ceil(cols);
+    let (cw, ch) = (usable_w / cols as f64, usable_h / rows as f64);
+    let ordinal = |i: usize| match i {
+        0 => "Main floor".to_string(),
+        1 => "Upper floor".to_string(),
+        k => format!("Floor {}", k + 1),
+    };
+    // plans are sized by what the cuts go through, not the whole site
+    let (mut px, mut py) = (0.0f64, 0.0f64);
+    for z in &levels {
+        if let Ok(c) = m.section(glam::DVec3::new(0.0, 0.0, z + 1.22), glam::DVec3::new(0.0, 0.0, -1.0)) {
+            let pts: Vec<_> = c.segments.iter().flat_map(|(a, b)| [*a, *b]).collect();
+            if let Some(first) = pts.first() {
+                let (l, h) = pts.iter().fold((*first, *first), |(l, h), p| (l.min(*p), h.max(*p)));
+                px = px.max(h.x - l.x);
+                py = py.max(h.y - l.y);
+            }
+        }
+    }
+    let plan_scale = fit(px.max(1.0), py.max(1.0), cw - 8.0, ch - 14.0);
+    let plans: Vec<ViewportSpec> = levels
+        .iter()
+        .enumerate()
+        .map(|(i, z)| ViewportSpec {
+            view: "top".into(),
+            cut: Some(z + 1.22),
+            scale: Some(plan_scale.clone()),
+            label: Some(format!("{}  {} plan", i + 1, ordinal(i))),
+            x: left + (i % cols) as f64 * cw + 4.0,
+            y: top + (i / cols) as f64 * ch + 4.0,
+            w: cw - 8.0,
+            h: ch - 14.0,
+        })
+        .collect();
+    // elevations: 2 x 2
+    let (ew, eh) = (usable_w / 2.0 - 8.0, usable_h / 2.0 - 14.0);
+    let el_scale = fit(size.x.max(size.y), size.z, ew, eh);
+    let elev: Vec<ViewportSpec> = [("front", "Front"), ("right", "Right side"), ("back", "Rear"), ("left", "Left side")]
+        .iter()
+        .enumerate()
+        .map(|(i, (v, name))| ViewportSpec {
+            view: v.to_string(),
+            scale: Some(el_scale.clone()),
+            label: Some(format!("{}  {name} elevation", n + i + 1)),
+            x: left + (i % 2) as f64 * (usable_w / 2.0) + 4.0,
+            y: top + (i / 2) as f64 * (usable_h / 2.0) + 4.0,
+            w: ew,
+            h: eh,
+            ..Default::default()
+        })
+        .collect();
+    write_sheets(m, path, sheet, project, vec![PageSpec { title: "Floor plans".into(), viewports: plans }, PageSpec { title: "Elevations".into(), viewports: elev }], true)
 }

@@ -221,7 +221,21 @@ pub enum Command {
         project: Option<String>,
         #[serde(default)]
         pages: Vec<crate::layout::PageSpec>,
+        /// white on blueprint blue
+        #[serde(default)]
+        blueprint: bool,
     },
+    /// A blueprint set in one go: every floor's plan and the four
+    /// elevations, white on blue, at a true scale that fits the sheet.
+    Blueprint {
+        path: String,
+        #[serde(default = "sheet_a3")]
+        sheet: String,
+        #[serde(default)]
+        project: Option<String>,
+    },
+    /// The building's floor heights (m), found from its floors.
+    Levels,
     /// Collada (.dae), Z up, meters: one object per group / component.
     ExportDae { path: String },
     /// 3D DXF: 3DFACE triangles in millimeters, a layer per object.
@@ -614,6 +628,8 @@ impl Command {
                 | Command::ExportDae { .. }
                 | Command::ExportIfc { .. }
                 | Command::Sheets { .. }
+                | Command::Blueprint { .. }
+                | Command::Levels
                 | Command::Animate { .. }
                 | Command::ExportDxf { .. }
                 | Command::ExportPdf { .. }
@@ -1076,9 +1092,14 @@ impl Engine {
                 let a = crate::animate::Anim { fps, transition, delay, views, turntable };
                 json!({"path": path, "frames": crate::animate::animate(&self.model, &path, &a, &opts)?})
             }
-            Command::Sheets { path, sheet, project, pages } => {
+            Command::Blueprint { path, sheet, project } => {
                 let project = project.unwrap_or_else(|| std::path::Path::new(&path).file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "Project".into()));
-                json!({"path": path, "pages": crate::layout::write_sheets(&self.model, &path, &sheet, &project, pages)?})
+                json!({"path": path, "pages": crate::layout::blueprint(&self.model, &path, &sheet, &project)?, "levels": crate::layout::floor_levels(&self.model)})
+            }
+            Command::Levels => json!({"levels": crate::layout::floor_levels(&self.model)}),
+            Command::Sheets { path, sheet, project, pages, blueprint } => {
+                let project = project.unwrap_or_else(|| std::path::Path::new(&path).file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "Project".into()));
+                json!({"path": path, "pages": crate::layout::write_sheets(&self.model, &path, &sheet, &project, pages, blueprint)?})
             }
             Command::ExportIfc { path, project } => {
                 let project = project.unwrap_or_else(|| std::path::Path::new(&path).file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "Project".into()));
