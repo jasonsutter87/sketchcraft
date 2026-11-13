@@ -57,9 +57,22 @@ export function PhotoModeler({ scene, run, onClose, onToast }: { scene: Scene; r
     const r = e.currentTarget.getBoundingClientRect();
     const uv: UV = [(e.clientX - r.left - r.width / 2) / (r.height / 2), (r.height / 2 - (e.clientY - r.top)) / (r.height / 2)];
     setResult(null);
-    const next = points.map((p) => ({ ...p, marks: { ...p.marks } }));
     const here = cur?.marks[view];
     const marked = cur ? Object.keys(cur.marks).length : 0;
+    // clicking on a corner already marked here: join to it (closes an outline)
+    const hit = points.findIndex((p, i) => {
+      const m = p.marks[view];
+      if (!m || i === active) return false;
+      const px = r.width / 2 + (m[0] * r.height) / 2 - (e.clientX - r.left);
+      const py = r.height / 2 - (m[1] * r.height) / 2 - (e.clientY - r.top);
+      return Math.hypot(px, py) < 12;
+    });
+    if (hit >= 0) {
+      if (cur && marked >= 2 && !edges.some(([a, b]) => (a === active && b === hit) || (a === hit && b === active))) setEdges([...edges, [active, hit]]);
+      setActive(hit);
+      return;
+    }
+    const next = points.map((p) => ({ ...p, marks: { ...p.marks } }));
     if (!cur || (here && marked >= 2)) {
       // start the next corner (connected to the last one, when tracing)
       next.push({ name: `Corner ${next.length + 1}`, marks: { [view]: uv } });
@@ -117,7 +130,7 @@ export function PhotoModeler({ scene, run, onClose, onToast }: { scene: Scene; r
     ? "Pick a corner you can see in two photos and click it in one of them."
     : Object.keys(cur.marks).length < 2
       ? `Now click ${cur.name} in another photo. The dashed line shows where it has to be.`
-      : `${cur.name} is in ${Object.keys(cur.marks).length} photos. Click the next corner to start it${chain ? " (it'll connect to this one)" : ""}, or Solve.`;
+      : `${cur.name} is in ${Object.keys(cur.marks).length} photos. Click the next corner to start it${chain ? " (it'll connect to this one; click an earlier corner to close the shape)" : ""}, or Solve.`;
 
   if (photos.length < 2) {
     return (

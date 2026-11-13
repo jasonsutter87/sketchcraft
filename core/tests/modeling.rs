@@ -1310,6 +1310,19 @@ fn photos_solve_corners_and_camera_distances_together() {
     assert_eq!(r["built"], 4);
     assert_eq!(e.model.faces.len(), 1, "the four floor edges close into a face");
     assert_eq!(e.model.photo_points.len(), 8, "the marks are kept with the model");
+    // hand-clicked marks are a pixel or two off: squaring still closes the face
+    let mut rough = e.model.photo_points.clone();
+    for (i, p) in rough.iter_mut().enumerate() {
+        for (k, at) in p.marks.values_mut().enumerate() {
+            at[0] += 0.004 * (((i * 7 + k * 3) % 5) as f64 - 2.0);
+            at[1] -= 0.004 * (((i * 5 + k) % 5) as f64 - 2.0);
+        }
+    }
+    let mut e2 = Engine::new();
+    e2.model.views = e.model.views.clone();
+    let r = run(&mut e2, json!({"cmd":"photo_solve","points":rough,"edges":[[0,1],[1,2],[2,3],[3,0]],"build":true}));
+    assert_eq!(r["squared"], 4);
+    assert_eq!(e2.model.faces.len(), 1, "a slightly rough outline still closes into a face once squared");
 
     // every photo's scale wrong: a known length (6 m along the front) fixes it
     for v in e.model.views.iter_mut() {
@@ -1325,4 +1338,34 @@ fn photos_solve_corners_and_camera_distances_together() {
     // a corner in only one photo can't be placed
     let one = run(&mut e, json!({"cmd":"photo_solve","points":[{"marks":{"South":[0.1,0.2]}}, {"marks":{"South":[0.0,0.0],"West":[0.0,0.0]}}],"place":false}));
     assert!(one["points"][0].is_null());
+}
+
+#[test]
+fn subdivision_rounds_a_cage_like_blender() {
+    let mut e = Engine::new();
+    // a 2 m cube cage: 8 points, 6 quads
+    let p = [[-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1], [-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1]];
+    let f = [[0, 3, 2, 1], [4, 5, 6, 7], [0, 1, 5, 4], [1, 2, 6, 5], [2, 3, 7, 6], [3, 0, 4, 7]];
+    let r = run(&mut e, json!({"cmd":"subd","name":"Ball","points":p,"faces":f,"levels":2}));
+    // 6 faces -> 24 -> 96 quads -> 192 triangles
+    assert_eq!(r["faces"], 192);
+    let g = r["group"].as_u64().unwrap() as u32;
+    // Catmull-Clark pulls a cube's corners in: level 1 corner = (5/9) of the cube's corner reach
+    let pts: Vec<glam::DVec3> = e.model.vertices.values().filter(|v| v.group == Some(g)).map(|v| v.p).collect();
+    let far = pts.iter().map(|p| p.length()).fold(0.0, f64::max);
+    let near = pts.iter().map(|p| p.length()).fold(f64::MAX, f64::min);
+    assert!(far < 3f64.sqrt() * 0.75 && near > 0.75, "rounded toward a sphere: {near}..{far}");
+    // the smooth faces read as one surface: interior edges are soft
+    let soft = e.model.edges.values().filter(|x| x.group == Some(g) && x.soft).count();
+    let hard = e.model.edges.values().filter(|x| x.group == Some(g) && !x.soft).count();
+    assert!(soft > 0 && hard == 0, "{soft} soft, {hard} hard");
+    // a creased loop stays sharp: the bottom rim keeps to the floor plane
+    let r = run(&mut e, json!({"cmd":"subd","name":"Creased","points":p,"faces":f,"levels":2,"creases":[[0,1],[1,2],[2,3],[3,0]]}));
+    let g2 = r["group"].as_u64().unwrap() as u32;
+    let on_floor = e.model.vertices.values().filter(|v| v.group == Some(g2) && (v.p.z + 1.0).abs() < 1e-9).count();
+    assert!(on_floor >= 16, "the creased rim stays on z = -1: {on_floor}");
+    // subdivide an existing modeled box
+    let b = box_group(&mut e, [3.0, 0.0, 0.0], [5.0, 2.0, 2.0], "Box") as u32;
+    let r = run(&mut e, json!({"cmd":"subdivide","id":b,"levels":1}));
+    assert!(r["faces"].as_u64().unwrap() >= 48);
 }

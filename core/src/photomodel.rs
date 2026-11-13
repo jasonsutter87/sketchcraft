@@ -208,3 +208,66 @@ fn gauss(mut a: Vec<Vec<f64>>, mut b: Vec<f64>) -> Option<Vec<f64>> {
     }
     Some(x)
 }
+
+/// Square up: edges within `deg` of a red, green or blue axis are made exactly
+/// parallel to it (their ends share the other two coordinates), so walls are
+/// plumb, floors level and outlines close into flat faces. Returns how many
+/// edges were squared.
+pub fn square(points: &mut [Option<[f64; 3]>], edges: &[[usize; 2]], deg: f64) -> usize {
+    let cos = deg.to_radians().cos();
+    let n = points.len();
+    // for each coordinate (x, y, z): which corners must share it
+    let mut parent: Vec<[usize; 3]> = (0..n).map(|i| [i, i, i]).collect();
+    fn find(p: &mut Vec<[usize; 3]>, c: usize, i: usize) -> usize {
+        let mut r = i;
+        while p[r][c] != r {
+            r = p[r][c];
+        }
+        let mut j = i;
+        while p[j][c] != r {
+            let nx = p[j][c];
+            p[j][c] = r;
+            j = nx;
+        }
+        r
+    }
+    let mut squared = 0;
+    for [a, b] in edges {
+        let (Some(Some(pa)), Some(Some(pb))) = (points.get(*a).copied(), points.get(*b).copied()) else { continue };
+        let d = DVec3::from(pb) - DVec3::from(pa);
+        let l = d.length();
+        if l < 1e-9 {
+            continue;
+        }
+        if let Some(axis) = (0..3).find(|k| d[*k].abs() / l >= cos) {
+            squared += 1;
+            // along this axis: the ends share the other two coordinates
+            for c in (0..3).filter(|c| *c != axis) {
+                let (ra, rb) = (find(&mut parent, c, *a), find(&mut parent, c, *b));
+                if ra != rb {
+                    parent[ra][c] = rb;
+                }
+            }
+        }
+    }
+    // each group of corners gets its average for that coordinate
+    for c in 0..3 {
+        let mut sum: std::collections::HashMap<usize, (f64, usize)> = Default::default();
+        for i in 0..n {
+            if let Some(p) = points[i] {
+                let r = find(&mut parent, c, i);
+                let e = sum.entry(r).or_insert((0.0, 0));
+                e.0 += p[c];
+                e.1 += 1;
+            }
+        }
+        for i in 0..n {
+            if let Some(p) = points[i].as_mut() {
+                let r = find(&mut parent, c, i);
+                let (s, k) = sum[&r];
+                p[c] = s / k as f64;
+            }
+        }
+    }
+    squared
+}

@@ -50,6 +50,7 @@ ORGANIZE
 - hierarchy: groups nest. group {ids} puts groups/components inside a new group (faces become its geometry); set_parent {ids, parent|null}; ungroup {id}; lock {ids, locked}; begin_group inside an open group nests, end_group backs out one level. Moving/deleting/copying a group carries everything inside it.
 - tags: tag {ids, tag}; tag_visible {tag, visible}; tag_color {tag, color|null}; rename_tag {tag, to}
 - photo_solve {points:[{name?, marks:{viewName:[u,v]}}], edges?:[[i,j]], fixed?, scale?:{a,b,length}, place?=true, build?}: multi-photo modeling. Marks are photo-centered, y up, in half-photo-heights. Corners marked in 2+ matched photos (all matched with the origin on the same real corner) are solved to 3D along with each photo distance; returns points, misses (m), distances
+- subd {name?, points, faces:[[i,j,k,l],...], materials?:[name|null per face], creases?:[[i,j]], levels?=2}: Catmull-Clark smooth surface from a cage (box modeling); subdivide {id, levels?, keep_sharp?}: smooth an existing group
 - environment {kind: suburban|city|park|desert|waterfront|studio|none}: a ready-made setting around the model (locked group tagged Environment; studio = seamless backdrop + softbox lights, renders without sky/sun). pushpull also takes toward:[x,y,z]
 - sun {date?, time?, utc_offset?}: real sun azimuth/altitude at the model location
 - door_swing {hinge, strike, toward}: door swing symbol for plans. blueprint also takes notes:[...]; sheets takes notes:[...] (a line starting with a hash is a heading)

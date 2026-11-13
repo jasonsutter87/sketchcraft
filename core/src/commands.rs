@@ -522,6 +522,33 @@ pub enum Command {
         place: bool,
         #[serde(default)]
         build: bool,
+        /// make edges within a few degrees of an axis exactly square to it
+        #[serde(default = "yes")]
+        square: bool,
+    },
+    /// A smooth surface from a cage (Catmull-Clark, like Blender's
+    /// Subdivision modifier): `points`, `faces` (index lists), optional
+    /// per-face `materials`, sharp `creases` (index pairs), `levels` 0-5.
+    Subd {
+        #[serde(default)]
+        name: Option<String>,
+        points: Vec<[f64; 3]>,
+        faces: Vec<Vec<usize>>,
+        #[serde(default)]
+        materials: Vec<Option<String>>,
+        #[serde(default)]
+        creases: Vec<[usize; 2]>,
+        #[serde(default = "two")]
+        levels: usize,
+    },
+    /// Smooth a group already modeled: it becomes its subdivision surface.
+    /// `keep_sharp`: edges at a sharp angle stay creased.
+    Subdivide {
+        id: Id,
+        #[serde(default = "two")]
+        levels: usize,
+        #[serde(default)]
+        keep_sharp: bool,
     },
     /// Put the model in a ready-made setting: suburban, city, park, desert,
     /// waterfront, studio; or none to take it away.
@@ -735,6 +762,10 @@ fn yes() -> bool {
 
 fn fov() -> f64 {
     45.0
+}
+
+fn two() -> usize {
+    2
 }
 
 fn up() -> [f64; 3] {
@@ -1430,8 +1461,35 @@ impl Engine {
                 json!({"path": path, "pages": crate::layout::blueprint(&building, &path, &sheet, &project, &notes)?, "levels": crate::layout::floor_levels(&building)})
             }
             Command::Levels => json!({"levels": crate::layout::floor_levels(&crate::environment::without(&self.model))}),
-            Command::PhotoSolve { points, edges, fixed, scale, place, build } => {
-                let sol = crate::photomodel::solve(m, &points, fixed.as_deref(), scale.map(|s| (s.a, s.b, s.length)))?;
+            Command::Subd { name, points, faces, materials, creases, levels } => {
+                let n = faces.len();
+                let cage = crate::subd::Cage {
+                    points: points.into_iter().map(v3).collect(),
+                    faces,
+                    materials: (0..n).map(|i| materials.get(i).cloned().flatten()).collect(),
+                    creases: creases.into_iter().map(|[a, b]| (a.min(b), a.max(b))).collect(),
+                };
+                let g = crate::subd::build(m, cage, levels, &name.unwrap_or_else(|| "Smooth surface".into()))?;
+                json!({"group": g, "faces": m.faces.values().filter(|f| f.group == Some(g)).count()})
+            }
+            Command::Subdivide { id, levels, keep_sharp } => {
+                let Some(old) = m.groups.get(&id).cloned() else { bail!("{id} is not a group") };
+                m.check_unlocked(&[id])?;
+                let cage = crate::subd::cage_of(m, id, keep_sharp)?;
+                m.delete(&[id])?;
+                let prev = m.active_group;
+                m.active_group = old.parent;
+                let g = crate::subd::build(m, cage, levels, &old.name)?;
+                m.active_group = prev;
+                if let Some(x) = m.groups.get_mut(&g) {
+                    x.parent = old.parent;
+                    x.tag = old.tag;
+                }
+                json!({"group": g, "faces": m.faces.values().filter(|f| f.group == Some(g)).count()})
+            }
+            Command::PhotoSolve { points, edges, fixed, scale, place, build, square } => {
+                let mut sol = crate::photomodel::solve(m, &points, fixed.as_deref(), scale.map(|s| (s.a, s.b, s.length)))?;
+                let squared = if square { crate::photomodel::square(&mut sol.points, &edges, 4.0) } else { 0 };
                 // each photo's camera slides to its solved distance (same direction, same lens)
                 for v in m.views.iter_mut() {
                     if let Some(d) = sol.distances.get(&v.name) {
@@ -1463,6 +1521,7 @@ impl Engine {
                 }
                 let mut v = serde_json::to_value(&sol)?;
                 v["built"] = json!(built);
+                v["squared"] = json!(squared);
                 v
             }
             Command::Environment { .. } => bail!("environment runs through Engine::exec"),
