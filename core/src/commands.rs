@@ -193,6 +193,49 @@ pub enum Command {
         #[serde(default)]
         name: Option<String>,
     },
+    /// Walls along a path: `thickness` and `height`; `closed` makes a room.
+    Wall {
+        points: Vec<[f64; 3]>,
+        #[serde(default = "wall_t")]
+        thickness: f64,
+        #[serde(default = "wall_h")]
+        height: f64,
+        #[serde(default)]
+        closed: bool,
+    },
+    /// A straight stair climbing `rise` along `direction` (degrees from +X).
+    Stairs {
+        at: [f64; 3],
+        rise: f64,
+        #[serde(default)]
+        direction: f64,
+        #[serde(default = "stair_w")]
+        width: f64,
+        #[serde(default = "stair_t")]
+        tread: f64,
+    },
+    /// A roof over a flat face: kind gable | hip | shed, pitch in degrees.
+    Roof {
+        face: Id,
+        #[serde(default = "gable")]
+        kind: String,
+        #[serde(default = "pitch")]
+        pitch: f64,
+        #[serde(default = "overhang")]
+        overhang: f64,
+        #[serde(default = "roof_t")]
+        thickness: f64,
+    },
+    /// A square (or `round`) column.
+    Column {
+        at: [f64; 3],
+        #[serde(default = "col_size")]
+        size: f64,
+        #[serde(default = "wall_h")]
+        height: f64,
+        #[serde(default)]
+        round: bool,
+    },
     /// Place a built-in asset (door, window, garage_door, tree, palm, car, streetlight, bench, hydrant).
     Insert {
         asset: String,
@@ -217,6 +260,34 @@ fn circle_segments() -> usize {
 
 fn arc_segments() -> usize {
     12
+}
+
+fn wall_t() -> f64 {
+    0.2
+}
+fn wall_h() -> f64 {
+    2.7
+}
+fn stair_w() -> f64 {
+    1.0
+}
+fn stair_t() -> f64 {
+    0.28
+}
+fn gable() -> String {
+    "gable".into()
+}
+fn pitch() -> f64 {
+    30.0
+}
+fn overhang() -> f64 {
+    0.4
+}
+fn roof_t() -> f64 {
+    0.2
+}
+fn col_size() -> f64 {
+    0.3
 }
 
 fn one() -> f64 {
@@ -681,6 +752,16 @@ impl Engine {
                 let r = crate::skp::import(m, &bytes, v3(at), &label)?;
                 json!({"group": r.group, "version": r.version, "faces": r.faces, "components": r.components, "placed": r.placed})
             }
+            Command::Wall { points, thickness, height, closed } => {
+                let pts: Vec<DVec3> = points.into_iter().map(v3).collect();
+                json!({"group": m.wall(&pts, thickness, height, closed)?})
+            }
+            Command::Stairs { at, rise, direction, width, tread } => {
+                let (g, risers) = m.stairs(v3(at), direction, width, rise, tread)?;
+                json!({"group": g, "risers": risers, "riser_height": rise / risers as f64})
+            }
+            Command::Roof { face, kind, pitch, overhang, thickness } => json!({"group": m.roof(face, &kind, pitch, overhang, thickness)?}),
+            Command::Column { at, size, height, round } => json!({"group": m.column(v3(at), size, height, round)?}),
             Command::Insert { asset, at, rotate } => {
                 let def = crate::assets::definition(m, &asset)?;
                 json!({"instance": m.place(def, v3(at), rotate, None)?, "component": def})
