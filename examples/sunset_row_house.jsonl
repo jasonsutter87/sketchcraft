@@ -1,0 +1,58 @@
+# An SF Sunset-style row house, built only with commands.
+#   cargo run -- run examples/sunset_row_house.jsonl
+# Street runs along X; the front of the house is y = 0 and faces -Y. Meters.
+
+{"cmd":"begin_group","name":"House 1","as":"house"}
+
+# footprint 7.6 x 15 (a 25 ft lot), pulled up two stories
+{"cmd":"rect","from":[0,0,0],"to":[7.6,15,0],"as":"lot"}
+{"cmd":"pushpull","face":"@lot","distance":8.5}
+
+# garage door, set back a little
+{"cmd":"pick","at":[3,0,1.5],"facing":[0,-1,0],"as":"front"}
+{"cmd":"rect","from":[0.9,0,0.15],"to":[4.1,0,2.6],"as":"garage"}
+{"cmd":"pushpull","face":"@garage","distance":-0.3,"as":"garage_back"}
+
+# recessed entry at the top of the stoop
+{"cmd":"rect","from":[5.4,0,2.4],"to":[6.6,0,4.6],"as":"entry"}
+{"cmd":"pushpull","face":"@entry","distance":-0.9,"as":"door"}
+
+# bay window over the garage, then its glass
+{"cmd":"rect","from":[0.8,0,4.6],"to":[5.0,0,7.6],"as":"bay"}
+{"cmd":"pushpull","face":"@bay","distance":0.9,"as":"bay_front"}
+{"cmd":"rect","from":[1.2,-0.9,5.0],"to":[4.6,-0.9,7.2],"as":"bay_glass"}
+{"cmd":"pushpull","face":"@bay_glass","distance":-0.12,"as":"glass1"}
+
+# window over the entry
+{"cmd":"rect","from":[5.5,0,5.2],"to":[6.7,0,7.2],"as":"win2"}
+{"cmd":"pushpull","face":"@win2","distance":-0.15,"as":"glass2"}
+
+# parapet: inset the roof, then pull the outer ring up
+{"cmd":"rect","from":[0.25,0.25,8.5],"to":[7.35,14.75,8.5],"as":"roof_inner"}
+{"cmd":"pick","at":[0.1,7,8.5],"facing":[0,0,1],"as":"roof_ring"}
+{"cmd":"pushpull","face":"@roof_ring","distance":0.8}
+{"cmd":"end_group"}
+
+# colors: stucco walls, dark garage, wood door, glass
+{"cmd":"paint","ids":["@house"],"color":[0.93,0.86,0.72]}
+{"cmd":"paint","ids":["@garage_back"],"color":[0.32,0.34,0.38]}
+{"cmd":"paint","ids":["@door"],"color":[0.45,0.28,0.18]}
+{"cmd":"paint","ids":["@glass1","@glass2"],"color":[0.42,0.55,0.66]}
+
+# the stoop: a stair profile on the side plane, pulled across
+{"cmd":"begin_group","name":"Stoop 1","as":"stoop"}
+{"cmd":"polygon","points":[[5.2,0,0],[5.2,-2.4,0],[5.2,-2.4,0.3],[5.2,-2.1,0.3],[5.2,-2.1,0.6],[5.2,-1.8,0.6],[5.2,-1.8,0.9],[5.2,-1.5,0.9],[5.2,-1.5,1.2],[5.2,-1.2,1.2],[5.2,-1.2,1.5],[5.2,-0.9,1.5],[5.2,-0.9,1.8],[5.2,-0.6,1.8],[5.2,-0.6,2.1],[5.2,-0.3,2.1],[5.2,-0.3,2.4],[5.2,0,2.4]],"as":"stair_side"}
+{"cmd":"pushpull","face":"@stair_side","distance":-1.6}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@stoop"],"color":[0.78,0.78,0.76]}
+
+# neighbors: copy the house and stoop down the street, repaint
+{"cmd":"copy","group":"@house","by":[7.6,0,0],"name":"House 2","as":"house2"}
+{"cmd":"copy","group":"@stoop","by":[7.6,0,0],"name":"Stoop 2"}
+{"cmd":"copy","group":"@house","by":[15.2,0,0],"name":"House 3","as":"house3"}
+{"cmd":"copy","group":"@stoop","by":[15.2,0,0],"name":"Stoop 3"}
+
+{"cmd":"info"}
+{"cmd":"render","out":"out/sunset_iso.png","view":"iso"}
+{"cmd":"render","out":"out/sunset_street.png","camera":{"eye":[-6,-16,1.7],"target":[11,0,4.5],"fov":55}}
+{"cmd":"export_obj","path":"out/sunset.obj"}
