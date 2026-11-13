@@ -65,7 +65,20 @@ export type Annotation =
   | { kind: "dimension"; id: number; a: Vec3; b: Vec3; offset: Vec3 }
   | { kind: "text"; id: number; at: Vec3; text: string; leader: Vec3 | null };
 
+export interface MaterialInfo {
+  name: string;
+  color: Vec3;
+  texture: { data: string; width: number; height: number; project: Vec3 | null } | null;
+}
+
 export interface Scene {
+  /** texture coordinates, two per vertex */
+  uvs: number[];
+  /** per triangle: index into `textures`, or -1 */
+  triTex: number[];
+  /** material names of the images in use */
+  textures: string[];
+  materials: MaterialInfo[];
   positions: number[];
   colors: number[];
   backColors: number[];
