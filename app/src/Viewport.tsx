@@ -15,7 +15,8 @@ export type Tool =
   | "select" | "line" | "arc" | "rect" | "circle" | "polygon"
   | "push" | "offset" | "followme" | "move" | "rotate" | "scale"
   | "tape" | "dimension" | "text" | "paint" | "erase" | "orbit" | "pan" | "zoom" | "section" | "place"
-  | "wall" | "stairs" | "roof" | "column";
+  | "wall" | "stairs" | "roof" | "column"
+  | "smoove" | "stamp" | "drape" | "flipedge";
 
 /** Settings for the building-block tools (lengths in meters). */
 export interface BuildSettings {
@@ -29,6 +30,13 @@ export interface BuildSettings {
   columnSize: number;
   columnHeight: number;
   columnRound: boolean;
+  /** Sandbox */
+  smooveRadius: number;
+  smooveHeight: number;
+  stampOffset: number;
+  gridSize: number;
+  gridSpacing: number;
+  contourSpacing: number;
 }
 
 export interface Styles {
@@ -85,6 +93,56 @@ const EDGE_COLOR = 0x23252d;
 const UP = new THREE.Vector3(0, 0, 1);
 const r4 = (x: number) => Math.round(x * 1e4) / 1e4;
 const arr = (v: THREE.Vector3): Vec3 => [r4(v.x), r4(v.y), r4(v.z)];
+/**
+ * Per-corner normals for a triangle soup: corners where neighboring
+ * triangles meet at under 35 degrees share an averaged normal (smooth
+ * ground, cylinders), sharper corners keep the triangle's own (crisp boxes).
+ */
+function smoothNormals(pos: number[]): Float32Array {
+  const n = pos.length / 9;
+  const face = new Float32Array(n * 3);
+  const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+  for (let t = 0; t < n; t++) {
+    a.fromArray(pos, t * 9);
+    b.fromArray(pos, t * 9 + 3);
+    c.fromArray(pos, t * 9 + 6);
+    // not normalized: bigger triangles count more in the average
+    const f = b.sub(a).cross(c.sub(a));
+    face[t * 3] = f.x;
+    face[t * 3 + 1] = f.y;
+    face[t * 3 + 2] = f.z;
+  }
+  const key = (i: number) => `${Math.round(pos[i] * 1e4)},${Math.round(pos[i + 1] * 1e4)},${Math.round(pos[i + 2] * 1e4)}`;
+  const at = new Map<string, number[]>();
+  for (let v = 0; v < n * 3; v++) {
+    const k = key(v * 3);
+    const l = at.get(k);
+    if (l) l.push(v);
+    else at.set(k, [v]);
+  }
+  const out = new Float32Array(n * 9);
+  const cos = Math.cos((35 * Math.PI) / 180);
+  const own = new THREE.Vector3(), other = new THREE.Vector3(), sum = new THREE.Vector3();
+  for (const corners of at.values()) {
+    for (const v of corners) {
+      const t = Math.floor(v / 3);
+      own.fromArray(face, t * 3);
+      const ownN = own.clone().normalize();
+      sum.set(0, 0, 0);
+      for (const w of corners) {
+        other.fromArray(face, Math.floor(w / 3) * 3);
+        if (other.clone().normalize().dot(ownN) > cos) sum.add(other);
+      }
+      if (sum.lengthSq() < 1e-30) sum.copy(own);
+      sum.normalize();
+      out[v * 3] = sum.x;
+      out[v * 3 + 1] = sum.y;
+      out[v * 3 + 2] = sum.z;
+    }
+  }
+  return out;
+}
+
 // images for textured faces, loaded once per material and image
 const textureCache = new Map<string, THREE.Texture>();
 function textureFor(name: string, data: string): THREE.Texture {
@@ -322,6 +380,7 @@ export default function Viewport(props: Props) {
     sun.position.set(30, -50, 80);
     sun.shadow.mapSize.set(2048, 2048);
     sun.shadow.bias = -0.0004;
+    sun.shadow.normalBias = 0.02; // no speckles on gently sloped ground
     world.add(sun, sun.target);
 
     const ground = new THREE.Group();
@@ -525,7 +584,7 @@ export default function Viewport(props: Props) {
       return new THREE.BufferAttribute(out, 3);
     };
     geo.setAttribute("color", corners(s.colors));
-    geo.computeVertexNormals();
+    geo.setAttribute("normal", new THREE.BufferAttribute(smoothNormals(s.positions), 3));
     const bgeo = geo.clone();
     bgeo.setAttribute("color", corners(s.backColors));
     const mat = (side: THREE.Side) =>
@@ -562,7 +621,7 @@ export default function Viewport(props: Props) {
         const geo2 = new THREE.BufferGeometry();
         geo2.setAttribute("position", new THREE.Float32BufferAttribute(g.pos, 3));
         geo2.setAttribute("uv", new THREE.Float32BufferAttribute(g.uv, 2));
-        geo2.computeVertexNormals();
+        geo2.setAttribute("normal", new THREE.BufferAttribute(smoothNormals(g.pos), 3));
         const mesh = new THREE.Mesh(
           geo2,
           new THREE.MeshLambertMaterial({ map: textureFor(mat.name, mat.texture.data), side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 0, polygonOffsetUnits: 0, transparent: xray, opacity: xray ? 0.42 : 1, depthWrite: !xray, clippingPlanes: clip })
@@ -764,7 +823,7 @@ export default function Viewport(props: Props) {
     };
     let best: { id: number; d: number } | null = null;
     for (const ed of s.edgeList) {
-      if (ed.soft && !live.current.styles.xray) continue;
+      if (ed.soft && !live.current.styles.xray && live.current.tool !== "flipedge") continue;
       const a = sc(V(ed.a));
       const b = sc(V(ed.b));
       const ab = b.clone().sub(a);
@@ -1729,6 +1788,32 @@ export default function Viewport(props: Props) {
           if (!h?.face) return L.onToast("Click a flat top face (a ceiling or the top of walls).", true);
           const b = L.build;
           await run({ cmd: "roof", face: h.face.id, kind: b.roofKind, pitch: b.roofPitch, overhang: b.roofOverhang });
+          return;
+        }
+        case "smoove":
+        case "stamp":
+        case "drape": {
+          const h = pick(e);
+          const group = h?.face?.group;
+          if (group == null) return L.onToast("Click on a terrain (a group of triangles).", true);
+          const b = L.build;
+          if (L.tool === "smoove") {
+            // Shift digs instead of raising
+            await run({ cmd: "smoove", group, at: arr(h!.point), radius: b.smooveRadius, height: e.shiftKey ? -b.smooveHeight : b.smooveHeight });
+          } else if (L.tool === "stamp") {
+            const fp = sel.faces.find((f) => faceById(f)?.group !== group);
+            if (fp == null) return L.onToast("Select the footprint face first (a rectangle above the terrain), then click the terrain.", true);
+            await run({ cmd: "stamp", group, face: fp, offset: b.stampOffset });
+          } else {
+            if (!sel.edges.length) return L.onToast("Select the lines to drape first, then click the terrain.", true);
+            await run({ cmd: "drape", group, ids: sel.edges });
+          }
+          return;
+        }
+        case "flipedge": {
+          const he = pickEdge(e);
+          if (he == null) return L.onToast("Click an edge between two triangles.", true);
+          await run({ cmd: "flip_edge", edge: he });
           return;
         }
         case "column": {
