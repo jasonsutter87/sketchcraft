@@ -4,11 +4,13 @@
 //! [`commands::Engine`], so the desktop app, scripts, the CLI and AI agents
 //! all drive exactly the same thing.
 
+pub mod assets;
 pub mod commands;
 pub mod components;
 pub mod export;
 pub mod geom;
 pub mod http;
+pub mod import;
 pub mod live;
 pub mod mcp;
 pub mod model;

@@ -158,6 +158,29 @@ pub enum Command {
     Open { path: String },
     /// Wavefront OBJ (+ .mtl) for Blender and friends.
     ExportObj { path: String },
+    /// Binary glTF (.glb): Blender, three.js, game engines, Quick Look.
+    ExportGlb { path: String },
+    /// Binary STL for 3D printing; `scale` 1000 gives millimeters.
+    ExportStl { path: String, #[serde(default = "one")] scale: f64 },
+    /// Import an OBJ file; each object becomes a group. `up` "y" (default) or "z".
+    ImportObj {
+        path: String,
+        #[serde(default = "y_up")]
+        up: String,
+        #[serde(default = "one")]
+        scale: f64,
+        #[serde(default)]
+        at: [f64; 3],
+    },
+    /// Place a built-in asset (door, window, garage_door, tree, palm, car, streetlight, bench, hydrant).
+    Insert {
+        asset: String,
+        at: [f64; 3],
+        #[serde(default)]
+        rotate: f64,
+    },
+    /// List the built-in assets.
+    Assets,
 }
 
 #[derive(Debug, Deserialize)]
@@ -173,6 +196,14 @@ fn circle_segments() -> usize {
 
 fn arc_segments() -> usize {
     12
+}
+
+fn one() -> f64 {
+    1.0
+}
+
+fn y_up() -> String {
+    "y".into()
 }
 
 fn yes() -> bool {
@@ -200,6 +231,9 @@ impl Command {
                 | Command::Render { .. }
                 | Command::Save { .. }
                 | Command::ExportObj { .. }
+                | Command::ExportGlb { .. }
+                | Command::ExportStl { .. }
+                | Command::Assets
         )
     }
 }
@@ -242,7 +276,12 @@ impl Engine {
             Err(e) => return json!({"ok": false, "error": format!("bad command: {e}")}),
         };
         if let (Some(n), true) = (name, r["ok"] == true) {
-            if let Some(id) = ["face", "group"].iter().find_map(|k| r[*k].as_u64()) {
+            if let Some(id) = ["face", "group", "instance", "guide"]
+                .iter()
+                .find_map(|k| r[*k].as_u64())
+                .or_else(|| r["ids"][0].as_u64())
+                .or_else(|| r["edges"][0].as_u64())
+            {
                 self.names.insert(n, id as Id);
             }
         }
@@ -574,8 +613,20 @@ impl Engine {
                 *m = serde_json::from_str(&std::fs::read_to_string(&path)?)?;
                 json!({"path": path, "faces": m.faces.len()})
             }
+            Command::ExportGlb { path } => json!({"path": path, "triangles": export::write_glb(&self.model, &path)?}),
+            Command::ExportStl { path, scale } => json!({"path": path, "triangles": export::write_stl(&self.model, &path, scale)?}),
+            Command::ImportObj { path, up, scale, at } => {
+                let text = std::fs::read_to_string(&path)?;
+                let r = crate::import::import_obj(m, &text, up.eq_ignore_ascii_case("y"), scale, v3(at))?;
+                json!({"groups": r.groups, "group": r.groups.first(), "faces": r.faces, "skipped": r.skipped})
+            }
+            Command::Insert { asset, at, rotate } => {
+                let def = crate::assets::definition(m, &asset)?;
+                json!({"instance": m.place(def, v3(at), rotate, None)?, "component": def})
+            }
+            Command::Assets => json!({"assets": crate::assets::ASSETS.iter().map(|a| json!({"key": a.key, "name": a.name, "about": a.about})).collect::<Vec<_>>()}),
             Command::ExportObj { path } => {
-                let tris = export::write_obj(m, &path)?;
+                let tris = export::write_obj(&self.model, &path)?;
                 json!({"path": path, "triangles": tris})
             }
         })
