@@ -86,7 +86,7 @@ impl Model {
             });
         }
         for (&iid, inst) in &self.instances {
-            if inst.hidden || !self.tag_visible(&inst.tag) {
+            if inst.hidden || !self.tag_visible(&inst.tag) || !self.group_visible(inst.parent) {
                 continue;
             }
             if let Some(def) = root.definitions.get(&inst.def).or_else(|| self.definitions.get(&inst.def)) {
@@ -134,7 +134,7 @@ impl Model {
             });
         }
         for (&iid, inst) in &self.instances {
-            if inst.hidden || !self.tag_visible(&inst.tag) {
+            if inst.hidden || !self.tag_visible(&inst.tag) || !self.group_visible(inst.parent) {
                 continue;
             }
             if let Some(def) = root.definitions.get(&inst.def).or_else(|| self.definitions.get(&inst.def)) {

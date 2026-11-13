@@ -121,13 +121,15 @@ export function Outliner({ scene, sel, setSel, run, byTag, setByTag }: { scene: 
     g = x.parent;
   }
 
-  const row = (n: Node, depth: number): ReactElement => {
+  const row = (n: Node, depth: number, parentHidden = false): ReactElement => {
+    // hidden itself, or inside something hidden: the whole chain is off
+    const off = n.hidden || parentHidden;
     const kids = n.children.length > 0;
     const open = !closed.has(n.id);
     return (
       <li key={n.id} role="treeitem" aria-expanded={kids ? open : undefined} aria-selected={selected(n)}>
         <div
-          className={`orow ${selected(n) ? "on" : ""} ${n.hidden ? "dim" : ""} ${over === n.id ? "drop" : ""}`}
+          className={`orow ${selected(n) ? "on" : ""} ${off ? "dim" : ""} ${over === n.id ? "drop" : ""}`}
           style={{ paddingLeft: 6 + depth * 14 }}
           data-drop={n.kind === "groups" ? n.id : undefined}
           onPointerDown={(e) => startPress(e, n)}
@@ -175,7 +177,7 @@ export function Outliner({ scene, sel, setSel, run, byTag, setByTag }: { scene: 
           )}
           <button
             className={`rowbtn eye ${n.hidden ? "keep" : ""}`}
-            title={n.hidden ? "Show" : "Hide"}
+            title={n.hidden ? "Show" : parentHidden ? "Hidden because a group it's in is hidden" : "Hide (and everything inside)"}
             aria-label={n.hidden ? "Show" : "Hide"}
             onClick={(e) => {
               e.stopPropagation();
@@ -185,7 +187,7 @@ export function Outliner({ scene, sel, setSel, run, byTag, setByTag }: { scene: 
             {n.hidden ? <Icons.eyeOff /> : <Icons.eye />}
           </button>
         </div>
-        {kids && open && <ul role="group">{n.children.map((c) => row(c, depth + 1))}</ul>}
+        {kids && open && <ul role="group">{n.children.map((c) => row(c, depth + 1, off))}</ul>}
       </li>
     );
   };

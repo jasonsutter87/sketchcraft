@@ -1215,10 +1215,11 @@ fn groups_nest_move_copy_delete_and_lock_together() {
     run(&mut e, json!({"cmd":"ungroup","id":room}));
     assert_eq!(e.model.groups[&wall].parent, Some(house));
     assert_eq!(e.model.instances[&door].parent, Some(house));
-    // hiding the house hides what's inside
-    let faces_shown = e.model.world_faces().len();
+    // hiding the house hides everything down the chain, the door included
     run(&mut e, json!({"cmd":"hide","ids":[house]}));
-    assert!(e.model.world_faces().len() < faces_shown);
+    assert!(e.model.world_faces().iter().all(|f| f.owner != door && f.group.is_none_or(|g| !e.model.subtree(house).contains(&g))), "nothing inside a hidden group shows");
+    run(&mut e, json!({"cmd":"unhide","ids":[house]}));
+    assert!(e.model.world_faces().iter().any(|f| f.owner == door), "and it all comes back");
     // deleting the copy takes its tree with it
     run(&mut e, json!({"cmd":"delete","ids":[copy]}));
     assert_eq!(e.model.instances.len(), 1);
