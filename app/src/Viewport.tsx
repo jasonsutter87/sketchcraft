@@ -713,10 +713,12 @@ export default function Viewport(props: Props) {
   function annotationSpecs(): LabelSpec[] {
     const s = live.current.scene;
     if (!s) return [];
-    return s.annotations.map((an) =>
+    return s.annotations.flatMap((an) =>
       an.kind === "dimension"
-        ? { key: `a${an.id}`, id: an.id, p: V(an.a).add(V(an.b)).multiplyScalar(0.5).add(V(an.offset)), text: fmt(V(an.a).distanceTo(V(an.b))) }
-        : { key: `a${an.id}`, id: an.id, p: V(an.at), text: an.text }
+        ? [{ key: `a${an.id}`, id: an.id, p: V(an.a).add(V(an.b)).multiplyScalar(0.5).add(V(an.offset)), text: fmt(V(an.a).distanceTo(V(an.b))) }]
+        : an.kind === "text"
+          ? [{ key: `a${an.id}`, id: an.id, p: V(an.at), text: an.text }]
+          : [] // door swings are drawn, not labeled
     );
   }
 
@@ -868,7 +870,19 @@ export default function Viewport(props: Props) {
     const ann: number[] = [];
     for (const an of s.annotations) {
       if (an.kind === "dimension") ann.push(...dimSegments(V(an.a), V(an.b), V(an.offset)));
-      else if (an.leader) ann.push(...an.leader, ...an.at);
+      else if (an.kind === "swing") {
+        // the open leaf and the arc its edge sweeps
+        const h = V(an.hinge), a = V(an.from).sub(h), b = V(an.to).sub(h);
+        ann.push(...an.hinge, ...an.to);
+        const ang = a.angleTo(b);
+        const axis = a.clone().cross(b).normalize();
+        let prev = V(an.from);
+        for (let k = 1; k <= 16; k++) {
+          const p = a.clone().applyAxisAngle(axis.lengthSq() ? axis : new THREE.Vector3(0, 0, 1), (ang * k) / 16).add(h);
+          ann.push(prev.x, prev.y, prev.z, p.x, p.y, p.z);
+          prev = p;
+        }
+      } else if (an.leader) ann.push(...an.leader, ...an.at);
     }
     if (ann.length) {
       const ag = new THREE.BufferGeometry();

@@ -72,7 +72,8 @@ export interface SavedView {
 
 export type Annotation =
   | { kind: "dimension"; id: number; a: Vec3; b: Vec3; offset: Vec3 }
-  | { kind: "text"; id: number; at: Vec3; text: string; leader: Vec3 | null };
+  | { kind: "text"; id: number; at: Vec3; text: string; leader: Vec3 | null }
+  | { kind: "swing"; id: number; hinge: Vec3; from: Vec3; to: Vec3 };
 
 export interface MaterialInfo {
   name: string;
