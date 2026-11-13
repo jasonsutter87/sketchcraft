@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "riseline": {
+      "command": "./target/release/riseline",
+      "args": ["mcp", "--doc", "out/scratch.riseline"]
+    }
+  }
+}
