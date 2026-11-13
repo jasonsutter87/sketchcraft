@@ -69,8 +69,10 @@ paint on the right, a floating toolbar, and style toggles.
 | J | Follow Me | O | Orbit |
 | X | Section cut | G / H | Group / Hide |
 
-Arrow keys lock the red (→), green (←) or blue (↑) axis. Middle-drag orbits,
-right-drag pans, right-click opens the context menu, ⇧Z zooms to fit.
+Arrow keys lock the red (→), green (←) or blue (↑) axis. On a trackpad,
+two-finger swipe orbits, Shift+swipe pans and pinch zooms. With a mouse,
+middle-drag orbits, right-drag pans and the wheel zooms. Right-click opens
+the context menu, ⇧Z zooms to fit.
 
 ## Scripting and the CLI
 
