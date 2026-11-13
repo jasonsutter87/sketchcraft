@@ -27,6 +27,37 @@ pub enum Command {
     Polygon { points: Vec<[f64; 3]> },
     /// Connected lines; if the last point closes the loop, a face is made.
     Line { points: Vec<[f64; 3]> },
+    /// Circle (or regular polygon with few `segments`) as a face.
+    Circle {
+        center: [f64; 3],
+        radius: f64,
+        #[serde(default = "up")]
+        normal: [f64; 3],
+        #[serde(default = "circle_segments")]
+        segments: usize,
+    },
+    /// Arc as edges, from `start` to `end`, bowing out by `bulge` meters.
+    Arc {
+        start: [f64; 3],
+        end: [f64; 3],
+        bulge: f64,
+        #[serde(default = "up")]
+        normal: [f64; 3],
+        #[serde(default = "arc_segments")]
+        segments: usize,
+    },
+    /// Offset a face's outline: + inward (new face inside), - outward (ring).
+    Offset { face: Id, distance: f64 },
+    /// Sweep a profile face along a path: `points`, `edges`, or `around` a face's outline.
+    FollowMe {
+        face: Id,
+        #[serde(default)]
+        points: Option<Vec<[f64; 3]>>,
+        #[serde(default)]
+        edges: Option<Vec<Id>>,
+        #[serde(default)]
+        around: Option<Id>,
+    },
     /// Pull a face out (positive) or push it in (negative) along its normal.
     #[serde(alias = "push_pull")]
     Pushpull { face: Id, distance: f64 },
@@ -94,6 +125,14 @@ pub enum Command {
 pub enum Factor {
     Uniform(f64),
     Axes([f64; 3]),
+}
+
+fn circle_segments() -> usize {
+    24
+}
+
+fn arc_segments() -> usize {
+    12
 }
 
 fn up() -> [f64; 3] {
@@ -234,6 +273,34 @@ impl Engine {
                     faces.extend(r.faces);
                 }
                 json!({"edges": edges, "faces": faces, "face": faces.last()})
+            }
+            Command::Circle { center, radius, normal, segments } => json!({"face": m.circle(v3(center), v3(normal), radius, segments)?}),
+            Command::Arc { start, end, bulge, normal, segments } => {
+                let pts = Model::arc_points(v3(start), v3(end), bulge, v3(normal), segments)?;
+                let mut edges = vec![];
+                let mut faces = vec![];
+                for w in pts.windows(2) {
+                    let r = m.draw_line(w[0], w[1])?;
+                    edges.extend(r.edges);
+                    faces.extend(r.faces);
+                }
+                json!({"edges": edges, "faces": faces, "face": faces.last()})
+            }
+            Command::Offset { face, distance } => json!({"face": m.offset(face, distance)?}),
+            Command::FollowMe { face, points, edges, around } => {
+                let (path, closed) = if let Some(p) = points {
+                    let pts: Vec<DVec3> = p.into_iter().map(v3).collect();
+                    let closed = pts.len() > 2 && pts[0].distance(*pts.last().unwrap()) < 1e-9;
+                    (pts, closed)
+                } else if let Some(es) = edges {
+                    m.edge_path(&es)?
+                } else if let Some(f) = around {
+                    (m.pts(&m.face(f)?.outer.clone()), true)
+                } else {
+                    bail!("follow_me needs points, edges or around");
+                };
+                let faces = m.follow_me(face, &path, closed)?;
+                json!({"faces": faces})
             }
             Command::Pushpull { face, distance } => {
                 let ids = m.pushpull(face, distance)?;
