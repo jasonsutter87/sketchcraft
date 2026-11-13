@@ -6,7 +6,8 @@ import { ASSETS, type Reply, type Scene } from "./engine";
 import { Icons } from "./icons";
 import { EMPTY, isEmpty, selIds, type Sel } from "./selection";
 import { TEMPLATES } from "./templates";
-import { formatLength } from "./units";
+import { formatLength, parseLength } from "./units";
+import type { BuildSettings, Tool } from "./Viewport";
 import type { Cam } from "./Viewport";
 
 type Run = (cmd: Record<string, unknown>) => Promise<Reply>;
@@ -87,6 +88,105 @@ const ASSET_TINT: Record<string, string> = {
   door: "#F3E3D6", window: "#DDEBF7", garage_door: "#ECEDEF", tree: "#DDEFD8", palm: "#E7F1D9",
   car: "#F8DEDE", streetlight: "#E6E7EC", bench: "#F1E6D8", hydrant: "#FBF0C9",
 };
+
+function LengthInput({ value, units, onChange, label }: { value: number; units: string; onChange: (m: number) => void; label: string }) {
+  const [text, setText] = useState<string | null>(null);
+  return (
+    <label className="field">
+      <span>{label}</span>
+      <input
+        value={text ?? formatLength(value, units)}
+        onFocus={(e) => (setText(formatLength(value, units)), e.target.select())}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={() => {
+          const v = parseLength(text ?? "", units);
+          if (!Number.isNaN(v) && v > 0) onChange(v);
+          setText(null);
+        }}
+        onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+      />
+    </label>
+  );
+}
+
+const BUILD_TOOLS: { id: Tool; name: string; how: string }[] = [
+  { id: "wall", name: "Wall", how: "Click points along the wall. Double-click or Enter to finish; click the first point to close a room." },
+  { id: "stairs", name: "Stairs", how: "Click where the bottom step starts, then the direction it climbs." },
+  { id: "roof", name: "Roof", how: "Click a flat top face: the top of your walls or a ceiling you drew." },
+  { id: "column", name: "Column", how: "Click to drop a column." },
+];
+
+export function BuildTools({ tool, setTool, build, setBuild, units }: { tool: Tool; setTool: (t: Tool) => void; build: BuildSettings; setBuild: (b: BuildSettings) => void; units: string }) {
+  const active = BUILD_TOOLS.find((b) => b.id === tool);
+  const set = (k: keyof BuildSettings) => (v: unknown) => setBuild({ ...build, [k]: v });
+  return (
+    <>
+      <div className="section-title sub">Build</div>
+      <div className="tiles build">
+        {BUILD_TOOLS.map((b) => (
+          <button key={b.id} className={`tile ${tool === b.id ? "on" : ""}`} onClick={() => setTool(tool === b.id ? "select" : b.id)} title={b.how}>
+            <span className="tile-art build-art">{Icons[b.id as "wall"]()}</span>
+            <span>{b.name}</span>
+          </button>
+        ))}
+      </div>
+      {active && (
+        <div className="build-options">
+          <p>{active.how}</p>
+          {tool === "wall" && (
+            <>
+              <LengthInput label="Thickness" value={build.wallThickness} units={units} onChange={set("wallThickness")} />
+              <LengthInput label="Height" value={build.wallHeight} units={units} onChange={set("wallHeight")} />
+            </>
+          )}
+          {tool === "stairs" && (
+            <>
+              <LengthInput label="Total rise" value={build.stairRise} units={units} onChange={set("stairRise")} />
+              <LengthInput label="Width" value={build.stairWidth} units={units} onChange={set("stairWidth")} />
+            </>
+          )}
+          {tool === "roof" && (
+            <>
+              <label className="field">
+                <span>Type</span>
+                <select value={build.roofKind} onChange={(e) => set("roofKind")(e.target.value)}>
+                  <option value="gable">Gable</option>
+                  <option value="hip">Hip</option>
+                  <option value="shed">Shed</option>
+                </select>
+              </label>
+              <label className="field">
+                <span>Pitch</span>
+                <input
+                  defaultValue={`${build.roofPitch}°`}
+                  title="Degrees, or rise/run like 6/12"
+                  onBlur={(e) => {
+                    const t = e.target.value.trim();
+                    const ratio = /^(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)$/.exec(t);
+                    const deg = ratio ? (Math.atan(Number(ratio[1]) / Number(ratio[2])) * 180) / Math.PI : parseFloat(t);
+                    if (deg > 0 && deg < 80) set("roofPitch")(Math.round(deg * 10) / 10);
+                    e.target.value = `${build.roofPitch}°`;
+                  }}
+                />
+              </label>
+              <LengthInput label="Overhang" value={build.roofOverhang} units={units} onChange={set("roofOverhang")} />
+            </>
+          )}
+          {tool === "column" && (
+            <>
+              <LengthInput label="Size" value={build.columnSize} units={units} onChange={set("columnSize")} />
+              <LengthInput label="Height" value={build.columnHeight} units={units} onChange={set("columnHeight")} />
+              <label className="field check">
+                <input type="checkbox" checked={build.columnRound} onChange={(e) => set("columnRound")(e.target.checked)} />
+                <span>Round</span>
+              </label>
+            </>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
 
 export function Library({ scene, place, placing, onTemplate }: { scene: Scene; place: (k: string | null) => void; placing: string | null; onTemplate: (lines: string[]) => void }) {
   return (
