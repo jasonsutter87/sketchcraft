@@ -1159,3 +1159,21 @@ fn solar_position_matches_noaa() {
     let (az, _) = sketchcraft::pt::solar_position(40.0, -98.0, 2026, 6, 21, 17.0, -7.0 + 1.0);
     assert!(az > 240.0 && az < 300.0, "{az}");
 }
+
+#[test]
+fn photoreal_sharpens_progressively() {
+    let mut e = Engine::new();
+    box_group(&mut e, [0.0, 0.0, 0.0], [2.0, 2.0, 1.0], "Box");
+    let pr = json!({"cmd":"photoreal","width":64,"height":48,"samples":2,"progressive":true,"view":"iso"});
+    let a = run(&mut e, pr.clone());
+    assert_eq!(a["spp"], 2);
+    let b = run(&mut e, pr.clone());
+    assert_eq!(b["spp"], 4, "the second pass adds to the first");
+    // a different camera starts over
+    let c = run(&mut e, json!({"cmd":"photoreal","width":64,"height":48,"samples":2,"progressive":true,"view":"front"}));
+    assert_eq!(c["spp"], 2);
+    // so does changing the model
+    run(&mut e, pr.clone());
+    box_group(&mut e, [3.0, 0.0, 0.0], [4.0, 1.0, 1.0], "Another");
+    assert_eq!(run(&mut e, pr)["spp"], 2);
+}
