@@ -1142,18 +1142,39 @@ export function RenderDialog({ camera, aspect, name, onClose, onToast }: { camer
   const [img, setImg] = useState<string | null>(null);
   const [secs, setSecs] = useState<number | null>(null);
   const cam = useRef(camera());
-  const go = async () => {
+  // renders sharpen in passes: a rough picture in a moment, finer each pass
+  const stopRef = useRef(false);
+  const [progress, setProgress] = useState<{ done: number; goal: number } | null>(null);
+  const go = async (more = false) => {
     const preset = QUALITY.find((x) => x.id === q)!;
     const w = aspect >= 1 ? preset.long : Math.round(preset.long * aspect);
     const h = aspect >= 1 ? Math.round(preset.long / aspect) : preset.long;
+    stopRef.current = false;
     setBusy(true);
     const sun = sunMode === "real" ? { date, time: clock, ...offsetFor(real?.lon) } : sunMode === "manual" ? { sun_azimuth: az, sun_altitude: alt } : { sun_altitude: alt };
-    const r = await exec({ cmd: "photoreal", width: w, height: h, samples: preset.samples, camera: cam.current, ...sun });
-    setBusy(false);
-    if (r.ok) {
+    const t0 = performance.now();
+    // the goal: this quality's samples (on top of what's there, for "more")
+    const goal = (more && progress ? progress.done : 0) + preset.samples;
+    let per = 1;
+    let base = -1;
+    while (!stopRef.current) {
+      const r = await exec({ cmd: "photoreal", width: w, height: h, samples: per, progressive: true, camera: cam.current, ...sun });
+      if (!r.ok) {
+        onToast(r.error ?? "The render didn't work", true);
+        break;
+      }
+      const spp = r.spp as number;
+      // a fresh start or carrying on from an earlier render of the same view
+      if (base < 0) base = more ? 0 : spp - per;
+      const done = spp - base;
       setImg(r.data as string);
-      setSecs(r.seconds as number);
-    } else onToast(r.error ?? "The render didn't work", true);
+      setSecs((performance.now() - t0) / 1000);
+      setProgress({ done, goal });
+      if (done >= goal) break;
+      // bigger passes as it goes (fewer round trips), never past the goal
+      per = Math.max(1, Math.min(16, goal - done, Math.max(2, done)));
+    }
+    setBusy(false);
   };
   const save = async () => {
     if (!img) return;
@@ -1165,13 +1186,29 @@ export function RenderDialog({ camera, aspect, name, onClose, onToast }: { camer
   const compassOf = (a: number) => ["N", "NE", "E", "SE", "S", "SW", "W", "NW"][Math.round(((a % 360) + 360) % 360 / 45) % 8];
   const compass = compassOf(az);
   return (
-    <div className="sheet-backdrop" onClick={() => !busy && onClose()}>
+    <div
+      className="sheet-backdrop"
+      onClick={() => {
+        stopRef.current = true;
+        onClose();
+      }}
+    >
       <div className="sheet render-dlg" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Render">
         <div className="sheet-head">
           <b>Render</b>
           <span className="muted">Photoreal: sunlight, sky, soft shadows, reflections.</span>
         </div>
-        <div className="render-view">{img ? <img src={img} alt="Render" /> : <div className="render-empty">{busy ? "Rendering…" : "Pick a quality and press Render."}</div>}</div>
+        <div className="render-view">
+          {img ? <img src={img} alt="Render" /> : <div className="render-empty">{busy ? "Starting…" : "Pick a quality and press Render."}</div>}
+          {progress && (
+            <div className="render-progress" aria-live="polite">
+              <i style={{ width: `${Math.min(100, (progress.done / progress.goal) * 100)}%` }} />
+              <span>
+                {busy ? "Sharpening" : progress.done >= progress.goal ? "Done" : "Stopped"}: {progress.done} of {progress.goal} samples{secs != null ? ` · ${secs.toFixed(1)} s` : ""}
+              </span>
+            </div>
+          )}
+        </div>
         <div className="render-controls">
           <div className="seg">
             {QUALITY.map((x) => (
@@ -1220,16 +1257,35 @@ export function RenderDialog({ camera, aspect, name, onClose, onToast }: { camer
             </>
           )}
           <div className="row gap">
-            <button className="btn small" onClick={go} disabled={busy || sunDown}>
-              {busy ? "Rendering…" : img ? "Render again" : "Render"}
-            </button>
+            {busy ? (
+              <button className="btn small" onClick={() => (stopRef.current = true)} title="Keep the picture as it is now">
+                Stop
+              </button>
+            ) : (
+              <>
+                <button className="btn small" onClick={() => go(false)} disabled={sunDown}>
+                  {img ? "Render again" : "Render"}
+                </button>
+                {img && progress && (
+                  <button className="btn small ghost" onClick={() => go(true)} disabled={sunDown} title="Keep adding samples to this picture: less grain, finer shadows">
+                    Sharpen more
+                  </button>
+                )}
+              </>
+            )}
             <button className="btn small ghost" onClick={save} disabled={!img || busy}>
               Save PNG…
             </button>
-            <button className="btn small ghost" onClick={onClose} disabled={busy}>
+            <button
+              className="btn small ghost"
+              onClick={() => {
+                stopRef.current = true;
+                onClose();
+              }}
+            >
               Close
             </button>
-            {secs != null && !busy && <span className="muted small">{secs.toFixed(1)} s</span>}
+
           </div>
         </div>
       </div>

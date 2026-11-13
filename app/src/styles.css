@@ -1900,3 +1900,31 @@ details.panel-fold {
   color: #39ff6a;
   text-shadow: 0 0 6px rgba(57, 255, 106, 0.55);
 }
+.render-view {
+  position: relative;
+}
+.render-progress {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 10px;
+  height: 22px;
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--glass);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+}
+.render-progress i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--accent-soft);
+  transition: width 0.25s;
+}
+.render-progress span {
+  position: relative;
+  display: block;
+  padding: 0 10px;
+  line-height: 22px;
+  font-size: 11.5px;
+  color: var(--text);
+}
