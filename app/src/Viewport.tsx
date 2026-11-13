@@ -1249,8 +1249,12 @@ export default function Viewport(props: Props) {
           const sn = infer(E, e, {});
           const n = sn.face ? V(sn.face.normal) : UP;
           // doors and windows face out of the wall they're dropped on
-          const rot = Math.abs(n.z) < 0.5 ? THREE.MathUtils.radToDeg(Math.atan2(n.y, n.x)) + 90 : 0;
-          await run({ cmd: "insert", asset: L.placeAsset, at: arr(sn.p), rotate: r4(rot) });
+          const wall = Math.abs(n.z) < 0.5;
+          const rot = wall ? THREE.MathUtils.radToDeg(Math.atan2(n.y, n.x)) + 90 : 0;
+          const at = sn.p.clone();
+          // doors stand on the bottom of the wall they're dropped on
+          if (wall && sn.face && (L.placeAsset === "door" || L.placeAsset === "garage_door")) at.z = Math.min(...sn.face.outer.map((q) => q[2]));
+          await run({ cmd: "insert", asset: L.placeAsset, at: arr(at), rotate: r4(rot) });
           return;
         }
       }
