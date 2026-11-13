@@ -1537,3 +1537,6 @@ details.panel-fold {
   background: #fff;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
 }
+.render-controls .warn {
+  color: var(--danger, #c0392b);
+}

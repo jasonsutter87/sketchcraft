@@ -1110,9 +1110,34 @@ export function RenderDialog({ camera, aspect, name, onClose, onToast }: { camer
     { id: "final", label: "Final", samples: 256, long: 2400, about: "a few minutes" },
   ];
   const [q, setQ] = useState("preview");
-  const [autoSun, setAutoSun] = useState(true);
+  // the sun: placed for this view, set by hand, or the real sun at a date and time
+  const [sunMode, setSunMode] = useState<"view" | "manual" | "real">("view");
   const [az, setAz] = useState(200);
   const [alt, setAlt] = useState(35);
+  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [minutes, setMinutes] = useState(15 * 60);
+  const [real, setReal] = useState<{ azimuth: number; altitude: number; located: boolean; lon: number } | null>(null);
+  // this Mac's clock offset on that date (daylight saving included); used when
+  // the site is in roughly the same timezone, else the engine guesses from longitude
+  const localOffset = -new Date(`${date}T12:00:00`).getTimezoneOffset() / 60;
+  const offsetFor = (lon: number | undefined) => (lon != null && Math.abs(lon / 15 - localOffset) < 1.6 ? { utc_offset: localOffset } : {});
+  const clock = `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+  const clock12 = `${((Math.floor(minutes / 60) + 11) % 12) + 1}:${String(minutes % 60).padStart(2, "0")} ${minutes < 720 ? "am" : "pm"}`;
+  useEffect(() => {
+    if (sunMode !== "real") return;
+    let live = true;
+    (async () => {
+      // first ask where the site is, then where the sun is on its clock
+      const probe = await exec({ cmd: "sun", date, time: clock });
+      if (!probe.ok) return;
+      const r = await exec({ cmd: "sun", date, time: clock, ...offsetFor(probe.lon as number) });
+      if (live && r.ok) setReal(r as unknown as { azimuth: number; altitude: number; located: boolean; lon: number });
+    })();
+    return () => {
+      live = false;
+    };
+  }, [sunMode, date, clock]);
+  const sunDown = sunMode === "real" && real != null && real.altitude < 1;
   const [busy, setBusy] = useState(false);
   const [img, setImg] = useState<string | null>(null);
   const [secs, setSecs] = useState<number | null>(null);
@@ -1122,7 +1147,8 @@ export function RenderDialog({ camera, aspect, name, onClose, onToast }: { camer
     const w = aspect >= 1 ? preset.long : Math.round(preset.long * aspect);
     const h = aspect >= 1 ? Math.round(preset.long / aspect) : preset.long;
     setBusy(true);
-    const r = await exec({ cmd: "photoreal", width: w, height: h, samples: preset.samples, camera: cam.current, ...(autoSun ? {} : { sun_azimuth: az }), sun_altitude: alt });
+    const sun = sunMode === "real" ? { date, time: clock, ...offsetFor(real?.lon) } : sunMode === "manual" ? { sun_azimuth: az, sun_altitude: alt } : { sun_altitude: alt };
+    const r = await exec({ cmd: "photoreal", width: w, height: h, samples: preset.samples, camera: cam.current, ...sun });
     setBusy(false);
     if (r.ok) {
       setImg(r.data as string);
@@ -1136,7 +1162,8 @@ export function RenderDialog({ camera, aspect, name, onClose, onToast }: { camer
     const r = await exec({ cmd: "save_image", path, data: img });
     if (r.ok) onToast(`Saved ${path.split("/").pop()}`);
   };
-  const compass = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"][Math.round(((az % 360) + 360) % 360 / 45) % 8];
+  const compassOf = (a: number) => ["N", "NE", "E", "SE", "S", "SW", "W", "NW"][Math.round(((a % 360) + 360) % 360 / 45) % 8];
+  const compass = compassOf(az);
   return (
     <div className="sheet-backdrop" onClick={() => !busy && onClose()}>
       <div className="sheet render-dlg" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Render">
@@ -1153,22 +1180,47 @@ export function RenderDialog({ camera, aspect, name, onClose, onToast }: { camer
               </button>
             ))}
           </div>
-          <label className="field check">
-            <input type="checkbox" checked={autoSun} onChange={(e) => setAutoSun(e.target.checked)} />
-            <span>Sun placed for this view</span>
-          </label>
-          {!autoSun && (
+          <div className="seg" role="radiogroup" aria-label="Sun">
+            {([["view", "Sun for this view", "Lights the side you're looking at"], ["manual", "Set by hand", "Pick the direction and height"], ["real", "Real sun", "Where the sun really is at this place, date and time"]] as const).map(([id, label, tip]) => (
+              <button key={id} className={sunMode === id ? "on" : ""} onClick={() => setSunMode(id)} title={tip} disabled={busy}>
+                {label}
+              </button>
+            ))}
+          </div>
+          {sunMode === "manual" && (
             <label className="field">
               <span>Sun from {compass}</span>
               <input type="range" min={0} max={359} value={az} onChange={(e) => setAz(Number(e.target.value))} />
             </label>
           )}
-          <label className="field">
-            <span>Sun height {alt}°</span>
-            <input type="range" min={5} max={85} value={alt} onChange={(e) => setAlt(Number(e.target.value))} />
-          </label>
+          {sunMode !== "real" && (
+            <label className="field">
+              <span>Sun height {alt}°</span>
+              <input type="range" min={5} max={85} value={alt} onChange={(e) => setAlt(Number(e.target.value))} />
+            </label>
+          )}
+          {sunMode === "real" && (
+            <>
+              <label className="field">
+                <span>Date</span>
+                <input type="date" value={date} onChange={(e) => e.target.value && setDate(e.target.value)} />
+              </label>
+              <label className="field">
+                <span>Time {clock12}</span>
+                <input type="range" min={5 * 60} max={21 * 60} step={15} value={minutes} onChange={(e) => setMinutes(Number(e.target.value))} />
+              </label>
+              <span className={`muted small${sunDown ? " warn" : ""}`}>
+                {real == null
+                  ? "Finding the sun…"
+                  : sunDown
+                    ? "The sun is down then. Slide the time later or earlier."
+                    : `Sun from the ${compassOf(real.azimuth)}, ${Math.round(real.altitude)}° up.`}
+                {real && !real.located && " No location set, so this uses the central US (File ▸ Add location… for yours)."}
+              </span>
+            </>
+          )}
           <div className="row gap">
-            <button className="btn small" onClick={go} disabled={busy}>
+            <button className="btn small" onClick={go} disabled={busy || sunDown}>
               {busy ? "Rendering…" : img ? "Render again" : "Render"}
             </button>
             <button className="btn small ghost" onClick={save} disabled={!img || busy}>
