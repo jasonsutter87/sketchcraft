@@ -80,7 +80,9 @@ export interface Scene {
   textures: string[];
   materials: MaterialInfo[];
   positions: number[];
+  /** per triangle: r, g, b */
   colors: number[];
+  /** per triangle: r, g, b */
   backColors: number[];
   /** owner of each triangle: a face id, or a component instance id */
   triFace: number[];

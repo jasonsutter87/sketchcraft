@@ -506,10 +506,16 @@ export default function Viewport(props: Props) {
 
     const geo = new THREE.BufferGeometry();
     geo.setAttribute("position", new THREE.Float32BufferAttribute(s.positions, 3));
-    geo.setAttribute("color", new THREE.Float32BufferAttribute(s.colors, 3));
+    // colors come per triangle; each corner gets its triangle's color
+    const corners = (c: number[]) => {
+      const out = new Float32Array(c.length * 3);
+      for (let t = 0; t < c.length / 3; t++) for (let k = 0; k < 3; k++) out.set([c[t * 3], c[t * 3 + 1], c[t * 3 + 2]], t * 9 + k * 3);
+      return new THREE.BufferAttribute(out, 3);
+    };
+    geo.setAttribute("color", corners(s.colors));
     geo.computeVertexNormals();
     const bgeo = geo.clone();
-    bgeo.setAttribute("color", new THREE.Float32BufferAttribute(s.backColors, 3));
+    bgeo.setAttribute("color", corners(s.backColors));
     const mat = (side: THREE.Side) =>
       new THREE.MeshLambertMaterial({
         vertexColors: true,
@@ -1652,7 +1658,7 @@ export default function Viewport(props: Props) {
             if (i >= 0 && s.triTex?.[i] >= 0) return L.setPaintMaterial(s.textures[s.triTex[i]]);
             if (i >= 0) {
               L.setPaintMaterial(null);
-              L.setColor([s.colors[i * 9], s.colors[i * 9 + 1], s.colors[i * 9 + 2]]);
+              L.setColor([s.colors[i * 3], s.colors[i * 3 + 1], s.colors[i * 3 + 2]]);
             }
             return;
           }
