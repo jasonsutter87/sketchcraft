@@ -32,6 +32,20 @@ pub enum Command {
     Pushpull { face: Id, distance: f64 },
     /// Move faces, edges, vertices or whole groups.
     Move { ids: Vec<Id>, by: [f64; 3] },
+    /// Rotate around `center` about `axis` (default: vertical), in degrees.
+    Rotate {
+        ids: Vec<Id>,
+        center: [f64; 3],
+        #[serde(default = "up")]
+        axis: [f64; 3],
+        angle: f64,
+    },
+    /// Scale from `center`: one number for uniform, or [x, y, z].
+    Scale { ids: Vec<Id>, center: [f64; 3], factor: Factor },
+    /// Copy faces, groups or components, offset by `by`.
+    Duplicate { ids: Vec<Id>, by: [f64; 3] },
+    /// `count` more copies spaced `by` apart (a row of houses, a fence).
+    Array { ids: Vec<Id>, by: [f64; 3], count: usize },
     Delete { ids: Vec<Id> },
     /// Flip faces (or every face in a group).
     Reverse { ids: Vec<Id> },
@@ -73,6 +87,17 @@ pub enum Command {
     Open { path: String },
     /// Wavefront OBJ (+ .mtl) for Blender and friends.
     ExportObj { path: String },
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+pub enum Factor {
+    Uniform(f64),
+    Axes([f64; 3]),
+}
+
+fn up() -> [f64; 3] {
+    [0.0, 0.0, 1.0]
 }
 
 impl Command {
@@ -214,7 +239,17 @@ impl Engine {
                 let ids = m.pushpull(face, distance)?;
                 json!({"face": ids[0], "created": &ids[1..]})
             }
-            Command::Move { ids, by } => json!({"moved_vertices": m.translate(&ids, v3(by))?}),
+            Command::Move { ids, by } => json!({"moved": m.translate(&ids, v3(by))?}),
+            Command::Rotate { ids, center, axis, angle } => json!({"moved": m.rotate(&ids, v3(center), v3(axis), angle)?}),
+            Command::Scale { ids, center, factor } => {
+                let f = match factor {
+                    Factor::Uniform(k) => DVec3::splat(k),
+                    Factor::Axes(a) => v3(a),
+                };
+                json!({"moved": m.scale(&ids, v3(center), f)?})
+            }
+            Command::Duplicate { ids, by } => json!({"ids": m.duplicate(&ids, v3(by))?}),
+            Command::Array { ids, by, count } => json!({"ids": m.array(&ids, v3(by), count)?}),
             Command::Delete { ids } => {
                 m.delete(&ids)?;
                 json!({})
