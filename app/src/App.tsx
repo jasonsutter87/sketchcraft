@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { exec, loadScene, sync, type Reply, type Scene } from "./engine";
 import { Icons, Logo } from "./icons";
-import { BuildTools, ContextMenu, contextItems, EntityInfo, Library, Outliner, Textures, Views } from "./panels";
+import { BuildTools, ContextMenu, contextItems, EntityInfo, Library, Outliner, ShortcutSheet, Textures, Views } from "./panels";
 import { EMPTY, isEmpty, selIds, type Sel } from "./selection";
 import { UNIT_OPTIONS } from "./units";
 import { pickOpen, pickSave, rememberedFile, rememberFile } from "./files";
@@ -43,19 +43,21 @@ const TOOL_GROUPS: { id: Tool; name: string; key: string }[][] = [
     { id: "followme", name: "Follow Me", key: "J" },
   ],
   [
-    { id: "move", name: "Move (Option to copy)", key: "M" },
-    { id: "rotate", name: "Rotate", key: "Q" },
+    { id: "move", name: "Move (Option/Ctrl to copy)", key: "M" },
+    { id: "rotate", name: "Rotate (Option/Ctrl to copy)", key: "Q" },
     { id: "scale", name: "Scale", key: "S" },
   ],
   [
     { id: "tape", name: "Tape Measure (makes guides)", key: "T" },
     { id: "dimension", name: "Dimension: click, click, pull out", key: "D" },
     { id: "text", name: "Text label: click a point, then where the label goes", key: "W" },
-    { id: "paint", name: "Paint (Option-click to sample)", key: "B" },
-    { id: "erase", name: "Erase (Shift to hide)", key: "E" },
+    { id: "paint", name: "Paint Bucket (⌘/Option-click samples, Shift-click paints all matching)", key: "B" },
+    { id: "erase", name: "Eraser (Shift hides, Option/Ctrl softens, both unsoften)", key: "E" },
   ],
   [
-    { id: "orbit", name: "Orbit (or hold Space / middle-drag)", key: "O" },
+    { id: "orbit", name: "Orbit (or middle-drag / hold Space)", key: "O" },
+    { id: "pan", name: "Pan (or Shift+middle-drag / right-drag)", key: "H" },
+    { id: "zoom", name: "Zoom (drag up/down; Shift+Z zooms extents)", key: "Z" },
     { id: "section", name: "Section cut: click a face", key: "X" },
   ],
 ];
@@ -87,7 +89,7 @@ export default function App() {
   const [typed, setTyped] = useState("");
   const [toast, setToast] = useState<{ text: string; bad?: boolean } | null>(null);
   const [tab, setTab] = useState<Tab>("outliner");
-  const [styles, setStyles] = useState<Styles>({ xray: false, shadows: false, edges: true, parallel: false });
+  const [styles, setStyles] = useState<Styles>({ xray: false, backEdges: false, shadows: false, edges: true, parallel: false });
   const [section, setSection] = useState(false);
   const [placing, setPlacing] = useState<string | null>(null);
   const [build, setBuildState] = useState<BuildSettings>(loadBuild);
@@ -109,6 +111,11 @@ export default function App() {
   const api = useRef<ViewportApi | null>(null);
   const typedRef = useRef<HTMLInputElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  /** ⌘C / ⌘X: what to paste, and whether it was cut */
+  const clip = useRef<{ ids: number[]; cut: boolean } | null>(null);
+  const [showKeys, setShowKeys] = useState(false);
+  const showKeysRef = useRef(false);
+  showKeysRef.current = showKeys;
 
   const say = useCallback((text: string, bad = false) => {
     setToast({ text, bad });
@@ -160,6 +167,26 @@ export default function App() {
     setSel(EMPTY);
   }, [sel, run]);
 
+  // ⌘V: a copy of the clipboard, selected, with Move ready to place it
+  const paste = async () => {
+    const c = clip.current;
+    if (!c) return say("Nothing to paste: select something and press ⌘C first.", true);
+    const d = await run({ cmd: "duplicate", ids: c.ids, by: [0, 0, 0] });
+    if (!d.ok) return;
+    const ids = d.ids as number[];
+    if (c.cut) {
+      await run({ cmd: "unhide", ids });
+      await run({ cmd: "delete", ids: c.ids });
+      clip.current = { ids, cut: false };
+    }
+    const sc = await loadScene();
+    setScene(sc);
+    const has = (list: { id: number }[]) => ids.filter((i) => list.some((x) => x.id === i));
+    setSel({ faces: has(sc.faces), edges: [], groups: has(sc.groups), instances: has(sc.instances) });
+    chooseTool("move");
+    say("Pasted in place. Click a point on it, then click where it goes.");
+  };
+
   // keyboard: tools, undo, delete, groups, typing into the measurement box
   useEffect(() => {
     const onKey = async (e: KeyboardEvent) => {
@@ -179,6 +206,37 @@ export default function App() {
         await run({ cmd: e.shiftKey ? "redo" : "undo" });
         return;
       }
+      if (mod && k === "y") {
+        // Windows redo
+        e.preventDefault();
+        await run({ cmd: "redo" });
+        return;
+      }
+      if (mod && k === "t") {
+        // Select None
+        e.preventDefault();
+        setSel(EMPTY);
+        return;
+      }
+      if (mod && ["c", "x", "v"].includes(k)) {
+        e.preventDefault();
+        if (k === "v") return void paste();
+        if (isEmpty(sel)) return;
+        clip.current = { ids: selIds(sel), cut: k === "x" };
+        if (k === "x") {
+          // cut: out of sight until pasted (undo brings it back)
+          await run({ cmd: "hide", ids: clip.current.ids });
+          setSel(EMPTY);
+        }
+        say(k === "x" ? "Cut. ⌘V pastes it where you click." : "Copied. ⌘V pastes, then click to place.");
+        return;
+      }
+      if (mod && /^[1-6]$/.test(e.key)) {
+        // standard views (SketchUp for Mac): Iso, Top, Front, Right, Back, Left
+        e.preventDefault();
+        api.current?.view((["iso", "top", "front", "right", "back", "left"] as const)[Number(e.key) - 1]);
+        return;
+      }
       if (mod && k === "a" && scene) {
         e.preventDefault();
         const inGroup = scene.activeGroup;
@@ -191,16 +249,28 @@ export default function App() {
         return;
       }
       if (mod) return;
+      if (e.key === "Escape" && showKeysRef.current) return setShowKeys(false);
+      if (e.key === "?" || (e.shiftKey && e.key === "/")) {
+        e.preventDefault();
+        return setShowKeys((v) => !v);
+      }
       if (e.key === "Delete" || e.key === "Backspace") return void deleteSelection();
       if (e.shiftKey && k === "z") return api.current?.fit();
-      if (k === "g" && sel.faces.length) {
-        await run({ cmd: "group", ids: sel.faces });
-        setSel(EMPTY);
+      if (k === "g") {
+        // Make Component (SketchUp's G)
+        e.preventDefault();
+        const ids = [...sel.faces, ...sel.groups];
+        if (!ids.length) return say("Select faces or groups first, then G makes them a component.", true);
+        const name = window.prompt("Component name", "Component");
+        if (name) {
+          await run({ cmd: "make_component", ids, name });
+          setSel(EMPTY);
+        }
         return;
       }
-      if (k === "h" && !isEmpty(sel)) {
-        await run({ cmd: "hide", ids: selIds(sel) });
-        setSel(EMPTY);
+      if (k === "k") {
+        // Back Edges
+        setStyles((s) => ({ ...s, backEdges: !s.backEdges, xray: false }));
         return;
       }
       if (/^[0-9.\-x/]$/.test(e.key) && !(k === "x" && tool !== "move")) {
@@ -344,6 +414,10 @@ export default function App() {
                   <button onClick={() => file.export("obj")}>Export OBJ…</button>
                   <button onClick={() => file.export("stl")}>Export STL (mm)…</button>
                   <button onClick={file.render}>Render PNG…</button>
+                  <hr />
+                  <button onClick={() => setShowKeys(true)}>
+                    Keyboard shortcuts <kbd>?</kbd>
+                  </button>
                 </div>
               </>
             )}
@@ -456,6 +530,7 @@ export default function App() {
           {(
             [
               ["xray", "X-ray"],
+              ["backEdges", "Back edges"],
               ["shadows", "Shadows"],
               ["edges", "Edges"],
               ["parallel", "Parallel"],
@@ -493,6 +568,7 @@ export default function App() {
         </form>
 
         {toast && <div className={`toast ${toast.bad ? "bad" : ""}`}>{toast.text}</div>}
+        {showKeys && <ShortcutSheet onClose={() => setShowKeys(false)} />}
         {menu && scene && <ContextMenu x={menu.x} y={menu.y} close={() => setMenu(null)} items={contextItems(scene, sel, run, setSel, () => api.current?.fit())} />}
       </main>
 
