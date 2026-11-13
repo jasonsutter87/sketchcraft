@@ -59,7 +59,7 @@ impl Model {
     }
 
     /// Split faces touching `moved` that are no longer flat into triangles.
-    fn fold(&mut self, moved: &BTreeSet<Id>) {
+    pub(crate) fn fold(&mut self, moved: &BTreeSet<Id>) {
         let bent: Vec<Id> = self
             .faces
             .iter()

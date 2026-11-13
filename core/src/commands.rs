@@ -242,6 +242,34 @@ pub enum Command {
         #[serde(default)]
         path: Option<String>,
     },
+    /// Sandbox From Contours: contour edges (or groups of them) -> terrain.
+    TerrainFromContours {
+        ids: Vec<Id>,
+        #[serde(default = "contour_spacing")]
+        spacing: f64,
+    },
+    /// Sandbox From Scratch: a flat triangulated grid.
+    TerrainGrid {
+        #[serde(default)]
+        at: [f64; 3],
+        width: f64,
+        depth: f64,
+        #[serde(default = "one")]
+        spacing: f64,
+    },
+    /// Sandbox Smoove: raise (or lower) a soft round area of a terrain.
+    Smoove { group: Id, at: [f64; 3], radius: f64, height: f64 },
+    /// Sandbox Stamp: flatten a pad under a footprint face, sloping out over `offset`.
+    Stamp {
+        group: Id,
+        face: Id,
+        #[serde(default = "one")]
+        offset: f64,
+    },
+    /// Sandbox Drape: lay edges onto a terrain, splitting its faces.
+    Drape { group: Id, ids: Vec<Id> },
+    /// Sandbox Flip Edge: swap the diagonal between two triangles.
+    FlipEdge { edge: Id },
     /// Volume of a closed group / component (m³), or not a solid.
     Volume { id: Id },
     /// Walls along a path: `thickness` and `height`; `closed` makes a room.
@@ -303,6 +331,10 @@ pub enum Command {
 pub enum Factor {
     Uniform(f64),
     Axes([f64; 3]),
+}
+
+fn contour_spacing() -> f64 {
+    1.0
 }
 
 fn with_model() -> String {
@@ -876,6 +908,15 @@ impl Engine {
                 }
                 let lines: Vec<f64> = cut.segments.iter().flat_map(|(a, b)| [a.x, a.y, a.z, b.x, b.y, b.z]).collect();
                 json!({"regions": cut.regions.len(), "fill": fill, "fillOwners": owners, "lines": lines, "path": path})
+            }
+            Command::TerrainFromContours { ids, spacing } => json!({"group": m.terrain_from_contours(&ids, spacing)?}),
+            Command::TerrainGrid { at, width, depth, spacing } => json!({"group": m.terrain_grid(v3(at), width, depth, spacing)?}),
+            Command::Smoove { group, at, radius, height } => json!({"moved": m.smoove(group, v3(at), radius, height)?}),
+            Command::Stamp { group, face, offset } => json!({"moved": m.stamp(group, face, offset)?}),
+            Command::Drape { group, ids } => json!({"lines": m.drape(group, &ids)?}),
+            Command::FlipEdge { edge } => {
+                m.flip_edge(edge)?;
+                json!({})
             }
             Command::Intersect { ids, with } => json!({"lines": m.intersect(&ids, with != "selection")?}),
             Command::Flip { ids, axis } => json!({"moved": m.flip(&ids, axis_index(&axis)?)?}),

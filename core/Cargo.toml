@@ -16,6 +16,7 @@ path = "src/main.rs"
 [dependencies]
 anyhow = "1"
 base64 = "0.22"
+delaunator = "1"
 earcutr = "0.4"
 font8x8 = "0.3"
 geo = "0.30"

@@ -34,6 +34,7 @@ ORGANIZE
 - units {units: m|cm|mm|ft|in} (display only; geometry is meters); dimension {from, to, offset}; text {at, text, leader?}
 - intersect {ids, with?: model|selection}: Intersect Faces (draws the crossing lines, splitting faces). flip {ids, axis: red|green|blue}: Flip Along
 - section {origin, normal, path?: .svg|.dxf}: section cut lines + filled regions per object; path writes it flat in mm
+- Sandbox: terrain_from_contours {ids: contour edges/groups, spacing?=1}; terrain_grid {at?, width, depth, spacing?=1}; smoove {group, at, radius, height}; stamp {group, face: footprint, offset?=1}; drape {group, ids: edges}; flip_edge {edge}
 - solid {op: union|subtract|intersect|trim|split|outer_shell, ids:[group or instance, ...]}: solid tools on closed shapes; subtract/trim: the first cuts the second. volume {id} -> {solid, volume m3}
 - import_skp {path | data(base64)}: SketchUp files, legacy 6-8 and modern 2013+ (geometry, nested components, colors, textures)
 - insert {asset, at, rotate?}: built-ins door, window, garage_door, tree, palm, car, streetlight, bench, hydrant (doors/windows face -Y, origin bottom-left on the wall).

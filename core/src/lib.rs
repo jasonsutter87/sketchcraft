@@ -19,6 +19,7 @@ pub mod mcp;
 pub mod mesh;
 pub mod model;
 pub mod render;
+pub mod sandbox;
 pub mod scene;
 pub mod section;
 pub mod shapes;
