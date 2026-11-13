@@ -86,6 +86,8 @@ struct Canvas {
     color: Vec<[f32; 3]>,
     depth: Vec<f64>, // 1 - NDC z, larger = nearer
     vp: DMat4,
+    /// how far behind a face an edge may be and still show (depth units)
+    edge_bias: Option<f64>,
 }
 
 impl Canvas {
@@ -169,7 +171,11 @@ impl Canvas {
                     }
                     let i = yi as usize * self.w + xi as usize;
                     // a little bias so edges on a face win against that face
-                    if z * 1.002 >= self.depth[i] {
+                    let shows = match self.edge_bias {
+                        Some(b) => z + b >= self.depth[i],
+                        None => z * 1.002 >= self.depth[i],
+                    };
+                    if shows {
                         self.color[i] = col;
                         if write_depth {
                             self.depth[i] = self.depth[i].max(z);
@@ -328,8 +334,9 @@ pub fn render(model: &Model, opts: &RenderOpts) -> RgbImage {
     let aspect = w as f64 / h as f64;
     let proj = if opts.parallel {
         let half = opts.ortho_height.map(|h| h / 2.0).unwrap_or_else(|| eye.distance(target) * (cam.fov.to_radians() * 0.5).tan());
-        // a parallel camera still sits "in front", so keep w = 1 for clipping
-        DMat4::orthographic_rh_gl(-half * aspect, half * aspect, -half, half, -100_000.0, 100_000.0)
+        // depth range fitted to the model, so depth tests stay precise
+        let reach = model.world_bounds().map(|(lo, hi)| (lo.distance(eye)).max(hi.distance(eye)) + lo.distance(hi)).unwrap_or(1000.0) + 1.0;
+        DMat4::orthographic_rh_gl(-half * aspect, half * aspect, -half, half, -reach, reach)
     } else {
         DMat4::perspective_rh_gl(cam.fov.to_radians(), aspect, NEAR, 100_000.0)
     };
@@ -344,7 +351,14 @@ pub fn render(model: &Model, opts: &RenderOpts) -> RgbImage {
             top[2] + (bot[2] - top[2]) * t,
         ]).take(w));
     }
-    let mut cv = Canvas { w, h, color, depth: vec![0.0; w * h], vp: proj * view };
+    // parallel: depth is linear over 2 x reach; let edges sit up to ~2 cm behind
+    let edge_bias = if opts.parallel {
+        let reach = model.world_bounds().map(|(lo, hi)| (lo.distance(eye)).max(hi.distance(eye)) + lo.distance(hi)).unwrap_or(1000.0) + 1.0;
+        Some(0.02 / reach)
+    } else {
+        None
+    };
+    let mut cv = Canvas { w, h, color, depth: vec![0.0; w * h], vp: proj * view, edge_bias };
 
     if opts.grid && !opts.paper {
         let (lo, hi) = model.world_bounds().unwrap_or((DVec3::splat(-5.0), DVec3::splat(5.0)));
