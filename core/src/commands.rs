@@ -202,11 +202,13 @@ impl Engine {
                 if points.len() < 2 {
                     bail!("a line needs 2 points");
                 }
-                let ids: Vec<Id> = points.iter().map(|p| m.vertex(v3(*p))).collect();
-                let edges: Vec<Id> = ids.windows(2).filter(|w| w[0] != w[1]).map(|w| m.edge(w[0], w[1])).collect();
-                let closed = ids.len() >= 4 && ids.first() == ids.last();
-                let face = if closed { m.add_face(ids[..ids.len() - 1].to_vec()).ok() } else { None };
-                json!({"edges": edges, "face": face})
+                let (mut edges, mut faces) = (vec![], vec![]);
+                for w in points.windows(2) {
+                    let r = m.draw_line(v3(w[0]), v3(w[1]))?;
+                    edges.extend(r.edges);
+                    faces.extend(r.faces);
+                }
+                json!({"edges": edges, "faces": faces, "face": faces.last()})
             }
             Command::Pushpull { face, distance } => {
                 let ids = m.pushpull(face, distance)?;
