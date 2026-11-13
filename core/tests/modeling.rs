@@ -1224,3 +1224,35 @@ fn groups_nest_move_copy_delete_and_lock_together() {
     assert_eq!(e.model.instances.len(), 1);
     assert!(e.model.groups.values().all(|g| g.name != "House copy"));
 }
+
+#[test]
+fn environments_build_around_the_model_as_one_undo_step() {
+    let mut e = Engine::new();
+    box_group(&mut e, [0.0, 0.0, 0.0], [8.0, 10.0, 6.0], "House");
+    let groups0 = e.model.groups.len();
+    for kind in ["suburban", "city", "park", "desert", "waterfront", "studio"] {
+        let r = run(&mut e, json!({"cmd":"environment","kind":kind}));
+        let g = r["group"].as_u64().unwrap() as u32;
+        let env = &e.model.groups[&g];
+        assert!(env.name.starts_with("Environment") && env.locked && env.tag.as_deref() == Some("Environment"), "{kind}: {env:?}");
+        // one environment at a time: the old one is replaced
+        assert_eq!(e.model.groups.values().filter(|x| x.name.starts_with("Environment")).count(), 1, "{kind}");
+        // everything it made sits inside it
+        assert!(e.model.instances.values().all(|i| i.parent.is_some()), "{kind}: assets inside");
+        assert!(e.model.world_faces().len() > 12, "{kind} built something");
+    }
+    assert_eq!(e.model.environment.as_deref(), Some("studio"));
+    // undo takes back exactly one environment
+    run(&mut e, json!({"cmd":"undo"}));
+    assert_eq!(e.model.environment.as_deref(), Some("waterfront"));
+    run(&mut e, json!({"cmd":"environment","kind":"none"}));
+    assert_eq!(e.model.groups.len(), groups0, "none removes it");
+    assert!(e.model.instances.is_empty());
+    let bad = e.exec_json(&json!({"cmd":"environment","kind":"moon"}).to_string());
+    assert_eq!(bad["ok"], false);
+    // an empty group, for organizing: things dragged in later
+    let folder = run(&mut e, json!({"cmd":"group","ids":[],"name":"Upper floor"}))["group"].as_u64().unwrap() as u32;
+    let house = *e.model.groups.keys().next().unwrap();
+    run(&mut e, json!({"cmd":"set_parent","ids":[house],"parent":folder}));
+    assert_eq!(e.model.groups[&house].parent, Some(folder));
+}

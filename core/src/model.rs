@@ -184,6 +184,9 @@ pub struct Model {
     /// Tag name -> visible.
     #[serde(default)]
     pub tags: BTreeMap<String, bool>,
+    /// the ready-made setting it's in ("studio" lights renders differently)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub environment: Option<String>,
     /// a color per tag (for Color by tag)
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub tag_colors: BTreeMap<String, [f32; 3]>,

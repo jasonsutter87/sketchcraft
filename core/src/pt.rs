@@ -309,6 +309,8 @@ pub struct PtOpts {
 }
 
 struct Scene {
+    /// a studio: dark surroundings, no sun; its lights do the work
+    studio: bool,
     bvh: Bvh,
     mats: Vec<Mat>,
     textures: Vec<Texture>,
@@ -385,6 +387,7 @@ fn build_scene(m: &Model, o: &PtOpts) -> Scene {
         }
     }
     Scene {
+        studio: m.environment.as_deref() == Some("studio"),
         bvh: Bvh::build(tris),
         mats,
         textures,
@@ -496,7 +499,7 @@ impl Scene {
         for depth in 0..bounces.max(1) {
             // the model, or the ground plane under it
             let hit = self.bvh.hit(o, d, 1e30);
-            let tg = if d.z < -1e-6 { (self.ground_z - o.z) / d.z } else { f32::MAX };
+            let tg = if d.z < -1e-6 && !self.studio { (self.ground_z - o.z) / d.z } else { f32::MAX };
             let (t, n, kind, albedo, rough) = match hit {
                 Some((t, ti)) if t < tg => {
                     let tr = &self.bvh.tris[ti];
@@ -509,6 +512,11 @@ impl Scene {
                     (t, n, k, c, rr)
                 }
                 _ if tg > 1e-4 && tg < f32::MAX => (tg, Vec3::Z, Kind::Paint, Vec3::new(0.30, 0.30, 0.27), 0.9),
+                _ if self.studio => {
+                    // a dim, neutral room around the set
+                    l += beta * Vec3::splat(0.035);
+                    break;
+                }
                 _ => {
                     let mut s = sky(d, sun);
                     if specular && d.dot(sun) > SUN_COS {
@@ -551,8 +559,8 @@ impl Scene {
             let diffuse = if metal { Vec3::ZERO } else { albedo };
             let wo = -d;
             let nwo = n.dot(wo).max(1e-4);
-            // direct sun
-            let cs = n.dot(sun);
+            // direct sun (none in a studio)
+            let cs = if self.studio { 0.0 } else { n.dot(sun) };
             if cs > 0.0 {
                 // jitter within the sun disk for soft shadows
                 let (tu, tv) = frame(sun);

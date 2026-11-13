@@ -59,8 +59,15 @@ pub enum Command {
         around: Option<Id>,
     },
     /// Pull a face out (positive) or push it in (negative) along its normal.
+    /// `toward`: pull that way whichever way the face happens to look
+    /// (a new rectangle on the ground can face up or down).
     #[serde(alias = "push_pull")]
-    Pushpull { face: Id, distance: f64 },
+    Pushpull {
+        face: Id,
+        distance: f64,
+        #[serde(default)]
+        toward: Option<[f64; 3]>,
+    },
     /// Move faces, edges, vertices or whole groups.
     Move { ids: Vec<Id>, by: [f64; 3] },
     /// Rotate around `center` about `axis` (default: vertical), in degrees.
@@ -497,6 +504,9 @@ pub enum Command {
         #[serde(flatten)]
         opts: RenderOpts,
     },
+    /// Put the model in a ready-made setting: suburban, city, park, desert,
+    /// waterfront, studio; or none to take it away.
+    Environment { kind: String },
     /// Where the real sun is for the model's location at a local date and time.
     Sun {
         #[serde(default)]
@@ -807,6 +817,66 @@ impl Engine {
         r
     }
 
+    /// Build (or replace, or remove) the environment around the model: one
+    /// undo step, in a locked group tagged "Environment".
+    pub fn environment(&mut self, kind: &str) -> Result<Value> {
+        if self.ctx.is_some() {
+            bail!("close the component you're editing first");
+        }
+        let before = self.model.clone();
+        let depth = self.undo.len();
+        let fail = |e: &mut Engine, msg: String| -> Result<Value> {
+            e.model = before.clone();
+            e.undo.truncate(depth);
+            bail!(msg)
+        };
+        // the old one goes
+        let old: Vec<Id> = self.model.groups.iter().filter(|(_, g)| g.name.starts_with("Environment") && g.parent.is_none()).map(|(&k, _)| k).collect();
+        for g in &old {
+            self.model.groups.get_mut(g).unwrap().locked = false;
+        }
+        if !old.is_empty() {
+            self.model.delete(&old)?;
+        }
+        self.model.environment = None;
+        self.model.active_group = None;
+        if kind == "none" {
+            self.undo.push(before);
+            return Ok(json!({"environment": null}));
+        }
+        // around what's there (or a 10 m square at the origin)
+        let (lo, hi) = self.model.world_bounds().unwrap_or((DVec3::new(-5.0, -5.0, 0.0), DVec3::new(5.0, 5.0, 0.0)));
+        let cmds = crate::environment::build(kind, lo, hi)?;
+        let title = crate::environment::KINDS.iter().find(|k| k.0 == kind).map(|k| k.1.split(':').next().unwrap_or(kind)).unwrap_or(kind);
+        let outer = self.model.begin_group(format!("Environment: {title}"));
+        let saved_names = std::mem::take(&mut self.names);
+        for c in cmds {
+            let r = self.exec_json(&c.to_string());
+            if r["ok"] != true {
+                self.names = saved_names;
+                return fail(self, format!("building the {kind} environment: {}", r["error"]));
+            }
+            // pieces made by end_group step back out to the environment group
+            if self.model.active_group.is_none() {
+                self.model.active_group = Some(outer);
+            }
+        }
+        self.names = saved_names;
+        self.model.active_group = None;
+        // placed assets sit inside it too
+        let loose: Vec<Id> = self.model.instances.iter().filter(|(k, i)| i.parent.is_none() && !before.instances.contains_key(k)).map(|(&k, _)| k).collect();
+        self.model.set_parent(&loose, Some(outer))?;
+        self.model.set_tag(&[outer], Some("Environment".into()))?;
+        self.model.tags.entry("Environment".into()).or_insert(true);
+        self.model.groups.get_mut(&outer).unwrap().locked = true;
+        self.model.environment = Some(kind.to_string());
+        // all of it is one undo step
+        self.undo.truncate(depth);
+        self.undo.push(before);
+        self.redo.clear();
+        Ok(json!({"environment": kind, "group": outer}))
+    }
+
     fn resolve(&self, v: &mut Value) -> Result<()> {
         match v {
             Value::String(s) if s.starts_with('@') => {
@@ -821,6 +891,16 @@ impl Engine {
     }
 
     pub fn exec(&mut self, cmd: Command) -> Value {
+        if let Command::Environment { kind } = &cmd {
+            self.revision += 1;
+            return match self.environment(kind) {
+                Ok(mut v) => {
+                    v["ok"] = json!(true);
+                    v
+                }
+                Err(e) => json!({"ok": false, "error": e.to_string()}),
+            };
+        }
         let mutates = cmd.mutates();
         if mutates || matches!(cmd, Command::Undo | Command::Redo) {
             self.revision += 1;
@@ -924,7 +1004,11 @@ impl Engine {
                 let faces = m.follow_me(face, &path, closed)?;
                 json!({"faces": faces})
             }
-            Command::Pushpull { face, distance } => {
+            Command::Pushpull { face, distance, toward } => {
+                let distance = match toward {
+                    Some(t) if m.normal(face).dot(v3(t)) < 0.0 => -distance,
+                    _ => distance,
+                };
                 let ids = m.pushpull(face, distance)?;
                 json!({"face": ids[0], "created": &ids[1..]})
             }
@@ -1326,6 +1410,7 @@ impl Engine {
                 json!({"path": path, "pages": crate::layout::blueprint(&self.model, &path, &sheet, &project, &notes)?, "levels": crate::layout::floor_levels(&self.model)})
             }
             Command::Levels => json!({"levels": crate::layout::floor_levels(&self.model)}),
+            Command::Environment { .. } => bail!("environment runs through Engine::exec"),
             Command::Sun { date, time, utc_offset } => serde_json::to_value(sun_at(&self.model, date.as_deref(), time.as_deref(), utc_offset)?)?,
             Command::DoorSwing { hinge, strike, toward } => {
                 let (h, s, t) = (v3(hinge), v3(strike), v3(toward));
