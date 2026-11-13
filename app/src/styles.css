@@ -1478,3 +1478,62 @@ details.panel-fold {
   width: 15px;
   height: 15px;
 }
+
+/* photoreal render window */
+.sheet.render-dlg {
+  width: min(980px, calc(100vw - 32px));
+}
+
+.render-view {
+  display: grid;
+  place-items: center;
+  min-height: 300px;
+  margin-bottom: 12px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #e9ebf1;
+}
+
+.render-view img {
+  display: block;
+  max-width: 100%;
+  max-height: 60vh;
+}
+
+.render-empty {
+  color: var(--muted, #6b7083);
+  font-size: 13px;
+}
+
+.render-controls {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px 16px;
+  align-items: center;
+}
+
+.render-controls .row {
+  grid-column: 1 / -1;
+}
+
+.seg {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--bg, #f4f5f9);
+}
+
+.seg button {
+  padding: 5px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.seg button.on {
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ask, AskHost } from "./ask";
 import { exec, loadScene, sync, type Reply, type Scene } from "./engine";
 import { Icons, Logo } from "./icons";
-import { BuildTools, ContextMenu, contextItems, EntityInfo, Library, LocationDialog, Outliner, Sandbox, SheetsDialog, ShortcutSheet, Templates, Textures, Views } from "./panels";
+import { BuildTools, ContextMenu, contextItems, EntityInfo, Library, LocationDialog, Outliner, RenderDialog, Sandbox, SheetsDialog, ShortcutSheet, Templates, Textures, Views } from "./panels";
 import { EMPTY, isEmpty, selIds, type Sel } from "./selection";
 import { formatLength, parseLength, UNIT_OPTIONS } from "./units";
 import { pickOpen, pickSave, rememberedFile, rememberFile } from "./files";
@@ -164,6 +164,7 @@ export default function App() {
   const [showKeys, setShowKeys] = useState(false);
   const [showSheets, setShowSheets] = useState(false);
   const [showLocation, setShowLocation] = useState(false);
+  const [showRender, setShowRender] = useState(false);
   // bumps when the section moves, so its height box refreshes
   const [sectionTick, setSectionTick] = useState(0);
   /** Match Photo in progress: the photo being lined up */
@@ -569,15 +570,7 @@ export default function App() {
             <Icons.redo />
           </button>
           <input ref={fileRef} type="file" accept=".obj,.skp,.fbx" hidden onChange={(e) => e.target.files?.[0] && importFile(e.target.files[0])} />
-          <button
-            className="btn primary"
-            onClick={async () => {
-              const path = scene!.doc.replace(/[^/]+$/, `renders/sketchcraft-${Date.now()}.png`);
-              const c = api.current!.camera();
-              const r = await run({ cmd: "render", out: path, width: 1920, height: 1080, camera: c });
-              if (r.ok) say(`Rendered ${path}`);
-            }}
-          >
+          <button className="btn primary" onClick={() => setShowRender(true)} title="A photoreal picture of this view">
             <Icons.camera /> Render
           </button>
         </div>
@@ -736,6 +729,18 @@ export default function App() {
 
         {toast && <div className={`toast ${toast.bad ? "bad" : ""}`}>{toast.text}</div>}
         <AskHost />
+        {showRender && api.current && (
+          <RenderDialog
+            camera={() => api.current!.camera()}
+            aspect={(() => {
+              const c = document.querySelector(".viewport canvas") as HTMLCanvasElement | null;
+              return c && c.clientHeight ? c.clientWidth / c.clientHeight : 1.6;
+            })()}
+            name={(currentFile?.split("/").pop() ?? "model").replace(/\.sketchcraft$/, "")}
+            onClose={() => setShowRender(false)}
+            onToast={say}
+          />
+        )}
         {showKeys && <ShortcutSheet onClose={() => setShowKeys(false)} />}
         {showLocation && (
           <LocationDialog

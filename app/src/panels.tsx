@@ -4,7 +4,7 @@
 import { useEffect, useState } from "react";
 import { ask } from "./ask";
 import { ASSETS, exec, type Reply, type Scene } from "./engine";
-import { pickOpen } from "./files";
+import { pickOpen, pickSave } from "./files";
 import { Icons } from "./icons";
 import { EMPTY, isEmpty, selIds, type Sel } from "./selection";
 import { TEMPLATES } from "./templates";
@@ -1095,6 +1095,90 @@ export function LocationDialog({ onAdd, onClose, current }: { onAdd: (p: { lat: 
           <button className="btn small ghost" onClick={onClose}>
             Cancel
           </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+/** Photoreal render of the current view: quality, sun, then save. */
+export function RenderDialog({ camera, aspect, name, onClose, onToast }: { camera: () => Cam; aspect: number; name: string; onClose: () => void; onToast: (t: string, bad?: boolean) => void }) {
+  const QUALITY = [
+    { id: "preview", label: "Preview", samples: 16, long: 960, about: "a few seconds" },
+    { id: "good", label: "Good", samples: 64, long: 1600, about: "under a minute" },
+    { id: "final", label: "Final", samples: 256, long: 2400, about: "a few minutes" },
+  ];
+  const [q, setQ] = useState("preview");
+  const [autoSun, setAutoSun] = useState(true);
+  const [az, setAz] = useState(200);
+  const [alt, setAlt] = useState(35);
+  const [busy, setBusy] = useState(false);
+  const [img, setImg] = useState<string | null>(null);
+  const [secs, setSecs] = useState<number | null>(null);
+  const cam = useRef(camera());
+  const go = async () => {
+    const preset = QUALITY.find((x) => x.id === q)!;
+    const w = aspect >= 1 ? preset.long : Math.round(preset.long * aspect);
+    const h = aspect >= 1 ? Math.round(preset.long / aspect) : preset.long;
+    setBusy(true);
+    const r = await exec({ cmd: "photoreal", width: w, height: h, samples: preset.samples, camera: cam.current, ...(autoSun ? {} : { sun_azimuth: az }), sun_altitude: alt });
+    setBusy(false);
+    if (r.ok) {
+      setImg(r.data as string);
+      setSecs(r.seconds as number);
+    } else onToast(r.error ?? "The render didn't work", true);
+  };
+  const save = async () => {
+    if (!img) return;
+    const path = await pickSave(`${name} render.png`, "png", "PNG image");
+    if (!path) return;
+    const r = await exec({ cmd: "save_image", path, data: img });
+    if (r.ok) onToast(`Saved ${path.split("/").pop()}`);
+  };
+  const compass = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"][Math.round(((az % 360) + 360) % 360 / 45) % 8];
+  return (
+    <div className="sheet-backdrop" onClick={() => !busy && onClose()}>
+      <div className="sheet render-dlg" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Render">
+        <div className="sheet-head">
+          <b>Render</b>
+          <span className="muted">Photoreal: sunlight, sky, soft shadows, reflections.</span>
+        </div>
+        <div className="render-view">{img ? <img src={img} alt="Render" /> : <div className="render-empty">{busy ? "Rendering…" : "Pick a quality and press Render."}</div>}</div>
+        <div className="render-controls">
+          <div className="seg">
+            {QUALITY.map((x) => (
+              <button key={x.id} className={q === x.id ? "on" : ""} onClick={() => setQ(x.id)} title={x.about} disabled={busy}>
+                {x.label}
+              </button>
+            ))}
+          </div>
+          <label className="field check">
+            <input type="checkbox" checked={autoSun} onChange={(e) => setAutoSun(e.target.checked)} />
+            <span>Sun placed for this view</span>
+          </label>
+          {!autoSun && (
+            <label className="field">
+              <span>Sun from {compass}</span>
+              <input type="range" min={0} max={359} value={az} onChange={(e) => setAz(Number(e.target.value))} />
+            </label>
+          )}
+          <label className="field">
+            <span>Sun height {alt}°</span>
+            <input type="range" min={5} max={85} value={alt} onChange={(e) => setAlt(Number(e.target.value))} />
+          </label>
+          <div className="row gap">
+            <button className="btn small" onClick={go} disabled={busy}>
+              {busy ? "Rendering…" : img ? "Render again" : "Render"}
+            </button>
+            <button className="btn small ghost" onClick={save} disabled={!img || busy}>
+              Save PNG…
+            </button>
+            <button className="btn small ghost" onClick={onClose} disabled={busy}>
+              Close
+            </button>
+            {secs != null && !busy && <span className="muted small">{secs.toFixed(1)} s</span>}
+          </div>
         </div>
       </div>
     </div>
