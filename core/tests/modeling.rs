@@ -1054,8 +1054,9 @@ fn blueprint_finds_floors_and_draws_them() {
     assert!(pdf.contains("Main floor plan") && pdf.contains("Upper floor plan") && pdf.contains("Front elevation"));
     assert!(pdf.contains("1:50") || pdf.contains("1:75") || pdf.contains("1:100"), "a true scale");
     assert!(pdf.contains("AREA") && pdf.contains("TOTAL"), "areas in the title block");
-    // 6 x 8 m outside: 48 m2 a floor
-    assert!(pdf.contains("48.0 m2"), "gross floor area");
+    // walls centered on a 6 x 8 m outline, 0.2 m thick: 6.2 x 8.2 m outside
+    let areas: Vec<&str> = pdf.lines().filter(|l| l.contains(" m2")).collect();
+    assert!(pdf.contains("50.8 m2") && pdf.contains("TOTAL   101.7 m2"), "gross floor area: {areas:?}");
     // a door swing: hinge, strike, the side it opens to
     let r = run(&mut e, json!({"cmd":"door_swing","hinge":[1,0,0.02],"strike":[2,0,0.02],"toward":[1.5,3,0]}));
     let id = r["swing"].as_u64().unwrap() as u32;
