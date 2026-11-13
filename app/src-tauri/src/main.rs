@@ -33,6 +33,7 @@ fn sync(state: tauri::State<App>) -> bool {
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(App(Mutex::new(Live::open(default_doc()))))
         .invoke_handler(tauri::generate_handler![exec, scene, sync])
         .run(tauri::generate_context!())
