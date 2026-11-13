@@ -1132,3 +1132,18 @@ fn photoreal_render_lights_shadows_and_glass() {
     }
     assert!(hi - lo > 150.0, "light and shade: {lo}..{hi}");
 }
+
+#[test]
+fn solar_position_matches_noaa() {
+    // Denver (39.74 N, 104.99 W), 2026-06-21 12:00 MDT (UTC-6) is an hour
+    // before solar noon (hour angle -15 deg, declination 23.44 deg): by hand,
+    // altitude asin(.6393*.3978 + .7690*.9175*.9659) = 69.4, azimuth 137.7
+    let (az, alt) = sketchcraft::pt::solar_position(39.74, -104.99, 2026, 6, 21, 12.0, -6.0);
+    assert!((az - 137.7).abs() < 1.5 && (alt - 69.4).abs() < 0.6, "{az} {alt}");
+    // solar noon at the equinox on the equator: nearly overhead
+    let (_, alt) = sketchcraft::pt::solar_position(0.0, 0.0, 2026, 3, 20, 12.1, 0.0);
+    assert!(alt > 85.0, "{alt}");
+    // afternoon sun is in the west
+    let (az, _) = sketchcraft::pt::solar_position(40.0, -98.0, 2026, 6, 21, 17.0, -7.0 + 1.0);
+    assert!(az > 240.0 && az < 300.0, "{az}");
+}
