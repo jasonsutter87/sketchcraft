@@ -491,3 +491,47 @@ fn image_materials_paint_and_project() {
     assert_eq!(e.exec_json(&json!({"cmd":"paint","ids":[front],"material":"Nope"}).to_string())["ok"], false);
     assert_eq!(e.exec_json(&json!({"cmd":"texture","name":"X","data":"hello"}).to_string())["ok"], false);
 }
+
+#[test]
+fn big_obj_imports_fast_as_one_component() {
+    // a 200 x 200 grid of quads, every face written twice (front and back,
+    // like many double-sided exports), with an .mtl next to it
+    let dir = std::env::temp_dir().join(format!("sketchcraft-bigobj-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("grid.mtl"), "newmtl Paint\nKd 1 0 0\n").unwrap();
+    let mut s = String::from("mtllib grid.mtl\no Ground\nusemtl Paint\n");
+    let n = 200;
+    for y in 0..=n {
+        for x in 0..=n {
+            s += &format!("v {} 0 {}\n", x as f64 * 0.1, -(y as f64) * 0.1);
+        }
+    }
+    let at = |x: usize, y: usize| y * (n + 1) + x + 1;
+    for y in 0..n {
+        for x in 0..n {
+            let (a, b, c, d) = (at(x, y), at(x + 1, y), at(x + 1, y + 1), at(x, y + 1));
+            s += &format!("f {a} {b} {c} {d}\nf {d} {c} {b} {a}\n");
+        }
+    }
+    let path = dir.join("Big+Grid.obj");
+    std::fs::write(&path, s).unwrap();
+    let mut e = Engine::new();
+    let t = std::time::Instant::now();
+    let r = run(&mut e, json!({"cmd":"import_obj","path":path.to_string_lossy()}));
+    assert!(t.elapsed().as_secs_f64() < 10.0, "took {:?}", t.elapsed());
+    assert_eq!(r["faces"], n * n, "the back copies are dropped");
+    let info = run(&mut e, json!({"cmd":"info"}));
+    assert_eq!(info["faces"], 0, "the mesh lives in a component, not the model");
+    let scene = sketchcraft::scene::build(&e.model, None);
+    assert_eq!(scene["components"][0]["name"], "Big Grid");
+    assert_eq!(scene["colors"][0].as_f64(), Some(1.0), "color from the .mtl");
+    // the grid is flat: no hard edges inside it, only its border
+    assert_eq!(scene["edges"].as_array().unwrap().len() / 6, 4 * n);
+    // drawing next to it stays quick
+    let t = std::time::Instant::now();
+    for i in 0..20 {
+        run(&mut e, json!({"cmd":"rect","from":[30 + i,0,0],"to":[30.5 + i as f64,1,0]}));
+    }
+    assert!(t.elapsed().as_secs_f64() < 2.0, "20 edits took {:?}", t.elapsed());
+    std::fs::remove_dir_all(dir).ok();
+}
