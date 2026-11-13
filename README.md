@@ -35,8 +35,9 @@ drive with the mouse.
 - **Units:** meters, centimeters, millimeters, feet & inches, or inches. Type
   lengths any way: `12'`, `8'6"`, `250cm`, `2.5m`.
 - **Files:** a File menu with New / Open / Save / Save As; `.sketchcraft` documents,
-  glTF (.glb), OBJ and STL export; OBJ import; and **legacy SketchUp (.skp) import**
-  for SketchUp 6–8 files (geometry, colors, components and placements).
+  glTF (.glb), OBJ and STL export; OBJ import; and **SketchUp (.skp) import** for
+  both legacy SketchUp 6–8 files and modern 2013+ files (checked against 26.2):
+  geometry, nested components and placements, colors and textures.
 
 ## Install
 
@@ -125,11 +126,12 @@ This repo's `.mcp.json` sets it up for Claude Code.
 ## Status
 
 Young and moving fast. Next up: photo match (line a photo up with the model),
-textures in exports, newer SketchUp files (2013+), solid tools
+textures in exports, solid tools
 (union/subtract), intersect faces, and parallel / perpendicular inference.
 
-The `.skp` importer is a clean-room reader for the legacy MFC CArchive format,
-worked out from sample files for interoperability. It skips what it doesn't
+The `.skp` importer is a clean-room reader, worked out from sample files for
+interoperability: `core/src/skp.rs` reads the legacy MFC CArchive format and
+`core/src/skp_vff.rs` the modern ZIP + tagged-record format. It skips what it doesn't
 understand (dimensions, text, textures inside the file) rather than guess.
 
 ## License and trademarks
