@@ -8,13 +8,13 @@ import { LineGeometry } from "three/examples/jsm/lines/LineGeometry.js";
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import type { FaceInfo, Reply, Scene, Vec3 } from "./engine";
 import { AXIS_COLORS, closestOnLine, infer, rayFrom, V, type Axis, type InferEnv, type Pick, type Snap } from "./inference";
-import { EMPTY, merge, selIds, toggle, type Sel } from "./selection";
+import { combine, EMPTY, selIds, selMode, toggle, type Sel, type SelMode } from "./selection";
 import { formatLength, parseLengths } from "./units";
 
 export type Tool =
   | "select" | "line" | "arc" | "rect" | "circle" | "polygon"
   | "push" | "offset" | "followme" | "move" | "rotate" | "scale"
-  | "tape" | "dimension" | "text" | "paint" | "erase" | "orbit" | "section" | "place"
+  | "tape" | "dimension" | "text" | "paint" | "erase" | "orbit" | "pan" | "zoom" | "section" | "place"
   | "wall" | "stairs" | "roof" | "column";
 
 /** Settings for the building-block tools (lengths in meters). */
@@ -33,6 +33,8 @@ export interface BuildSettings {
 
 export interface Styles {
   xray: boolean;
+  /** hidden edges shown dashed (SketchUp's Back Edges, K) */
+  backEdges: boolean;
   shadows: boolean;
   edges: boolean;
   parallel: boolean;
@@ -157,10 +159,10 @@ type Op =
   | { t: "push"; face: FaceInfo; origin: THREE.Vector3; n: THREE.Vector3; d: number; dragged: boolean }
   | { t: "offset"; face: FaceInfo; start: THREE.Vector3; d: number }
   | { t: "move"; base: THREE.Vector3; ids: number[]; delta: THREE.Vector3; copy: boolean }
-  | { t: "rotate"; center: THREE.Vector3; n: THREE.Vector3; ref: THREE.Vector3 | null; angle: number; ids: number[] }
+  | { t: "rotate"; center: THREE.Vector3; n: THREE.Vector3; ref: THREE.Vector3 | null; angle: number; ids: number[]; copy?: boolean }
   | { t: "scale"; center: THREE.Vector3; start: THREE.Vector3; factor: number; ids: number[] }
   | { t: "tape"; p0: THREE.Vector3; along: THREE.Vector3 | null; cur: THREE.Vector3 }
-  | { t: "box"; x0: number; y0: number; x1: number; y1: number; additive: boolean }
+  | { t: "box"; x0: number; y0: number; x1: number; y1: number; mode: SelMode }
   | { t: "dim"; a: THREE.Vector3; b: THREE.Vector3 | null; off: THREE.Vector3; cur: THREE.Vector3 }
   | { t: "text"; leader: THREE.Vector3; cur: THREE.Vector3 }
   | { t: "wall"; pts: THREE.Vector3[]; cur: THREE.Vector3 }
@@ -216,6 +218,12 @@ export default function Viewport(props: Props) {
     lock: Axis | null;
     hover: number | null;
     hoverEdge: number | null;
+    /** last inference shown (Shift locks to it) */
+    snap: Snap | null;
+    /** the lock came from holding Shift (released with it) */
+    shiftLock: boolean;
+    /** Zoom tool drag */
+    zoomY: number | null;
     space: boolean;
     spaceUsed: boolean;
     fitted: boolean;
@@ -228,7 +236,7 @@ export default function Viewport(props: Props) {
     labels: LabelSpec[];
     liveLabels: LabelSpec[];
     labelEls: Map<string, HTMLDivElement>;
-  }>({ press: null, labels: [], liveLabels: [], labelEls: new Map(), op: null, last: null, lock: null, hover: null, hoverEdge: null, space: false, spaceUsed: false, fitted: false, fitNext: false, section: null, segs: { circle: 24, polygon: 6 }, rightDown: null, selOverride: null });
+  }>({ press: null, labels: [], liveLabels: [], labelEls: new Map(), op: null, last: null, lock: null, hover: null, hoverEdge: null, snap: null, shiftLock: false, zoomY: null, space: false, spaceUsed: false, fitted: false, fitNext: false, section: null, segs: { circle: 24, polygon: 6 }, rightDown: null, selOverride: null });
 
   // dev builds: inspect the tool state from the console (window.__sketchcraft)
   if (import.meta.env.DEV) (window as unknown as { __sketchcraft: unknown }).__sketchcraft = st;
@@ -403,7 +411,7 @@ export default function Viewport(props: Props) {
     T.catcher.visible = styles.shadows;
     buildModel();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [styles.xray, styles.shadows, styles.edges, styles.parallel]);
+  }, [styles.xray, styles.shadows, styles.edges, styles.parallel, styles.backEdges]);
 
   // ---------------------------------------------------------------- labels
   /** Keep one DOM label per spec; positions are updated every frame. */
@@ -565,6 +573,15 @@ export default function Viewport(props: Props) {
       eg.setAttribute("position", new THREE.Float32BufferAttribute(s.edges, 3));
       T.model.add(new THREE.LineSegments(eg, new THREE.LineBasicMaterial({ color: EDGE_COLOR, clippingPlanes: clip })));
     }
+    if (live.current.styles.backEdges && !xray && s.edges.length) {
+      // the same edges again, dashed and drawn through faces
+      const bg = new THREE.BufferGeometry();
+      bg.setAttribute("position", new THREE.Float32BufferAttribute(s.edges, 3));
+      const back = new THREE.LineSegments(bg, new THREE.LineDashedMaterial({ color: 0x7a7f94, dashSize: 0.12, gapSize: 0.09, depthTest: false, depthWrite: false, transparent: true, opacity: 0.55, clippingPlanes: clip }));
+      back.computeLineDistances();
+      back.renderOrder = 5; // after the faces, so they show through
+      T.model.add(back);
+    }
     if (xray && s.softEdges.length) {
       const sg = new THREE.BufferGeometry();
       sg.setAttribute("position", new THREE.Float32BufferAttribute(s.softEdges, 3));
@@ -658,7 +675,7 @@ export default function Viewport(props: Props) {
   function setOrbitButtons() {
     const T = t.current!;
     T.controls.mouseButtons = {
-      LEFT: st.current.space || live.current.tool === "orbit" ? THREE.MOUSE.ROTATE : (null as unknown as THREE.MOUSE),
+      LEFT: st.current.space || live.current.tool === "orbit" ? THREE.MOUSE.ROTATE : live.current.tool === "pan" ? THREE.MOUSE.PAN : (null as unknown as THREE.MOUSE),
       MIDDLE: THREE.MOUSE.ROTATE,
       RIGHT: THREE.MOUSE.PAN,
     };
@@ -859,7 +876,24 @@ export default function Viewport(props: Props) {
     return { x: (q.x * 0.5 + 0.5) * r.width, y: (-q.y * 0.5 + 0.5) * r.height };
   }
 
+  /** Move the camera toward (f < 1) or away from the target. */
+  function dolly(f: number) {
+    const T = t.current;
+    if (!T) return;
+    if (T.camera === T.ortho) {
+      T.ortho.zoom = THREE.MathUtils.clamp(T.ortho.zoom / f, 0.02, 200);
+      T.ortho.updateProjectionMatrix();
+    } else {
+      const target = T.controls.target;
+      const off = T.camera.position.clone().sub(target).multiplyScalar(f);
+      if (off.length() < 0.3) return;
+      T.camera.position.copy(target).add(off);
+    }
+    T.controls.update();
+  }
+
   function showSnap(sn: Snap) {
+    st.current.snap = sn;
     if (sn.from) t.current!.preview.add(polyline([sn.from, sn.p], sn.axis != null ? AXIS_COLORS[sn.axis] : 0x8a8ea0, false, true));
     const r = rect();
     const q = sn.p.clone().project(t.current!.camera);
@@ -1147,8 +1181,15 @@ export default function Viewport(props: Props) {
     if (op?.t !== "rotate" || !op.ref) return;
     st.current.op = null;
     clearPreview();
-    const r = await run({ cmd: "rotate", ids: op.ids, center: arr(op.center), axis: arr(op.n), angle: r4(op.angle) });
-    if (r.ok) st.current.last = { t: "rotate", ids: op.ids, center: op.center, n: op.n, angle: op.angle };
+    let ids = op.ids;
+    if (op.copy) {
+      // Option / Ctrl: rotate a copy, leave the original
+      const d = await run({ cmd: "duplicate", ids, by: [0, 0, 0] });
+      if (!d.ok) return;
+      ids = d.ids as number[];
+    }
+    const r = await run({ cmd: "rotate", ids, center: arr(op.center), axis: arr(op.n), angle: r4(op.angle) });
+    if (r.ok) st.current.last = { t: "rotate", ids, center: op.center, n: op.n, angle: op.angle };
   }
 
   async function commitScale() {
@@ -1207,7 +1248,13 @@ export default function Viewport(props: Props) {
     const move = (e: PointerEvent) => {
       const L = live.current;
       if (st.current.space && e.buttons & 1) st.current.spaceUsed = true;
-      if (!L.scene || st.current.space || L.tool === "orbit" || (e.buttons & 6) !== 0) return;
+      if (L.tool === "zoom" && e.buttons & 1 && st.current.zoomY != null) {
+        const dy = e.clientY - st.current.zoomY;
+        st.current.zoomY = e.clientY;
+        dolly(Math.exp(dy * 0.01));
+        return;
+      }
+      if (!L.scene || st.current.space || L.tool === "orbit" || L.tool === "pan" || L.tool === "zoom" || (e.buttons & 6) !== 0) return;
       const op = st.current.op;
       const lock = st.current.lock;
       const E = env();
@@ -1433,7 +1480,12 @@ export default function Viewport(props: Props) {
         st.current.rightDown = { x: e.clientX, y: e.clientY };
         return;
       }
-      if (e.button !== 0 || st.current.space || L.tool === "orbit" || !L.scene) return;
+      if (L.tool === "zoom" && e.button === 0) {
+        st.current.zoomY = e.clientY;
+        el.setPointerCapture(e.pointerId);
+        return;
+      }
+      if (e.button !== 0 || st.current.space || L.tool === "orbit" || L.tool === "pan" || !L.scene) return;
       const E = env();
       const op = st.current.op;
       const sel = selNow();
@@ -1460,12 +1512,12 @@ export default function Viewport(props: Props) {
               return;
             }
           }
-          if (he != null) return L.setSel(toggle(sel, "edges", he, e.shiftKey));
+          if (he != null) return L.setSel(toggle(sel, "edges", he, selMode(e)));
           if (h) {
             const ent = entityOf(h);
-            return L.setSel(toggle(sel, ent.kind, ent.id, e.shiftKey));
+            return L.setSel(toggle(sel, ent.kind, ent.id, selMode(e)));
           }
-          st.current.op = { t: "box", x0: e.clientX, y0: e.clientY, x1: e.clientX, y1: e.clientY, additive: e.shiftKey };
+          st.current.op = { t: "box", x0: e.clientX, y0: e.clientY, x1: e.clientX, y1: e.clientY, mode: selMode(e) };
           el.setPointerCapture(e.pointerId);
           return;
         }
@@ -1560,8 +1612,8 @@ export default function Viewport(props: Props) {
           }
           const ids = selIds(s2);
           const sn = infer(E, e, {});
-          if (L.tool === "move") st.current.op = { t: "move", base: sn.p, ids, delta: new THREE.Vector3(), copy: e.altKey };
-          else if (L.tool === "rotate") st.current.op = { t: "rotate", center: sn.p, n: sn.face ? V(sn.face.normal) : UP.clone(), ref: null, angle: 0, ids };
+          if (L.tool === "move") st.current.op = { t: "move", base: sn.p, ids, delta: new THREE.Vector3(), copy: e.altKey || e.ctrlKey };
+          else if (L.tool === "rotate") st.current.op = { t: "rotate", center: sn.p, n: sn.face ? V(sn.face.normal) : UP.clone(), ref: null, angle: 0, ids, copy: e.altKey || e.ctrlKey };
           else {
             const pos = trianglesOf(ownersOf(s2));
             const b = new THREE.Box3();
@@ -1651,8 +1703,8 @@ export default function Viewport(props: Props) {
         case "paint": {
           const h = pick(e);
           if (!h) return;
-          if (e.altKey) {
-            // eyedropper: a texture if the face has one, else its color
+          if (e.altKey || e.metaKey) {
+            // eyedropper (Option on Windows-style keys, Cmd on Mac, as in SketchUp): a texture if the face has one, else its color
             const s = L.scene;
             const i = s.triFace.indexOf(h.owner);
             if (i >= 0 && s.triTex?.[i] >= 0) return L.setPaintMaterial(s.textures[s.triTex[i]]);
@@ -1664,14 +1716,25 @@ export default function Viewport(props: Props) {
           }
           const ent = entityOf(h);
           if (ent.kind === "instances") return L.onToast("Double-click a component with Select to open it, then paint inside.", true);
-          await run(L.paintMaterial ? { cmd: "paint", ids: [ent.id], material: L.paintMaterial } : { cmd: "paint", ids: [ent.id], color: L.color });
+          let targets = [ent.id];
+          if (e.shiftKey && ent.kind === "faces") {
+            // Shift: every face here that has the same material (SketchUp's Replace)
+            const s = L.scene;
+            const f0 = s.faces.find((f) => f.id === ent.id);
+            if (f0) targets = s.faces.filter((f) => f.group === f0.group && f.material === f0.material && !f.hidden).map((f) => f.id);
+          }
+          await run(L.paintMaterial ? { cmd: "paint", ids: targets, material: L.paintMaterial } : { cmd: "paint", ids: targets, color: L.color });
           return;
         }
         case "erase": {
           const he = pickEdge(e);
-          if (he != null) return void (await run({ cmd: e.shiftKey ? "hide" : "delete", ids: [he] }));
+          const soften = e.altKey || e.ctrlKey;
+          if (he != null) {
+            if (soften) return void (await run({ cmd: "soften", ids: [he], soft: !e.shiftKey }));
+            return void (await run({ cmd: e.shiftKey ? "hide" : "delete", ids: [he] }));
+          }
           const h = pick(e);
-          if (h) await run({ cmd: e.shiftKey ? "hide" : "delete", ids: [entityOf(h).id] });
+          if (h && !soften) await run({ cmd: e.shiftKey ? "hide" : "delete", ids: [entityOf(h).id] });
           return;
         }
         case "section": {
@@ -1746,16 +1809,19 @@ export default function Viewport(props: Props) {
         else op.dragged = false;
         return;
       }
+      if (st.current.zoomY != null) {
+        st.current.zoomY = null;
+        return;
+      }
       if (op?.t === "box") {
         el.releasePointerCapture(e.pointerId);
         st.current.op = null;
         setBox(null);
         if (Math.hypot(op.x1 - op.x0, op.y1 - op.y0) < 4) {
-          if (!op.additive) L.setSel(EMPTY);
+          if (op.mode === "replace") L.setSel(EMPTY);
           return;
         }
-        const found = boxSelect(op);
-        L.setSel(op.additive ? merge(selNow(), found) : found);
+        L.setSel(combine(selNow(), boxSelect(op), op.mode));
       }
     };
 
@@ -1804,6 +1870,17 @@ export default function Viewport(props: Props) {
         if (isDown) st.current.spaceUsed = false;
         else if (!st.current.spaceUsed) live.current.setTool("select"); // tap Space = Select
         setOrbitButtons();
+        return;
+      }
+      // hold Shift to lock the direction you're inferring (SketchUp)
+      if (e.key === "Shift" && !typing) {
+        if (e.type === "keydown" && !e.repeat && st.current.op && st.current.lock == null && st.current.snap?.axis != null) {
+          st.current.lock = st.current.snap.axis;
+          st.current.shiftLock = true;
+        } else if (e.type === "keyup" && st.current.shiftLock) {
+          st.current.lock = null;
+          st.current.shiftLock = false;
+        }
         return;
       }
       if (e.type !== "keydown" || typing) return;
