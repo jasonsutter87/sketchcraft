@@ -284,6 +284,18 @@ pub enum Command {
     FlipEdge { edge: Id },
     /// Volume of a closed group / component (m³), or not a solid.
     Volume { id: Id },
+    /// Import a binary FBX (7.x): `path`, or the file as base64 in `data`.
+    /// The file becomes one component; each mesh a group inside it.
+    ImportFbx {
+        #[serde(default)]
+        path: Option<String>,
+        #[serde(default)]
+        data: Option<String>,
+        #[serde(default)]
+        at: [f64; 3],
+        #[serde(default)]
+        name: Option<String>,
+    },
     /// Walls along a path: `thickness` and `height`; `closed` makes a room.
     Wall {
         points: Vec<[f64; 3]>,
@@ -952,6 +964,17 @@ impl Engine {
                 Some(v) => json!({"solid": true, "volume": v}),
                 None => json!({"solid": false}),
             },
+            Command::ImportFbx { path, data, at, name } => {
+                use base64::Engine as _;
+                let bytes = match (data, &path) {
+                    (Some(b64), _) => base64::engine::general_purpose::STANDARD.decode(b64.trim())?,
+                    (None, Some(p)) => std::fs::read(p)?,
+                    _ => bail!("import_fbx needs a path or data"),
+                };
+                let label = name.or_else(|| path.as_deref().and_then(|p| std::path::Path::new(p).file_stem()).map(|s| tidy_name(&s.to_string_lossy()))).unwrap_or_else(|| "FBX model".into());
+                let r = crate::fbx::import(m, &bytes, &label, v3(at))?;
+                json!({"instance": r.instance, "component": r.component, "meshes": r.meshes, "faces": r.faces})
+            }
             Command::Wall { points, thickness, height, closed } => {
                 let pts: Vec<DVec3> = points.into_iter().map(v3).collect();
                 json!({"group": m.wall(&pts, thickness, height, closed)?})
