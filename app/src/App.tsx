@@ -373,6 +373,15 @@ export default function App() {
       const r = await run(cmd);
       if (r.ok) say(`Exported ${path.split("/").pop()}`);
     },
+    section: async (kind: "svg" | "dxf") => {
+      const plane = api.current?.sectionPlane();
+      if (!plane) return say("Cut a section first: X, then click a face.", true);
+      const base = (currentFile?.split("/").pop() ?? "model").replace(/\.sketchcraft$/, "");
+      const path = await pickSave(`${base} section.${kind}`, kind, kind.toUpperCase());
+      if (!path) return;
+      const r = await run({ cmd: "section", ...plane, path });
+      if (r.ok) say(`Exported the section cut to ${path.split("/").pop()}`);
+    },
     render: async () => {
       const base = (currentFile?.split("/").pop() ?? "model").replace(/\.sketchcraft$/, "");
       const path = await pickSave(`${base}.png`, "png", "PNG image");
@@ -414,6 +423,12 @@ export default function App() {
                   <button onClick={() => file.export("obj")}>Export OBJ…</button>
                   <button onClick={() => file.export("stl")}>Export STL (mm)…</button>
                   <button onClick={file.render}>Render PNG…</button>
+                  {section && (
+                    <>
+                      <button onClick={() => file.section("svg")}>Export section cut (SVG)…</button>
+                      <button onClick={() => file.section("dxf")}>Export section cut (DXF)…</button>
+                    </>
+                  )}
                   <hr />
                   <button onClick={() => setShowKeys(true)}>
                     Keyboard shortcuts <kbd>?</kbd>
