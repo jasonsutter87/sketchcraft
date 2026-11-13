@@ -131,7 +131,15 @@ impl Model {
                     .map(|v| {
                         *map.entry(*v).or_insert_with(|| {
                             let p = m.p(*v) + by;
-                            m.vertex_in(p, f.group)
+                            if by.length() < crate::model::WELD {
+                                // a copy in place (to rotate, or paste): its own
+                                // vertices, or moving it would drag the original
+                                let id = m.new_id();
+                                m.vertices.insert(id, crate::model::Vertex { p, group: f.group });
+                                id
+                            } else {
+                                m.vertex_in(p, f.group)
+                            }
                         })
                     })
                     .collect()
