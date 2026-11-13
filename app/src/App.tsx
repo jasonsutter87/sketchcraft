@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { exec, loadScene, sync, type Reply, type Scene } from "./engine";
 import { Icons, Logo } from "./icons";
-import { BuildTools, ContextMenu, contextItems, EntityInfo, Library, Outliner, Sandbox, ShortcutSheet, Textures, Views } from "./panels";
+import { BuildTools, ContextMenu, contextItems, EntityInfo, Library, Outliner, Sandbox, SheetsDialog, ShortcutSheet, Textures, Views } from "./panels";
 import { EMPTY, isEmpty, selIds, type Sel } from "./selection";
 import { UNIT_OPTIONS } from "./units";
 import { pickOpen, pickSave, rememberedFile, rememberFile } from "./files";
@@ -133,6 +133,7 @@ export default function App() {
   /** ⌘C / ⌘X: what to paste, and whether it was cut */
   const clip = useRef<{ ids: number[]; cut: boolean } | null>(null);
   const [showKeys, setShowKeys] = useState(false);
+  const [showSheets, setShowSheets] = useState(false);
   /** Match Photo in progress: the photo being lined up */
   const [matching, setMatching] = useState<{ src: string; width: number; height: number } | null>(null);
   const startMatch = async (file: File) => {
@@ -483,6 +484,7 @@ export default function App() {
                   <button onClick={() => file.export("dxf")}>Export 3D DXF (mm)…</button>
                   <button onClick={() => file.export("pdf")}>Export PDF (this view)…</button>
                   <button onClick={file.animation}>Export animation (MP4)…</button>
+                  <button onClick={() => setShowSheets(true)}>Drawing sheets (PDF)…</button>
                   <button onClick={file.render}>Render PNG…</button>
                   {section && (
                     <>
@@ -647,6 +649,20 @@ export default function App() {
 
         {toast && <div className={`toast ${toast.bad ? "bad" : ""}`}>{toast.text}</div>}
         {showKeys && <ShortcutSheet onClose={() => setShowKeys(false)} />}
+        {showSheets && scene && (
+          <SheetsDialog
+            scene={scene}
+            onClose={() => setShowSheets(false)}
+            onMake={async (spec) => {
+              const path = await pickSave(`${spec.project} sheets.pdf`, "pdf", "PDF");
+              if (!path) return;
+              setShowSheets(false);
+              say("Drawing the sheets…");
+              const r = await run({ cmd: "sheets", path, ...spec });
+              if (r.ok) say(`Made ${r.pages} sheet${r.pages === 1 ? "" : "s"}: ${path.split("/").pop()}`);
+            }}
+          />
+        )}
         {menu && scene && <ContextMenu x={menu.x} y={menu.y} close={() => setMenu(null)} items={contextItems(scene, sel, run, setSel, () => api.current?.fit())} />}
       </main>
 

@@ -716,3 +716,73 @@ export function ShortcutSheet({ onClose }: { onClose: () => void }) {
     </div>
   );
 }
+
+/** LayOut-lite: pick views (and scales) for a PDF set of drawing sheets. */
+export function SheetsDialog({ scene, onMake, onClose }: { scene: Scene; onMake: (spec: { sheet: string; project: string; pages: { title: string; viewports: { view: string; scale?: string; label?: string }[] }[] }) => void; onClose: () => void }) {
+  const standard = ["iso", "top", "front", "right", "back", "left"];
+  const all = [...scene.views.map((v) => v.name), ...standard];
+  const [sheet, setSheet] = useState("a3");
+  const [project, setProject] = useState("Project");
+  const [perPage, setPerPage] = useState(false);
+  const [picked, setPicked] = useState<Record<string, { on: boolean; scale: string }>>(() =>
+    Object.fromEntries(all.map((n, i) => [n, { on: scene.views.length ? i < scene.views.length && i < 4 : ["top", "front", "right", "iso"].includes(n), scale: ["top", "front", "right", "back", "left"].includes(n) ? "1:100" : "" }]))
+  );
+  const label = (n: string) => (standard.includes(n) ? { iso: "Iso view", top: "Plan (top)", front: "Front elevation", right: "Right elevation", back: "Back elevation", left: "Left elevation" }[n] ?? n : n);
+  const make = () => {
+    const chosen = all.filter((n) => picked[n]?.on).map((n) => ({ view: n, scale: picked[n].scale.trim() || undefined, label: label(n) }));
+    if (!chosen.length) return;
+    const pages = [];
+    const per = perPage ? 1 : 4;
+    for (let i = 0; i < chosen.length; i += per) {
+      const vs = chosen.slice(i, i + per);
+      pages.push({ title: perPage ? vs[0].label : `Sheet ${pages.length + 1}`, viewports: vs });
+    }
+    onMake({ sheet, project: project.trim() || "Project", pages });
+  };
+  return (
+    <div className="sheet-backdrop" onClick={onClose}>
+      <div className="sheet" style={{ width: "min(520px, calc(100vw - 32px))" }} onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Drawing sheets">
+        <div className="sheet-head">
+          <b>Drawing sheets</b>
+          <span className="muted">Views on paper, to scale, with a title block.</span>
+        </div>
+        <label className="field">
+          <span>Project</span>
+          <input value={project} onChange={(e) => setProject(e.target.value)} />
+        </label>
+        <label className="field">
+          <span>Sheet</span>
+          <select value={sheet} onChange={(e) => setSheet(e.target.value)}>
+            <option value="a4">A4</option>
+            <option value="a3">A3</option>
+            <option value="a2">A2</option>
+            <option value="letter">Letter</option>
+            <option value="tabloid">Tabloid (11×17)</option>
+          </select>
+        </label>
+        <label className="field check">
+          <input type="checkbox" checked={perPage} onChange={(e) => setPerPage(e.target.checked)} />
+          <span>One view per sheet</span>
+        </label>
+        <div className="section-title" style={{ marginTop: 10 }}>
+          Views <span className="muted">(scale like 1:100 for a true-scale drawing; blank to fit)</span>
+        </div>
+        {all.map((n) => (
+          <div key={n} className="sheet-row">
+            <input type="checkbox" checked={!!picked[n]?.on} onChange={(e) => setPicked((p) => ({ ...p, [n]: { ...p[n], on: e.target.checked } }))} />
+            <span>{label(n)}</span>
+            <input className="num" style={{ width: 70 }} placeholder="fit" value={picked[n]?.scale ?? ""} onChange={(e) => setPicked((p) => ({ ...p, [n]: { ...p[n], scale: e.target.value } }))} />
+          </div>
+        ))}
+        <div className="row gap" style={{ marginTop: 12 }}>
+          <button className="btn small" onClick={make}>
+            Make PDF…
+          </button>
+          <button className="btn small ghost" onClick={onClose}>
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
