@@ -95,6 +95,17 @@ export const Icons = {
       <path d="M14.5 12H21v3h-6.5" />
     </Svg>
   ),
+  dimension: () => (
+    <Svg>
+      <path d="M4 7v10M20 7v10M4 12h16" />
+      <path d="m2.8 13.2 2.4-2.4M18.8 13.2l2.4-2.4" />
+    </Svg>
+  ),
+  text: () => (
+    <Svg>
+      <path d="M5 6.5V5h14v1.5M12 5v14M9.5 19h5" />
+    </Svg>
+  ),
   paint: () => (
     <Svg>
       <path d="M14.5 4.5 19.5 9.5 11 18l-5-5z" />

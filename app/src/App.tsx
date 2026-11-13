@@ -26,6 +26,8 @@ const TOOL_GROUPS: { id: Tool; name: string; key: string }[][] = [
   ],
   [
     { id: "tape", name: "Tape Measure (makes guides)", key: "T" },
+    { id: "dimension", name: "Dimension: click, click, pull out", key: "D" },
+    { id: "text", name: "Text label: click a point, then where the label goes", key: "W" },
     { id: "paint", name: "Paint (Option-click to sample)", key: "B" },
     { id: "erase", name: "Erase (Shift to hide)", key: "E" },
   ],
@@ -433,7 +435,7 @@ export default function App() {
             <b>R</b> rectangle, <b>L</b> line, <b>P</b> push/pull. Type a number and press Enter for exact sizes; <b>←</b> <b>→</b> <b>↑</b> lock to an axis.
           </p>
           <p>
-            <b>M</b> with Option copies; then type <b>x5</b> for an array. Double-click a group to open it, Esc to close. Right-click for more.
+            <b>M</b> with Option copies; then type <b>x5</b> for an array. <b>D</b> dimensions: click two points, pull out, click. Double-click a group to open it, Esc to close. Right-click for more.
           </p>
           <p>Middle-drag or hold Space to orbit, right-drag to pan, scroll to zoom.</p>
         </div>
