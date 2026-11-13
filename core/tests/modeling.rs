@@ -440,3 +440,28 @@ fn crossing_lines_on_a_face_make_four_panes() {
     let total: f64 = fs.iter().map(|f| f["area"].as_f64().unwrap()).sum();
     assert!((total - 12.0).abs() < 1e-9, "no overlapping faces");
 }
+
+#[test]
+fn builders_walls_stairs_roofs_columns() {
+    let mut e = Engine::new();
+    // a closed 6 x 4 room
+    let room = run(&mut e, json!({"cmd":"wall","points":[[0,0,0],[6,0,0],[6,4,0],[0,4,0]],"closed":true,"thickness":0.2,"height":2.7}))["group"].clone();
+    let fs = run(&mut e, json!({"cmd":"faces","group":room}))["faces"].as_array().unwrap().clone();
+    let top: f64 = fs.iter().filter(|f| f["normal"][2] == 1.0).map(|f| f["area"].as_f64().unwrap()).sum();
+    // ring of walls: (6.2 x 4.2) - (5.8 x 3.8)
+    assert!((top - (6.2 * 4.2 - 5.8 * 3.8)).abs() < 1e-6, "wall top area {top}");
+    // an open L-shaped wall
+    run(&mut e, json!({"cmd":"wall","points":[[10,0,0],[14,0,0],[14,3,0]]}));
+    // stairs up 2.7 m: 15 risers of 18 cm
+    let s = run(&mut e, json!({"cmd":"stairs","at":[0,6,0],"rise":2.7,"direction":90}));
+    assert_eq!(s["risers"], 15);
+    // a gable roof on a box top
+    let b = run(&mut e, json!({"cmd":"rect","from":[20,0,0],"to":[28,6,0]}))["face"].clone();
+    run(&mut e, json!({"cmd":"pushpull","face":b,"distance":3}));
+    let top = run(&mut e, json!({"cmd":"pick","at":[24,3,3],"facing":[0,0,1]}))["face"].clone();
+    run(&mut e, json!({"cmd":"roof","face":top,"kind":"gable","pitch":30}));
+    let bmax = run(&mut e, json!({"cmd":"info"}))["bounds"]["max"][2].as_f64().unwrap();
+    assert!(bmax > 3.0 + 3.0 * (30f64).to_radians().tan() - 0.01, "ridge rises: {bmax}");
+    run(&mut e, json!({"cmd":"roof","face":top,"kind":"hip","pitch":25}));
+    run(&mut e, json!({"cmd":"column","at":[30,0,0],"round":true}));
+}
