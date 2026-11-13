@@ -371,11 +371,16 @@ export default function App() {
       const path = await pickOpen();
       if (path) await importPath(path);
     },
-    export: async (kind: "obj" | "glb" | "stl") => {
+    export: async (kind: "obj" | "glb" | "stl" | "dae" | "dxf" | "pdf") => {
       const base = (currentFile?.split("/").pop() ?? "model").replace(/\.sketchcraft$/, "");
       const path = await pickSave(`${base}.${kind}`, kind, kind.toUpperCase());
       if (!path) return;
-      const cmd = kind === "obj" ? { cmd: "export_obj", path } : kind === "glb" ? { cmd: "export_glb", path } : { cmd: "export_stl", path, scale: 1000 };
+      const cmd =
+        kind === "stl"
+          ? { cmd: "export_stl", path, scale: 1000 }
+          : kind === "pdf"
+            ? { cmd: "export_pdf", path, width: 2400, height: 1500, camera: api.current!.camera(), title: base }
+            : { cmd: `export_${kind}`, path };
       const r = await run(cmd);
       if (r.ok) say(`Exported ${path.split("/").pop()}`);
     },
@@ -428,6 +433,9 @@ export default function App() {
                   <button onClick={() => file.export("glb")}>Export glTF (.glb)…</button>
                   <button onClick={() => file.export("obj")}>Export OBJ…</button>
                   <button onClick={() => file.export("stl")}>Export STL (mm)…</button>
+                  <button onClick={() => file.export("dae")}>Export Collada (.dae)…</button>
+                  <button onClick={() => file.export("dxf")}>Export 3D DXF (mm)…</button>
+                  <button onClick={() => file.export("pdf")}>Export PDF (this view)…</button>
                   <button onClick={file.render}>Render PNG…</button>
                   {section && (
                     <>
