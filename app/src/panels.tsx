@@ -190,6 +190,68 @@ export function BuildTools({ tool, setTool, build, setBuild, units }: { tool: To
   );
 }
 
+const SANDBOX_TOOLS: { id: Tool; name: string; how: string }[] = [
+  { id: "smoove", name: "Smoove", how: "Click a terrain to raise it there (Shift-click digs). Radius and height below." },
+  { id: "stamp", name: "Stamp", how: "Select a footprint face (a rectangle above the terrain), then click the terrain: a flat pad with sloped edges." },
+  { id: "drape", name: "Drape", how: "Select lines (a path, a property line), then click the terrain: they're laid onto it." },
+  { id: "flipedge", name: "Flip edge", how: "Click a diagonal between two triangles to swap it." },
+];
+
+/** SketchUp's Sandbox: terrain from contours or a grid, then sculpt it. */
+export function Sandbox({ tool, setTool, build, setBuild, units, run, sel, onToast }: { tool: Tool; setTool: (t: Tool) => void; build: BuildSettings; setBuild: (b: BuildSettings) => void; units: string; run: Run; sel: Sel; onToast: (t: string, bad?: boolean) => void }) {
+  const active = SANDBOX_TOOLS.find((b) => b.id === tool);
+  const set = (k: keyof BuildSettings) => (v: unknown) => setBuild({ ...build, [k]: v });
+  const contours = async () => {
+    const ids = [...sel.edges, ...sel.groups];
+    if (!ids.length) return onToast("Select the contour lines (or a group of them) first.", true);
+    const r = await run({ cmd: "terrain_from_contours", ids, spacing: build.contourSpacing });
+    if (r.ok) onToast("Terrain made from the contours. Smoove, Stamp and Drape work on it.");
+  };
+  const grid = async () => {
+    const s = build.gridSize;
+    const r = await run({ cmd: "terrain_grid", at: [-s / 2, -s / 2, 0], width: s, depth: s, spacing: build.gridSpacing });
+    if (r.ok) onToast("A flat terrain grid. Use Smoove to shape it.");
+  };
+  return (
+    <>
+      <div className="section-title sub">Sandbox</div>
+      <div className="tiles build">
+        <button className="tile" onClick={contours} title="Select contour lines, then click: a terrain through them">
+          <span className="tile-art build-art">{Icons.terrain()}</span>
+          <span>From contours</span>
+        </button>
+        <button className="tile" onClick={grid} title="A flat grid to sculpt">
+          <span className="tile-art build-art">{Icons.terrain()}</span>
+          <span>From scratch</span>
+        </button>
+        {SANDBOX_TOOLS.map((b) => (
+          <button key={b.id} className={`tile ${tool === b.id ? "on" : ""}`} onClick={() => setTool(tool === b.id ? "select" : b.id)} title={b.how}>
+            <span className="tile-art build-art">{Icons[b.id as "smoove"]()}</span>
+            <span>{b.name}</span>
+          </button>
+        ))}
+      </div>
+      <div className="build-options">
+        {active && <p>{active.how}</p>}
+        {tool === "smoove" && (
+          <>
+            <LengthInput label="Radius" value={build.smooveRadius} units={units} onChange={set("smooveRadius")} />
+            <LengthInput label="Height" value={build.smooveHeight} units={units} onChange={set("smooveHeight")} />
+          </>
+        )}
+        {tool === "stamp" && <LengthInput label="Slope out" value={build.stampOffset} units={units} onChange={set("stampOffset")} />}
+        {!active && (
+          <>
+            <LengthInput label="Grid size" value={build.gridSize} units={units} onChange={set("gridSize")} />
+            <LengthInput label="Grid spacing" value={build.gridSpacing} units={units} onChange={set("gridSpacing")} />
+            <LengthInput label="Contour spacing" value={build.contourSpacing} units={units} onChange={set("contourSpacing")} />
+          </>
+        )}
+      </div>
+    </>
+  );
+}
+
 export function Library({ scene, place, placing, onTemplate }: { scene: Scene; place: (k: string | null) => void; placing: string | null; onTemplate: (lines: string[]) => void }) {
   return (
     <>

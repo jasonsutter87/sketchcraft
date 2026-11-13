@@ -148,6 +148,38 @@ export const Icons = {
       <path d="m10 14.5 2 2-2 2" />
     </Svg>
   ),
+  smoove: () => (
+    <Svg>
+      <path d="M2.5 18c3-0.5 5-8 9.5-8s6.5 7.5 9.5 8" />
+      <path d="M12 3v5m-2-2 2 2 2-2" />
+    </Svg>
+  ),
+  stamp: () => (
+    <Svg>
+      <path d="M2.5 18c2-0.4 3.5-3 5.5-3h8c2 0 3.5 2.6 5.5 3" />
+      <path d="M8 15V9h8v6" />
+      <path d="M12 3v4" />
+    </Svg>
+  ),
+  drape: () => (
+    <Svg>
+      <path d="M2.5 17c3-0.5 5-6 9.5-6s6.5 5.5 9.5 6" />
+      <path d="M4 5h16" strokeDasharray="2 2" />
+      <path d="M8 6v6m8-6v5" />
+    </Svg>
+  ),
+  flipedge: () => (
+    <Svg>
+      <path d="M4 18 12 5l8 13z" />
+      <path d="M4 18 20 5" strokeDasharray="2 2" />
+    </Svg>
+  ),
+  terrain: () => (
+    <Svg>
+      <path d="M2.5 18 8 10l4 4 3-5 6.5 9z" />
+      <path d="M8 10l2 8M15 9l-2 9" />
+    </Svg>
+  ),
   pan: () => (
     <Svg>
       <path d="M8 13V6.5a1.5 1.5 0 0 1 3 0V12" />

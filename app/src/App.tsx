@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { exec, loadScene, sync, type Reply, type Scene } from "./engine";
 import { Icons, Logo } from "./icons";
-import { BuildTools, ContextMenu, contextItems, EntityInfo, Library, Outliner, ShortcutSheet, Textures, Views } from "./panels";
+import { BuildTools, ContextMenu, contextItems, EntityInfo, Library, Outliner, Sandbox, ShortcutSheet, Textures, Views } from "./panels";
 import { EMPTY, isEmpty, selIds, type Sel } from "./selection";
 import { UNIT_OPTIONS } from "./units";
 import { pickOpen, pickSave, rememberedFile, rememberFile } from "./files";
@@ -18,6 +18,12 @@ const DEFAULT_BUILD: BuildSettings = {
   columnSize: 0.3,
   columnHeight: 2.7,
   columnRound: false,
+  smooveRadius: 5,
+  smooveHeight: 1,
+  stampOffset: 1,
+  gridSize: 20,
+  gridSpacing: 1,
+  contourSpacing: 1,
 };
 
 function loadBuild(): BuildSettings {
@@ -480,6 +486,7 @@ export default function App() {
         <div className="section grow">
           {scene && tab === "outliner" && <Outliner scene={scene} sel={sel} setSel={setSel} run={run} />}
           {scene && tab === "library" && <BuildTools tool={tool} setTool={chooseTool} build={build} setBuild={setBuild} units={scene.units || "m"} />}
+          {scene && tab === "library" && <Sandbox tool={tool} setTool={chooseTool} build={build} setBuild={setBuild} units={scene.units || "m"} run={run} sel={sel} onToast={say} />}
           {scene && tab === "library" && (
             <Library
               scene={scene}
