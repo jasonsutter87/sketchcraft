@@ -214,6 +214,56 @@ export default function Viewport(props: Props) {
     controls.dampingFactor = 0.14;
     controls.screenSpacePanning = true;
     controls.zoomToCursor = true;
+    controls.enableZoom = false; // our own wheel handler: trackpads orbit, pinch zooms
+
+    // Trackpad: two-finger swipe orbits, Shift+swipe pans, pinch zooms toward the cursor.
+    // Mouse wheel: zooms toward the cursor.
+    const wheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const T = t.current;
+      if (!T) return;
+      const cam = T.camera;
+      const target = T.controls.target;
+      const pinch = e.ctrlKey; // macOS reports pinch as ctrl+wheel
+      const trackpad = !pinch && e.deltaMode === 0 && (Math.abs(e.deltaX) > 0 || Math.abs(e.deltaY) < 40);
+      if (trackpad && e.shiftKey) {
+        // pan
+        const dist = cam.position.distanceTo(target);
+        const k = dist * 0.0016;
+        const right = new THREE.Vector3().setFromMatrixColumn(cam.matrix, 0);
+        const up = new THREE.Vector3().setFromMatrixColumn(cam.matrix, 1);
+        const d = right.multiplyScalar(e.deltaX * k).add(up.multiplyScalar(-e.deltaY * k));
+        cam.position.add(d);
+        target.add(d);
+      } else if (trackpad) {
+        // orbit around the target, Z up
+        const off = cam.position.clone().sub(target);
+        const r = off.length();
+        const az = Math.atan2(off.y, off.x) - e.deltaX * 0.006;
+        let el = Math.asin(THREE.MathUtils.clamp(off.z / r, -1, 1)) + e.deltaY * 0.006;
+        el = THREE.MathUtils.clamp(el, -1.5, 1.5);
+        cam.position.set(target.x + r * Math.cos(el) * Math.cos(az), target.y + r * Math.cos(el) * Math.sin(az), target.z + r * Math.sin(el));
+        cam.lookAt(target);
+      } else {
+        // zoom toward what's under the cursor
+        const f = Math.exp((pinch ? e.deltaY * 0.012 : Math.sign(e.deltaY) * 0.12));
+        const rc = new THREE.Raycaster();
+        const rect = renderer.domElement.getBoundingClientRect();
+        rc.setFromCamera(new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1), cam);
+        const focus = rc.ray.intersectPlane(new THREE.Plane().setFromNormalAndCoplanarPoint(cam.getWorldDirection(new THREE.Vector3()).negate(), target), new THREE.Vector3()) ?? target.clone();
+        if (cam === T.ortho) {
+          T.ortho.zoom = THREE.MathUtils.clamp(T.ortho.zoom / f, 0.02, 200);
+          T.ortho.updateProjectionMatrix();
+        } else {
+          const minR = 0.3;
+          if (f < 1 && cam.position.distanceTo(target) * f < minR) return;
+          cam.position.sub(focus).multiplyScalar(f).add(focus);
+          target.sub(focus).multiplyScalar(f).add(focus);
+        }
+      }
+      if (cam === T.ortho) T.persp.position.copy(cam.position);
+    };
+    renderer.domElement.addEventListener("wheel", wheel, { passive: false });
 
     const world = new THREE.Scene();
     world.add(new THREE.HemisphereLight(0xffffff, 0xe2e4ec, 2.7));
