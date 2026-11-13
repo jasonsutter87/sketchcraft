@@ -804,3 +804,25 @@ fn exports_dae_dxf_pdf() {
     assert!(pdf[first..].starts_with(b"1 0 obj"));
     std::fs::remove_dir_all(dir).ok();
 }
+
+#[test]
+fn animation_frames_through_saved_views() {
+    let mut e = Engine::new();
+    make_box(&mut e);
+    run(&mut e, json!({"cmd":"save_view","name":"A","eye":[10,-10,8],"target":[0,0,0]}));
+    run(&mut e, json!({"cmd":"save_view","name":"B","eye":[-10,-10,8],"target":[0,0,1]}));
+    let dir = std::env::temp_dir().join(format!("sketchcraft-anim-{}", std::process::id()));
+    let r = run(&mut e, json!({"cmd":"animate","path":dir.to_string_lossy(),"fps":4,"transition":1,"delay":0.5,"width":64,"height":40}));
+    // A held 2 frames, 3 in between, B held 2 frames
+    assert_eq!(r["frames"], 7, "{r}");
+    assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 7);
+    // no views of its own: a turntable instead
+    let mut e2 = Engine::new();
+    make_box(&mut e2);
+    let cams = sketchcraft::animate::cameras(&e2.model, &sketchcraft::animate::Anim { fps: 10.0, transition: 2.0, delay: 1.0, views: vec![], turntable: 3.0 }, &Default::default()).unwrap();
+    assert_eq!(cams.len(), 30);
+    let d0 = glam::DVec3::from(cams[0].eye).distance(glam::DVec3::from(cams[0].target));
+    let d1 = glam::DVec3::from(cams[15].eye).distance(glam::DVec3::from(cams[15].target));
+    assert!((d0 - d1).abs() < 1e-9, "circles at a constant distance");
+    std::fs::remove_dir_all(dir).ok();
+}
