@@ -205,6 +205,21 @@ export function Outliner({ scene, sel, setSel, run, byTag, setByTag }: { scene: 
           Drop here to take it out to the top level
         </div>
       )}
+      <div className="otools">
+        <button
+          className="btn small ghost"
+          title={scene.activeGroup != null ? "An empty group inside the open group" : "An empty group to organize things into: drag rows onto it"}
+          onClick={async () => {
+            const n = await ask("Name the new group", "Upper floor", "An empty group to organize with. Drag things onto it in this list.");
+            if (n?.trim()) {
+              const r = await run({ cmd: "group", ids: [], name: n.trim() });
+              if (r.ok) setSel({ ...EMPTY, groups: [r.group as number] });
+            }
+          }}
+        >
+          + New group
+        </button>
+      </div>
       <ul className="otree" role="tree" aria-label="Model hierarchy">
         {tree.map((n) => row(n, 0))}
         {scene.loose > 0 && (

@@ -91,6 +91,8 @@ export interface Scene {
   classes?: Record<string, string>;
   /** geo-location of the origin */
   location?: { lat: number; lon: number; elevation: number } | null;
+  /** the ready-made setting around the model (suburban, city, park, desert, waterfront, studio) */
+  environment?: string | null;
   /** texture coordinates, two per vertex */
   uvs: number[];
   /** per triangle: index into `textures`, or -1 */

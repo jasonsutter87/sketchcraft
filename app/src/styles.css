@@ -1619,8 +1619,10 @@ details.panel-fold {
   display: flex;
   align-items: center;
   gap: 4px;
-  max-width: calc(100% - 340px);
-  overflow-x: auto;
+  /* clear of the measurement box on the right; wraps rather than hides */
+  max-width: calc(100% - 470px);
+  flex-wrap: wrap;
+  justify-content: center;
   padding: 4px;
   border-radius: calc(var(--radius) + 2px);
   background: var(--glass);
@@ -2134,4 +2136,56 @@ details.panel-fold {
 .otree .orow {
   touch-action: none;
   user-select: none;
+}
+
+.otools {
+  display: flex;
+  justify-content: flex-end;
+  margin: -4px 0 6px;
+}
+.env-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 8px 0;
+}
+.env-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 6px;
+  border-radius: var(--radius);
+  text-align: left;
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.env-tile:hover {
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+.env-tile.on {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+.env-tile .env-art {
+  display: block;
+  width: 100%;
+  height: 42px;
+  margin-bottom: 4px;
+  border-radius: calc(var(--radius) - 4px);
+}
+.env-tile b {
+  font-size: 12px;
+}
+.env-tile .small {
+  color: var(--muted);
+  font-size: 10.5px;
+  line-height: 1.3;
+}
+.strip-select {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.strip-select select {
+  height: 24px;
+  font-size: 12px;
 }

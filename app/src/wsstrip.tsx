@@ -5,7 +5,7 @@
 import { useEffect, useState } from "react";
 import { ask } from "./ask";
 import { exec, type Reply, type Scene } from "./engine";
-import { contextItems } from "./panels";
+import { contextItems, ENVIRONMENTS } from "./panels";
 import type { Sel } from "./selection";
 import type { Cam, ViewportApi } from "./Viewport";
 import type { WorkspaceId } from "./workspace";
@@ -29,9 +29,26 @@ export function WorkspaceStrip(p: Props) {
   return null;
 }
 
+/** Pick the setting around the model, right from the strip. */
+function SettingPicker({ scene, run }: { scene: Scene; run: Props["run"] }) {
+  return (
+    <label className="strip-select" title="A ready-made setting around your model">
+      <span className="lbl">Setting</span>
+      <select value={scene.environment ?? ""} onChange={(e) => run({ cmd: "environment", kind: e.target.value || "none" })}>
+        <option value="">None</option>
+        {ENVIRONMENTS.map((x) => (
+          <option key={x.id} value={x.id}>
+            {x.name}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 const FLOOR_NAMES = ["Main", "Upper", "Third", "Fourth", "Fifth"];
 
-function ArchStrip({ scene, api, section, setSection, actions }: Props) {
+function ArchStrip({ scene, api, section, setSection, actions, run }: Props) {
   const [levels, setLevels] = useState<number[]>([]);
   const [at, setAt] = useState<number | null>(null);
   // floors come from the model; recount when it changes
@@ -87,6 +104,8 @@ function ArchStrip({ scene, api, section, setSection, actions }: Props) {
       <button onClick={actions.location} title="Real terrain and map around the site; drives the real sun">
         Site…
       </button>
+      <span className="sep" />
+      <SettingPicker scene={scene} run={run} />
     </div>
   );
 }
@@ -140,6 +159,8 @@ function PrevizStrip({ scene, run, api, actions }: Props) {
       >
         + Scene
       </button>
+      <span className="sep" />
+      <SettingPicker scene={scene} run={run} />
       <span className="sep" />
       <button onClick={actions.animation} disabled={scene.views.length < 2} title={scene.views.length < 2 ? "Add two scenes to fly between them" : "A video flying through your scenes"}>
         Animation…
