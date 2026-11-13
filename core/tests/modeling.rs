@@ -1097,3 +1097,29 @@ fn bevel_round_divide_slice() {
     let gs: Vec<u64> = r["groups"].as_array().unwrap().iter().map(|x| x.as_u64().unwrap()).collect();
     assert!(close(volume(&mut e, gs[0]), 1.5) && close(volume(&mut e, gs[1]), 0.5));
 }
+
+#[test]
+fn photoreal_render_lights_shadows_and_glass() {
+    // a box on the ground, a glass pane in front, the sun from the side
+    let mut e = Engine::new();
+    box_group(&mut e, [0.0, 0.0, 0.0], [2.0, 2.0, 2.0], "Block");
+    run(&mut e, json!({"cmd":"material","name":"Glass","color":[0.5,0.6,0.7]}));
+    let pane = run(&mut e, json!({"cmd":"polygon","points":[[-1,-2,0],[3,-2,0],[3,-2,1.5],[-1,-2,1.5]]}))["face"].as_u64().unwrap();
+    run(&mut e, json!({"cmd":"paint","ids":[pane],"material":"Glass"}));
+    let r = run(&mut e, json!({"cmd":"photoreal","width":96,"height":64,"samples":8,"camera":{"eye":[8,-8,5],"target":[1,1,1],"fov":45},"sun_azimuth":250,"sun_altitude":30}));
+    use base64::Engine as _;
+    let b64 = r["data"].as_str().unwrap().strip_prefix("data:image/png;base64,").unwrap();
+    let img = image::load_from_memory(&base64::engine::general_purpose::STANDARD.decode(b64).unwrap()).unwrap().to_rgb8();
+    let lum = |x: u32, y: u32| { let p = img.get_pixel(x, y); p[0] as f32 + p[1] as f32 + p[2] as f32 };
+    // the sky (top) is bright and bluish; something in the frame is dark (shade / shadow)
+    let top = img.get_pixel(48, 2);
+    assert!(top[2] > top[0], "sky is blue: {top:?}");
+    let (mut lo, mut hi) = (f32::MAX, 0f32);
+    for y in 0..64 {
+        for x in 0..96 {
+            lo = lo.min(lum(x, y));
+            hi = hi.max(lum(x, y));
+        }
+    }
+    assert!(hi - lo > 150.0, "light and shade: {lo}..{hi}");
+}
