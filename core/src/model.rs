@@ -329,7 +329,19 @@ impl Model {
         Ok(())
     }
 
+    /// Imported data is rarely perfectly flat: points within 1 cm of the
+    /// best-fit plane are moved onto it before the face is made.
     pub fn add_polygon(&mut self, points: &[DVec3]) -> Result<Id> {
+        let mut points = points.to_vec();
+        let n = geom::newell(&points);
+        if n != DVec3::ZERO {
+            let c = geom::centroid(&points);
+            if points.iter().all(|p| (*p - c).dot(n).abs() < 0.01) {
+                for p in &mut points {
+                    *p -= n * (*p - c).dot(n);
+                }
+            }
+        }
         let lp: Vec<Id> = points.iter().map(|p| self.vertex(*p)).collect();
         self.add_face(lp)
     }
