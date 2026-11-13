@@ -276,3 +276,65 @@ fn pulling_one_corner_up_folds_the_face() {
     assert_eq!(info["faces"], 2, "folded into two flat triangles");
     assert!(e.model.edges.values().any(|e| e.soft), "fold line is soft");
 }
+
+#[test]
+fn circle_pulls_into_smooth_cylinder() {
+    let mut e = Engine::new();
+    let f = run(&mut e, json!({"cmd":"circle","center":[0,0,0],"radius":1,"segments":24}))["face"].clone();
+    run(&mut e, json!({"cmd":"pushpull","face":f,"distance":2}));
+    let info = run(&mut e, json!({"cmd":"info"}));
+    assert_eq!(info["faces"], 26);
+    let soft = e.model.edges.values().filter(|e| e.soft).count();
+    assert_eq!(soft, 24, "every vertical seam is soft");
+    assert_outward(&mut e, DVec3::new(0.0, 0.0, 1.0));
+}
+
+#[test]
+fn arc_closed_with_a_line_makes_a_face() {
+    let mut e = Engine::new();
+    run(&mut e, json!({"cmd":"arc","start":[0,0,0],"end":[4,0,0],"bulge":1}));
+    let r = run(&mut e, json!({"cmd":"line","points":[[4,0,0],[0,0,0]]}));
+    assert_eq!(r["faces"].as_array().unwrap().len(), 1);
+    let b = run(&mut e, json!({"cmd":"info"}))["bounds"].clone();
+    assert!((b["max"][1].as_f64().unwrap().abs().max(b["min"][1].as_f64().unwrap().abs()) - 1.0).abs() < 1e-6);
+}
+
+#[test]
+fn offset_in_and_out() {
+    let mut e = Engine::new();
+    let f = run(&mut e, json!({"cmd":"rect","from":[0,0,0],"to":[10,6,0]}))["face"].clone();
+    let inner = run(&mut e, json!({"cmd":"offset","face":f,"distance":1}))["face"].clone();
+    let fs = faces(&mut e);
+    let a = |id: &Value| fs.iter().find(|x| &x["id"] == id).unwrap()["area"].as_f64().unwrap();
+    assert!((a(&inner) - 8.0 * 4.0).abs() < 1e-6);
+    assert!((a(&f) - (60.0 - 32.0)).abs() < 1e-6);
+    let ring = run(&mut e, json!({"cmd":"offset","face":f,"distance":-0.5}))["face"].clone();
+    let fs = faces(&mut e);
+    let a = |id: &Value| fs.iter().find(|x| &x["id"] == id).unwrap()["area"].as_f64().unwrap();
+    assert!((a(&ring) - (11.0 * 7.0 - 60.0)).abs() < 1e-6);
+}
+
+#[test]
+fn follow_me_sweeps_trim_along_a_path() {
+    let mut e = Engine::new();
+    // 0.3 x 0.3 square profile standing at the origin, facing +X
+    let f = run(&mut e, json!({"cmd":"polygon","points":[[0,0,0],[0,0.3,0],[0,0.3,0.3],[0,0,0.3]]}))["face"].clone();
+    let r = run(&mut e, json!({"cmd":"follow_me","face":f,"points":[[0,0,0],[5,0,0],[5,5,0]]}));
+    // 4 sides x 2 segments + end cap
+    assert_eq!(r["faces"].as_array().unwrap().len(), 9);
+    let b = run(&mut e, json!({"cmd":"info"}))["bounds"].clone();
+    assert!((b["max"][0].as_f64().unwrap() - 5.0).abs() < 0.31);
+    assert!((b["max"][1].as_f64().unwrap() - 5.0).abs() < 1e-6);
+}
+
+#[test]
+fn follow_me_around_a_roof_makes_a_closed_cornice() {
+    let mut e = Engine::new();
+    make_box(&mut e);
+    let top = run(&mut e, json!({"cmd":"faces","facing":[0,0,1]}))["faces"][0]["id"].clone();
+    // small profile at the corner (0,0,6), perpendicular to the front edge
+    let prof = run(&mut e, json!({"cmd":"polygon","points":[[0,0,6],[0,-0.4,6],[0,-0.4,6.3],[0,0,6.3]]}))["face"].clone();
+    let r = run(&mut e, json!({"cmd":"follow_me","face":prof,"around":top}));
+    assert_eq!(r["faces"].as_array().unwrap().len(), 16, "4 profile sides x 4 roof edges, closed");
+    assert!(faces(&mut e).iter().all(|f| f["id"] != prof), "profile used up");
+}
