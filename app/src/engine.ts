@@ -31,6 +31,9 @@ export interface GroupInfo {
   faces: number;
   tag: string | null;
   hidden: boolean;
+  /** the group it sits inside (null: top level) */
+  parent: number | null;
+  locked: boolean;
 }
 
 export interface InstanceInfo {
@@ -39,6 +42,8 @@ export interface InstanceInfo {
   component: number;
   tag: string | null;
   hidden: boolean;
+  /** the group it sits inside (null: top level) */
+  parent: number | null;
   transform: number[];
   /** Dynamic Component attributes (values or "=formulas") */
   attrs?: Record<string, string>;
@@ -117,6 +122,8 @@ export interface Scene {
   /** instance transform used to show the component being edited (column-major) */
   editTransform: number[];
   tags: Record<string, boolean>;
+  /** a color per tag (Color by tag) */
+  tagColors: Record<string, [number, number, number]>;
   guides: GuideInfo[];
   views: SavedView[];
   annotations: Annotation[];

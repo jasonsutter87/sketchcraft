@@ -655,7 +655,7 @@ export default function App() {
           ))}
         </div>
         <div className="section grow">
-          {scene && tab === "outliner" && <Outliner scene={scene} sel={sel} setSel={setSel} run={run} />}
+          {scene && tab === "outliner" && <Outliner scene={scene} sel={sel} setSel={setSel} run={run} byTag={!!styles.byTag} setByTag={(on) => setStyles((s) => ({ ...s, byTag: on }))} />}
           {scene && tab === "library" && (
             <>
               <Library
@@ -980,8 +980,8 @@ export default function App() {
           <div className="section">
             <div className="section-title">Arrange</div>
             <div className="btn-grid">
-              {sel.faces.length > 0 && (
-                <button className="btn small" onClick={() => run({ cmd: "group", ids: sel.faces }).then(() => setSel(EMPTY))}>
+              {(sel.faces.length > 0 || sel.groups.length + sel.instances.length > 1) && (
+                <button className="btn small" title="Groups and components selected go inside the new group" onClick={() => run({ cmd: "group", ids: [...sel.faces, ...sel.groups, ...sel.instances] }).then((r) => r.ok && setSel({ ...EMPTY, groups: [r.group as number] }))}>
                   Make group
                 </button>
               )}

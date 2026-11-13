@@ -16,77 +16,7 @@ import type { Cam } from "./Viewport";
 
 type Run = (cmd: Record<string, unknown>) => Promise<Reply>;
 
-export function Outliner({ scene, sel, setSel, run }: { scene: Scene; sel: Sel; setSel: (s: Sel) => void; run: Run }) {
-  const [renaming, setRenaming] = useState<number | null>(null);
-  const [name, setName] = useState("");
-  const tags = Object.entries(scene.tags);
-  const rows = [
-    ...scene.groups.map((g) => ({ id: g.id, name: g.name, kind: "groups" as const, hidden: g.hidden, tag: g.tag, count: `${g.faces}` })),
-    ...scene.instances.map((i) => ({ id: i.id, name: i.name, kind: "instances" as const, hidden: i.hidden, tag: i.tag, count: "" })),
-  ];
-  const commitRename = async () => {
-    if (renaming != null && name.trim()) await run({ cmd: "rename", id: renaming, name: name.trim() });
-    setRenaming(null);
-  };
-  return (
-    <>
-      {(scene.editing != null || scene.activeGroup != null) && (
-        <div className="editing-banner">
-          Editing {scene.editing != null ? "component" : "group"}
-          <button onClick={() => run({ cmd: "close" })}>Done</button>
-        </div>
-      )}
-      <ul className="layers">
-        {rows.map((r) => (
-          <li key={r.id} className={`${sel[r.kind].includes(r.id) ? "on" : ""} ${r.hidden ? "dim" : ""}`} onClick={(e) => setSel(e.shiftKey ? { ...sel, [r.kind]: [...sel[r.kind], r.id] } : { ...EMPTY, [r.kind]: [r.id] })} onDoubleClick={() => (setRenaming(r.id), setName(r.name))}>
-            {r.kind === "groups" ? <Icons.cube /> : <Icons.component />}
-            {renaming === r.id ? (
-              <input className="rename" autoFocus value={name} onChange={(e) => setName(e.target.value)} onBlur={commitRename} onKeyDown={(e) => e.key === "Enter" && commitRename()} onClick={(e) => e.stopPropagation()} />
-            ) : (
-              <span className="name">{r.name}</span>
-            )}
-            {r.tag && <span className="chip-tag">{r.tag}</span>}
-            <span className="count">{r.count}</span>
-            <button
-              className="eye"
-              title={r.hidden ? "Show" : "Hide"}
-              onClick={(e) => {
-                e.stopPropagation();
-                run({ cmd: r.hidden ? "unhide" : "hide", ids: [r.id] });
-              }}
-            >
-              {r.hidden ? <Icons.eyeOff /> : <Icons.eye />}
-            </button>
-          </li>
-        ))}
-        {scene.loose > 0 && (
-          <li className="muted-row">
-            <Icons.layer />
-            <span className="name">Loose geometry</span>
-            <span className="count">{scene.loose}</span>
-          </li>
-        )}
-        {!rows.length && !scene.loose && <li className="empty">Nothing yet. Press R and draw on the ground, or drop something from the Library.</li>}
-      </ul>
-      {tags.length > 0 && (
-        <>
-          <div className="section-title sub">Tags</div>
-          <ul className="layers">
-            {tags.map(([t, vis]) => (
-              <li key={t} className={vis ? "" : "dim"}>
-                <span className="tag-dot" />
-                <span className="name">{t}</span>
-                <button className="eye" onClick={() => run({ cmd: "tag_visible", tag: t, visible: !vis })}>
-                  {vis ? <Icons.eye /> : <Icons.eyeOff />}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </>
-      )}
-    </>
-  );
-}
+export { Outliner } from "./outliner";
 
 function LengthInput({ value, units, onChange, label }: { value: number; units: string; onChange: (m: number) => void; label: string }) {
   const [text, setText] = useState<string | null>(null);
@@ -586,8 +516,14 @@ export function contextItems(scene: Scene, sel: Sel, run: Run, setSel: (s: Sel) 
   }
   const one = ids.length === 1;
   if (one && (sel.groups.length || sel.instances.length)) items.push({ label: `Edit ${sel.groups.length ? "group" : "component"}`, run: () => (run({ cmd: "edit", id: ids[0] }), setSel(EMPTY)) });
-  if (sel.faces.length) {
-    items.push({ label: "Make group", run: () => run({ cmd: "group", ids: sel.faces }).then(() => setSel(EMPTY)) });
+  // groups and components selected go inside the new group as they are (nesting)
+  if (sel.faces.length || sel.groups.length || sel.instances.length) {
+    items.push({ label: sel.faces.length ? "Make group" : "Group these (nest them)", run: () => run({ cmd: "group", ids: [...sel.faces, ...sel.groups, ...sel.instances] }).then((r) => r.ok && setSel({ ...EMPTY, groups: [r.group as number] })) });
+  }
+  if (one && sel.groups.length) {
+    const g = scene.groups.find((x) => x.id === ids[0]);
+    items.push({ label: "Ungroup (keep what's inside)", run: () => run({ cmd: "ungroup", id: ids[0] }).then(() => setSel(EMPTY)) });
+    if (g) items.push({ label: g.locked ? "Unlock" : "Lock", run: () => run({ cmd: "lock", ids: [g.id], locked: !g.locked }) });
   }
   if (sel.faces.length || sel.groups.length) {
     items.push({

@@ -246,6 +246,29 @@ export const Icons = {
       <path d="M9.9 5.8A9.7 9.7 0 0 1 12 5.5c6 0 9.5 6.5 9.5 6.5a16 16 0 0 1-2.7 3.4M6.5 7.6C4 9.4 2.5 12 2.5 12S6 18.5 12 18.5c1.4 0 2.6-.3 3.7-.8" />
     </Svg>
   ),
+  lock: () => (
+    <Svg size={14}>
+      <rect x="5" y="11" width="14" height="9" rx="2" />
+      <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+    </Svg>
+  ),
+  unlock: () => (
+    <Svg size={14}>
+      <rect x="5" y="11" width="14" height="9" rx="2" />
+      <path d="M8 11V8a4 4 0 0 1 7.5-2" />
+    </Svg>
+  ),
+  caret: () => (
+    <Svg size={12}>
+      <path d="M9 6l6 6-6 6" />
+    </Svg>
+  ),
+  solo: () => (
+    <Svg size={14}>
+      <circle cx="12" cy="12" r="7.5" />
+      <circle cx="12" cy="12" r="2.5" />
+    </Svg>
+  ),
   camera: () => (
     <Svg size={16}>
       <rect x="3.5" y="7" width="17" height="12" rx="2" />
