@@ -398,7 +398,7 @@ function TemplateTiles({ onTemplate }: { onTemplate: (lines: string[]) => void }
   );
 }
 
-export function Views({ scene, run, camera, goTo, onMatchPhoto }: { scene: Scene; run: Run; camera: () => Cam; goTo: (c: Cam & { photo?: string }) => void; onMatchPhoto: (f: File) => void }) {
+export function Views({ scene, run, camera, goTo, onMatchPhoto, onPhotoModel }: { scene: Scene; run: Run; camera: () => Cam; goTo: (c: Cam & { photo?: string }) => void; onMatchPhoto: (f: File) => void; onPhotoModel: () => void }) {
   const [name, setName] = useState("");
   const photoInput = useRef<HTMLInputElement>(null);
   const save = async () => {
@@ -419,6 +419,13 @@ export function Views({ scene, run, camera, goTo, onMatchPhoto }: { scene: Scene
           <Icons.camera /> Match photo…
         </button>
         <input ref={photoInput} type="file" accept="image/*" hidden onChange={(e) => e.target.files?.[0] && (onMatchPhoto(e.target.files[0]), (e.target.value = ""))} />
+        <button
+          className="btn small ghost"
+          onClick={onPhotoModel}
+          title={scene.views.filter((v) => v.photo).length >= 2 ? "Mark the same corners in your matched photos and build them in 3D" : "Match two or more photos of the same building first"}
+        >
+          Model from photos…
+        </button>
       </div>
       <ul className="layers views-list">
         {scene.views.map((v) => (

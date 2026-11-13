@@ -13,6 +13,7 @@ import { applySkin, readSkin, SKINS, store, type Skin } from "./skins";
 import { TOOL_INFO, WORKSPACES, withEdits, type WorkspaceEdits, type WorkspaceId } from "./workspace";
 import { AppearanceDialog, WorkspaceDialog } from "./appearance";
 import { WorkspaceStrip } from "./wsstrip";
+import { PhotoModeler } from "./photomodel";
 
 const DEFAULT_BUILD: BuildSettings = {
   wallThickness: 0.2,
@@ -195,6 +196,7 @@ export default function App() {
     if (!w.tools.flat().includes(tool)) chooseTool("select");
   };
   const [showSkins, setShowSkins] = useState(false);
+  const [showPhotoModel, setShowPhotoModel] = useState(false);
   const [showWs, setShowWs] = useState(false);
   const [placing, setPlacing] = useState<string | null>(null);
   const [build, setBuildState] = useState<BuildSettings>(loadBuild);
@@ -686,7 +688,7 @@ export default function App() {
               </details>
             </>
           )}
-          {scene && tab === "views" && <Views scene={scene} run={run} camera={() => api.current!.camera()} goTo={(c) => api.current?.goTo(c)} onMatchPhoto={startMatch} />}
+          {scene && tab === "views" && <Views scene={scene} run={run} camera={() => api.current!.camera()} goTo={(c) => api.current?.goTo(c)} onMatchPhoto={startMatch} onPhotoModel={() => setShowPhotoModel(true)} />}
         </div>
       </aside>
 
@@ -826,6 +828,7 @@ export default function App() {
             actions={{ blueprint: file.blueprint, sheets: () => setShowSheets(true), location: () => setShowLocation(true), render: () => setShowRender(true), animation: file.animation }}
           />
         )}
+        {showPhotoModel && scene && <PhotoModeler scene={scene} run={run} onClose={() => setShowPhotoModel(false)} onToast={say} />}
         {showSkins && <AppearanceDialog current={skin} onPick={wearSkin} onClose={() => setShowSkins(false)} onToast={say} />}
         {showWs && <WorkspaceDialog ws={ws} onChange={editWs} onReset={() => editWs(null)} onClose={() => setShowWs(false)} />}
         {toast && <div className={`toast ${toast.bad ? "bad" : ""}`}>{toast.text}</div>}

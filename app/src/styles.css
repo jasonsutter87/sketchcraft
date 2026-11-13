@@ -2189,3 +2189,122 @@ details.panel-fold {
   height: 24px;
   font-size: 12px;
 }
+
+/* ---------- Model from photos ---------- */
+.photomodel {
+  width: min(1240px, calc(100vw - 32px));
+}
+.pm-body {
+  display: grid;
+  grid-template-columns: 1fr 250px;
+  gap: 14px;
+}
+@media (max-width: 800px) {
+  .pm-body {
+    grid-template-columns: 1fr;
+  }
+}
+.pm-photos {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 360px), 1fr));
+  gap: 10px;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+.pm-photo {
+  margin: 0;
+}
+.pm-photo figcaption {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.pm-frame {
+  position: relative;
+  cursor: crosshair;
+  line-height: 0;
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.pm-frame img {
+  width: 100%;
+  height: auto;
+  user-select: none;
+}
+.pm-frame svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.pm-epi {
+  stroke: #f2c230;
+  stroke-width: 2;
+  stroke-dasharray: 6 4;
+  vector-effect: non-scaling-stroke;
+}
+.pm-edge {
+  stroke: #6f4df0;
+  stroke-width: 2.5;
+  vector-effect: non-scaling-stroke;
+}
+.pm-mark {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  margin: -10px 0 0 -10px;
+  border-radius: 50%;
+  background: #fff;
+  color: #15131c;
+  font: 700 10px/1 var(--font);
+  box-shadow: 0 0 0 2px #6f4df0, 0 1px 4px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+}
+.pm-mark.on {
+  background: #6f4df0;
+  color: #fff;
+  box-shadow: 0 0 0 2px #fff, 0 0 0 4px #6f4df0;
+}
+.pm-points {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+  max-height: 34vh;
+  overflow-y: auto;
+}
+.pm-points li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.pm-points li.on {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+.pm-points li .name {
+  flex: 1;
+}
+.pm-points li .count {
+  font-size: 11px;
+  color: var(--muted);
+}
+.pm-points li .count.warn {
+  color: var(--danger);
+}
+.pm-points li .rowbtn {
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  color: var(--faint);
+}
+.pm-points li.empty {
+  color: var(--faint);
+  cursor: default;
+}

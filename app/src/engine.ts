@@ -93,6 +93,9 @@ export interface Scene {
   location?: { lat: number; lon: number; elevation: number } | null;
   /** the ready-made setting around the model (suburban, city, park, desert, waterfront, studio) */
   environment?: string | null;
+  /** Model from photos: corners marked across matched photos, and the edges between them */
+  photoPoints?: { name: string; marks: Record<string, [number, number]> }[];
+  photoEdges?: [number, number][];
   /** texture coordinates, two per vertex */
   uvs: number[];
   /** per triangle: index into `textures`, or -1 */
