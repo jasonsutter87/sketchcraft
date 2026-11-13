@@ -913,3 +913,64 @@ fn formulas() {
     assert!(eval("b+1", &look).is_err());
     assert!(eval("1+", &look).is_err());
 }
+
+#[test]
+fn ifc_export_with_classifier() {
+    let mut e = Engine::new();
+    let w = run(&mut e, json!({"cmd":"wall","points":[[0,0,0],[4,0,0],[4,3,0],[0,3,0]],"closed":true}))["group"].as_u64().unwrap();
+    let slab = box_group(&mut e, [0.0, 0.0, -0.2], [4.0, 3.0, 0.0], "Thing");
+    run(&mut e, json!({"cmd":"classify","ids":[slab],"class":"ifcslab"}));
+    assert_eq!(e.exec_json(&json!({"cmd":"classify","ids":[slab],"class":"IfcSpaceship"}).to_string())["ok"], false);
+    let dir = std::env::temp_dir().join(format!("sketchcraft-ifc-{}", std::process::id()));
+    let path = dir.join("m.ifc").to_string_lossy().to_string();
+    let r = run(&mut e, json!({"cmd":"export_ifc","path":path,"project":"Test house"}));
+    assert_eq!(r["elements"], 2);
+    let t = std::fs::read_to_string(&path).unwrap();
+    assert!(t.starts_with("ISO-10303-21;") && t.trim_end().ends_with("END-ISO-10303-21;"));
+    assert!(t.contains("FILE_SCHEMA(('IFC4'))"));
+    assert!(t.contains("=IFCWALL(") && t.contains("=IFCSLAB("), "wall guessed from its name, slab classified");
+    assert!(t.contains("IFCTRIANGULATEDFACESET") && t.contains("IFCRELCONTAINEDINSPATIALSTRUCTURE"));
+    // every #ref points at a line that exists
+    let n = t.lines().filter(|l| l.starts_with('#')).count();
+    for cap in t.split('#').skip(1) {
+        let num: String = cap.chars().take_while(|c| c.is_ascii_digit()).collect();
+        if let Ok(k) = num.parse::<usize>() {
+            assert!(k >= 1 && k <= n, "#{k} out of range");
+        }
+    }
+    let _ = w;
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[test]
+fn add_location_from_tiles() {
+    // fake tiles: flat ground 100 m up, and a plain green map
+    let terrarium = {
+        let h: f64 = 100.0 + 32768.0;
+        let (r, g) = ((h / 256.0).floor() as u8, (h % 256.0) as u8);
+        let img = image::RgbImage::from_pixel(256, 256, image::Rgb([r, g, 0]));
+        let mut b = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgb8(img).write_to(&mut b, image::ImageFormat::Png).unwrap();
+        b.into_inner()
+    };
+    let map = {
+        let img = image::RgbImage::from_pixel(256, 256, image::Rgb([40, 160, 60]));
+        let mut b = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgb8(img).write_to(&mut b, image::ImageFormat::Png).unwrap();
+        b.into_inner()
+    };
+    let get = |url: &str| -> anyhow::Result<Vec<u8>> { Ok(if url.contains("terrarium") { terrarium.clone() } else { map.clone() }) };
+    let mut e = Engine::new();
+    let p = sketchcraft::geo::add_location(&mut e.model, 30.2747, -97.7404, 200.0, 10, true, &get).unwrap();
+    assert!((p.elevation - 100.0).abs() < 0.01, "{}", p.elevation);
+    let faces: Vec<_> = e.model.faces.values().filter(|f| f.group == Some(p.group)).collect();
+    assert_eq!(faces.len(), 200, "10 x 10 cells, two triangles each");
+    assert!(e.model.vertices.values().filter(|v| v.group == Some(p.group)).all(|v| v.p.z.abs() < 0.01), "flat at the origin's height");
+    assert!(faces.iter().all(|f| f.material.as_deref() == Some("Location imagery")));
+    let t = e.model.materials["Location imagery"].texture.as_ref().unwrap();
+    assert!(t.data.starts_with("data:image/jpeg") && t.project == Some([0.0, 0.0, -1.0]));
+    let loc = e.model.location.as_ref().unwrap();
+    assert!((loc.lat - 30.2747).abs() < 1e-9);
+    // bad input is refused
+    assert!(sketchcraft::geo::add_location(&mut e.model, 95.0, 0.0, 200.0, 10, false, &get).is_err());
+}
