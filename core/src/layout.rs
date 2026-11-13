@@ -5,6 +5,7 @@
 use crate::model::Model;
 use crate::render::{self, CameraSpec, RenderOpts};
 use anyhow::{bail, Context, Result};
+use glam::DVec3;
 use serde::Deserialize;
 
 /// Sheet sizes, landscape, in millimeters.
@@ -36,6 +37,9 @@ pub struct ViewportSpec {
     /// a floor plan instead of a view: the model cut this many meters up,
     /// drawn as vector fills (walls solid, openings open)
     pub cut: Option<f64>,
+    /// a floor plan's floor height (default: 4 ft below the cut); what sits
+    /// between it and the cut is drawn in thin lines (stairs, counters, fixtures)
+    pub floor: Option<f64>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -166,7 +170,9 @@ pub fn write_sheets(m: &Model, path: &str, sheet: &str, project: &str, mut pages
 /// scale (or fitted), with its caption and scale bar.
 fn plan_cut(m: &Model, v: &ViewportSpec, z: f64, y: &dyn Fn(f64) -> f64, blueprint: bool) -> Result<String> {
     let cut = m.section(glam::DVec3::new(0.0, 0.0, z), glam::DVec3::new(0.0, 0.0, -1.0))?;
-    let pts: Vec<(f64, f64)> = cut.segments.iter().flat_map(|(a, b)| [(a.x, a.y), (b.x, b.y)]).collect();
+    let mut pts: Vec<(f64, f64)> = cut.segments.iter().flat_map(|(a, b)| [(a.x, a.y), (b.x, b.y)]).collect();
+    // dimension strings on this floor count toward the plan's size
+    pts.extend(dims_on_floor(m, v.floor.unwrap_or(z - 1.22)));
     if pts.is_empty() {
         bail!("nothing is cut at {z} m");
     }
@@ -203,6 +209,130 @@ fn plan_cut(m: &Model, v: &ViewportSpec, z: f64, y: &dyn Fn(f64) -> f64, bluepri
         let (p, q) = (to(a.x, a.y), to(b.x, b.y));
         c += &format!("{:.2} {:.2} m {:.2} {:.2} l S\n", p.0, p.1, q.0, q.1);
     }
+    // what's below the cut on this floor, seen from above: stair treads,
+    // counters, fixtures (finer and lighter than the cut)
+    let floor = v.floor.unwrap_or(z - 1.22);
+    c += if blueprint { "0.2 w 0.75 0.84 0.95 RG\n" } else { "0.2 w 0.45 0.46 0.5 RG\n" };
+    for e in m.world_edges().into_iter().filter(|e| !e.soft) {
+        let (lo, hi) = (e.a.z.min(e.b.z), e.a.z.max(e.b.z));
+        if lo < floor + 0.02 && hi < floor + 0.02 {
+            continue; // lying on the floor: the floor's own outline, not a thing on it
+        }
+        if lo < floor - 0.01 || hi > z + 1e-3 {
+            continue;
+        }
+        if (e.a.x - e.b.x).hypot(e.a.y - e.b.y) < 0.01 {
+            continue; // vertical: a point from above
+        }
+        let (p, q) = (to(e.a.x, e.a.y), to(e.b.x, e.b.y));
+        c += &format!("{:.2} {:.2} m {:.2} {:.2} l S\n", p.0, p.1, q.0, q.1);
+    }
+    // stairs: on the floor they start from, the treads up to the cut with UP;
+    // on the floor they arrive at, the whole run seen through the opening with DN
+    let ink = if blueprint { "0.93 0.96 1" } else { "0.1 0.1 0.12" };
+    let lift = 1.22; // the cut height above each floor
+    for (gid, g) in &m.groups {
+        if !g.name.to_ascii_lowercase().contains("stair") || g.name.to_ascii_lowercase().contains("rail") {
+            continue;
+        }
+        let es: Vec<(DVec3, DVec3)> = m.edges.values().filter(|e| e.group == Some(*gid) && !e.soft).map(|e| (m.p(e.a), m.p(e.b))).collect();
+        let Some(first) = es.first() else { continue };
+        let (mut lo, mut hi) = (first.0, first.0);
+        for (a, b) in &es {
+            lo = lo.min(*a).min(*b);
+            hi = hi.max(*a).max(*b);
+        }
+        let starts_here = (lo.z - floor).abs() < 0.3;
+        let arrives_here = (hi.z - floor).abs() < 0.3 && !starts_here;
+        if !starts_here && !arrives_here {
+            continue;
+        }
+        if arrives_here {
+            // the run below, through the floor opening
+            c += &format!("0.2 w {ink} RG\n");
+            for (a, b) in &es {
+                if (a.x - b.x).hypot(a.y - b.y) < 0.01 {
+                    continue;
+                }
+                let (p, q) = (to(a.x, a.y), to(b.x, b.y));
+                c += &format!("{:.2} {:.2} m {:.2} {:.2} l S\n", p.0, p.1, q.0, q.1);
+            }
+        }
+        // which way it climbs: toward the side its high treads are on
+        let long_x = hi.x - lo.x > hi.y - lo.y;
+        let mid_lo = |p: DVec3| if long_x { p.x < (lo.x + hi.x) / 2.0 } else { p.y < (lo.y + hi.y) / 2.0 };
+        let (mut zl, mut nl, mut zh, mut nh) = (0.0, 0, 0.0, 0);
+        for (a, b) in &es {
+            for p in [a, b] {
+                if mid_lo(*p) {
+                    zl += p.z;
+                    nl += 1;
+                } else {
+                    zh += p.z;
+                    nh += 1;
+                }
+            }
+        }
+        let climbs_up = zh / nh.max(1) as f64 >= zl / nl.max(1) as f64;
+        let (cx, cy) = ((lo.x + hi.x) / 2.0, (lo.y + hi.y) / 2.0);
+        let half = if long_x { (hi.x - lo.x) * 0.35 } else { (hi.y - lo.y) * 0.35 };
+        let (sx, sy, ex, ey) = if long_x { (cx - half, cy, cx + half, cy) } else { (cx, cy - half, cx, cy + half) };
+        // arrow points up the stair (UP) or down it (DN)
+        let ((ax, ay), (bx, by)) = if climbs_up == starts_here { ((sx, sy), (ex, ey)) } else { ((ex, ey), (sx, sy)) };
+        let (p, q) = (to(ax, ay), to(bx, by));
+        let (dx, dy) = (q.0 - p.0, q.1 - p.1);
+        let l = dx.hypot(dy).max(1e-6);
+        let (ux, uy) = (dx / l * 5.0, dy / l * 5.0);
+        c += &format!("0.5 w {ink} RG {:.2} {:.2} m {:.2} {:.2} l S\n", p.0, p.1, q.0, q.1);
+        c += &format!("{ink} rg {:.2} {:.2} m {:.2} {:.2} l {:.2} {:.2} l h f\n", q.0, q.1, q.0 - ux - uy * 0.5, q.1 - uy + ux * 0.5, q.0 - ux + uy * 0.5, q.1 - uy - ux * 0.5);
+        let label = if starts_here { "UP" } else { "DN" };
+        c += &format!("BT /F2 6 Tf {:.2} {:.2} Td ({label}) Tj ET\n", p.0 + 3.0, p.1 - 8.0);
+        let _ = lift;
+    }
+    // notes and dimensions placed on this floor (room names, overall sizes)
+    let units = if m.units.is_empty() { "m" } else { m.units.as_str() };
+    let on_floor = |pz: f64| pz > floor - 0.05 && pz < floor + 1.0;
+    for a in &m.annotations {
+        match a {
+            crate::model::Annotation::Text { at, text, .. } if on_floor(at.z) => {
+                // centered, line by line
+                let lines: Vec<&str> = text.lines().collect();
+                let (px, py) = to(at.x, at.y);
+                for (i, line) in lines.iter().enumerate() {
+                    let size = if i == 0 { 7.0 } else { 5.5 };
+                    let w = line.len() as f64 * size * 0.52;
+                    let font = if i == 0 { "F2" } else { "F1" };
+                    let yy = py + (lines.len() as f64 / 2.0 - i as f64 - 0.8) * 8.0;
+                    c += &format!("{ink} rg BT /{font} {size} Tf {:.2} {:.2} Td ({}) Tj ET\n", px - w / 2.0, yy, esc(line));
+                }
+            }
+            crate::model::Annotation::Dimension { a: da, b: db, offset, .. } if on_floor(da.z) && on_floor(db.z) => {
+                let (pa, pb) = (*da + *offset, *db + *offset);
+                let (p, q) = (to(pa.x, pa.y), to(pb.x, pb.y));
+                let (o1, o2) = (to(da.x, da.y), to(db.x, db.y));
+                c += &format!("0.3 w {ink} RG {:.2} {:.2} m {:.2} {:.2} l S\n", p.0, p.1, q.0, q.1);
+                // extension lines and tick marks
+                for (from, at) in [(o1, p), (o2, q)] {
+                    let (dx, dy) = (at.0 - from.0, at.1 - from.1);
+                    let l = dx.hypot(dy).max(1e-6);
+                    let gap = 2.0f64.min(l * 0.3);
+                    c += &format!("0.2 w {:.2} {:.2} m {:.2} {:.2} l S\n", from.0 + dx / l * gap, from.1 + dy / l * gap, at.0 + dx / l * 2.0, at.1 + dy / l * 2.0);
+                    c += &format!("0.5 w {:.2} {:.2} m {:.2} {:.2} l S\n", at.0 - 2.5, at.1 - 2.5, at.0 + 2.5, at.1 + 2.5);
+                }
+                let len = da.distance(*db);
+                let label = crate::units::format(len, units);
+                let (mx, my) = ((p.0 + q.0) / 2.0, (p.1 + q.1) / 2.0);
+                let ang = (q.1 - p.1).atan2(q.0 - p.0);
+                let ang = if ang > std::f64::consts::FRAC_PI_2 || ang < -std::f64::consts::FRAC_PI_2 { ang + std::f64::consts::PI } else { ang };
+                let (ca, sa) = (ang.cos(), ang.sin());
+                let w = label.len() as f64 * 6.0 * 0.5;
+                // text along the line, just above it
+                let (tx, ty) = (mx - ca * w / 2.0 - sa * 2.5, my - sa * w / 2.0 + ca * 2.5);
+                c += &format!("{ink} rg BT /F1 6 Tf {ca:.4} {sa:.4} {:.4} {ca:.4} {tx:.2} {ty:.2} Tm ({}) Tj ET\n", -sa, esc(&label));
+            }
+            _ => {}
+        }
+    }
     c += if blueprint { "Q 0.93 0.96 1 rg 0.93 0.96 1 RG\n" } else { "Q 0 g 0 G\n" };
     let label = v.label.clone().unwrap_or_else(|| format!("Plan at {z:.2} m"));
     let label = if v.scale.is_some() { format!("{label}   1:{denom}") } else { label };
@@ -212,6 +342,21 @@ fn plan_cut(m: &Model, v: &ViewportSpec, z: f64, y: &dyn Fn(f64) -> f64, bluepri
         c += &scale_bar(v, denom, y);
     }
     Ok(c)
+}
+
+/// Where a floor's dimension lines run (with a margin for their labels).
+fn dims_on_floor(m: &Model, floor: f64) -> Vec<(f64, f64)> {
+    let mut out = Vec::new();
+    for a in &m.annotations {
+        if let crate::model::Annotation::Dimension { a, b, offset, .. } = a {
+            if a.z > floor - 0.05 && a.z < floor + 1.0 {
+                for p in [*a + *offset * 1.25, *b + *offset * 1.25] {
+                    out.push((p.x, p.y));
+                }
+            }
+        }
+    }
+    out
 }
 
 /// A scale bar under a viewport: a round length no longer than 40 mm.
@@ -360,7 +505,8 @@ pub fn blueprint(m: &Model, path: &str, sheet: &str, project: &str) -> Result<us
     let (mut px, mut py) = (0.0f64, 0.0f64);
     for z in &levels {
         if let Ok(c) = m.section(glam::DVec3::new(0.0, 0.0, z + 1.22), glam::DVec3::new(0.0, 0.0, -1.0)) {
-            let pts: Vec<_> = c.segments.iter().flat_map(|(a, b)| [*a, *b]).collect();
+            let mut pts: Vec<_> = c.segments.iter().flat_map(|(a, b)| [*a, *b]).collect();
+            pts.extend(dims_on_floor(m, *z).into_iter().map(|(x, y)| DVec3::new(x, y, 0.0)));
             if let Some(first) = pts.first() {
                 let (l, h) = pts.iter().fold((*first, *first), |(l, h), p| (l.min(*p), h.max(*p)));
                 px = px.max(h.x - l.x);
@@ -375,6 +521,7 @@ pub fn blueprint(m: &Model, path: &str, sheet: &str, project: &str) -> Result<us
         .map(|(i, z)| ViewportSpec {
             view: "top".into(),
             cut: Some(z + 1.22),
+            floor: Some(*z),
             scale: Some(plan_scale.clone()),
             label: Some(format!("{}  {} plan", i + 1, ordinal(i))),
             x: left + (i % cols) as f64 * cw + 4.0,
