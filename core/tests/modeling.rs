@@ -388,3 +388,43 @@ fn hide_tags_and_soften() {
     assert_eq!(r["edges"], 1);
     assert_eq!(e.model.world_edges().iter().filter(|x| !x.soft).count(), 12 + 2, "box edges plus the two wall splits, not the seam");
 }
+
+#[test]
+fn every_asset_builds_and_places() {
+    let mut e = Engine::new();
+    let list = run(&mut e, json!({"cmd":"assets"}))["assets"].as_array().unwrap().clone();
+    assert!(list.len() >= 9);
+    for (i, a) in list.iter().enumerate() {
+        let r = e.exec_json(&json!({"cmd":"insert","asset":a["key"],"at":[i as f64 * 6.0, 0, 0]}).to_string());
+        assert_eq!(r["ok"], true, "{}: {r}", a["key"]);
+    }
+    // a second door reuses the first door's component
+    run(&mut e, json!({"cmd":"insert","asset":"door","at":[0,10,0]}));
+    assert_eq!(run(&mut e, json!({"cmd":"components"}))["components"].as_array().unwrap().len(), list.len());
+    assert!(e.model.world_faces().len() > 200);
+}
+
+#[test]
+fn glb_stl_and_obj_round_trip() {
+    let dir = std::env::temp_dir().join(format!("riseline-io-{}", std::process::id()));
+    let p = |n: &str| dir.join(n).to_string_lossy().to_string();
+    let mut e = Engine::new();
+    make_box(&mut e);
+    run(&mut e, json!({"cmd":"insert","asset":"tree","at":[12,0,0]}));
+    let r = run(&mut e, json!({"cmd":"export_glb","path":p("m.glb")}));
+    let glb = std::fs::read(p("m.glb")).unwrap();
+    assert_eq!(&glb[0..4], b"glTF");
+    assert_eq!(u32::from_le_bytes(glb[8..12].try_into().unwrap()) as usize, glb.len());
+    assert!(r["triangles"].as_u64().unwrap() > 12);
+    let r = run(&mut e, json!({"cmd":"export_stl","path":p("m.stl"),"scale":1000}));
+    let stl = std::fs::read(p("m.stl")).unwrap();
+    assert_eq!(stl.len(), 84 + 50 * r["triangles"].as_u64().unwrap() as usize);
+    run(&mut e, json!({"cmd":"export_obj","path":p("m.obj")}));
+    let mut e2 = Engine::new();
+    let r = run(&mut e2, json!({"cmd":"import_obj","path":p("m.obj"),"up":"z"}));
+    assert!(r["faces"].as_u64().unwrap() > 12);
+    assert_eq!(r["skipped"], 0);
+    let b = run(&mut e2, json!({"cmd":"info"}))["bounds"].clone();
+    assert!((b["max"][2].as_f64().unwrap() - 6.0).abs() < 1e-3 || b["max"][2].as_f64().unwrap() > 4.0);
+    std::fs::remove_dir_all(dir).ok();
+}
