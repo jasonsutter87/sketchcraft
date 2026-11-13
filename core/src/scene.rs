@@ -150,6 +150,7 @@ pub fn build(root: &Model, ctx: Option<u32>) -> Value {
             "name": name,
             "color": m.color,
             "texture": m.texture.as_ref().map(|t| json!({"data": t.data, "width": t.width, "height": t.height, "project": t.project})),
+            "opacity": m.opacity,
         })).collect::<Vec<_>>(),
         "triFace": tri_face,
         "faces": faces,

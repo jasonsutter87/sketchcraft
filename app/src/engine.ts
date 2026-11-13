@@ -84,6 +84,8 @@ export interface MaterialInfo {
   name: string;
   color: Vec3;
   texture: { data: string; width: number; height: number; project: Vec3 | null } | null;
+  /** see-through in the view (reference images): 1 solid */
+  opacity?: number;
 }
 
 export interface Scene {
@@ -96,6 +98,8 @@ export interface Scene {
   /** Model from photos: corners marked across matched photos, and the edges between them */
   photoPoints?: { name: string; marks: Record<string, [number, number]> }[];
   photoEdges?: [number, number][];
+  /** subdivision objects' editable cages, by group id */
+  cages?: Record<string, { points: number[][]; faces: number[][]; materials: (string | null)[]; creases: number[][]; levels: number; symmetry: { axis: number; center: number } | null }>;
   /** texture coordinates, two per vertex */
   uvs: number[];
   /** per triangle: index into `textures`, or -1 */

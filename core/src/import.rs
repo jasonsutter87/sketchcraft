@@ -120,7 +120,7 @@ pub fn import_obj(m: &mut Model, text: &str, dir: Option<&Path>, name: &str, y_u
     colors.insert(DEFAULT[4..].to_string(), [0.9, 0.9, 0.88]);
     for (k, c) in &colors {
         let key = format!("obj:{k}");
-        let mat = Material { color: *c, texture: None };
+        let mat = Material { color: *c, texture: None, opacity: 1.0 };
         def.materials.insert(key.clone(), mat.clone());
         m.materials.entry(key).or_insert(mat);
     }

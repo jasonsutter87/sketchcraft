@@ -1427,3 +1427,15 @@ fn subd_cages_edit_with_symmetry_loops_and_extrudes() {
     let r = run(&mut e, json!({"cmd":"cage_edit","id":g,"op":{"kind":"delete_faces","faces":[0]}}));
     assert!(r["cage_faces"].as_u64().unwrap() >= 1);
 }
+
+#[test]
+fn reference_images_can_be_see_through() {
+    let mut e = Engine::new();
+    run(&mut e, json!({"cmd":"material","name":"Plain","color":[0.5,0.5,0.5]}));
+    assert_eq!(e.model.materials["Plain"].opacity, 1.0, "new materials are solid");
+    run(&mut e, json!({"cmd":"texture","name":"Ref","data":"data:image/png;base64,AA==","width":2.0,"height":1.0}));
+    assert_eq!(e.model.materials["Ref"].opacity, 1.0);
+    run(&mut e, json!({"cmd":"opacity","material":"Ref","value":0.4}));
+    assert!((e.model.materials["Ref"].opacity - 0.4).abs() < 1e-6);
+    assert_eq!(e.exec_json(&json!({"cmd":"opacity","material":"Nope","value":0.4}).to_string())["ok"], false);
+}

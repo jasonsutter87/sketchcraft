@@ -2510,3 +2510,28 @@ details.panel-fold {
   font-weight: 600;
   line-height: 1.4;
 }
+
+/* ---------- SubD mode ---------- */
+.subd-bar {
+  bottom: 76px;
+  max-width: calc(100% - 40px);
+}
+/* in SubD mode its bar takes the workspace strip's place */
+.stage:has(.subd-bar) .ws-strip:not(.subd-bar) {
+  display: none;
+}
+.subd-bar kbd {
+  margin-left: 3px;
+  padding: 0 4px;
+  border-radius: 4px;
+  font-size: 10px;
+  background: var(--bg);
+  color: var(--muted);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.subd-bar input[type="range"] {
+  width: 90px;
+}
+.subd-coach {
+  border-left: 3px solid var(--accent);
+}

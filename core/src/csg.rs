@@ -335,7 +335,7 @@ pub fn material_key(m: &mut Model, f: &crate::components::WFace) -> Option<Strin
         (Some(k), _) if m.materials.contains_key(k) => Some(k.clone()),
         (_, Some(c)) => {
             let key = format!("#{:02x}{:02x}{:02x}", (c[0] * 255.0).round() as u8, (c[1] * 255.0).round() as u8, (c[2] * 255.0).round() as u8);
-            m.materials.entry(key.clone()).or_insert(Material { color: c, texture: None });
+            m.materials.entry(key.clone()).or_insert(Material { color: c, texture: None, opacity: 1.0 });
             Some(key)
         }
         _ => None,

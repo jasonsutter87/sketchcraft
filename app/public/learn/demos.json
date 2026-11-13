@@ -46,5 +46,13 @@
     "gif": "learn/workspaces-skins.gif",
     "frames": 25,
     "captured": "2026-11-13"
+  },
+  "subd-mode": {
+    "title": "SubD mode",
+    "about": "Shape a smooth object by its cage: pick points, edges or faces, drag (the other side follows), add loops, extrude, crease.",
+    "topic": "Shape",
+    "gif": "learn/subd-mode.gif",
+    "frames": 14,
+    "captured": "2026-11-13"
   }
 }

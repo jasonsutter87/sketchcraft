@@ -266,6 +266,8 @@ def board(name, crop, ll, R, U, w, h):
     ex({"cmd": "texture", "name": name, "data": data, "width": W, "height": H, "project": [-c for c in n], "origin": origin})
     ex({"cmd": "paint", "ids": [g], "material": name})
     ex({"cmd": "tag", "ids": [g], "tag": "Blueprint"})
+    ex({"cmd": "opacity", "material": name, "value": 0.55})
+    ex({"cmd": "lock", "ids": [g]})
     return g
 
 

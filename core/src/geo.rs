@@ -144,7 +144,7 @@ pub fn add_location(m: &mut Model, lat: f64, lon: f64, size: f64, cells: usize, 
             [p[0] as f32 / 255.0, p[1] as f32 / 255.0, p[2] as f32 / 255.0]
         };
         let name = "Location imagery".to_string();
-        m.materials.insert(name.clone(), Material { color: avg, texture: Some(Texture { data, width: size, height: size, project: Some([0.0, 0.0, -1.0]), origin: Some([-size / 2.0, -size / 2.0, 0.0]) }) });
+        m.materials.insert(name.clone(), Material { color: avg, texture: Some(Texture { data, width: size, height: size, project: Some([0.0, 0.0, -1.0]), origin: Some([-size / 2.0, -size / 2.0, 0.0]) }), opacity: 1.0 });
         let faces: Vec<Id> = m.faces.iter().filter(|(_, f)| f.group == Some(gid)).map(|(k, _)| *k).collect();
         for f in faces {
             m.faces.get_mut(&f).unwrap().material = Some(name.clone());

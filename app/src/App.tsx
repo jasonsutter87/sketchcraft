@@ -14,6 +14,7 @@ import { TOOL_INFO, WORKSPACES, withEdits, type WorkspaceEdits, type WorkspaceId
 import { AppearanceDialog, WorkspaceDialog } from "./appearance";
 import { WorkspaceStrip } from "./wsstrip";
 import { PhotoModeler } from "./photomodel";
+import { RefImageDialog } from "./refimage";
 import { LearnCenter, LessonCard, lessonsDone, useLearnCtx } from "./learn";
 
 const DEFAULT_BUILD: BuildSettings = {
@@ -198,6 +199,7 @@ export default function App() {
   };
   const [showSkins, setShowSkins] = useState(false);
   const [showPhotoModel, setShowPhotoModel] = useState(false);
+  const [showRef, setShowRef] = useState(false);
   const [showLearn, setShowLearn] = useState(false);
   const [lesson, setLesson] = useState<string | null>(null);
   const [showWs, setShowWs] = useState(false);
@@ -325,6 +327,20 @@ export default function App() {
   useEffect(() => {
     const onKey = async (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      // SubD mode has its own keys (the viewport handles them)
+      if (api.current?.inCage()) {
+        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") {
+          e.preventDefault();
+          run({ cmd: e.shiftKey ? "redo" : "undo" });
+        }
+        return;
+      }
+      // Tab on a selected subdivision object: shape it (SubD mode)
+      if (e.key === "Tab" && sel.groups.length === 1 && scene?.cages?.[String(sel.groups[0])]) {
+        e.preventDefault();
+        api.current?.editCage(sel.groups[0]);
+        return;
+      }
       const mod = e.metaKey || e.ctrlKey;
       const k = e.key.toLowerCase();
       if (mod && ["n", "o", "s", "i"].includes(k)) {
@@ -695,7 +711,7 @@ export default function App() {
               </details>
             </>
           )}
-          {scene && tab === "views" && <Views scene={scene} run={run} camera={() => api.current!.camera()} goTo={(c) => api.current?.goTo(c)} onMatchPhoto={startMatch} onPhotoModel={() => setShowPhotoModel(true)} />}
+          {scene && tab === "views" && <Views scene={scene} run={run} camera={() => api.current!.camera()} goTo={(c) => api.current?.goTo(c)} onMatchPhoto={startMatch} onPhotoModel={() => setShowPhotoModel(true)} onRefImage={() => setShowRef(true)} />}
         </div>
       </aside>
 
@@ -846,6 +862,7 @@ export default function App() {
           />
         )}
         {lesson && learnCtx && <LessonCard key={lesson} id={lesson} ctx={learnCtx} onClose={() => setLesson(null)} onToast={say} />}
+        {showRef && scene && <RefImageDialog scene={scene} run={run} onClose={() => setShowRef(false)} onToast={say} />}
         {showPhotoModel && scene && <PhotoModeler scene={scene} run={run} onClose={() => setShowPhotoModel(false)} onToast={say} />}
         {showSkins && <AppearanceDialog current={skin} onPick={wearSkin} onClose={() => setShowSkins(false)} onToast={say} />}
         {showWs && <WorkspaceDialog ws={ws} onChange={editWs} onReset={() => editWs(null)} onClose={() => setShowWs(false)} />}
@@ -893,7 +910,7 @@ export default function App() {
             }}
           />
         )}
-        {menu && scene && <ContextMenu x={menu.x} y={menu.y} close={() => setMenu(null)} items={contextItems(scene, sel, run, setSel, () => api.current?.fit(), api.current?.sectionPlane())} />}
+        {menu && scene && <ContextMenu x={menu.x} y={menu.y} close={() => setMenu(null)} items={contextItems(scene, sel, run, setSel, () => api.current?.fit(), api.current?.sectionPlane(), (id) => api.current?.editCage(id))} />}
       </main>
 
       <aside className="panel right">

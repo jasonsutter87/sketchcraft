@@ -352,7 +352,7 @@ pub fn import(m: &mut Model, d: &[u8], name: &str, at: DVec3) -> Result<FbxResul
         bail!("no meshes in this FBX");
     }
     for (id, c) in &mats {
-        let mat = Material { color: *c, texture: None };
+        let mat = Material { color: *c, texture: None, opacity: 1.0 };
         def.materials.insert(format!("fbx:{id}"), mat.clone());
         m.materials.entry(format!("fbx:{id}")).or_insert(mat);
     }

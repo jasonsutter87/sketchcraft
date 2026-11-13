@@ -52,6 +52,7 @@ ORGANIZE
 - photo_solve {points:[{name?, marks:{viewName:[u,v]}}], edges?:[[i,j]], fixed?, scale?:{a,b,length}, place?=true, build?}: multi-photo modeling. Marks are photo-centered, y up, in half-photo-heights. Corners marked in 2+ matched photos (all matched with the origin on the same real corner) are solved to 3D along with each photo distance; returns points, misses (m), distances
 - subd {name?, points, faces:[[i,j,k,l],...], materials?:[name|null per face], creases?:[[i,j]], levels?=2}: Catmull-Clark smooth surface from a cage (box modeling); subdivide {id, levels?, keep_sharp?}: smooth an existing group
 - cage_edit {id, moves?:[[i,x,y,z]], mirror?=true, crease?/uncrease?:[[i,j]], op?:{kind: insert_loop {edge:[i,j], t} | extrude {faces, distance} | delete_faces {faces} | merge {points}}, levels?, symmetry?: "auto"|"off"|0|1|2}: edit a subd object's cage (scene.cages has it) and rebuild
+- opacity {material, value 0-1}: see-through in the view (reference image boards)
 - environment {kind: suburban|city|park|desert|waterfront|studio|none}: a ready-made setting around the model (locked group tagged Environment; studio = seamless backdrop + softbox lights, renders without sky/sun). pushpull also takes toward:[x,y,z]
 - sun {date?, time?, utc_offset?}: real sun azimuth/altitude at the model location
 - door_swing {hinge, strike, toward}: door swing symbol for plans. blueprint also takes notes:[...]; sheets takes notes:[...] (a line starting with a hash is a heading)

@@ -398,7 +398,7 @@ function TemplateTiles({ onTemplate }: { onTemplate: (lines: string[]) => void }
   );
 }
 
-export function Views({ scene, run, camera, goTo, onMatchPhoto, onPhotoModel }: { scene: Scene; run: Run; camera: () => Cam; goTo: (c: Cam & { photo?: string }) => void; onMatchPhoto: (f: File) => void; onPhotoModel: () => void }) {
+export function Views({ scene, run, camera, goTo, onMatchPhoto, onPhotoModel, onRefImage }: { scene: Scene; run: Run; camera: () => Cam; goTo: (c: Cam & { photo?: string }) => void; onMatchPhoto: (f: File) => void; onPhotoModel: () => void; onRefImage: () => void }) {
   const [name, setName] = useState("");
   const photoInput = useRef<HTMLInputElement>(null);
   const save = async () => {
@@ -425,6 +425,9 @@ export function Views({ scene, run, camera, goTo, onMatchPhoto, onPhotoModel }: 
           title={scene.views.filter((v) => v.photo).length >= 2 ? "Mark the same corners in your matched photos and build them in 3D" : "Match two or more photos of the same building first"}
         >
           Model from photos…
+        </button>
+        <button className="btn small ghost" onClick={onRefImage} title="A photo or drawing on a front, side or top board to model over">
+          Reference image…
         </button>
       </div>
       <ul className="layers views-list">
@@ -548,7 +551,7 @@ export interface MenuItem {
   run: () => void;
 }
 
-export function contextItems(scene: Scene, sel: Sel, run: Run, setSel: (s: Sel) => void, fitSel: () => void, section?: { origin: number[]; normal: number[] } | null): MenuItem[] {
+export function contextItems(scene: Scene, sel: Sel, run: Run, setSel: (s: Sel) => void, fitSel: () => void, section?: { origin: number[]; normal: number[] } | null, onCage?: (id: number) => void): MenuItem[] {
   const ids = selIds(sel);
   const items: MenuItem[] = [];
   if (isEmpty(sel)) {
@@ -559,6 +562,7 @@ export function contextItems(scene: Scene, sel: Sel, run: Run, setSel: (s: Sel) 
     return items;
   }
   const one = ids.length === 1;
+  if (one && sel.groups.length && scene.cages?.[String(ids[0])]) items.push({ label: "Shape in SubD mode", key: "Tab", run: () => onCage?.(ids[0]) });
   if (one && (sel.groups.length || sel.instances.length)) items.push({ label: `Edit ${sel.groups.length ? "group" : "component"}`, run: () => (run({ cmd: "edit", id: ids[0] }), setSel(EMPTY)) });
   // groups and components selected go inside the new group as they are (nesting)
   if (sel.faces.length || sel.groups.length || sel.instances.length) {
@@ -755,6 +759,10 @@ export function Textures({
             units={scene.units || "m"}
             onChange={(w) => run({ cmd: "texture", name: active.name, width: w })}
           />
+          <label className="field" title="For reference images: see your model (or a SubD cage) through the picture">
+            <span>See-through {Math.round((1 - (active.opacity ?? 1)) * 100)}%</span>
+            <input type="range" min={0} max={0.9} step={0.05} value={1 - (active.opacity ?? 1)} onChange={(e) => run({ cmd: "opacity", material: active.name, value: 1 - Number(e.target.value) })} />
+          </label>
           <div className="row gap">
             <button className="btn small" onClick={project}>
               Project from this view

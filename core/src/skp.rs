@@ -835,7 +835,7 @@ fn fill(m: &mut Model, e: &Entities, file: &SkpFile) -> usize {
         if let Some((name, rgb)) = file.materials.get(&f.material) {
             let key = format!("skp:{name}");
             let texture = file.textures.get(&f.material).map(|t| crate::model::Texture { data: t.data.clone(), width: t.tile, height: t.tile * t.aspect, project: None, origin: None });
-            m.materials.entry(key.clone()).or_insert(crate::model::Material { color: *rgb, texture });
+            m.materials.entry(key.clone()).or_insert(crate::model::Material { color: *rgb, texture, opacity: 1.0 });
             keys.insert(f.material, key);
         }
     }

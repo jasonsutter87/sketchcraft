@@ -578,6 +578,8 @@ pub enum Command {
         #[serde(default)]
         keep_sharp: bool,
     },
+    /// How see-through a material is in the view (reference images): 0-1.
+    Opacity { material: String, value: f32 },
     /// Put the model in a ready-made setting: suburban, city, park, desert,
     /// waterfront, studio; or none to take it away.
     Environment { kind: String },
@@ -1491,6 +1493,11 @@ impl Engine {
                 json!({"path": path, "pages": crate::layout::blueprint(&building, &path, &sheet, &project, &notes)?, "levels": crate::layout::floor_levels(&building)})
             }
             Command::Levels => json!({"levels": crate::layout::floor_levels(&crate::environment::without(&self.model))}),
+            Command::Opacity { material, value } => {
+                let Some(mat) = m.materials.get_mut(&material) else { bail!("no material {material}") };
+                mat.opacity = value.clamp(0.05, 1.0);
+                json!({"opacity": mat.opacity})
+            }
             Command::Subd { name, points, faces, materials, creases, levels, editable, symmetry } => {
                 let n = faces.len();
                 let mut ed = crate::subd::Editable { points, faces, materials: (0..n).map(|i| materials.get(i).cloned().flatten()).collect(), creases, levels: levels.clamp(0, 5), symmetry };

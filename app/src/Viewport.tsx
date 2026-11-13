@@ -12,6 +12,8 @@ import { Line2 } from "three/examples/jsm/lines/Line2.js";
 import { LineGeometry } from "three/examples/jsm/lines/LineGeometry.js";
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import { exec, type Annotation, type FaceInfo, type Reply, type Scene, type Vec3 } from "./engine";
+import { CageEditor, type CageData, type CageUi } from "./cage";
+import { CageBar } from "./cagebar";
 import { guide, type Guide } from "./guide";
 import { Icons } from "./icons";
 import { AXIS_COLORS, closestOnLine, infer, rayFrom, V, type Axis, type InferEnv, type Pick, type Snap } from "./inference";
@@ -102,6 +104,10 @@ export interface ViewportApi {
   clearSection: () => void;
   /** the active section plane (a point on it and its normal), if any */
   sectionPlane: () => { origin: Vec3; normal: Vec3 } | null;
+  /** SubD mode on a subdivision object (false when it isn't one) */
+  editCage: (id: number) => boolean;
+  exitCage: () => void;
+  inCage: () => boolean;
   /** a floor-plan cut: everything above `height` (m) taken away */
   planCut: (height: number) => void;
   /** slide the cut along its direction (m; + moves it deeper into what's kept) */
@@ -402,6 +408,8 @@ export default function Viewport(props: Props) {
     model: THREE.Group;
     overlay: THREE.Group;
     preview: THREE.Group;
+    /** SubD mode's cage and live surface */
+    cage: THREE.Group;
     ground: THREE.Group;
     catcher: THREE.Mesh;
     pickMesh: THREE.Mesh | null;
@@ -409,6 +417,9 @@ export default function Viewport(props: Props) {
     groundZ: number;
   } | null>(null);
 
+  /** SubD mode: the cage editor while a subdivision object is being shaped */
+  const cageEd = useRef<CageEditor | null>(null);
+  const [cageUi, setCageUi] = useState<CageUi | null>(null);
   /** newest section-fill request (older answers are dropped) */
   const sectionTicket = useRef(0);
   /** ambient occlusion post-processing, made the first time it's turned on */
@@ -551,9 +562,10 @@ export default function Viewport(props: Props) {
     const model = new THREE.Group();
     const overlay = new THREE.Group();
     const preview = new THREE.Group();
-    world.add(model, overlay, preview);
+    const cage = new THREE.Group();
+    world.add(model, overlay, preview, cage);
 
-    t.current = { renderer, persp, ortho, camera: persp, controls, world, sun, model, overlay, preview, ground, catcher, pickMesh: null, editMesh: null, groundZ: 0 };
+    t.current = { renderer, persp, ortho, camera: persp, controls, world, sun, model, overlay, preview, cage, ground, catcher, pickMesh: null, editMesh: null, groundZ: 0 };
 
     const resize = () => {
       const { clientWidth: w, clientHeight: h } = el;
@@ -779,6 +791,39 @@ export default function Viewport(props: Props) {
     return out;
   }
 
+  // ---------------------------------------------------------------- SubD mode
+  function enterCage(group: number) {
+    const T = t.current;
+    const s = live.current.scene;
+    const d = s?.cages?.[String(group)];
+    if (!T || !s || !d) return false;
+    cageEd.current?.dispose();
+    const colors = new Map(s.materials.map((m) => [m.name, m.color as [number, number, number]]));
+    cageEd.current = new CageEditor({
+      group,
+      data: d as CageData,
+      root: T.cage,
+      host: host.current!,
+      camera: () => t.current!.camera,
+      colorOf: (m) => (m && colors.get(m)) || [0.82, 0.83, 0.85],
+      run: live.current.run,
+      onUi: setCageUi,
+      toast: live.current.onToast,
+    });
+    if (import.meta.env.DEV) (window as unknown as { __cage: unknown }).__cage = cageEd.current;
+    live.current.setSel(EMPTY);
+    live.current.setTool("select");
+    buildModel();
+    drawOverlay();
+    return true;
+  }
+  function exitCage() {
+    cageEd.current?.dispose();
+    cageEd.current = null;
+    setCageUi(null);
+    buildModel();
+  }
+
   // ---------------------------------------------------------------- model
   function buildModel() {
     const T = t.current;
@@ -789,8 +834,24 @@ export default function Viewport(props: Props) {
     const xray = live.current.styles.xray;
     const clip = st.current.section ? [st.current.section] : [];
 
+    // in SubD mode the object being shaped is drawn by its cage editor instead
+    const shaping = cageEd.current?.o.group ?? null;
+    let positions = s.positions;
+    // see-through reference images have no solid face under them
+    const ghost = new Set(s.textures.map((name, i) => ((s.materials.find((m) => m.name === name)?.opacity ?? 1) < 1 ? i : -1)).filter((i) => i >= 0));
+    if (ghost.size && s.triTex?.length) {
+      positions = positions.slice();
+      for (let t = 0; t < s.triTex.length; t++) if (ghost.has(s.triTex[t])) for (let k = 3; k < 9; k++) positions[t * 9 + k] = positions[t * 9 + (k % 3)];
+    }
+    let edgeSegs = s.edges;
+    if (shaping != null) {
+      const hide = new Set(s.faces.filter((f) => f.group === shaping).map((f) => f.id));
+      positions = s.positions.slice();
+      for (let t = 0; t < s.triFace.length; t++) if (hide.has(s.triFace[t])) for (let k = 3; k < 9; k++) positions[t * 9 + k] = positions[t * 9 + (k % 3)];
+      edgeSegs = s.edgeList.filter((e) => !e.soft && e.group !== shaping).flatMap((e) => [...e.a, ...e.b]);
+    }
     const geo = new THREE.BufferGeometry();
-    geo.setAttribute("position", new THREE.Float32BufferAttribute(s.positions, 3));
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
     // colors come per triangle; each corner gets its triangle's color
     const corners = (c: number[]) => {
       const out = new Float32Array(c.length * 3);
@@ -826,7 +887,7 @@ export default function Viewport(props: Props) {
     const size = box.isEmpty() ? 10 : box.getSize(new THREE.Vector3()).length();
     if (sty.profiles && !xray && faceStyle !== "wireframe" && s.positions.length) {
       const pg = new THREE.BufferGeometry();
-      pg.setAttribute("position", new THREE.Float32BufferAttribute(s.positions, 3));
+      pg.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
       pg.setAttribute("normal", new THREE.BufferAttribute(averagedNormals(s.positions), 3));
       const outline = new THREE.Mesh(pg, profileMaterial(bg.line, 2.2, clip));
       outline.raycast = () => {}; // not pickable
@@ -852,7 +913,7 @@ export default function Viewport(props: Props) {
         geo2.setAttribute("normal", new THREE.BufferAttribute(smoothNormals(g.pos), 3));
         const mesh = new THREE.Mesh(
           geo2,
-          new THREE.MeshLambertMaterial({ map: textureFor(mat.name, mat.texture.data), side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 0, polygonOffsetUnits: 0, transparent: xray, opacity: xray ? 0.42 : 1, depthWrite: !xray, clippingPlanes: clip })
+          new THREE.MeshLambertMaterial({ map: textureFor(mat.name, mat.texture.data), side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 0, polygonOffsetUnits: 0, transparent: xray || (mat.opacity ?? 1) < 1, opacity: Math.min(xray ? 0.42 : 1, mat.opacity ?? 1), depthWrite: !xray && (mat.opacity ?? 1) >= 1, clippingPlanes: clip })
         );
         mesh.receiveShadow = live.current.styles.shadows;
         T.model.add(mesh);
@@ -861,7 +922,7 @@ export default function Viewport(props: Props) {
 
     if (sty.edges || faceStyle === "wireframe" || faceStyle === "hiddenline") {
       const eg = new THREE.BufferGeometry();
-      const segs = sty.sketchy || sty.extensions ? styledEdges(s.edges, size, !!sty.extensions || !!sty.sketchy, !!sty.sketchy) : s.edges;
+      const segs = sty.sketchy || sty.extensions ? styledEdges(edgeSegs, size, !!sty.extensions || !!sty.sketchy, !!sty.sketchy) : edgeSegs;
       eg.setAttribute("position", new THREE.Float32BufferAttribute(segs, 3));
       T.model.add(new THREE.LineSegments(eg, new THREE.LineBasicMaterial({ color: bg.line, clippingPlanes: clip, transparent: !!sty.sketchy, opacity: sty.sketchy ? 0.8 : 1 })));
     }
@@ -897,10 +958,10 @@ export default function Viewport(props: Props) {
         }
       });
     }
-    if (live.current.styles.backEdges && !xray && s.edges.length) {
+    if (live.current.styles.backEdges && !xray && edgeSegs.length) {
       // the same edges again, dashed and drawn through faces
       const bg = new THREE.BufferGeometry();
-      bg.setAttribute("position", new THREE.Float32BufferAttribute(s.edges, 3));
+      bg.setAttribute("position", new THREE.Float32BufferAttribute(edgeSegs, 3));
       const back = new THREE.LineSegments(bg, new THREE.LineDashedMaterial({ color: 0x7a7f94, dashSize: 0.12, gapSize: 0.09, depthTest: false, depthWrite: false, transparent: true, opacity: 0.55, clippingPlanes: clip }));
       back.computeLineDistances();
       back.renderOrder = 5; // after the faces, so they show through
@@ -985,6 +1046,12 @@ export default function Viewport(props: Props) {
   useEffect(() => {
     if (!t.current || !scene) return;
     units = scene.units || "m";
+    const ed = cageEd.current;
+    if (ed) {
+      const d = scene.cages?.[String(ed.o.group)];
+      if (d) ed.setData(d);
+      else exitCage();
+    }
     buildModel();
     if (!st.current.fitted || st.current.fitNext) {
       st.current.fitted = true;
@@ -1517,6 +1584,9 @@ export default function Viewport(props: Props) {
       const o = p.coplanarPoint(new THREE.Vector3());
       return { origin: [o.x, o.y, o.z], normal: [p.normal.x, p.normal.y, p.normal.z] };
     },
+    editCage: (id: number) => enterCage(id),
+    exitCage: () => exitCage(),
+    inCage: () => cageEd.current != null,
     planCut: (height: number) => {
       // keep what's below: normal points down, plane at z = height
       st.current.section = new THREE.Plane(new THREE.Vector3(0, 0, -1), height);
@@ -1676,6 +1746,10 @@ export default function Viewport(props: Props) {
     const el = T.renderer.domElement;
 
     const move = (e: PointerEvent) => {
+      if (cageEd.current && !st.current.space && !(e.buttons & 6)) {
+        cageEd.current.pointerMove(e);
+        return;
+      }
       const b = badge.current;
       if (b) {
         const r = el.getBoundingClientRect();
@@ -1913,6 +1987,11 @@ export default function Viewport(props: Props) {
 
     const down = async (e: PointerEvent) => {
       const L = live.current;
+      if (cageEd.current && !st.current.space && e.button === 0) {
+        el.setPointerCapture(e.pointerId);
+        cageEd.current.pointerDown(e);
+        return;
+      }
       if (e.button === 2) {
         st.current.rightDown = { x: e.clientX, y: e.clientY };
         return;
@@ -1938,6 +2017,11 @@ export default function Viewport(props: Props) {
             // double-click: open a group or component; outside closes it
             if (h) {
               const ent = entityOf(h);
+              if (ent.kind === "groups" && L.scene.cages?.[String(ent.id)]) {
+                enterCage(ent.id);
+                L.onToast("SubD mode: 1 points, 2 edges, 3 faces; drag to shape. Enter when done.");
+                return;
+              }
               if (ent.kind === "groups" || ent.kind === "instances") {
                 await run({ cmd: "edit", id: ent.id });
                 L.setSel(EMPTY);
@@ -2233,6 +2317,7 @@ export default function Viewport(props: Props) {
 
     const up = async (e: PointerEvent) => {
       const L = live.current;
+      if (cageEd.current && e.button === 0 && (await cageEd.current.pointerUp(e))) return;
       if (e.button === 2) {
         const rd = st.current.rightDown;
         st.current.rightDown = null;
@@ -2353,6 +2438,17 @@ export default function Viewport(props: Props) {
         return;
       }
       if (e.type !== "keydown" || typing) return;
+      const ed = cageEd.current;
+      if (ed) {
+        if (e.key === "Escape") {
+          if (ed.tool !== "select") ed.setTool("select");
+          else if (ed.sel.size) (ed.sel.clear(), ed.draw(), ed.ui());
+          else exitCage();
+          return;
+        }
+        if (e.key === "Enter") return exitCage();
+        if (!e.metaKey && !e.ctrlKey && ed.key(e)) return;
+      }
       if (e.key === "Enter" && st.current.op?.t === "wall") {
         e.preventDefault();
         void commitWall(false);
@@ -2403,7 +2499,7 @@ export default function Viewport(props: Props) {
   return (
     <div className="viewport" ref={host} style={{ cursor }}>
       {backdrop && <img className="backdrop" src={backdrop} alt="" />}
-      {coach && coach.step && (
+      {coach && coach.step && !cageUi && (
         <div className="coach" aria-live="polite">
           <div className="coach-head">
             <span className="coach-icon">{(Icons as unknown as Record<string, () => React.ReactNode>)[tool]?.()}</span>
@@ -2427,6 +2523,7 @@ export default function Viewport(props: Props) {
         </div>
       )}
       <div className="labels" ref={labelLayer} />
+      {cageUi && cageEd.current && <CageBar ui={cageUi} ed={cageEd.current} onDone={exitCage} />}
       {hint && (
         <div className="snap" style={{ left: hint.x, top: hint.y }}>
           <span className={`snap-dot ${hint.kind}`} />

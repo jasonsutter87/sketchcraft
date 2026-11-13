@@ -147,12 +147,30 @@ pub struct View {
     pub photo: Option<String>,
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Material {
     /// The color (for textures: the image's average color, used by renders).
     pub color: [f32; 3],
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub texture: Option<Texture>,
+    /// see-through in the view (reference images); 1 = solid
+    #[serde(default = "one", skip_serializing_if = "is_one")]
+    pub opacity: f32,
+}
+
+impl Default for Material {
+    fn default() -> Self {
+        // solid unless asked: a derived default would make new materials invisible
+        Material { color: [0.8, 0.8, 0.8], texture: None, opacity: 1.0 }
+    }
+}
+
+fn one() -> f32 {
+    1.0
+}
+
+fn is_one(v: &f32) -> bool {
+    (*v - 1.0).abs() < 1e-6
 }
 
 /// An image material. Faces show it at `width` x `height` meters per tile,
@@ -831,7 +849,7 @@ impl Model {
             (color[1].clamp(0.0, 1.0) * 255.0).round() as u8,
             (color[2].clamp(0.0, 1.0) * 255.0).round() as u8
         );
-        self.materials.entry(name.clone()).or_insert(Material { color, texture: None });
+        self.materials.entry(name.clone()).or_insert(Material { color, texture: None, opacity: 1.0 });
         for f in self.faces_of(ids)? {
             self.faces.get_mut(&f).unwrap().material = Some(name.clone());
         }
