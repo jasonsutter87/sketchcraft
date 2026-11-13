@@ -2308,3 +2308,205 @@ details.panel-fold {
   color: var(--faint);
   cursor: default;
 }
+
+/* ---------- Learn ---------- */
+.learn-btn {
+  position: relative;
+}
+.learn-dot {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #f2c230;
+  box-shadow: 0 0 0 2px var(--panel);
+}
+.learn {
+  width: min(1040px, calc(100vw - 32px));
+}
+.learn-top {
+  margin: 4px 0 12px;
+}
+.learn-search {
+  flex: 1;
+  min-width: 180px;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+}
+.learn-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+  gap: 12px;
+  max-height: 62vh;
+  overflow-y: auto;
+  padding: 2px;
+}
+.learn-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  background: var(--panel);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.learn-card header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+.learn-card p,
+.learn-card ol {
+  margin: 0;
+}
+.learn-card ol {
+  padding-left: 18px;
+  line-height: 1.5;
+}
+.learn-card.done {
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+.learn-card.demo {
+  cursor: pointer;
+}
+.learn-card.demo:hover {
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+.demo-frame {
+  overflow: hidden;
+  border-radius: calc(var(--radius) - 4px);
+  box-shadow: inset 0 0 0 1px var(--line);
+  line-height: 0;
+}
+.demo-frame img {
+  width: 100%;
+  height: auto;
+}
+.demo-big {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 10px;
+  padding: 24px;
+  background: rgba(21, 19, 28, 0.82);
+  color: #fff;
+  cursor: zoom-out;
+}
+.demo-big img {
+  max-width: min(1100px, 100%);
+  max-height: 80vh;
+  border-radius: 10px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+.demo-big p {
+  max-width: 900px;
+  margin: 0;
+  text-align: center;
+}
+.demo-big .muted {
+  color: rgba(255, 255, 255, 0.6);
+}
+.lesson-card {
+  position: absolute;
+  left: 14px;
+  bottom: 84px;
+  z-index: 7;
+  width: 300px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--glass);
+  box-shadow: var(--shadow), inset 0 0 0 1px var(--line);
+}
+.lesson-card header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.lesson-card header b {
+  flex: 1;
+}
+.lesson-card .kicker {
+  font: 600 10px/1 "IBM Plex Mono", "SF Mono", Menlo, monospace;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent-ink);
+}
+.lesson-card .rowbtn {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  color: var(--faint);
+}
+.lesson-card ol {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.lesson-card li {
+  display: flex;
+  gap: 8px;
+  color: var(--faint);
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+.lesson-card li.now {
+  color: var(--text);
+  font-weight: 600;
+}
+.lesson-card li.ok {
+  color: var(--muted);
+}
+.lesson-card li em {
+  display: block;
+  margin-top: 2px;
+  font-style: normal;
+  font-weight: 400;
+  color: var(--muted);
+}
+.lesson-card .tick {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  font-size: 10px;
+  font-weight: 700;
+  box-shadow: inset 0 0 0 1.5px currentColor;
+}
+.lesson-card li.ok .tick {
+  background: var(--accent);
+  color: #fff;
+  box-shadow: none;
+}
+.lesson-card li.now .tick {
+  color: var(--accent);
+}
+.lesson-demo {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  border-radius: 8px;
+}
+.demo-still {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 960 / 570;
+  background: var(--bg);
+  color: var(--muted);
+  font-weight: 600;
+  line-height: 1.4;
+}

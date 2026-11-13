@@ -71,6 +71,15 @@ Rules that keep demos durable and good:
 6. After capturing, look at a frame or two (`ffmpeg -i docs/demos/x.mp4
    -vf select=eq(n\,100) -vframes 1 x.png`) before committing.
 
+## The Learn center
+
+`app/src/learn.tsx` shows every demo in `app/public/learn/demos.json` under
+**Learn › Watch**, and lessons can point at one (`demo: 'name'`) for their
+"Show me" button. A new demo appears there as soon as it's captured; give it
+a `topic` so it groups sensibly. Lessons themselves are data in `LESSONS`:
+each step's `done(ctx, base)` checks the scene against a snapshot from when
+the lesson started, so it works in any model.
+
 ## When a demo breaks
 
 The error names the locator that failed. Usually the label changed: update

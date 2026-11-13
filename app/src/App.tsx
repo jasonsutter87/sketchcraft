@@ -14,6 +14,7 @@ import { TOOL_INFO, WORKSPACES, withEdits, type WorkspaceEdits, type WorkspaceId
 import { AppearanceDialog, WorkspaceDialog } from "./appearance";
 import { WorkspaceStrip } from "./wsstrip";
 import { PhotoModeler } from "./photomodel";
+import { LearnCenter, LessonCard, lessonsDone, useLearnCtx } from "./learn";
 
 const DEFAULT_BUILD: BuildSettings = {
   wallThickness: 0.2,
@@ -197,6 +198,8 @@ export default function App() {
   };
   const [showSkins, setShowSkins] = useState(false);
   const [showPhotoModel, setShowPhotoModel] = useState(false);
+  const [showLearn, setShowLearn] = useState(false);
+  const [lesson, setLesson] = useState<string | null>(null);
   const [showWs, setShowWs] = useState(false);
   const [placing, setPlacing] = useState<string | null>(null);
   const [build, setBuildState] = useState<BuildSettings>(loadBuild);
@@ -558,6 +561,7 @@ export default function App() {
   const fileRef2 = useRef(file);
   fileRef2.current = file;
 
+  const learnCtx = useLearnCtx(scene, wsId, section, !!styles.byTag);
   const docName = currentFile ? currentFile.split("/").pop()!.replace(/\.sketchcraft$/, "") : "Untitled";
   const selCount = selIds(sel).length;
 
@@ -632,6 +636,9 @@ export default function App() {
           </button>
         </div>
         <div className="top-actions">
+          <button className="btn small ghost learn-btn" title="Lessons and demos: learn SketchCraft by doing" onClick={() => setShowLearn(true)}>
+            Learn{lessonsDone().length === 0 && <i className="learn-dot" aria-label="(new)" />}
+          </button>
           <button className="icon-btn skin-btn" title="Skins: change how SketchCraft looks" onClick={() => setShowSkins(true)} aria-label="Skins">
             <Icons.paint />
           </button>
@@ -828,6 +835,17 @@ export default function App() {
             actions={{ blueprint: file.blueprint, sheets: () => setShowSheets(true), location: () => setShowLocation(true), render: () => setShowRender(true), animation: file.animation }}
           />
         )}
+        {showLearn && (
+          <LearnCenter
+            onStart={(id) => {
+              setShowLearn(false);
+              setLesson(null);
+              window.setTimeout(() => setLesson(id), 0);
+            }}
+            onClose={() => setShowLearn(false)}
+          />
+        )}
+        {lesson && learnCtx && <LessonCard key={lesson} id={lesson} ctx={learnCtx} onClose={() => setLesson(null)} onToast={say} />}
         {showPhotoModel && scene && <PhotoModeler scene={scene} run={run} onClose={() => setShowPhotoModel(false)} onToast={say} />}
         {showSkins && <AppearanceDialog current={skin} onPick={wearSkin} onClose={() => setShowSkins(false)} onToast={say} />}
         {showWs && <WorkspaceDialog ws={ws} onChange={editWs} onReset={() => editWs(null)} onClose={() => setShowWs(false)} />}
