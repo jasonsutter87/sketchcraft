@@ -164,3 +164,38 @@ fn render_and_export_write_files() {
     assert_eq!(run(&mut e2, json!({"cmd":"info"}))["faces"], 6);
     std::fs::remove_dir_all(dir).ok();
 }
+
+#[test]
+fn door_at_ground_splits_wall_and_recesses() {
+    let mut e = Engine::new();
+    make_box(&mut e);
+    let door = run(&mut e, json!({"cmd":"rect","from":[2,0,0],"to":[3,0,2.2]}))["face"].clone();
+    let front: Vec<Value> = run(&mut e, json!({"cmd":"faces","facing":[0,-1,0]}))["faces"].as_array().unwrap().clone();
+    assert_eq!(front.len(), 2, "wall + door");
+    let wall = front.iter().find(|f| f["id"] != door).unwrap();
+    assert_eq!(wall["holes"], 0, "door touches the edge, so the wall is reshaped, not holed");
+    assert_eq!(wall["points"], 8);
+    assert!((wall["area"].as_f64().unwrap() - (48.0 - 2.2)).abs() < 1e-6);
+
+    let r = run(&mut e, json!({"cmd":"pushpull","face":door,"distance":-0.3}));
+    let all = faces(&mut e);
+    assert!(all.iter().all(|f| f["id"] != door), "door base removed: the recess is open");
+    let back = all.iter().find(|f| f["id"] == r["face"]).unwrap();
+    assert_eq!(vec3(&back["normal"]), -DVec3::Y);
+    // the recess floor faces up, its ceiling faces down
+    let created: Vec<&Value> = r["created"].as_array().unwrap().iter().map(|id| all.iter().find(|f| &f["id"] == id).unwrap()).collect();
+    assert!(created.iter().any(|f| vec3(&f["normal"]) == DVec3::Z));
+    assert!(created.iter().any(|f| vec3(&f["normal"]) == -DVec3::Z));
+}
+
+#[test]
+fn band_across_wall_splits_it_in_two() {
+    let mut e = Engine::new();
+    make_box(&mut e);
+    // full-width band through the middle of the front wall
+    run(&mut e, json!({"cmd":"rect","from":[0,0,2],"to":[8,0,3]}));
+    let front: Vec<Value> = run(&mut e, json!({"cmd":"faces","facing":[0,-1,0]}))["faces"].as_array().unwrap().clone();
+    assert_eq!(front.len(), 3, "below band, band, above band");
+    let total: f64 = front.iter().map(|f| f["area"].as_f64().unwrap()).sum();
+    assert!((total - 48.0).abs() < 1e-6);
+}
