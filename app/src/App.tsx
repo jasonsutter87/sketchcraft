@@ -177,9 +177,17 @@ export default function App() {
     await refresh();
   };
 
-  const importObj = async (file: File) => {
-    const text = await file.text();
-    const r = await run({ cmd: "import_obj", text, up: "y" });
+  const importFile = async (file: File) => {
+    let r: Reply;
+    if (file.name.toLowerCase().endsWith(".skp")) {
+      // binary: send it as base64
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      let bin = "";
+      for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+      r = await run({ cmd: "import_skp", data: btoa(bin), name: file.name.replace(/\.skp$/i, "") });
+    } else {
+      r = await run({ cmd: "import_obj", text: await file.text(), up: "y" });
+    }
     if (r.ok) {
       say(`Imported ${file.name}: ${r.faces} faces`);
       api.current?.fitSoon();
@@ -222,10 +230,10 @@ export default function App() {
           <button className="icon-btn" title="Redo (⇧⌘Z)" onClick={() => run({ cmd: "redo" })}>
             <Icons.redo />
           </button>
-          <button className="btn ghost" onClick={() => fileRef.current?.click()} title="Import an OBJ file">
+          <button className="btn ghost" onClick={() => fileRef.current?.click()} title="Import a SketchUp (.skp, versions 6-8) or OBJ file">
             <Icons.import /> Import
           </button>
-          <input ref={fileRef} type="file" accept=".obj" hidden onChange={(e) => e.target.files?.[0] && importObj(e.target.files[0])} />
+          <input ref={fileRef} type="file" accept=".obj,.skp" hidden onChange={(e) => e.target.files?.[0] && importFile(e.target.files[0])} />
           <div className="dropdown">
             <button className="btn ghost" onClick={() => setExportOpen((o) => !o)}>
               <Icons.export /> Export
