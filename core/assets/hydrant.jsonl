@@ -1,0 +1,10 @@
+# Fire hydrant, 0.85 m. Origin: base center.
+{"cmd":"begin_group","name":"Hydrant","as":"h"}
+{"cmd":"circle","center":[0,0,0],"radius":0.16,"segments":14,"as":"b"}
+{"cmd":"pushpull","face":"@b","distance":0.62,"as":"t"}
+{"cmd":"pushpull","face":"@t","distance":0.12,"as":"cap"}
+{"cmd":"scale","ids":["@cap"],"center":[0,0,0.74],"factor":[0.75,0.75,1]}
+{"cmd":"pushpull","face":"@cap","distance":0.08,"as":"nut"}
+{"cmd":"scale","ids":["@nut"],"center":[0,0,0.82],"factor":[0.35,0.35,1]}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@h"],"color":[0.93,0.78,0.2]}

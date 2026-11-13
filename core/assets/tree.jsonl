@@ -1,0 +1,15 @@
+# Street tree, about 4.5 m tall. Origin: base of the trunk.
+{"cmd":"begin_group","name":"Trunk","as":"trunk"}
+{"cmd":"circle","center":[0,0,0],"radius":0.15,"segments":10,"as":"t"}
+{"cmd":"pushpull","face":"@t","distance":2.3}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@trunk"],"color":[0.42,0.31,0.22]}
+{"cmd":"begin_group","name":"Canopy","as":"canopy"}
+{"cmd":"circle","center":[0,0,1.8],"radius":1.6,"segments":14,"as":"c"}
+{"cmd":"pushpull","face":"@c","distance":1.5,"as":"top"}
+{"cmd":"scale","ids":["@top"],"center":[0,0,3.3],"factor":[0.55,0.55,1]}
+{"cmd":"scale","ids":["@c"],"center":[0,0,1.8],"factor":[0.5,0.5,1]}
+{"cmd":"pushpull","face":"@top","distance":0.9,"as":"crown"}
+{"cmd":"scale","ids":["@crown"],"center":[0,0,4.2],"factor":[0.35,0.35,1]}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@canopy"],"color":[0.42,0.6,0.36]}

@@ -1,0 +1,17 @@
+# Park bench, 1.8 m. Origin: ground under the center; you sit facing -Y.
+{"cmd":"begin_group","name":"Bench","as":"bench"}
+{"cmd":"rect","from":[-0.9,-0.25,0.42],"to":[0.9,0.25,0.42],"as":"s"}
+{"cmd":"pushpull","face":"@s","distance":0.05}
+{"cmd":"end_group"}
+{"cmd":"begin_group","name":"Back","as":"back"}
+{"cmd":"polygon","points":[[-0.9,0.25,0.55],[0.9,0.25,0.55],[0.9,0.25,0.95],[-0.9,0.25,0.95]],"as":"b"}
+{"cmd":"pushpull","face":"@b","distance":0.05}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@bench","@back"],"color":[0.58,0.42,0.27]}
+{"cmd":"begin_group","name":"Legs","as":"legs"}
+{"cmd":"rect","from":[-0.82,-0.22,0],"to":[-0.74,0.28,0],"as":"l1"}
+{"cmd":"pushpull","face":"@l1","distance":0.95}
+{"cmd":"rect","from":[0.74,-0.22,0],"to":[0.82,0.28,0],"as":"l2"}
+{"cmd":"pushpull","face":"@l2","distance":0.95}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@legs"],"color":[0.18,0.19,0.2]}

@@ -1,0 +1,20 @@
+# Compact car, 4.4 x 1.8 m. Origin: ground under the center; points along +X.
+{"cmd":"begin_group","name":"Body","as":"body"}
+{"cmd":"rect","from":[-2.2,-0.85,0.3],"to":[2.2,0.85,0.3],"as":"b"}
+{"cmd":"pushpull","face":"@b","distance":0.62,"as":"deck"}
+{"cmd":"rect","from":[-1.15,-0.78,0.92],"to":[0.95,0.78,0.92],"as":"cab"}
+{"cmd":"pushpull","face":"@cab","distance":0.55,"as":"roof"}
+{"cmd":"scale","ids":["@roof"],"center":[-0.15,0,1.47],"factor":[0.72,0.92,1]}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@body"],"color":[0.72,0.16,0.18]}
+{"cmd":"begin_group","name":"Wheels","as":"wheels"}
+{"cmd":"circle","center":[-1.35,-0.7,0.33],"normal":[0,-1,0],"radius":0.33,"segments":16,"as":"w1"}
+{"cmd":"pushpull","face":"@w1","distance":0.22}
+{"cmd":"circle","center":[1.35,-0.7,0.33],"normal":[0,-1,0],"radius":0.33,"segments":16,"as":"w2"}
+{"cmd":"pushpull","face":"@w2","distance":0.22}
+{"cmd":"circle","center":[-1.35,0.7,0.33],"normal":[0,1,0],"radius":0.33,"segments":16,"as":"w3"}
+{"cmd":"pushpull","face":"@w3","distance":0.22}
+{"cmd":"circle","center":[1.35,0.7,0.33],"normal":[0,1,0],"radius":0.33,"segments":16,"as":"w4"}
+{"cmd":"pushpull","face":"@w4","distance":0.22}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@wheels"],"color":[0.12,0.12,0.13]}

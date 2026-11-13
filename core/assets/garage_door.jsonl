@@ -1,0 +1,12 @@
+# Sectional garage door, 2.7 x 2.2 m. Origin: bottom-left on the wall; faces -Y.
+{"cmd":"begin_group","name":"Garage door","as":"g"}
+{"cmd":"polygon","points":[[0,0,0],[2.7,0,0],[2.7,0,2.2],[0,0,2.2]],"as":"slab"}
+{"cmd":"pushpull","face":"@slab","distance":0.04}
+{"cmd":"rect","from":[0,-0.04,0.53],"to":[2.7,-0.04,0.57],"as":"b1"}
+{"cmd":"pushpull","face":"@b1","distance":-0.015}
+{"cmd":"rect","from":[0,-0.04,1.08],"to":[2.7,-0.04,1.12],"as":"b2"}
+{"cmd":"pushpull","face":"@b2","distance":-0.015}
+{"cmd":"rect","from":[0,-0.04,1.63],"to":[2.7,-0.04,1.67],"as":"b3"}
+{"cmd":"pushpull","face":"@b3","distance":-0.015}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@g"],"color":[0.88,0.88,0.86]}

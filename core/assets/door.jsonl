@@ -1,0 +1,15 @@
+# Panel door, 1.0 x 2.1 m. Origin: bottom-left corner on the wall; faces -Y (the street).
+{"cmd":"begin_group","name":"Door","as":"door"}
+{"cmd":"polygon","points":[[0,0,0],[1,0,0],[1,0,2.1],[0,0,2.1]],"as":"slab"}
+{"cmd":"pushpull","face":"@slab","distance":0.05}
+{"cmd":"rect","from":[0.15,-0.05,1.2],"to":[0.85,-0.05,1.95],"as":"p1"}
+{"cmd":"pushpull","face":"@p1","distance":-0.02}
+{"cmd":"rect","from":[0.15,-0.05,0.25],"to":[0.85,-0.05,1.0],"as":"p2"}
+{"cmd":"pushpull","face":"@p2","distance":-0.02}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@door"],"color":[0.36,0.22,0.15]}
+{"cmd":"begin_group","name":"Knob","as":"knob"}
+{"cmd":"circle","center":[0.86,-0.05,1.05],"normal":[0,-1,0],"radius":0.035,"segments":12,"as":"k"}
+{"cmd":"pushpull","face":"@k","distance":0.06}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@knob"],"color":[0.78,0.68,0.42]}

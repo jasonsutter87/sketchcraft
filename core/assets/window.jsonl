@@ -1,0 +1,9 @@
+# Window, 1.2 x 1.5 m with a white frame and glass set back. Origin: bottom-left on the wall; faces -Y.
+{"cmd":"begin_group","name":"Frame","as":"frame"}
+{"cmd":"polygon","points":[[0,0,0],[1.2,0,0],[1.2,0,1.5],[0,0,1.5]],"as":"w"}
+{"cmd":"pushpull","face":"@w","distance":0.08,"as":"front"}
+{"cmd":"offset","face":"@front","distance":0.08,"as":"inner"}
+{"cmd":"pushpull","face":"@inner","distance":-0.06,"as":"glass"}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@frame"],"color":[0.97,0.97,0.95]}
+{"cmd":"paint","ids":["@glass"],"color":[0.45,0.6,0.72]}
