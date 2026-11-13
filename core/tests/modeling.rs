@@ -1242,6 +1242,12 @@ fn environments_build_around_the_model_as_one_undo_step() {
         assert!(e.model.world_faces().len() > 12, "{kind} built something");
     }
     assert_eq!(e.model.environment.as_deref(), Some("studio"));
+    // floors are found on the building, not the lawn around it
+    run(&mut e, json!({"cmd":"environment","kind":"suburban"}));
+    let lv = run(&mut e, json!({"cmd":"levels"}))["levels"].as_array().unwrap().len();
+    run(&mut e, json!({"cmd":"undo"}));
+    let lv0 = run(&mut e, json!({"cmd":"levels"}))["levels"].as_array().unwrap().len();
+    assert_eq!(lv, lv0, "the environment doesn't change the floors");
     // undo takes back exactly one environment
     run(&mut e, json!({"cmd":"undo"}));
     assert_eq!(e.model.environment.as_deref(), Some("waterfront"));

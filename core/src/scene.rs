@@ -172,6 +172,7 @@ pub fn build(root: &Model, ctx: Option<u32>) -> Value {
         "views": root.views,
         "classes": root.classes,
         "location": root.location,
+        "environment": root.environment,
         "annotations": root.annotations,
         "units": root.units,
     })

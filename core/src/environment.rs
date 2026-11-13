@@ -265,3 +265,18 @@ pub fn build(kind: &str, lo: DVec3, hi: DVec3) -> anyhow::Result<Vec<Value>> {
     }
     Ok(b.cmds)
 }
+
+/// The model without its environment (drawings and floor finding are about
+/// the building, not the lawn around it). Borrowed as is when there's none.
+pub fn without(m: &crate::model::Model) -> std::borrow::Cow<'_, crate::model::Model> {
+    let env: Vec<u32> = m.groups.iter().filter(|(_, g)| g.parent.is_none() && g.name.starts_with("Environment")).map(|(&k, _)| k).collect();
+    if env.is_empty() {
+        return std::borrow::Cow::Borrowed(m);
+    }
+    let mut c = m.clone();
+    for g in &env {
+        c.groups.get_mut(g).unwrap().locked = false;
+    }
+    let _ = c.delete(&env);
+    std::borrow::Cow::Owned(c)
+}

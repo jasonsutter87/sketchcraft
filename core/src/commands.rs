@@ -1407,9 +1407,10 @@ impl Engine {
             }
             Command::Blueprint { path, sheet, project, notes } => {
                 let project = project.unwrap_or_else(|| std::path::Path::new(&path).file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "Project".into()));
-                json!({"path": path, "pages": crate::layout::blueprint(&self.model, &path, &sheet, &project, &notes)?, "levels": crate::layout::floor_levels(&self.model)})
+                let building = crate::environment::without(&self.model);
+                json!({"path": path, "pages": crate::layout::blueprint(&building, &path, &sheet, &project, &notes)?, "levels": crate::layout::floor_levels(&building)})
             }
-            Command::Levels => json!({"levels": crate::layout::floor_levels(&self.model)}),
+            Command::Levels => json!({"levels": crate::layout::floor_levels(&crate::environment::without(&self.model))}),
             Command::Environment { .. } => bail!("environment runs through Engine::exec"),
             Command::Sun { date, time, utc_offset } => serde_json::to_value(sun_at(&self.model, date.as_deref(), time.as_deref(), utc_offset)?)?,
             Command::DoorSwing { hinge, strike, toward } => {
