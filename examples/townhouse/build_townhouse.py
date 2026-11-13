@@ -247,6 +247,28 @@ dim((0, 0), (0, 15), (-3, 0), FLOOR)
 dim((0, 15), (0, 23), (-3, 0), FLOOR)
 dim((0, 23), (0, 35), (-3, 0), FLOOR)
 
+# door swings (hinge, strike, a point on the side it opens to), as drawn
+def swing(h, st, toward, z):
+    cmd({"cmd": "door_swing", "hinge": m(h[0], h[1], z + 0.05), "strike": m(st[0], st[1], z + 0.05), "toward": m(toward[0], toward[1], z + 0.05)})
+
+
+swing((9.7, 35), (12.3, 35), (11, 40), 0)  # primary bedroom
+swing((13, 44.7), (13, 42.3), (16, 43), 0)  # bath 1
+swing((13, 38.8), (13, 36.4), (16, 37), 0)  # walk-in closet
+swing((11.8, 20), (14.2, 20), (13, 23), 0)  # pantry
+swing((11, 6.5), (11, 3.5), (14, 5), 0)  # garage to foyer
+swing((13.8, 0), (16.8, 0), (15, 4), 0)  # front door
+swing((9.0, 23), (6.2, 23), (7, 27), FLOOR)  # bed 2
+swing((12.8, 23), (15.5, 23), (14, 27), FLOOR)  # bed 3
+swing((8, 20.6), (8, 18.3), (5, 19.5), FLOOR)  # bath 2
+
+# closet and walk-in shelves (dashed overhead on the plans)
+box("Closet shelf", EXT, 23.2, FLOOR + 5.5, 5.0, 24.6, FLOOR + 5.6, as_="sh1")
+box("Closet shelf", 15.6, 23.2, FLOOR + 5.5, 22 - EXT, 24.6, FLOOR + 5.6, as_="sh2")
+box("Closet shelf", 13.4, 35.3, 5.5, 22 - EXT, 36.5, 5.6, as_="sh3")
+box("Closet shelf", 15.2, 38.6, 5.5, 22 - EXT, 39.8, 5.6, as_="sh4")
+cmd({"cmd": "paint", "ids": ["@sh1", "@sh2", "@sh3", "@sh4"], "color": [0.96, 0.95, 0.92]})
+
 # ---- views -------------------------------------------------------------------------
 cmd({"cmd": "save_view", "name": "Street", "eye": m(52, -48, 6), "target": m(10, 18, 9), "fov": 42})
 cmd({"cmd": "save_view", "name": "Aerial", "eye": m(70, -40, 60), "target": m(11, 22, 4), "fov": 40})
