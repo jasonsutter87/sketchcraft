@@ -14,7 +14,22 @@ import { formatLength, parseLengths } from "./units";
 export type Tool =
   | "select" | "line" | "arc" | "rect" | "circle" | "polygon"
   | "push" | "offset" | "followme" | "move" | "rotate" | "scale"
-  | "tape" | "dimension" | "text" | "paint" | "erase" | "orbit" | "section" | "place";
+  | "tape" | "dimension" | "text" | "paint" | "erase" | "orbit" | "section" | "place"
+  | "wall" | "stairs" | "roof" | "column";
+
+/** Settings for the building-block tools (lengths in meters). */
+export interface BuildSettings {
+  wallThickness: number;
+  wallHeight: number;
+  stairWidth: number;
+  stairRise: number;
+  roofKind: "gable" | "hip" | "shed";
+  roofPitch: number;
+  roofOverhang: number;
+  columnSize: number;
+  columnHeight: number;
+  columnRound: boolean;
+}
 
 export interface Styles {
   xray: boolean;
@@ -49,6 +64,7 @@ interface Props {
   setColor: (c: [number, number, number]) => void;
   styles: Styles;
   placeAsset: string | null;
+  build: BuildSettings;
   run: (cmd: Record<string, unknown>) => Promise<Reply>;
   onMeasure: (label: string, value: string) => void;
   onContext: (x: number, y: number) => void;
@@ -128,7 +144,9 @@ type Op =
   | { t: "tape"; p0: THREE.Vector3; along: THREE.Vector3 | null; cur: THREE.Vector3 }
   | { t: "box"; x0: number; y0: number; x1: number; y1: number; additive: boolean }
   | { t: "dim"; a: THREE.Vector3; b: THREE.Vector3 | null; off: THREE.Vector3; cur: THREE.Vector3 }
-  | { t: "text"; leader: THREE.Vector3; cur: THREE.Vector3 };
+  | { t: "text"; leader: THREE.Vector3; cur: THREE.Vector3 }
+  | { t: "wall"; pts: THREE.Vector3[]; cur: THREE.Vector3 }
+  | { t: "stairs"; at: THREE.Vector3; cur: THREE.Vector3 };
 
 interface LabelSpec {
   key: string;
@@ -785,6 +803,12 @@ export default function Viewport(props: Props) {
     live.current.onMeasure("", "");
   }
 
+  function toScreen2(p: THREE.Vector3) {
+    const r = rect();
+    const q = p.clone().project(t.current!.camera);
+    return { x: (q.x * 0.5 + 0.5) * r.width, y: (-q.y * 0.5 + 0.5) * r.height };
+  }
+
   function showSnap(sn: Snap) {
     if (sn.from) t.current!.preview.add(polyline([sn.from, sn.p], sn.axis != null ? AXIS_COLORS[sn.axis] : 0x8a8ea0, false, true));
     const r = rect();
@@ -911,6 +935,12 @@ export default function Viewport(props: Props) {
     if (!nums.length) return;
 
     switch (op?.t) {
+      case "wall": {
+        const last = op.pts[op.pts.length - 1];
+        const dir = op.cur.clone().sub(last);
+        if (dir.length() > 1e-9 && lens.length) op.pts.push(last.clone().addScaledVector(dir.normalize(), lens[0]));
+        return;
+      }
       case "line": {
         const dir = op.cur.clone().sub(op.p0);
         if (dir.length() > 1e-9 && lens.length) await commitLine(op.p0.clone().addScaledVector(dir.normalize(), lens[0]));
@@ -1080,6 +1110,16 @@ export default function Viewport(props: Props) {
     if (r.ok) st.current.last = { t: "scale", ids: op.ids, center: op.center, factor: op.factor };
   }
 
+  async function commitWall(closed: boolean) {
+    const op = st.current.op;
+    if (op?.t !== "wall") return;
+    st.current.op = null;
+    clearPreview();
+    if (op.pts.length < 2) return;
+    const b = live.current.build;
+    await run({ cmd: "wall", points: op.pts.map(arr), thickness: b.wallThickness, height: b.wallHeight, closed });
+  }
+
   async function commitTape(p: THREE.Vector3) {
     const op = st.current.op;
     if (op?.t !== "tape") return;
@@ -1161,6 +1201,25 @@ export default function Viewport(props: Props) {
           for (let i = 0; i < segs.length; i += 6) T.preview.add(polyline([V(segs.slice(i, i + 3)), V(segs.slice(i + 3, i + 6))], 0x33384d));
           setLive([{ p: op.a.clone().add(op.b).multiplyScalar(0.5).add(op.off), text: fmt(op.a.distanceTo(op.b)) }]);
           L.onMeasure("Dimension", fmt(op.a.distanceTo(op.b)));
+          return;
+        }
+        case "wall": {
+          const last = op.pts[op.pts.length - 1];
+          const sn = infer(E, e, { anchor: last, lock, plane: { origin: op.pts[0], normal: UP } });
+          op.cur = sn.p;
+          T.preview.add(polyline([...op.pts, sn.p], ACCENT));
+          if (op.pts.length > 2 && sn.p.distanceTo(op.pts[0]) < 1e-6) setHint({ ...toScreen2(sn.p), label: "Close room", kind: "endpoint" });
+          else showSnap(sn);
+          setLive([{ p: last.clone().add(sn.p).multiplyScalar(0.5), text: fmt(sn.p.distanceTo(last)) }]);
+          L.onMeasure("Length", fmt(sn.p.distanceTo(last)));
+          return;
+        }
+        case "stairs": {
+          const sn = infer(E, e, { anchor: op.at, lock, plane: { origin: op.at, normal: UP } });
+          op.cur = sn.p;
+          T.preview.add(polyline([op.at, sn.p], ACCENT));
+          showSnap(sn);
+          L.onMeasure("Direction", "click which way it climbs");
           return;
         }
         case "text": {
@@ -1303,9 +1362,9 @@ export default function Viewport(props: Props) {
       }
 
       // nothing in progress: show what a click would hit
-      if (["line", "arc", "rect", "circle", "polygon", "tape", "dimension", "text", "move", "rotate", "scale", "place"].includes(L.tool)) showSnap(infer(E, e, {}));
+      if (["line", "arc", "rect", "circle", "polygon", "tape", "dimension", "text", "move", "rotate", "scale", "place", "wall", "stairs", "column"].includes(L.tool)) showSnap(infer(E, e, {}));
       else setHint(null);
-      if (["select", "erase", "paint", "push", "offset", "followme", "section", "move", "rotate", "scale"].includes(L.tool)) {
+      if (["select", "erase", "paint", "push", "offset", "followme", "section", "move", "rotate", "scale", "roof"].includes(L.tool)) {
         const he = ["select", "erase", "move"].includes(L.tool) ? pickEdge(e) : null;
         const h = he == null ? pick(e) : null;
         const id = h ? h.owner : null;
@@ -1496,6 +1555,48 @@ export default function Viewport(props: Props) {
           st.current.op = { t: "text", leader: sn.p, cur: sn.p };
           return;
         }
+        case "wall": {
+          if (op?.t === "wall") {
+            const last = op.pts[op.pts.length - 1];
+            const sn = infer(E, e, { anchor: last, lock: st.current.lock, plane: { origin: op.pts[0], normal: UP } });
+            if (op.pts.length > 2 && sn.p.distanceTo(op.pts[0]) < 1e-6) return void (await commitWall(true));
+            if (e.detail >= 2) return void (await commitWall(false));
+            if (sn.p.distanceTo(last) > 1e-4) op.pts.push(sn.p);
+            st.current.lock = null;
+            return;
+          }
+          const sn = infer(E, e, {});
+          st.current.op = { t: "wall", pts: [sn.p], cur: sn.p };
+          return;
+        }
+        case "stairs": {
+          if (op?.t === "stairs") {
+            const d = op.cur.clone().sub(op.at);
+            if (d.length() < 1e-3) return;
+            st.current.op = null;
+            clearPreview();
+            const b = L.build;
+            const r = await run({ cmd: "stairs", at: arr(op.at), rise: b.stairRise, width: b.stairWidth, direction: r4(THREE.MathUtils.radToDeg(Math.atan2(d.y, d.x))) });
+            if (r.ok) L.onToast(`${r.risers} risers of ${fmt(r.riser_height as number)}`);
+            return;
+          }
+          const sn = infer(E, e, {});
+          st.current.op = { t: "stairs", at: sn.p, cur: sn.p };
+          return;
+        }
+        case "roof": {
+          const h = pick(e);
+          if (!h?.face) return L.onToast("Click a flat top face (a ceiling or the top of walls).", true);
+          const b = L.build;
+          await run({ cmd: "roof", face: h.face.id, kind: b.roofKind, pitch: b.roofPitch, overhang: b.roofOverhang });
+          return;
+        }
+        case "column": {
+          const sn = infer(E, e, {});
+          const b = L.build;
+          await run({ cmd: "column", at: arr(sn.p), size: b.columnSize, height: b.columnHeight, round: b.columnRound });
+          return;
+        }
         case "paint": {
           const h = pick(e);
           if (!h) return;
@@ -1651,6 +1752,11 @@ export default function Viewport(props: Props) {
         return;
       }
       if (e.type !== "keydown" || typing) return;
+      if (e.key === "Enter" && st.current.op?.t === "wall") {
+        e.preventDefault();
+        void commitWall(false);
+        return;
+      }
       if (e.key === "Escape") {
         if (st.current.op) cancel();
         else if (live.current.tool === "place") live.current.setTool("select");
