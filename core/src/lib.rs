@@ -13,6 +13,7 @@ pub mod mcp;
 pub mod model;
 pub mod render;
 pub mod scene;
+pub mod shapes;
 pub mod topology;
 pub mod transform;
 

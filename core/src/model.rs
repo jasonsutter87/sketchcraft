@@ -489,6 +489,7 @@ impl Model {
         }
         let top_id = self.insert_face(top);
         out.push(top_id);
+        self.soften_smooth(&sides); // a pulled circle reads as a smooth cylinder
         out.extend(sides);
 
         if embedded {
