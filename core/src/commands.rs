@@ -81,7 +81,32 @@ pub enum Command {
     /// Flip faces (or every face in a group).
     Reverse { ids: Vec<Id> },
     /// Color faces (or every face in a group), 0..1 RGB.
-    Paint { ids: Vec<Id>, color: [f32; 3] },
+    Paint {
+        ids: Vec<Id>,
+        #[serde(default)]
+        color: Option<[f32; 3]>,
+        /// a material by name (an image material from `texture`)
+        #[serde(default)]
+        material: Option<String>,
+    },
+    /// Create or update an image material. `data` is a data: URL; `width` and
+    /// `height` are meters per tile; `project` [x,y,z] projects it along a
+    /// direction (null turns projection off); `color` is its average color.
+    Texture {
+        name: String,
+        #[serde(default)]
+        data: Option<String>,
+        #[serde(default)]
+        width: Option<f64>,
+        #[serde(default)]
+        height: Option<f64>,
+        #[serde(default)]
+        color: Option<[f32; 3]>,
+        #[serde(default)]
+        project: Option<Option<[f64; 3]>>,
+        #[serde(default)]
+        origin: Option<[f64; 3]>,
+    },
     /// New geometry goes into a fresh group until end_group.
     BeginGroup { #[serde(default)] name: Option<String> },
     EndGroup,
@@ -520,7 +545,46 @@ impl Engine {
                 }
                 json!({"faces": faces})
             }
-            Command::Paint { ids, color } => json!({"material": m.paint(&ids, color)?}),
+            Command::Paint { ids, color, material } => match (material, color) {
+                (Some(name), _) => {
+                    m.paint_material(&ids, &name)?;
+                    json!({"material": name})
+                }
+                (None, Some(c)) => json!({"material": m.paint(&ids, c)?}),
+                _ => bail!("paint needs a color or a material"),
+            },
+            Command::Texture { name, data, width, height, color, project, origin } => {
+                let mat = m.materials.entry(name.clone()).or_default();
+                let mut tex = mat.texture.clone().unwrap_or(crate::model::Texture { data: String::new(), width: 1.0, height: 1.0, project: None, origin: None });
+                if let Some(d) = data {
+                    if !d.starts_with("data:image/") {
+                        bail!("texture data must be a data:image/... URL");
+                    }
+                    tex.data = d;
+                }
+                if tex.data.is_empty() {
+                    bail!("a new texture needs image data");
+                }
+                if let Some(w) = width {
+                    tex.height = height.unwrap_or(tex.height * w / tex.width.max(1e-9));
+                    tex.width = w;
+                } else if let Some(h) = height {
+                    tex.height = h;
+                }
+                if let Some(p) = project {
+                    tex.project = p;
+                }
+                if let Some(o) = origin {
+                    tex.origin = Some(o);
+                }
+                if let Some(c) = color {
+                    mat.color = c;
+                } else if mat.color == [0.0; 3] {
+                    mat.color = [0.8, 0.8, 0.8];
+                }
+                mat.texture = Some(tex);
+                json!({"material": name})
+            }
             Command::BeginGroup { name } => {
                 let n = name.unwrap_or_else(|| format!("Group {}", m.groups.len() + 1));
                 json!({"group": m.begin_group(n)})
