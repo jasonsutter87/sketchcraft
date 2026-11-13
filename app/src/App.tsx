@@ -187,13 +187,13 @@ export default function App() {
 
   const doExport = async (kind: "obj" | "glb" | "stl") => {
     setExportOpen(false);
-    const path = scene!.doc.replace(/[^/]+$/, `exports/riseline-${Date.now()}.${kind}`);
+    const path = scene!.doc.replace(/[^/]+$/, `exports/sketchcraft-${Date.now()}.${kind}`);
     const cmd = kind === "obj" ? { cmd: "export_obj", path } : kind === "glb" ? { cmd: "export_glb", path } : { cmd: "export_stl", path, scale: 1000 };
     const r = await run(cmd);
     if (r.ok) say(`Exported ${path}`);
   };
 
-  const docName = scene?.doc.split("/").pop()?.replace(/\.riseline$/, "") ?? "";
+  const docName = scene?.doc.split("/").pop()?.replace(/\.sketchcraft$/, "") ?? "";
   const selCount = selIds(sel).length;
 
   return (
@@ -201,7 +201,7 @@ export default function App() {
       <header className="topbar" data-tauri-drag-region>
         <div className="brand" data-tauri-drag-region>
           <Logo />
-          <span className="brand-name">Riseline</span>
+          <span className="brand-name">SketchCraft</span>
           <span className="sep">/</span>
           <span className="doc">{docName}</span>
           <span className="live" title="Claude can edit this model over MCP; changes show up here">
@@ -239,7 +239,7 @@ export default function App() {
           <button
             className="btn primary"
             onClick={async () => {
-              const path = scene!.doc.replace(/[^/]+$/, `renders/riseline-${Date.now()}.png`);
+              const path = scene!.doc.replace(/[^/]+$/, `renders/sketchcraft-${Date.now()}.png`);
               const c = api.current!.camera();
               const r = await run({ cmd: "render", out: path, width: 1920, height: 1080, camera: c });
               if (r.ok) say(`Rendered ${path}`);

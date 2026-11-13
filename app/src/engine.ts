@@ -2,7 +2,7 @@
 // change is an engine command, exactly what scripts and Claude send.
 //
 // Inside the desktop app this calls Tauri; in a plain browser it talks to
-// `riseline bridge` on 127.0.0.1:5175.
+// `sketchcraft bridge` on 127.0.0.1:5175.
 import { invoke } from "@tauri-apps/api/core";
 
 export type Vec3 = [number, number, number];

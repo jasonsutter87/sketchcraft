@@ -1,13 +1,13 @@
 [package]
-name = "riseline-app"
+name = "sketchcraft-app"
 version = "0.1.0"
 edition = "2021"
-description = "Riseline desktop app"
+description = "SketchCraft desktop app"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-riseline-core = { path = "../../core" }
+sketchcraft-core = { path = "../../core" }
 serde_json = "1"
 tauri = { version = "2", features = [] }

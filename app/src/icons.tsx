@@ -1,4 +1,4 @@
-// Small stroke icons, drawn for Riseline (24px grid, 1.6 stroke).
+// Small stroke icons, drawn for SketchCraft (24px grid, 1.6 stroke).
 import type { ReactNode } from "react";
 
 const Svg = ({ children, size = 20 }: { children: ReactNode; size?: number }) => (
