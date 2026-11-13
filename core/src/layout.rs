@@ -87,7 +87,7 @@ fn esc(s: &str) -> String {
     s.chars().filter(|c| c.is_ascii() && !c.is_ascii_control()).map(|c| if matches!(c, '(' | ')' | '\\') { format!("\\{c}") } else { c.to_string() }).collect()
 }
 
-pub fn write_sheets(m: &Model, path: &str, sheet: &str, project: &str, mut pages: Vec<PageSpec>, blueprint: bool) -> Result<usize> {
+pub fn write_sheets(m: &Model, path: &str, sheet: &str, project: &str, mut pages: Vec<PageSpec>, blueprint: bool, notes: &[String]) -> Result<usize> {
     let (sw, sh) = sheet_mm(sheet)?;
     // saved views in a grid, or the four standard views
     let defaults: Vec<ViewportSpec> = if m.views.is_empty() { ["iso", "top", "front", "right"].iter().map(|s| s.to_string()).collect::<Vec<_>>() } else { m.views.iter().take(4).map(|v| v.name.clone()).collect() }
@@ -150,6 +150,20 @@ pub fn write_sheets(m: &Model, path: &str, sheet: &str, project: &str, mut pages
             c += &format!("BT /F2 8 Tf {:.2} {:.2} Td ({}) Tj ET\n", v.x * PT, y(v.y + v.h + 5.0), esc(&label));
             if let Some(d) = denom {
                 c += &scale_bar(v, d, &y);
+            }
+        }
+        // notes (areas, general notes) in a box above the title block
+        if !notes.is_empty() {
+            // beside the title block, bottom-aligned with it
+            let (tw, lh) = (70.0f64, 4.2);
+            let nh = 6.0 + notes.len() as f64 * lh;
+            let title_w = 110.0f64.min(sw * 0.4);
+            let (nx, ny) = (sw - 10.0 - title_w - tw, sh - 10.0 - nh);
+            c += &format!("0.6 w {:.2} {:.2} {:.2} {:.2} re S\n", nx * PT, y(ny + nh), tw * PT, nh * PT);
+            for (i, line) in notes.iter().enumerate() {
+                let bold = line.starts_with('#');
+                let text = line.trim_start_matches('#').trim();
+                c += &format!("BT /{} 6.5 Tf {:.2} {:.2} Td ({}) Tj ET\n", if bold { "F2" } else { "F1" }, (nx + 4.0) * PT, y(ny + 5.5 + i as f64 * lh), esc(text));
             }
         }
         // title block, bottom right
@@ -289,6 +303,24 @@ fn plan_cut(m: &Model, v: &ViewportSpec, z: f64, y: &dyn Fn(f64) -> f64, bluepri
         c += &format!("BT /F2 6 Tf {:.2} {:.2} Td ({label}) Tj ET\n", p.0 + 3.0, p.1 - 8.0);
         let _ = lift;
     }
+    // overhead: shelves, closets and upper cabinets above the cut, dashed
+    c += &format!("[2 1.5] 0 d 0.25 w {ink} RG\n");
+    for (gid, g) in &m.groups {
+        let n = g.name.to_ascii_lowercase();
+        let furniture = matches!(m.classes.get(gid).map(|s| s.as_str()), Some("IfcFurniture") | Some("IfcCovering"));
+        if !(furniture || ["shelf", "closet", "cabinet", "upper"].iter().any(|w| n.contains(w))) {
+            continue;
+        }
+        for e in m.edges.values().filter(|e| e.group == Some(*gid) && !e.soft) {
+            let (a, b) = (m.p(e.a), m.p(e.b));
+            if a.z.min(b.z) <= z || a.z.max(b.z) > floor + 2.8 || (a.x - b.x).hypot(a.y - b.y) < 0.01 {
+                continue;
+            }
+            let (p, q) = (to(a.x, a.y), to(b.x, b.y));
+            c += &format!("{:.2} {:.2} m {:.2} {:.2} l S\n", p.0, p.1, q.0, q.1);
+        }
+    }
+    c += "[] 0 d\n";
     // notes and dimensions placed on this floor (room names, overall sizes)
     let units = if m.units.is_empty() { "m" } else { m.units.as_str() };
     let on_floor = |pz: f64| pz > floor - 0.05 && pz < floor + 1.0;
@@ -305,6 +337,17 @@ fn plan_cut(m: &Model, v: &ViewportSpec, z: f64, y: &dyn Fn(f64) -> f64, bluepri
                     let yy = py + (lines.len() as f64 / 2.0 - i as f64 - 0.8) * 8.0;
                     c += &format!("{ink} rg BT /{font} {size} Tf {:.2} {:.2} Td ({}) Tj ET\n", px - w / 2.0, yy, esc(line));
                 }
+            }
+            crate::model::Annotation::Swing { hinge, from, to: open, .. } if on_floor(hinge.z) => {
+                let (h, o) = (to(hinge.x, hinge.y), to(open.x, open.y));
+                c += &format!("0.45 w {ink} RG {:.2} {:.2} m {:.2} {:.2} l S\n", h.0, h.1, o.0, o.1);
+                let arc = swing_arc(*hinge, *from, *open, 16);
+                c += "0.2 w ";
+                for (i, p) in arc.iter().enumerate() {
+                    let q = to(p.x, p.y);
+                    c += &format!("{:.2} {:.2} {} ", q.0, q.1, if i == 0 { "m" } else { "l" });
+                }
+                c += "S\n";
             }
             crate::model::Annotation::Dimension { a: da, b: db, offset, .. } if on_floor(da.z) && on_floor(db.z) => {
                 let (pa, pb) = (*da + *offset, *db + *offset);
@@ -342,6 +385,20 @@ fn plan_cut(m: &Model, v: &ViewportSpec, z: f64, y: &dyn Fn(f64) -> f64, bluepri
         c += &scale_bar(v, denom, y);
     }
     Ok(c)
+}
+
+/// Points along a door's swing, from closed to open, around the hinge.
+pub fn swing_arc(hinge: DVec3, from: DVec3, to: DVec3, steps: usize) -> Vec<DVec3> {
+    let (a, b) = (from - hinge, to - hinge);
+    let r = a.length();
+    let ang = a.normalize_or_zero().dot(b.normalize_or_zero()).clamp(-1.0, 1.0).acos();
+    let axis = a.cross(b).normalize_or_zero();
+    (0..=steps)
+        .map(|k| {
+            let q = glam::DQuat::from_axis_angle(if axis == DVec3::ZERO { DVec3::Z } else { axis }, ang * k as f64 / steps as f64);
+            hinge + (q * a).normalize_or_zero() * r
+        })
+        .collect()
 }
 
 /// Where a floor's dimension lines run (with a margin for their labels).
@@ -476,7 +533,7 @@ pub fn floor_levels(m: &Model) -> Vec<f64> {
 
 /// A blueprint set: every floor's plan, then the four elevations, white on
 /// blue, at the largest true scale that fits the sheet.
-pub fn blueprint(m: &Model, path: &str, sheet: &str, project: &str) -> Result<usize> {
+pub fn blueprint(m: &Model, path: &str, sheet: &str, project: &str, extra_notes: &[String]) -> Result<usize> {
     let (sw, sh) = sheet_mm(sheet)?;
     let Some((lo, hi)) = m.world_bounds() else { bail!("nothing to draw") };
     let size = hi - lo;
@@ -547,5 +604,39 @@ pub fn blueprint(m: &Model, path: &str, sheet: &str, project: &str) -> Result<us
             ..Default::default()
         })
         .collect();
-    write_sheets(m, path, sheet, project, vec![PageSpec { title: "Floor plans".into(), viewports: plans }, PageSpec { title: "Elevations".into(), viewports: elev }], true)
+    // gross floor areas: inside the outside face of each floor's walls
+    let units = if m.units.is_empty() { "m" } else { m.units.as_str() };
+    let imperial = units == "ft" || units == "in";
+    let fmt_area = |a: f64| if imperial { format!("{} SF", thousands((a * 10.763_910_4).round() as i64)) } else { format!("{:.1} m2", a) };
+    let mut notes = vec!["# AREA".to_string()];
+    let mut total = 0.0;
+    for (i, z) in levels.iter().enumerate() {
+        // measured just under the ceiling, above door and window heads, where
+        // the outside walls make a closed ring (not broken by doorways)
+        let area_at = |h: f64| {
+            m.section(DVec3::new(0.0, 0.0, z + h), DVec3::new(0.0, 0.0, -1.0))
+                .map(|c| c.regions.iter().filter(|(_, _, holes)| !holes.is_empty()).map(|(_, o, _)| crate::geom::area(o)).fold(0.0, f64::max))
+                .unwrap_or(0.0)
+        };
+        let a = [2.4, 2.3, 2.5, 1.22].iter().map(|h| area_at(*h)).find(|a| *a > 0.0).unwrap_or(0.0);
+        total += a;
+        notes.push(format!("{}   {}", ordinal(i).to_uppercase(), fmt_area(a)));
+    }
+    if levels.len() > 1 {
+        notes.push(format!("# TOTAL   {}", fmt_area(total)));
+    }
+    notes.extend(extra_notes.iter().cloned());
+    write_sheets(m, path, sheet, project, vec![PageSpec { title: "Floor plans".into(), viewports: plans }, PageSpec { title: "Elevations".into(), viewports: elev }], true, &notes)
+}
+
+fn thousands(n: i64) -> String {
+    let s = n.abs().to_string();
+    let mut out = String::new();
+    for (i, ch) in s.chars().enumerate() {
+        if i > 0 && (s.len() - i) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(ch);
+    }
+    if n < 0 { format!("-{out}") } else { out }
 }

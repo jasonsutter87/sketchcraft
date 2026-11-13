@@ -303,6 +303,18 @@ fn draw_annotations(cv: &mut Canvas, model: &Model) {
                 }
                 cv.text(p.0, p.1, text, ANNO, 2 * SS / 2 + 1);
             }
+            Annotation::Swing { hinge, from, to, .. } => {
+                // the open leaf, and the arc its edge sweeps
+                let pts = crate::layout::swing_arc(*hinge, *from, *to, 16);
+                if let (Some(h), Some(t)) = (cv.project(*hinge), cv.project(*to)) {
+                    cv.line2d(h, t, ANNO, 0.6 * s);
+                }
+                for w in pts.windows(2) {
+                    if let (Some(a), Some(b)) = (cv.project(w[0]), cv.project(w[1])) {
+                        cv.line2d(a, b, ANNO, 0.4 * s);
+                    }
+                }
+            }
         }
     }
 }

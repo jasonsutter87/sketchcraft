@@ -113,12 +113,15 @@ pub struct Guide {
 pub enum Annotation {
     Dimension { id: Id, a: DVec3, b: DVec3, offset: DVec3 },
     Text { id: Id, at: DVec3, text: String, #[serde(default)] leader: Option<DVec3> },
+    /// A door's swing on plan: the leaf turns about `hinge` from closed
+    /// (reaching `from`, across the opening) to open (reaching `to`).
+    Swing { id: Id, hinge: DVec3, from: DVec3, to: DVec3 },
 }
 
 impl Annotation {
     pub fn id(&self) -> Id {
         match self {
-            Annotation::Dimension { id, .. } | Annotation::Text { id, .. } => *id,
+            Annotation::Dimension { id, .. } | Annotation::Text { id, .. } | Annotation::Swing { id, .. } => *id,
         }
     }
 }

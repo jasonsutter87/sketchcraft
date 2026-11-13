@@ -224,6 +224,9 @@ pub enum Command {
         /// white on blueprint blue
         #[serde(default)]
         blueprint: bool,
+        /// lines in a box above the title block ("# " makes a heading)
+        #[serde(default)]
+        notes: Vec<String>,
     },
     /// A blueprint set in one go: every floor's plan and the four
     /// elevations, white on blue, at a true scale that fits the sheet.
@@ -233,7 +236,13 @@ pub enum Command {
         sheet: String,
         #[serde(default)]
         project: Option<String>,
+        /// general notes under the area table
+        #[serde(default)]
+        notes: Vec<String>,
     },
+    /// A door's swing for plans: the hinge, the strike point across the
+    /// opening, and any point on the side it swings into.
+    DoorSwing { hinge: [f64; 3], strike: [f64; 3], toward: [f64; 3] },
     /// The building's floor heights (m), found from its floors.
     Levels,
     /// Collada (.dae), Z up, meters: one object per group / component.
@@ -1199,14 +1208,30 @@ impl Engine {
                 let a = crate::animate::Anim { fps, transition, delay, views, turntable };
                 json!({"path": path, "frames": crate::animate::animate(&self.model, &path, &a, &opts)?})
             }
-            Command::Blueprint { path, sheet, project } => {
+            Command::Blueprint { path, sheet, project, notes } => {
                 let project = project.unwrap_or_else(|| std::path::Path::new(&path).file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "Project".into()));
-                json!({"path": path, "pages": crate::layout::blueprint(&self.model, &path, &sheet, &project)?, "levels": crate::layout::floor_levels(&self.model)})
+                json!({"path": path, "pages": crate::layout::blueprint(&self.model, &path, &sheet, &project, &notes)?, "levels": crate::layout::floor_levels(&self.model)})
             }
             Command::Levels => json!({"levels": crate::layout::floor_levels(&self.model)}),
-            Command::Sheets { path, sheet, project, pages, blueprint } => {
+            Command::DoorSwing { hinge, strike, toward } => {
+                let (h, s, t) = (v3(hinge), v3(strike), v3(toward));
+                let across = DVec3::new(s.x - h.x, s.y - h.y, 0.0);
+                let w = across.length();
+                if w < 0.1 {
+                    bail!("the hinge and strike points are the same");
+                }
+                // open: square to the opening, on the side `toward` is
+                let mut perp = DVec3::Z.cross(across).normalize();
+                if (t - h).dot(perp) < 0.0 {
+                    perp = -perp;
+                }
+                let id = m.new_id();
+                m.annotations.push(crate::model::Annotation::Swing { id, hinge: h, from: s, to: h + perp * w });
+                json!({"swing": id})
+            }
+            Command::Sheets { path, sheet, project, pages, blueprint, notes } => {
                 let project = project.unwrap_or_else(|| std::path::Path::new(&path).file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "Project".into()));
-                json!({"path": path, "pages": crate::layout::write_sheets(&self.model, &path, &sheet, &project, pages, blueprint)?})
+                json!({"path": path, "pages": crate::layout::write_sheets(&self.model, &path, &sheet, &project, pages, blueprint, &notes)?})
             }
             Command::ExportIfc { path, project } => {
                 let project = project.unwrap_or_else(|| std::path::Path::new(&path).file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "Project".into()));
