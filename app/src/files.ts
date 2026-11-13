@@ -4,13 +4,14 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 const inTauri = "__TAURI_INTERNALS__" in window;
 
 export async function pickOpen(): Promise<string | null> {
-  if (!inTauri) return window.prompt("Open which file? (full path to .sketchcraft, .skp or .obj)");
+  if (!inTauri) return window.prompt("Open which file? (full path to .sketchcraft, .skp, .fbx or .obj)");
   const r = await open({
     multiple: false,
     filters: [
-      { name: "Models", extensions: ["sketchcraft", "skp", "obj"] },
+      { name: "Models", extensions: ["sketchcraft", "skp", "fbx", "obj"] },
       { name: "SketchCraft", extensions: ["sketchcraft"] },
-      { name: "SketchUp (6-8)", extensions: ["skp"] },
+      { name: "SketchUp", extensions: ["skp"] },
+      { name: "FBX (binary)", extensions: ["fbx"] },
       { name: "OBJ", extensions: ["obj"] },
     ],
   });

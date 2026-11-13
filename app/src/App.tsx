@@ -306,11 +306,13 @@ export default function App() {
 
   const importFile = async (file: File) => {
     let r: Reply;
-    if (file.name.toLowerCase().endsWith(".skp")) {
+    const lower = file.name.toLowerCase();
+    if (lower.endsWith(".skp") || lower.endsWith(".fbx")) {
       const bytes = new Uint8Array(await file.arrayBuffer());
       let bin = "";
       for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-      r = await run({ cmd: "import_skp", data: btoa(bin), name: file.name.replace(/\.skp$/i, "") });
+      const fbx = lower.endsWith(".fbx");
+      r = await run({ cmd: fbx ? "import_fbx" : "import_skp", data: btoa(bin), name: file.name.replace(/\.(skp|fbx)$/i, "") });
     } else {
       r = await run({ cmd: "import_obj", text: await file.text(), up: "y" });
     }
@@ -323,7 +325,11 @@ export default function App() {
 
   const importPath = async (path: string) => {
     const lower = path.toLowerCase();
-    const r = lower.endsWith(".skp") ? await run({ cmd: "import_skp", path }) : await run({ cmd: "import_obj", path, up: "y" });
+    const r = lower.endsWith(".skp")
+      ? await run({ cmd: "import_skp", path })
+      : lower.endsWith(".fbx")
+        ? await run({ cmd: "import_fbx", path })
+        : await run({ cmd: "import_obj", path, up: "y" });
     if (r.ok) {
       say(`Imported ${path.split("/").pop()}: ${r.faces} faces`);
       api.current?.fitSoon();
@@ -468,7 +474,7 @@ export default function App() {
           <button className="icon-btn" title="Redo (⇧⌘Z)" onClick={() => run({ cmd: "redo" })}>
             <Icons.redo />
           </button>
-          <input ref={fileRef} type="file" accept=".obj,.skp" hidden onChange={(e) => e.target.files?.[0] && importFile(e.target.files[0])} />
+          <input ref={fileRef} type="file" accept=".obj,.skp,.fbx" hidden onChange={(e) => e.target.files?.[0] && importFile(e.target.files[0])} />
           <button
             className="btn primary"
             onClick={async () => {
