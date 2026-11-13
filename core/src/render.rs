@@ -32,11 +32,15 @@ pub struct RenderOpts {
     pub view: String,
     pub edges: bool,
     pub grid: bool,
+    /// draw dimensions and text labels
+    pub annotations: bool,
+    /// parallel projection (architectural elevations) instead of perspective
+    pub parallel: bool,
 }
 
 impl Default for RenderOpts {
     fn default() -> Self {
-        Self { width: 1280, height: 800, camera: None, view: "iso".into(), edges: true, grid: true }
+        Self { width: 1280, height: 800, camera: None, view: "iso".into(), edges: true, grid: true, annotations: true, parallel: false }
     }
 }
 
@@ -76,7 +80,7 @@ struct Canvas {
     w: usize,
     h: usize,
     color: Vec<[f32; 3]>,
-    depth: Vec<f64>, // 1/w, larger = nearer
+    depth: Vec<f64>, // 1 - NDC z, larger = nearer
     vp: DMat4,
 }
 
@@ -85,7 +89,9 @@ impl Canvas {
         let inv = 1.0 / c.w;
         let x = (c.x * inv * 0.5 + 0.5) * self.w as f64;
         let y = (1.0 - (c.y * inv * 0.5 + 0.5)) * self.h as f64;
-        (x, y, inv)
+        // depth: 1 - NDC z (bigger = nearer). Affine in screen space for both
+        // perspective and parallel cameras, so it interpolates correctly.
+        (x, y, 1.0 - c.z * inv)
     }
 
     fn triangle(&mut self, tri: [DVec3; 3], col: [f32; 3]) {
@@ -171,6 +177,121 @@ impl Canvas {
     }
 }
 
+impl Canvas {
+    /// Screen position of a world point (None if behind the camera).
+    fn project(&self, p: DVec3) -> Option<(f64, f64)> {
+        let c = self.vp * p.extend(1.0);
+        (c.w > NEAR).then(|| {
+            let (x, y, _) = self.to_screen(c);
+            (x, y)
+        })
+    }
+
+    fn put(&mut self, x: isize, y: isize, col: [f32; 3]) {
+        if x >= 0 && y >= 0 && (x as usize) < self.w && (y as usize) < self.h {
+            self.color[y as usize * self.w + x as usize] = col;
+        }
+    }
+
+    /// A screen-space line, drawn on top of everything.
+    fn line2d(&mut self, a: (f64, f64), b: (f64, f64), col: [f32; 3], radius: f64) {
+        let steps = ((b.0 - a.0).abs().max((b.1 - a.1).abs()).ceil() as usize).clamp(1, 100_000);
+        let r = radius.ceil() as isize;
+        for s in 0..=steps {
+            let t = s as f64 / steps as f64;
+            let (x, y) = (a.0 + (b.0 - a.0) * t, a.1 + (b.1 - a.1) * t);
+            for dy in -r..=r {
+                for dx in -r..=r {
+                    if ((dx * dx + dy * dy) as f64).sqrt() <= radius {
+                        self.put(x as isize + dx, y as isize + dy, col);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Text centered on (cx, cy) with a soft label box behind it.
+    fn text(&mut self, cx: f64, cy: f64, s: &str, col: [f32; 3], scale: usize) {
+        use font8x8::{UnicodeFonts, BASIC_FONTS};
+        let w = s.chars().count() * 8 * scale;
+        let h = 8 * scale;
+        let (x0, y0) = ((cx - w as f64 / 2.0) as isize, (cy - h as f64 / 2.0) as isize);
+        let pad = (3 * scale) as isize;
+        for y in (y0 - pad)..(y0 + h as isize + pad) {
+            for x in (x0 - pad)..(x0 + w as isize + pad) {
+                self.put(x, y, [1.0, 1.0, 1.0]);
+            }
+        }
+        for (i, ch) in s.chars().enumerate() {
+            let Some(glyph) = BASIC_FONTS.get(ch) else { continue };
+            for (row, bits) in glyph.iter().enumerate() {
+                for colm in 0..8 {
+                    if bits >> colm & 1 == 1 {
+                        for sy in 0..scale {
+                            for sx in 0..scale {
+                                let x = x0 + (i * 8 * scale + colm * scale + sx) as isize;
+                                let y = y0 + (row * scale + sy) as isize;
+                                self.put(x, y, col);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+const ANNO: [f32; 3] = [0.2, 0.22, 0.3];
+
+pub fn format_length(m: f64) -> String {
+    format!("{m:.2} m")
+}
+
+fn draw_annotations(cv: &mut Canvas, model: &Model) {
+    use crate::model::Annotation;
+    let s = SS as f64;
+    for a in &model.annotations {
+        match a {
+            Annotation::Dimension { a, b, offset, .. } => {
+                let (a2, b2) = (*a + *offset, *b + *offset);
+                let (Some(pa), Some(pb), Some(qa), Some(qb)) = (cv.project(*a), cv.project(*b), cv.project(a2), cv.project(b2)) else { continue };
+                // extension lines stop a little short of the object
+                let short = |p: (f64, f64), q: (f64, f64)| {
+                    let (dx, dy) = (q.0 - p.0, q.1 - p.1);
+                    let l = (dx * dx + dy * dy).sqrt().max(1e-9);
+                    ((p.0 + dx / l * 4.0 * s, p.1 + dy / l * 4.0 * s), (q.0 + dx / l * 4.0 * s, q.1 + dy / l * 4.0 * s))
+                };
+                if offset.length() > 1e-9 {
+                    let (s0, e0) = short(pa, qa);
+                    let (s1, e1) = short(pb, qb);
+                    cv.line2d(s0, e0, ANNO, 0.5 * s);
+                    cv.line2d(s1, e1, ANNO, 0.5 * s);
+                }
+                cv.line2d(qa, qb, ANNO, 0.6 * s);
+                // architectural ticks
+                for q in [qa, qb] {
+                    let t = 5.0 * s;
+                    cv.line2d((q.0 - t, q.1 + t), (q.0 + t, q.1 - t), ANNO, 0.9 * s);
+                }
+                let mid = ((qa.0 + qb.0) / 2.0, (qa.1 + qb.1) / 2.0);
+                cv.text(mid.0, mid.1, &format_length(a.distance(*b)), ANNO, 2 * SS / 2 + 1);
+            }
+            Annotation::Text { at, text, leader, .. } => {
+                let Some(p) = cv.project(*at) else { continue };
+                if let Some(l) = leader.and_then(|l| cv.project(l)) {
+                    cv.line2d(l, p, ANNO, 0.6 * s);
+                    for dy in -2..=2 {
+                        for dx in -2..=2 {
+                            cv.put(l.0 as isize + dx * SS as isize / 2, l.1 as isize + dy * SS as isize / 2, ANNO);
+                        }
+                    }
+                }
+                cv.text(p.0, p.1, text, ANNO, 2 * SS / 2 + 1);
+            }
+        }
+    }
+}
+
 fn clip_near(poly: &[DVec4]) -> Vec<DVec4> {
     let mut out = Vec::new();
     for i in 0..poly.len() {
@@ -200,7 +321,14 @@ pub fn render(model: &Model, opts: &RenderOpts) -> RgbImage {
     let target = DVec3::from(cam.target);
     let up = if (target - eye).normalize().cross(DVec3::Z).length() < 1e-3 { DVec3::Y } else { DVec3::Z };
     let view = DMat4::look_at_rh(eye, target, up);
-    let proj = DMat4::perspective_rh_gl(cam.fov.to_radians(), w as f64 / h as f64, NEAR, 100_000.0);
+    let aspect = w as f64 / h as f64;
+    let proj = if opts.parallel {
+        let half = eye.distance(target) * (cam.fov.to_radians() * 0.5).tan();
+        // a parallel camera still sits "in front", so keep w = 1 for clipping
+        DMat4::orthographic_rh_gl(-half * aspect, half * aspect, -half, half, -100_000.0, 100_000.0)
+    } else {
+        DMat4::perspective_rh_gl(cam.fov.to_radians(), aspect, NEAR, 100_000.0)
+    };
 
     let mut color = Vec::with_capacity(w * h);
     for y in 0..h {
@@ -256,7 +384,9 @@ pub fn render(model: &Model, opts: &RenderOpts) -> RgbImage {
         }
     }
 
-    // grid floor sits under the model
+    if opts.annotations {
+        draw_annotations(&mut cv, model);
+    }
     // downsample
     let mut img = RgbImage::new(opts.width.max(16), opts.height.max(16));
     for (x, y, px) in img.enumerate_pixels_mut() {
