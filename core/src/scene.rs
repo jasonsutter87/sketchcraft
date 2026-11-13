@@ -174,6 +174,7 @@ pub fn build(root: &Model, ctx: Option<u32>) -> Value {
         "location": root.location,
         "environment": root.environment,
         "photoPoints": root.photo_points,
+        "cages": root.cages.iter().filter(|(g, _)| root.groups.contains_key(g)).map(|(g, c)| (g.to_string(), c)).collect::<std::collections::BTreeMap<_, _>>(),
         "photoEdges": root.photo_edges,
         "annotations": root.annotations,
         "units": root.units,

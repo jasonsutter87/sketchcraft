@@ -24,6 +24,25 @@ impl Model {
         }
         ids.sort();
         ids.dedup();
+        // subdivision cages follow their groups (and find their mirror plane again)
+        let mut moved_cages = std::collections::BTreeSet::new();
+        for g in ids.iter().filter(|g| self.groups.contains_key(g)) {
+            moved_cages.extend(self.subtree(*g).into_iter().filter(|x| self.cages.contains_key(x)));
+        }
+        for g in moved_cages {
+            let c = self.cages.get_mut(&g).unwrap();
+            for p in c.points.iter_mut() {
+                *p = t.transform_point3(DVec3::from(*p)).to_array();
+            }
+            if t.determinant() < 0.0 {
+                for f in c.faces.iter_mut() {
+                    f.reverse();
+                }
+            }
+            if c.symmetry.is_some() {
+                c.detect_symmetry();
+            }
+        }
         let (inst, geo): (Vec<Id>, Vec<Id>) = ids.iter().partition(|id| self.instances.contains_key(id));
         for id in &inst {
             let i = self.instances.get_mut(id).unwrap();

@@ -199,6 +199,9 @@ pub struct Model {
     /// corners marked across matched photos (Photo modeling), kept with the model
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub photo_points: Vec<crate::photomodel::PhotoPoint>,
+    /// subdivision objects' editable cages, by group
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub cages: BTreeMap<Id, crate::subd::Editable>,
     /// lines to build between photo points (index pairs)
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub photo_edges: Vec<[usize; 2]>,
@@ -695,6 +698,7 @@ impl Model {
                 self.instances.retain(|_, i| !inside(&i.parent));
                 for g in &tree {
                     self.groups.remove(g);
+                    self.cages.remove(g);
                 }
                 if inside(&self.active_group) {
                     self.active_group = None;
@@ -762,6 +766,15 @@ impl Model {
         let g = self.groups.get(&gid).ok_or_else(|| anyhow!("{gid} is not a group"))?.clone();
         let new = self.new_id();
         self.groups.insert(new, Group { name: name.unwrap_or_else(|| format!("{} copy", g.name)), tag: g.tag.clone(), hidden: false, parent, locked: false });
+        if let Some(mut c) = self.cages.get(&gid).cloned() {
+            for p in c.points.iter_mut() {
+                *p = (DVec3::from(*p) + by).to_array();
+            }
+            if let Some(s) = c.symmetry.as_mut() {
+                s.center += by[s.axis];
+            }
+            self.cages.insert(new, c);
+        }
         // nested groups and placements come along
         let kids: Vec<Id> = self.groups.iter().filter(|(_, c)| c.parent == Some(gid)).map(|(&k, _)| k).collect();
         for k in kids {

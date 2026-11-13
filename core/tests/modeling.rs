@@ -1380,3 +1380,50 @@ fn saving_a_view_again_keeps_its_photo() {
     assert_eq!(v.eye[0], 11.0);
     assert_eq!(e.exec_json(&json!({"cmd":"save_view","name":"X","eye":[1,1,1],"target":[0,0,0],"photo":"http://x"}).to_string())["ok"], false);
 }
+
+#[test]
+fn subd_cages_edit_with_symmetry_loops_and_extrudes() {
+    let mut e = Engine::new();
+    let p = [[-1, -1, 0], [1, -1, 0], [1, 1, 0], [-1, 1, 0], [-1, -1, 2], [1, -1, 2], [1, 1, 2], [-1, 1, 2]];
+    let f = [[0, 3, 2, 1], [4, 5, 6, 7], [0, 1, 5, 4], [1, 2, 6, 5], [2, 3, 7, 6], [3, 0, 4, 7]];
+    let r = run(&mut e, json!({"cmd":"subd","name":"Cage","points":p,"faces":f,"levels":1}));
+    let g = r["group"].as_u64().unwrap() as u32;
+    assert_eq!(r["symmetry"]["axis"], 1, "a box is symmetric across y");
+    // moving a point moves its mirror partner the mirrored way
+    run(&mut e, json!({"cmd":"cage_edit","id":g,"moves":[[5, 1.5, -1.2, 2.3]]}));
+    let c = &e.model.cages[&g];
+    assert_eq!(c.points[5], [1.5, -1.2, 2.3]);
+    assert_eq!(c.points[6], [1.5, 1.2, 2.3], "partner mirrored across y = 0");
+    // an edge loop around the box: across the vertical edge 0-4, all four sides split
+    let r = run(&mut e, json!({"cmd":"cage_edit","id":g,"op":{"kind":"insert_loop","edge":[0,4],"t":0.5}}));
+    assert_eq!(r["points"].as_array().unwrap().len(), 4, "a ring of 4 new points");
+    assert_eq!(r["cage_faces"], 10, "4 side quads became 8");
+    // extrude the top face up 1 m
+    let c = &e.model.cages[&g];
+    let top = c.faces.iter().position(|f| f.iter().all(|&v| c.points[v][2] > 1.99)).unwrap();
+    let r = run(&mut e, json!({"cmd":"cage_edit","id":g,"op":{"kind":"extrude","faces":[top],"distance":1.0}}));
+    assert_eq!(r["cage_faces"], 14, "4 new sides");
+    let zmax = e.model.cages[&g].points.iter().map(|p| p[2]).fold(f64::MIN, f64::max);
+    assert!(zmax > 3.2, "{zmax}");
+    // crease edges (mirrored), levels, and the surface follows each edit
+    run(&mut e, json!({"cmd":"cage_edit","id":g,"crease":[[0,1]],"levels":2}));
+    assert!(e.model.cages[&g].creases.len() >= 2, "crease and its mirror");
+    assert!(e.model.faces.values().filter(|x| x.group == Some(g)).count() > 200);
+    // undo takes back one edit
+    run(&mut e, json!({"cmd":"undo"}));
+    assert_eq!(e.model.cages[&g].levels, 1);
+    // moving the group moves its cage
+    run(&mut e, json!({"cmd":"move","ids":[g],"by":[10.0,0.0,0.0]}));
+    assert!(e.model.cages[&g].points.iter().all(|p| p[0] > 8.0));
+    assert_eq!(e.model.cages[&g].symmetry.unwrap().axis, 1);
+    // copies get their own cage; deleting drops it
+    let copy = run(&mut e, json!({"cmd":"copy","group":g,"by":[0.0,10.0,0.0]}))["group"].as_u64().unwrap() as u32;
+    assert!(e.model.cages[&copy].points.iter().all(|p| p[1] > 8.0));
+    run(&mut e, json!({"cmd":"delete","ids":[copy]}));
+    assert!(!e.model.cages.contains_key(&copy));
+    // merge two points; delete a face
+    let r = run(&mut e, json!({"cmd":"cage_edit","id":g,"op":{"kind":"merge","points":[4,5]}}));
+    assert!(r["cage_points"].as_u64().unwrap() < 16);
+    let r = run(&mut e, json!({"cmd":"cage_edit","id":g,"op":{"kind":"delete_faces","faces":[0]}}));
+    assert!(r["cage_faces"].as_u64().unwrap() >= 1);
+}

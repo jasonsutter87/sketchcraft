@@ -541,6 +541,33 @@ pub enum Command {
         creases: Vec<[usize; 2]>,
         #[serde(default = "two")]
         levels: usize,
+        /// keep the cage for SubD editing (cage_edit, the app's SubD mode)
+        #[serde(default = "yes")]
+        editable: bool,
+        /// mirror plane for symmetric edits (found by itself when left out)
+        #[serde(default)]
+        symmetry: Option<crate::subd::Symmetry>,
+    },
+    /// Edit a subdivision object's cage, then rebuild its surface: move
+    /// points ([[i, x, y, z], ...], mirrored when the cage is symmetric),
+    /// crease/uncrease edges, and topology ops. One undo step.
+    CageEdit {
+        id: Id,
+        #[serde(default)]
+        moves: Vec<[f64; 4]>,
+        #[serde(default = "yes")]
+        mirror: bool,
+        #[serde(default)]
+        crease: Vec<[usize; 2]>,
+        #[serde(default)]
+        uncrease: Vec<[usize; 2]>,
+        #[serde(default)]
+        op: Option<CageOp>,
+        #[serde(default)]
+        levels: Option<usize>,
+        /// "auto" (find the plane), "off", or an axis 0/1/2 (through the middle)
+        #[serde(default)]
+        symmetry: Option<Value>,
     },
     /// Smooth a group already modeled: it becomes its subdivision surface.
     /// `keep_sharp`: edges at a sharp angle stay creased.
@@ -1464,16 +1491,69 @@ impl Engine {
                 json!({"path": path, "pages": crate::layout::blueprint(&building, &path, &sheet, &project, &notes)?, "levels": crate::layout::floor_levels(&building)})
             }
             Command::Levels => json!({"levels": crate::layout::floor_levels(&crate::environment::without(&self.model))}),
-            Command::Subd { name, points, faces, materials, creases, levels } => {
+            Command::Subd { name, points, faces, materials, creases, levels, editable, symmetry } => {
                 let n = faces.len();
-                let cage = crate::subd::Cage {
-                    points: points.into_iter().map(v3).collect(),
-                    faces,
-                    materials: (0..n).map(|i| materials.get(i).cloned().flatten()).collect(),
-                    creases: creases.into_iter().map(|[a, b]| (a.min(b), a.max(b))).collect(),
+                let mut ed = crate::subd::Editable { points, faces, materials: (0..n).map(|i| materials.get(i).cloned().flatten()).collect(), creases, levels: levels.clamp(0, 5), symmetry };
+                if ed.symmetry.is_none() {
+                    ed.detect_symmetry();
+                }
+                let g = crate::subd::build(m, ed.cage(), ed.levels, &name.unwrap_or_else(|| "Smooth surface".into()))?;
+                let sym = ed.symmetry;
+                if editable {
+                    m.cages.insert(g, ed);
+                }
+                json!({"group": g, "faces": m.faces.values().filter(|f| f.group == Some(g)).count(), "symmetry": sym})
+            }
+            Command::CageEdit { id, moves, mirror, crease, uncrease, op, levels, symmetry } => {
+                m.check_unlocked(&[id])?;
+                let Some(mut ed) = m.cages.get(&id).cloned() else { bail!("{id} isn't an editable subdivision object") };
+                match symmetry.as_ref() {
+                    Some(Value::String(s)) if s == "off" => ed.symmetry = None,
+                    Some(Value::String(s)) if s == "auto" => ed.detect_symmetry(),
+                    Some(Value::Number(a)) => {
+                        let axis = a.as_u64().unwrap_or(1).min(2) as usize;
+                        let mid = ed.points.iter().map(|p| p[axis]).fold((f64::MAX, f64::MIN), |(lo, hi), v| (lo.min(v), hi.max(v)));
+                        ed.symmetry = Some(crate::subd::Symmetry { axis, center: (mid.0 + mid.1) / 2.0 });
+                    }
+                    _ => {}
+                }
+                if !moves.is_empty() {
+                    let mv: Vec<(usize, [f64; 3])> = moves.iter().map(|m| (m[0] as usize, [m[1], m[2], m[3]])).collect();
+                    ed.move_points(&mv, mirror)?;
+                }
+                // creases, mirrored when symmetric
+                let partners = ed.mirrors();
+                let mirror_edges = |es: &[[usize; 2]]| -> Vec<[usize; 2]> {
+                    let mut all = es.to_vec();
+                    if mirror {
+                        for e in es {
+                            if let (Some(Some(a)), Some(Some(b))) = (partners.get(e[0]), partners.get(e[1])) {
+                                all.push([*a, *b]);
+                            }
+                        }
+                    }
+                    all
                 };
-                let g = crate::subd::build(m, cage, levels, &name.unwrap_or_else(|| "Smooth surface".into()))?;
-                json!({"group": g, "faces": m.faces.values().filter(|f| f.group == Some(g)).count()})
+                ed.set_creases(&mirror_edges(&crease), true);
+                ed.set_creases(&mirror_edges(&uncrease), false);
+                let mut out = json!({});
+                if let Some(op) = op {
+                    match op {
+                        CageOp::InsertLoop { edge, t } => out["points"] = json!(ed.insert_loop(edge[0], edge[1], t)?),
+                        CageOp::Extrude { faces, distance } => out["faces"] = json!(ed.extrude(&faces, distance)?),
+                        CageOp::DeleteFaces { faces } => ed.delete_faces(&faces),
+                        CageOp::Merge { points } => ed.merge(&points)?,
+                    }
+                }
+                if let Some(l) = levels {
+                    ed.levels = l.clamp(0, 5);
+                }
+                crate::subd::fill(m, ed.cage(), ed.levels, id)?;
+                out["cage_points"] = json!(ed.points.len());
+                out["cage_faces"] = json!(ed.faces.len());
+                out["symmetry"] = json!(ed.symmetry);
+                m.cages.insert(id, ed);
+                out
             }
             Command::Subdivide { id, levels, keep_sharp } => {
                 let Some(old) = m.groups.get(&id).cloned() else { bail!("{id} is not a group") };
@@ -1847,6 +1927,19 @@ fn tidy_name(stem: &str) -> String {
     let start = words.iter().position(|w| !matches!(w.to_ascii_lowercase().as_str(), "uploads" | "files" | "upload" | "file") && !w.chars().all(|c| c.is_ascii_digit())).unwrap_or(0);
     let name = words[start..].join(" ");
     if name.is_empty() { stem.to_string() } else { name }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum CageOp {
+    InsertLoop { edge: [usize; 2], #[serde(default = "half")] t: f64 },
+    Extrude { faces: Vec<usize>, distance: f64 },
+    DeleteFaces { faces: Vec<usize> },
+    Merge { points: Vec<usize> },
+}
+
+fn half() -> f64 {
+    0.5
 }
 
 #[derive(Debug, Clone, Deserialize)]
