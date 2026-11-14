@@ -75,7 +75,15 @@ export function guide(tool: Tool, c: GuideCtx): Guide {
     case "pan":
       return g("Pan", "Drag to slide the view.", [["Right-drag", "pan from any tool"]]);
     case "zoom":
-      return g("Zoom", "Drag up to zoom in, down to zoom out.", [["Scroll", "zoom from any tool"], ["⇧Z", "see everything"]]);
+      return g("Zoom", "Drag up to zoom in, down to zoom out.", [["Scroll", "zoom from any tool"], ["⇧Z", "see everything"], ["Type", "a field of view: 35 (degrees) or 50mm"]]);
+    case "zoomwindow":
+      return g("Zoom Window", "Drag a box around what you want to fill the view.", [["⌘[ / ⌘]", "previous / next view"]]);
+    case "position":
+      return g("Position Camera", "Click where to stand: you'll be there at eye height, looking the way you were.", [["Type", "an eye height (5'6\", 1.7)"]]);
+    case "lookaround":
+      return g("Look Around", "Drag to turn your head; you stay where you are.", [["Type", "an eye height"], ["⌘[", "back to the previous view"]]);
+    case "walk":
+      return g("Walk", "Drag up to walk forward, down to back up, sideways to turn. Or hold the arrow keys / WASD.", [["⇧", "run"], ["Option", "walk through walls"], ["Type", "an eye height"]]);
     case "section":
       return g("Section", "Click a face: the model is cut just behind it so you can see inside. For floor plans, use Plan in the view bar.", []);
     case "place":

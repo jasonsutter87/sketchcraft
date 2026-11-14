@@ -768,6 +768,12 @@ export default function App() {
           <button onClick={() => api.current?.fit()} title="Zoom extents (⇧Z)">
             fit
           </button>
+          <button onClick={() => api.current?.previousView()} title="Previous view (⌘[)" aria-label="Previous view">
+            ‹
+          </button>
+          <button onClick={() => api.current?.nextView()} title="Next view (⌘])" aria-label="Next view">
+            ›
+          </button>
           <span className="vsep" />
           {(
             [

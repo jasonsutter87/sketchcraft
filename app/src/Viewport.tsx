@@ -24,6 +24,7 @@ export type Tool =
   | "select" | "line" | "arc" | "rect" | "circle" | "polygon"
   | "push" | "offset" | "followme" | "move" | "rotate" | "scale"
   | "tape" | "dimension" | "text" | "paint" | "erase" | "orbit" | "pan" | "zoom" | "section" | "place"
+  | "position" | "lookaround" | "walk" | "zoomwindow"
   | "wall" | "stairs" | "roof" | "column"
   | "smoove" | "stamp" | "drape" | "flipedge";
 
@@ -104,6 +105,8 @@ export interface ViewportApi {
   clearSection: () => void;
   /** the active section plane (a point on it and its normal), if any */
   sectionPlane: () => { origin: Vec3; normal: Vec3 } | null;
+  previousView: () => void;
+  nextView: () => void;
   /** SubD mode on a subdivision object (false when it isn't one) */
   editCage: (id: number) => boolean;
   exitCage: () => void;
@@ -417,8 +420,11 @@ export default function Viewport(props: Props) {
     groundZ: number;
   } | null>(null);
 
+  /** camera tools: eye height, the drag in progress, keys held, view history */
+  const camTool = useRef<{ eyeH: number; drag: { x: number; y: number; at: number } | null; keys: Set<string>; loop: number; history: Cam[]; at: number; box: HTMLDivElement | null }>({ eyeH: 1.68, drag: null, keys: new Set(), loop: 0, history: [], at: -1, box: null });
   /** SubD mode: the cage editor while a subdivision object is being shaped */
   const cageEd = useRef<CageEditor | null>(null);
+  const lastPointer = useRef({ x: 0, y: 0 });
   const [cageUi, setCageUi] = useState<CageUi | null>(null);
   /** newest section-fill request (older answers are dropped) */
   const sectionTicket = useRef(0);
@@ -532,7 +538,11 @@ export default function Viewport(props: Props) {
     };
     renderer.domElement.addEventListener("wheel", wheel, { passive: false });
     // moving the camera leaves a matched photo's view (as in SketchUp)
-    controls.addEventListener("start", () => backdropOn.current && showBackdrop(null));
+    controls.addEventListener("start", () => {
+      if (backdropOn.current) showBackdrop(null);
+      rememberView();
+    });
+    controls.addEventListener("end", () => rememberView());
     renderer.domElement.addEventListener("wheel", () => backdropOn.current && showBackdrop(null));
 
     const world = new THREE.Scene();
@@ -1463,6 +1473,110 @@ export default function Viewport(props: Props) {
     step();
   }
 
+  // ---------------------------------------------------------------- camera tools
+  const CAMERA_TOOLS = ["position", "lookaround", "walk", "zoomwindow"];
+  /** Remember where the camera was (for Previous / Next view). */
+  function rememberView() {
+    const c = camTool.current;
+    const now = camera();
+    const last = c.history[c.at];
+    if (last && V(last.eye).distanceTo(V(now.eye)) < 1e-3 && V(last.target).distanceTo(V(now.target)) < 1e-3) return;
+    c.history = c.history.slice(0, c.at + 1);
+    c.history.push(now);
+    if (c.history.length > 60) c.history.shift();
+    c.at = c.history.length - 1;
+  }
+  function stepView(by: number) {
+    const c = camTool.current;
+    rememberView();
+    const i = c.at + by;
+    if (i < 0 || i >= c.history.length) return live.current.onToast(by < 0 ? "No earlier view" : "No later view");
+    c.at = i;
+    goTo(c.history[i]);
+  }
+  /** Where the floor is under a point (the model's faces, else the ground). */
+  function floorBelow(p: THREE.Vector3): number {
+    const T = t.current!;
+    const rc = new THREE.Raycaster(p.clone().add(new THREE.Vector3(0, 0, 0.3)), new THREE.Vector3(0, 0, -1), 0, 60);
+    const hit = T.pickMesh ? rc.intersectObject(T.pickMesh, false)[0] : undefined;
+    return hit ? hit.point.z : T.groundZ;
+  }
+  /** Is something solid within `d` meters ahead (walls stop a walk)? */
+  function blocked(from: THREE.Vector3, dir: THREE.Vector3, d: number): boolean {
+    const T = t.current!;
+    if (!T.pickMesh) return false;
+    const rc = new THREE.Raycaster(from, dir.clone().normalize(), 0, d);
+    return rc.intersectObject(T.pickMesh, false).length > 0;
+  }
+  /** Turn the eye: yaw (around blue) and pitch (up/down), standing still. */
+  function look(dyaw: number, dpitch: number) {
+    const T = t.current!;
+    const eye = T.camera.position.clone();
+    const dir = T.controls.target.clone().sub(eye).normalize();
+    let yaw = Math.atan2(dir.y, dir.x) - dyaw;
+    let pitch = Math.asin(Math.max(-1, Math.min(1, dir.z))) - dpitch;
+    pitch = Math.max(-1.45, Math.min(1.45, pitch));
+    const nd = new THREE.Vector3(Math.cos(pitch) * Math.cos(yaw), Math.cos(pitch) * Math.sin(yaw), Math.sin(pitch));
+    T.controls.target.copy(eye.clone().addScaledVector(nd, 2));
+    T.camera.lookAt(T.controls.target);
+  }
+  /** One walking step: forward (m) and turn (radians), keeping eye height over the floor. */
+  function walk(forward: number, turn: number, through: boolean) {
+    const T = t.current!;
+    if (turn) look(turn, 0);
+    if (!forward) return;
+    const eye = T.camera.position.clone();
+    const dir = T.controls.target.clone().sub(eye);
+    dir.z = 0;
+    if (dir.lengthSq() < 1e-9) return;
+    dir.normalize();
+    const step = dir.clone().multiplyScalar(forward);
+    // walls stop you (Option walks through), checked at knee and chest height
+    if (!through) {
+      const sign = Math.sign(forward);
+      const probe = dir.clone().multiplyScalar(sign);
+      const knee = eye.clone();
+      knee.z -= camTool.current.eyeH * 0.7;
+      if (blocked(eye, probe, Math.abs(forward) + 0.35) || blocked(knee, probe, Math.abs(forward) + 0.35)) return;
+    }
+    const next = eye.clone().add(step);
+    // keep to eye height over what's underfoot (stairs climb, slopes follow)
+    const floor = floorBelow(new THREE.Vector3(next.x, next.y, next.z - camTool.current.eyeH + 0.45));
+    const want = floor + camTool.current.eyeH;
+    next.z += (want - next.z) * 0.35;
+    const d = next.clone().sub(T.camera.position);
+    T.camera.position.copy(next);
+    T.controls.target.add(d);
+  }
+  function walkLoop() {
+    const c = camTool.current;
+    if (c.loop) return;
+    let last = performance.now();
+    const tick = () => {
+      const now = performance.now();
+      const dt = Math.min(0.05, (now - last) / 1000);
+      last = now;
+      const k = c.keys;
+      const run = k.has("Shift") ? 3 : 1;
+      let fwd = 0, turn = 0;
+      if (k.has("ArrowUp") || k.has("w")) fwd += 1.4 * run * dt;
+      if (k.has("ArrowDown") || k.has("s")) fwd -= 1.4 * run * dt;
+      if (k.has("ArrowLeft") || k.has("a")) turn -= 1.6 * dt;
+      if (k.has("ArrowRight") || k.has("d")) turn += 1.6 * dt;
+      // dragging: up/down walks, left/right turns, further from the press = faster
+      if (c.drag && live.current.tool === "walk") {
+        const p = c.drag;
+        // above the press walks forward, below walks back
+        fwd += ((p.y - lastPointer.current.y) / 80) * 1.4 * run * dt;
+        turn += ((lastPointer.current.x - p.x) / 120) * 1.4 * dt;
+      }
+      if (fwd || turn) walk(fwd, turn, k.has("Alt"));
+      if (k.size || c.drag) c.loop = requestAnimationFrame(tick);
+      else c.loop = 0;
+    };
+    c.loop = requestAnimationFrame(tick);
+  }
+
   // ---------------------------------------------------------------- typed values
   async function applyTyped(text: string) {
     const s = text.trim();
@@ -1491,6 +1605,28 @@ export default function Viewport(props: Props) {
       const by = mult[3] ? last.by.clone().divideScalar(n) : last.by.clone();
       await L.run({ cmd: "undo" });
       await run({ cmd: "array", ids: last.ids, by: arr(by), count: n });
+      return;
+    }
+    // camera tools: eye height (Position, Walk, Look Around), field of view (Zoom)
+    if (["position", "walk", "lookaround"].includes(L.tool) && lens.length) {
+      const h = lens[0];
+      if (h > 0.1 && h < 100) {
+        const T = t.current!;
+        const d = h - camTool.current.eyeH;
+        camTool.current.eyeH = h;
+        T.camera.position.z += d;
+        T.controls.target.z += d;
+        L.onToast(`Eye height ${formatLength(h, units)}`);
+      }
+      return;
+    }
+    if (L.tool === "zoom") {
+      const mm = /^(\d+(?:\.\d+)?)\s*mm$/i.exec(s);
+      const deg = mm ? (2 * Math.atan(12 / Number(mm[1])) * 180) / Math.PI : nums[0];
+      if (deg > 1 && deg < 170) {
+        setFov(deg);
+        L.onToast(mm ? `${mm[1]} mm lens (${deg.toFixed(0)}° field of view)` : `Field of view ${deg.toFixed(0)}°`);
+      }
       return;
     }
     // plain numbers (angles, factors) or lengths with units (12', 8'6", 250cm)
@@ -1585,6 +1721,8 @@ export default function Viewport(props: Props) {
       return { origin: [o.x, o.y, o.z], normal: [p.normal.x, p.normal.y, p.normal.z] };
     },
     editCage: (id: number) => enterCage(id),
+    previousView: () => stepView(-1),
+    nextView: () => stepView(1),
     exitCage: () => exitCage(),
     inCage: () => cageEd.current != null,
     planCut: (height: number) => {
@@ -1746,6 +1884,22 @@ export default function Viewport(props: Props) {
     const el = T.renderer.domElement;
 
     const move = (e: PointerEvent) => {
+      lastPointer.current = { x: e.clientX, y: e.clientY };
+      // camera tools
+      {
+        const c = camTool.current;
+        const tool = live.current.tool;
+        if (c.drag && tool === "lookaround") {
+          look((e.clientX - c.drag.x) * 0.004, (e.clientY - c.drag.y) * 0.004);
+          c.drag = { ...c.drag, x: e.clientX, y: e.clientY };
+          return;
+        }
+        if (c.drag && tool === "zoomwindow" && c.box) {
+          Object.assign(c.box.style, { left: Math.min(c.drag.x, e.clientX) + "px", top: Math.min(c.drag.y, e.clientY) + "px", width: Math.abs(e.clientX - c.drag.x) + "px", height: Math.abs(e.clientY - c.drag.y) + "px" });
+          return;
+        }
+        if (c.drag && tool === "walk") return;
+      }
       if (cageEd.current && !st.current.space && !(e.buttons & 6)) {
         cageEd.current.pointerMove(e);
         return;
@@ -1987,6 +2141,38 @@ export default function Viewport(props: Props) {
 
     const down = async (e: PointerEvent) => {
       const L = live.current;
+      if (e.button === 0 && !st.current.space && CAMERA_TOOLS.includes(L.tool)) {
+        const c = camTool.current;
+        el.setPointerCapture(e.pointerId);
+        rememberView();
+        if (L.tool === "position") {
+          // stand where you click, at eye height, facing the way you were looking
+          const h = pick(e);
+          const T = t.current!;
+          let p: THREE.Vector3 | null = h?.point ?? null;
+          if (!p) p = ray(e).intersectPlane(new THREE.Plane(new THREE.Vector3(0, 0, 1), -T.groundZ), new THREE.Vector3());
+          if (!p) return;
+          const dir = T.controls.target.clone().sub(T.camera.position);
+          dir.z = 0;
+          if (dir.lengthSq() < 1e-9) dir.set(0, 1, 0);
+          dir.normalize();
+          const eye = p.clone().add(new THREE.Vector3(0, 0, c.eyeH));
+          goTo({ eye: arr(eye), target: arr(eye.clone().addScaledVector(dir, 2)), fov: T.persp.fov });
+          L.setTool("lookaround");
+          L.onToast(`Standing at ${formatLength(c.eyeH, units)} eye height: drag to look around, or pick Walk`);
+          return;
+        }
+        c.drag = { x: e.clientX, y: e.clientY, at: performance.now() };
+        if (L.tool === "walk") walkLoop();
+        if (L.tool === "zoomwindow") {
+          const b = document.createElement("div");
+          b.className = "select-box";
+          Object.assign(b.style, { position: "fixed", left: e.clientX + "px", top: e.clientY + "px", width: "0px", height: "0px", pointerEvents: "none", zIndex: "40" });
+          document.body.appendChild(b);
+          c.box = b;
+        }
+        return;
+      }
       if (cageEd.current && !st.current.space && e.button === 0) {
         el.setPointerCapture(e.pointerId);
         cageEd.current.pointerDown(e);
@@ -2317,6 +2503,36 @@ export default function Viewport(props: Props) {
 
     const up = async (e: PointerEvent) => {
       const L = live.current;
+      {
+        const c = camTool.current;
+        if (c.drag && e.button === 0) {
+          const d = c.drag;
+          c.drag = null;
+          if (L.tool === "zoomwindow" && c.box) {
+            c.box.remove();
+            c.box = null;
+            const r = rect();
+            const [x0, x1] = [Math.min(d.x, e.clientX), Math.max(d.x, e.clientX)];
+            const [y0, y1] = [Math.min(d.y, e.clientY), Math.max(d.y, e.clientY)];
+            if (x1 - x0 > 6 && y1 - y0 > 6) {
+              // the box's middle comes to the middle, and the box fills the view
+              const T = t.current!;
+              const mid = { clientX: (x0 + x1) / 2, clientY: (y0 + y1) / 2 };
+              const h = pick(mid);
+              const dist = T.camera.position.distanceTo(T.controls.target);
+              const rr = ray(mid);
+              const target = h?.point ?? rr.at(dist, new THREE.Vector3());
+              const frac = Math.max((x1 - x0) / r.width, (y1 - y0) / r.height) * 1.15; // a little margin
+              const eyeDist = target.distanceTo(T.camera.position) * frac;
+              const eye = target.clone().addScaledVector(rr.direction, -eyeDist);
+              goTo({ eye: arr(eye), target: arr(target), fov: T.persp.fov });
+              window.setTimeout(rememberView, 500);
+            }
+          }
+          rememberView();
+          return;
+        }
+      }
       if (cageEd.current && e.button === 0 && (await cageEd.current.pointerUp(e))) return;
       if (e.button === 2) {
         const rd = st.current.rightDown;
@@ -2437,7 +2653,27 @@ export default function Viewport(props: Props) {
         }
         return;
       }
-      if (e.type !== "keydown" || typing) return;
+      if (typing) return;
+      // walking: arrow keys / WASD held (Shift runs, Option walks through walls)
+      if (live.current.tool === "walk" && ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "w", "a", "s", "d", "W", "A", "S", "D", "Shift", "Alt"].includes(e.key)) {
+        const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+        const c = camTool.current;
+        if (e.type === "keydown") {
+          if (!e.metaKey && !e.ctrlKey) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            c.keys.add(k);
+            walkLoop();
+          }
+        } else c.keys.delete(k);
+        if (!["Shift", "Alt"].includes(k)) return;
+      }
+      if (e.type !== "keydown") return;
+      if ((e.metaKey || e.ctrlKey) && (e.key === "[" || e.key === "]")) {
+        e.preventDefault();
+        stepView(e.key === "[" ? -1 : 1);
+        return;
+      }
       const ed = cageEd.current;
       if (ed) {
         if (e.key === "Escape") {

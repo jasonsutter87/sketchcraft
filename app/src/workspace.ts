@@ -45,6 +45,10 @@ export const TOOL_INFO: Record<Exclude<Tool, "place">, { name: string; key: stri
   pan: { name: "Pan (or Shift+middle-drag / right-drag)", key: "H" },
   zoom: { name: "Zoom (drag up/down; Shift+Z zooms extents)", key: "Z" },
   section: { name: "Section cut: click a face", key: "X" },
+  zoomwindow: { name: "Zoom Window: drag a box to fill the view", key: "" },
+  position: { name: "Position Camera: click where to stand", key: "" },
+  lookaround: { name: "Look Around: drag to turn your head", key: "" },
+  walk: { name: "Walk: drag, or arrow keys / WASD (Shift runs)", key: "" },
   wall: { name: "Wall: click corners, double-click to finish", key: "" },
   stairs: { name: "Stairs: click the bottom, then the direction", key: "" },
   roof: { name: "Roof: click a flat top", key: "" },
@@ -55,7 +59,8 @@ export const TOOL_INFO: Record<Exclude<Tool, "place">, { name: string; key: stri
   flipedge: { name: "Flip a terrain edge", key: "" },
 };
 
-const NAV: Tool[] = ["orbit", "pan", "zoom", "section"];
+const NAV: Tool[] = ["orbit", "pan", "zoom", "zoomwindow", "section"];
+const CAMERA: Tool[] = ["orbit", "pan", "zoom", "zoomwindow", "position", "lookaround", "walk"];
 
 export const WORKSPACES: Workspace[] = [
   {
@@ -93,7 +98,7 @@ export const WORKSPACES: Workspace[] = [
     id: "previz",
     name: "Previz",
     blurb: "Presenting: scenes, camera moves, sun and shadows, photoreal renders.",
-    tools: [["select"], ["move", "rotate", "scale"], ["paint"], NAV],
+    tools: [["select"], ["move", "rotate", "scale"], ["paint"], CAMERA, ["section"]],
     leftTab: "views",
     showLeft: true,
     showRight: false,
