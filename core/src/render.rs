@@ -121,6 +121,62 @@ impl Canvas {
         }
     }
 
+    /// A textured triangle: the image sampled per pixel (perspective-correct),
+    /// lit by `k` (the face's shading factor).
+    fn triangle_tex(&mut self, tri: [DVec3; 3], map: &crate::texmap::Mapping, img: &image::RgbImage, k: f32) {
+        let clip: Vec<DVec4> = tri.iter().map(|p| self.vp * p.extend(1.0)).collect();
+        let poly = clip_near(&clip);
+        if poly.len() < 3 {
+            return;
+        }
+        let inv = self.vp.inverse();
+        // per corner: screen position, 1/w, and world position / w
+        let vs: Vec<((f64, f64, f64), f64, DVec3)> = poly
+            .iter()
+            .map(|c| {
+                let world = inv * *c;
+                let world = world.truncate() / world.w;
+                (self.to_screen(*c), 1.0 / c.w, world / c.w)
+            })
+            .collect();
+        for i in 1..vs.len() - 1 {
+            let (a, b, c) = (vs[0], vs[i], vs[i + 1]);
+            let (sa, sb, sc) = (a.0, b.0, c.0);
+            let area = (sb.0 - sa.0) * (sc.1 - sa.1) - (sb.1 - sa.1) * (sc.0 - sa.0);
+            if area.abs() < 1e-12 {
+                continue;
+            }
+            let x0 = sa.0.min(sb.0).min(sc.0).floor().max(0.0) as usize;
+            let x1 = (sa.0.max(sb.0).max(sc.0).ceil() as isize).min(self.w as isize - 1);
+            let y0 = sa.1.min(sb.1).min(sc.1).floor().max(0.0) as usize;
+            let y1 = (sa.1.max(sb.1).max(sc.1).ceil() as isize).min(self.h as isize - 1);
+            if x1 < 0 || y1 < 0 {
+                continue;
+            }
+            for y in y0..=y1 as usize {
+                for x in x0..=x1 as usize {
+                    let (px, py) = (x as f64 + 0.5, y as f64 + 0.5);
+                    let w0 = ((sb.0 - px) * (sc.1 - py) - (sb.1 - py) * (sc.0 - px)) / area;
+                    let w1 = ((sc.0 - px) * (sa.1 - py) - (sc.1 - py) * (sa.0 - px)) / area;
+                    let w2 = 1.0 - w0 - w1;
+                    if w0 < 0.0 || w1 < 0.0 || w2 < 0.0 {
+                        continue;
+                    }
+                    let z = w0 * sa.2 + w1 * sb.2 + w2 * sc.2;
+                    let idx = y * self.w + x;
+                    if z <= self.depth[idx] {
+                        continue;
+                    }
+                    let q = w0 * a.1 + w1 * b.1 + w2 * c.1;
+                    let world = (a.2 * w0 + b.2 * w1 + c.2 * w2) / q;
+                    let t = crate::texmap::sample(img, map.uv(world));
+                    self.depth[idx] = z;
+                    self.color[idx] = [t[0] * k, t[1] * k, t[2] * k];
+                }
+            }
+        }
+    }
+
     fn raster(&mut self, a: (f64, f64, f64), b: (f64, f64, f64), c: (f64, f64, f64), col: [f32; 3]) {
         let area = (b.0 - a.0) * (c.1 - a.1) - (b.1 - a.1) * (c.0 - a.0);
         if area.abs() < 1e-12 {
@@ -422,6 +478,8 @@ pub fn render(model: &Model, opts: &RenderOpts) -> RgbImage {
     }
 
     let clip = opts.clip.map(|c| (DVec3::new(c[0], c[1], c[2]), DVec3::new(c[3], c[4], c[5]).normalize_or_zero()));
+    // textured faces show their images (not in blueprint or paper drawings)
+    let images = if opts.blueprint || opts.paper { None } else { Some(crate::texmap::Images::load(model)) };
     for f in model.world_faces() {
         let n = f.normal;
         let front = (eye - geom::centroid(&f.outer)).dot(n) >= 0.0;
@@ -435,6 +493,25 @@ pub fn render(model: &Model, opts: &RenderOpts) -> RgbImage {
             (false, Some(c)) => shade([c[0] * 0.85, c[1] * 0.85, c[2] * 0.85], -n),
             (false, None) => shade(BACK, -n),
         };
+        let textured = images.as_ref().and_then(|imgs| {
+            let (name, t) = crate::texmap::of_face(model, &f)?;
+            Some((crate::texmap::Mapping::of(t, n), imgs.get(name)?))
+        });
+        if let Some((map, img)) = textured {
+            let k = shade([1.0, 1.0, 1.0], if front { n } else { -n })[0].min(1.0);
+            for tri in geom::triangulate(&f.outer, &f.holes, n) {
+                match clip {
+                    None => cv.triangle_tex(tri, &map, img, k),
+                    Some((o, d)) => {
+                        let poly = clip_plane(&tri, o, d);
+                        for j in 1..poly.len().saturating_sub(1) {
+                            cv.triangle_tex([poly[0], poly[j], poly[j + 1]], &map, img, k);
+                        }
+                    }
+                }
+            }
+            continue;
+        }
         for tri in geom::triangulate(&f.outer, &f.holes, n) {
             match clip {
                 None => cv.triangle(tri, col),

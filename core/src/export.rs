@@ -1,5 +1,6 @@
 //! Export to Wavefront OBJ + MTL, which Blender, SketchUp-likes and most
 //! renderers open. Faces are triangulated (OBJ can't express holes).
+//! Textured faces carry UVs; their images go in `<name>_textures/`.
 
 use crate::geom;
 use crate::model::Model;
@@ -48,20 +49,52 @@ pub fn write_obj(m: &Model, path: &str) -> Result<usize> {
             writeln!(mtl, "newmtl {}\nKd {} {} {}\n", name, c[0], c[1], c[2])?;
         }
     }
+    // textures: one material per image, the image beside the OBJ
+    let tex_dir_name = format!("{}_textures", p.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "model".into()));
+    let mut tex_mats: std::collections::BTreeMap<String, String> = Default::default();
+    let mut vt = 0usize;
     for (name, faces) in objects {
         writeln!(obj, "o {}", name.replace(' ', "_"))?;
         for f in faces {
             let n = f.normal;
-            writeln!(obj, "usemtl {}", f.color.map(color_id).unwrap_or_else(|| "default".into()))?;
+            let tex = crate::texmap::of_face(m, &f).and_then(|(mname, t)| {
+                if let Some(id) = tex_mats.get(mname) {
+                    return Some((id.clone(), t));
+                }
+                let (ext, data) = crate::texmap::bytes(t).ok()?;
+                let file = crate::texmap::file_name(mname, ext);
+                let dir = p.with_file_name(&tex_dir_name);
+                std::fs::create_dir_all(&dir).ok()?;
+                std::fs::write(dir.join(&file), data).ok()?;
+                let id = format!("t_{}", file.rsplit_once('.').map(|x| x.0).unwrap_or(&file));
+                let c = m.find_material(mname).map(|x| x.color).unwrap_or([1.0; 3]);
+                writeln!(mtl, "newmtl {id}\nKd {} {} {}\nmap_Kd {tex_dir_name}/{file}\n", c[0], c[1], c[2]).ok()?;
+                tex_mats.insert(mname.to_string(), id.clone());
+                Some((id, t))
+            });
+            match &tex {
+                Some((id, _)) => writeln!(obj, "usemtl {id}")?,
+                None => writeln!(obj, "usemtl {}", f.color.map(color_id).unwrap_or_else(|| "default".into()))?,
+            }
             writeln!(obj, "vn {:.6} {:.6} {:.6}", n.x, n.y, n.z)?;
             vn += 1;
+            let map = tex.as_ref().map(|(_, t)| crate::texmap::Mapping::of(t, n));
             for t in geom::triangulate(&f.outer, &f.holes, n) {
                 for p in t {
                     writeln!(obj, "v {:.6} {:.6} {:.6}", p.x, p.y, p.z)?;
+                    if let Some(mp) = &map {
+                        let [u, v] = mp.uv(p);
+                        writeln!(obj, "vt {u:.6} {v:.6}")?;
+                    }
                 }
                 count += 1;
                 let b = count * 3;
-                writeln!(obj, "f {}//{vn} {}//{vn} {}//{vn}", b - 2, b - 1, b)?;
+                if map.is_some() {
+                    vt += 3;
+                    writeln!(obj, "f {}/{}/{vn} {}/{}/{vn} {}/{}/{vn}", b - 2, vt - 2, b - 1, vt - 1, b, vt)?;
+                } else {
+                    writeln!(obj, "f {}//{vn} {}//{vn} {}//{vn}", b - 2, b - 1, b)?;
+                }
             }
         }
     }
@@ -84,24 +117,45 @@ pub fn color_id(c: [f32; 3]) -> String {
 /// turned to glTF's Y-up. Opens in Blender, three.js, Unity, Unreal, macOS Quick Look.
 pub fn write_glb(m: &Model, path: &str) -> Result<usize> {
     use serde_json::json;
-    let mut by_color: std::collections::BTreeMap<String, ([f32; 3], Vec<[f32; 3]>, Vec<[f32; 3]>)> = Default::default();
+    // one primitive per color, or per textured material (with UVs)
+    struct Prim<'a> {
+        color: [f32; 3],
+        tex: Option<(&'a str, &'a crate::model::Texture)>,
+        pos: Vec<[f32; 3]>,
+        nor: Vec<[f32; 3]>,
+        uv: Vec<[f32; 2]>,
+    }
+    let mut by_key: std::collections::BTreeMap<String, Prim> = Default::default();
     let mut tris = 0;
     for f in m.world_faces() {
         let c = f.color.unwrap_or([0.95, 0.94, 0.91]);
-        let e = by_color.entry(color_id(c)).or_insert((c, vec![], vec![]));
+        let tex = crate::texmap::of_face(m, &f);
+        let key = match tex {
+            Some((name, _)) => format!("t:{name}"),
+            None => color_id(c),
+        };
+        let e = by_key.entry(key).or_insert(Prim { color: c, tex, pos: vec![], nor: vec![], uv: vec![] });
         let n = f.normal;
         let ny = [n.x as f32, n.z as f32, -n.y as f32];
+        let map = tex.map(|(_, t)| crate::texmap::Mapping::of(t, n));
         for t in geom::triangulate(&f.outer, &f.holes, n) {
             for p in t {
-                e.1.push([p.x as f32, p.z as f32, -p.y as f32]);
-                e.2.push(ny);
+                e.pos.push([p.x as f32, p.z as f32, -p.y as f32]);
+                e.nor.push(ny);
+                if let Some(mp) = &map {
+                    // glTF images start at the top
+                    let [u, v] = mp.uv(p);
+                    e.uv.push([u as f32, (1.0 - v) as f32]);
+                }
             }
             tris += 1;
         }
     }
     let mut bin: Vec<u8> = Vec::new();
     let (mut views, mut accessors, mut prims, mut mats) = (vec![], vec![], vec![], vec![]);
-    for (i, (_, (c, pos, nor))) in by_color.iter().enumerate() {
+    let (mut images, mut textures) = (vec![], vec![]);
+    for (i, (_, pr)) in by_key.iter().enumerate() {
+        let (c, pos, nor) = (&pr.color, &pr.pos, &pr.nor);
         let mut lo = [f32::MAX; 3];
         let mut hi = [f32::MIN; 3];
         for p in pos {
@@ -125,8 +179,38 @@ pub fn write_glb(m: &Model, path: &str) -> Result<usize> {
             }
             accessors.push(acc);
         }
-        mats.push(json!({"pbrMetallicRoughness": {"baseColorFactor": [c[0], c[1], c[2], 1.0], "metallicFactor": 0.0, "roughnessFactor": 0.85}, "doubleSided": false}));
-        prims.push(json!({"attributes": {"POSITION": accessors.len() - 2, "NORMAL": accessors.len() - 1}, "material": i}));
+        let mut attrs = json!({"POSITION": accessors.len() - 2, "NORMAL": accessors.len() - 1});
+        let mut mat = json!({"pbrMetallicRoughness": {"baseColorFactor": [c[0], c[1], c[2], 1.0], "metallicFactor": 0.0, "roughnessFactor": 0.85}, "doubleSided": false});
+        if let (Some((name, t)), false) = (pr.tex, pr.uv.is_empty()) {
+            let off = bin.len();
+            for v in &pr.uv {
+                for x in v {
+                    bin.extend_from_slice(&x.to_le_bytes());
+                }
+            }
+            views.push(json!({"buffer": 0, "byteOffset": off, "byteLength": pr.uv.len() * 8, "target": 34962}));
+            accessors.push(json!({"bufferView": views.len() - 1, "componentType": 5126, "count": pr.uv.len(), "type": "VEC2"}));
+            attrs["TEXCOORD_0"] = json!(accessors.len() - 1);
+            if let Ok((ext, data)) = crate::texmap::bytes(t) {
+                while bin.len() % 4 != 0 {
+                    bin.push(0);
+                }
+                let off = bin.len();
+                bin.extend_from_slice(&data);
+                views.push(json!({"buffer": 0, "byteOffset": off, "byteLength": data.len()}));
+                images.push(json!({"bufferView": views.len() - 1, "mimeType": if ext == "jpg" { "image/jpeg" } else { "image/png" }, "name": name}));
+                textures.push(json!({"source": images.len() - 1, "sampler": 0}));
+                // the image shows as it is (not tinted by the material color)
+                mat["pbrMetallicRoughness"]["baseColorFactor"] = json!([1.0, 1.0, 1.0, 1.0]);
+                mat["pbrMetallicRoughness"]["baseColorTexture"] = json!({"index": textures.len() - 1});
+                mat["name"] = json!(name);
+            }
+        }
+        mats.push(mat);
+        prims.push(json!({"attributes": attrs, "material": i}));
+        while bin.len() % 4 != 0 {
+            bin.push(0);
+        }
     }
     let doc = json!({
         "asset": {"version": "2.0", "generator": "SketchCraft"},
@@ -139,6 +223,13 @@ pub fn write_glb(m: &Model, path: &str) -> Result<usize> {
         "bufferViews": views,
         "buffers": [{"byteLength": bin.len()}],
     });
+    let mut doc = doc;
+    if !images.is_empty() {
+        doc["images"] = json!(images);
+        doc["textures"] = json!(textures);
+        // repeat, smooth
+        doc["samplers"] = json!([{"magFilter": 9729, "minFilter": 9987, "wrapS": 10497, "wrapT": 10497}]);
+    }
     let mut js = serde_json::to_vec(&doc)?;
     while js.len() % 4 != 0 {
         js.push(b' ');

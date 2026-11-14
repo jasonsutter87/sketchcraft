@@ -42,35 +42,72 @@ pub fn write_dae(m: &Model, path: &str) -> Result<usize> {
     let objs = objects(m);
     let mut colors: Vec<[f32; 3]> = vec![DEFAULT];
     let color_of = |f: &WFace| f.color.unwrap_or(DEFAULT);
+    // textured materials come after the colors: (material name, image file)
+    let mut texs: Vec<(String, String)> = vec![];
+    let p = std::path::Path::new(path);
+    let tex_dir = format!("{}_textures", p.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "model".into()));
     for fs in objs.values() {
         for f in fs {
+            if let Some((name, t)) = crate::texmap::of_face(m, f) {
+                if !texs.iter().any(|(n, _)| n == name) {
+                    if let Ok((ext, data)) = crate::texmap::bytes(t) {
+                        let file = crate::texmap::file_name(name, ext);
+                        let dir = p.with_file_name(&tex_dir);
+                        std::fs::create_dir_all(&dir)?;
+                        std::fs::write(dir.join(&file), data)?;
+                        texs.push((name.to_string(), file));
+                    }
+                }
+                continue;
+            }
             let c = color_of(f);
             if !colors.contains(&c) {
                 colors.push(c);
             }
         }
     }
+    let tex_index = |f: &WFace| crate::texmap::of_face(m, f).and_then(|(n, _)| texs.iter().position(|(x, _)| x == n)).map(|i| colors.len() + i);
     let mut s = String::from("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<COLLADA xmlns=\"http://www.collada.org/2005/11/COLLADASchema\" version=\"1.4.1\">\n");
-    s += "<asset><contributor><authoring_tool>SketchCraft</authoring_tool></contributor><unit name=\"meter\" meter=\"1\"/><up_axis>Z_UP</up_axis></asset>\n<library_effects>\n";
+    s += "<asset><contributor><authoring_tool>SketchCraft</authoring_tool></contributor><unit name=\"meter\" meter=\"1\"/><up_axis>Z_UP</up_axis></asset>\n";
+    if !texs.is_empty() {
+        s += "<library_images>\n";
+        for (i, (_, file)) in texs.iter().enumerate() {
+            writeln!(s, "<image id=\"img{i}\"><init_from>{}/{}</init_from></image>", xml(&tex_dir), xml(file))?;
+        }
+        s += "</library_images>\n";
+    }
+    s += "<library_effects>\n";
     for (i, c) in colors.iter().enumerate() {
         writeln!(s, "<effect id=\"e{i}\"><profile_COMMON><technique sid=\"common\"><lambert><diffuse><color>{} {} {} 1</color></diffuse></lambert></technique></profile_COMMON></effect>", c[0], c[1], c[2])?;
+    }
+    for i in 0..texs.len() {
+        let k = colors.len() + i;
+        writeln!(s, "<effect id=\"e{k}\"><profile_COMMON><newparam sid=\"s{i}\"><surface type=\"2D\"><init_from>img{i}</init_from></surface></newparam><newparam sid=\"p{i}\"><sampler2D><source>s{i}</source></sampler2D></newparam><technique sid=\"common\"><lambert><diffuse><texture texture=\"p{i}\" texcoord=\"UVSET0\"/></diffuse></lambert></technique></profile_COMMON></effect>")?;
     }
     s += "</library_effects>\n<library_materials>\n";
     for i in 0..colors.len() {
         writeln!(s, "<material id=\"m{i}\" name=\"{}\"><instance_effect url=\"#e{i}\"/></material>", crate::export::color_id(colors[i]))?;
+    }
+    for (i, (name, _)) in texs.iter().enumerate() {
+        let k = colors.len() + i;
+        writeln!(s, "<material id=\"m{k}\" name=\"{}\"><instance_effect url=\"#e{k}\"/></material>", xml(name))?;
     }
     s += "</library_materials>\n<library_geometries>\n";
     let mut tris = 0;
     let mut nodes = String::new();
     for (gi, (name, faces)) in objs.iter().enumerate() {
         let mut pos: Vec<f64> = Vec::new();
+        let mut uvs: Vec<f64> = Vec::new();
         let mut by_mat: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
         for f in faces {
-            let mi = colors.iter().position(|c| *c == color_of(f)).unwrap_or(0);
+            let ti = tex_index(f);
+            let mi = ti.unwrap_or_else(|| colors.iter().position(|c| *c == color_of(f)).unwrap_or(0));
+            let map = crate::texmap::of_face(m, f).map(|(_, t)| crate::texmap::Mapping::of(t, f.normal));
             for t in geom::triangulate(&f.outer, &f.holes, f.normal) {
                 let base = pos.len() / 3;
                 for p in t {
                     pos.extend([p.x, p.y, p.z]);
+                    uvs.extend(map.map(|mp| mp.uv(p)).unwrap_or([0.0, 0.0]));
                 }
                 by_mat.entry(mi).or_default().extend([base, base + 1, base + 2]);
                 tris += 1;
@@ -84,17 +121,37 @@ pub fn write_dae(m: &Model, path: &str) -> Result<usize> {
             pos.iter().map(|v| format!("{v:.6}")).collect::<Vec<_>>().join(" "),
             n / 3
         )?;
-        writeln!(s, "<vertices id=\"g{gi}-v\"><input semantic=\"POSITION\" source=\"#g{gi}-p\"/></vertices>")?;
-        for (mi, idx) in &by_mat {
+        let textured = by_mat.keys().any(|k| *k >= colors.len());
+        if textured {
             writeln!(
                 s,
-                "<triangles material=\"m{mi}\" count=\"{}\"><input semantic=\"VERTEX\" source=\"#g{gi}-v\" offset=\"0\"/><p>{}</p></triangles>",
+                "<source id=\"g{gi}-t\"><float_array id=\"g{gi}-ta\" count=\"{}\">{}</float_array><technique_common><accessor source=\"#g{gi}-ta\" count=\"{}\" stride=\"2\"><param name=\"S\" type=\"float\"/><param name=\"T\" type=\"float\"/></accessor></technique_common></source>",
+                uvs.len(),
+                uvs.iter().map(|v| format!("{v:.6}")).collect::<Vec<_>>().join(" "),
+                uvs.len() / 2
+            )?;
+        }
+        writeln!(s, "<vertices id=\"g{gi}-v\"><input semantic=\"POSITION\" source=\"#g{gi}-p\"/></vertices>")?;
+        for (mi, idx) in &by_mat {
+            let tc = if *mi >= colors.len() { format!("<input semantic=\"TEXCOORD\" source=\"#g{gi}-t\" offset=\"0\" set=\"0\"/>") } else { String::new() };
+            writeln!(
+                s,
+                "<triangles material=\"m{mi}\" count=\"{}\"><input semantic=\"VERTEX\" source=\"#g{gi}-v\" offset=\"0\"/>{tc}<p>{}</p></triangles>",
                 idx.len() / 3,
                 idx.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(" ")
             )?;
         }
         s += "</mesh></geometry>\n";
-        let binds: String = by_mat.keys().map(|mi| format!("<instance_material symbol=\"m{mi}\" target=\"#m{mi}\"/>")).collect();
+        let binds: String = by_mat
+            .keys()
+            .map(|mi| {
+                if *mi >= colors.len() {
+                    format!("<instance_material symbol=\"m{mi}\" target=\"#m{mi}\"><bind_vertex_input semantic=\"UVSET0\" input_semantic=\"TEXCOORD\" input_set=\"0\"/></instance_material>")
+                } else {
+                    format!("<instance_material symbol=\"m{mi}\" target=\"#m{mi}\"/>")
+                }
+            })
+            .collect();
         writeln!(nodes, "<node id=\"n{gi}\" name=\"{}\"><instance_geometry url=\"#g{gi}\"><bind_material><technique_common>{binds}</technique_common></bind_material></instance_geometry></node>", xml(name))?;
     }
     s += "</library_geometries>\n<library_visual_scenes><visual_scene id=\"scene\" name=\"SketchCraft\">\n";

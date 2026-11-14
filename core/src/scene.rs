@@ -33,15 +33,7 @@ pub fn build(root: &Model, ctx: Option<u32>) -> Value {
             None => -1,
         };
         // tile axes: along the face, or along the projection direction
-        let (tu, tv, origin, w, h) = match &tex {
-            Some((_, t)) => {
-                let dir = t.project.map(|p| glam::DVec3::from(p).normalize_or_zero()).filter(|d| *d != glam::DVec3::ZERO);
-                let (u, v) = geom::basis(dir.map(|d| -d).unwrap_or(f.normal));
-                let o = if dir.is_some() { t.origin.map(glam::DVec3::from).unwrap_or_default() } else { glam::DVec3::ZERO };
-                (u, v, o, t.width.max(1e-6), t.height.max(1e-6))
-            }
-            None => (glam::DVec3::X, glam::DVec3::Y, glam::DVec3::ZERO, 1.0, 1.0),
-        };
+        let map = tex.as_ref().map(|(_, t)| crate::texmap::Mapping::of(t, f.normal));
         let color = f.color.unwrap_or(DEFAULT_COLOR);
         // painted faces show paint on both sides; bare backs are blue
         let back = f.color.map(|c| [c[0] * 0.85, c[1] * 0.85, c[2] * 0.85]).unwrap_or(BACK_COLOR);
@@ -51,8 +43,8 @@ pub fn build(root: &Model, ctx: Option<u32>) -> Value {
             back_colors.extend(back);
             for p in t {
                 positions.extend([p.x as f32, p.y as f32, p.z as f32]);
-                let q = p - origin;
-                uvs.extend([(q.dot(tu) / w) as f32, (q.dot(tv) / h) as f32]);
+                let uv = map.map(|mp| mp.uv(p)).unwrap_or([p.x, p.y]);
+                uvs.extend([uv[0] as f32, uv[1] as f32]);
             }
             tri_face.push(f.owner);
             tri_tex.push(ti);

@@ -1548,3 +1548,57 @@ fn timeline_turntable_walk_scenes_and_sun() {
     assert!(e.model.timeline.clips.is_empty());
     assert_eq!(e.exec_json(&json!({"cmd":"timeline","clips":[{"kind":"scenes","seconds":2,"views":["Nope"]}]}).to_string())["ok"], false);
 }
+
+#[test]
+fn textures_reach_exports_and_headless_renders() {
+    use base64::Engine as _;
+    let dir = std::env::temp_dir().join(format!("sketchcraft-tex-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    // a 4x4 pure red PNG
+    let img = image::RgbImage::from_pixel(4, 4, image::Rgb([230, 20, 20]));
+    let mut png = std::io::Cursor::new(Vec::new());
+    img.write_to(&mut png, image::ImageFormat::Png).unwrap();
+    let data = format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(png.into_inner()));
+    let mut e = Engine::new();
+    let r = run(&mut e, json!({"cmd":"rect","from":[-2,-2,0],"to":[2,2,0]}));
+    let f = r["face"].as_u64().unwrap();
+    run(&mut e, json!({"cmd":"pushpull","face":f,"distance":2.0}));
+    run(&mut e, json!({"cmd":"texture","name":"Brick wall","data":data,"width":1.0,"height":1.0}));
+    let all: Vec<u64> = e.model.faces.keys().map(|k| *k as u64).collect();
+    run(&mut e, json!({"cmd":"paint","ids":all,"material":"Brick wall"}));
+
+    // OBJ: UVs, a material with the image, the image beside it
+    let obj = dir.join("box.obj");
+    run(&mut e, json!({"cmd":"export_obj","path":obj.to_str().unwrap()}));
+    let o = std::fs::read_to_string(&obj).unwrap();
+    assert!(o.contains("\nvt ") && o.contains("/1/"), "faces carry UVs");
+    let mtl = std::fs::read_to_string(dir.join("box.mtl")).unwrap();
+    assert!(mtl.contains("map_Kd box_textures/Brick_wall.png"));
+    assert!(dir.join("box_textures/Brick_wall.png").exists());
+
+    // glTF: the image inside, a texture coordinate set
+    let glb = dir.join("box.glb");
+    run(&mut e, json!({"cmd":"export_glb","path":glb.to_str().unwrap()}));
+    let b = std::fs::read(&glb).unwrap();
+    let jl = u32::from_le_bytes(b[12..16].try_into().unwrap()) as usize;
+    let doc: Value = serde_json::from_slice(&b[20..20 + jl]).unwrap();
+    assert_eq!(doc["images"][0]["mimeType"], "image/png");
+    assert!(doc["meshes"][0]["primitives"][0]["attributes"]["TEXCOORD_0"].is_number());
+    assert!(doc["materials"][0]["pbrMetallicRoughness"]["baseColorTexture"].is_object());
+    let total = u32::from_le_bytes(b[8..12].try_into().unwrap()) as usize;
+    assert_eq!(total, b.len());
+
+    // Collada: an image library and texcoords
+    let dae = dir.join("box.dae");
+    run(&mut e, json!({"cmd":"export_dae","path":dae.to_str().unwrap()}));
+    let d = std::fs::read_to_string(&dae).unwrap();
+    assert!(d.contains("<init_from>box_textures/Brick_wall.png</init_from>") && d.contains("semantic=\"TEXCOORD\""));
+
+    // headless render: the box shows red, not its flat material color
+    let png = dir.join("box.png");
+    run(&mut e, json!({"cmd":"render","out":png.to_str().unwrap(),"width":200,"height":150,"grid":false,"edges":false}));
+    let shot = image::open(&png).unwrap().to_rgb8();
+    let reds = shot.pixels().filter(|p| p.0[0] > 120 && p.0[1] < 60 && p.0[2] < 60).count();
+    assert!(reds > 2000, "the image shows on the box: {reds} red pixels");
+    std::fs::remove_dir_all(&dir).ok();
+}
