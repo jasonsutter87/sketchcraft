@@ -16,7 +16,7 @@ Checked items are in `main`.
 - [x] Tape measure and **Protractor** guides, dimensions, text, **3D Text** (any system font, extruded or flat), units (m/cm/mm/ft-in/in)
 - [x] Curves: arcs and circles pick as one; **Weld** and **Explode Curve**; **Make Unique**; **Orient Faces**
 - [x] Camera tools: **Position Camera**, **Look Around**, **Walk** (walls stop you, stairs climb), **Zoom Window**, previous / next view, typed eye height and field of view (`35` or `50mm`)
-- [x] **Dynamic Components**: attributes and formulas (lengths, copies, material, hidden, `parent!`)
+- [x] **Dynamic Components**: size, copies, material, hidden, position (x, y, z) and rotation (rotx, roty, rotz), formulas (`parent!`), and Component Options (text boxes, lists, read-outs)
 - [x] Keyboard shortcuts 1:1 with SketchUp's defaults (press `?`)
 
 ## Looks and presentation
@@ -35,14 +35,51 @@ Checked items are in `main`.
 - [x] Export: glTF, OBJ, Collada (all with textures), STL, 3D DXF, **DWG** (via converter), PDF, section cuts (SVG / DXF), IFC4 (BIM)
 - [x] **Raise walls** from an imported floor plan (wall bands found across T-junctions, window lines and drafting slips; window openings with sill and head)
 - [x] **Point clouds** (Scan Essentials core): PLY, LAS, XYZ / PTS / TXT; colored, thinned to a budget, survey coordinates moved home; drawing tools snap to scan points
-- [x] **Dynamic Components**: size, copies, material, hidden, position (x, y, z) and rotation (rotx, roty, rotz), formulas, and Component Options (text boxes, lists, read-outs)
-- [x] **Classifier** (IFC types) and **Generate Report** (CSV)
+- [x] **Classifier** (IFC types) and **Generate Report** (CSV); IFC export validated with IfcOpenShell (`tools/ifc/check_ifc.py`)
 - [x] **Add Location**: real terrain and OpenStreetMap imagery around a lat / lon
 
 ## Also
 
 - [x] Headless + MCP: every action is a command Claude can run
 - [x] **SubD modeling**: edit a subdivision cage (points / edges / faces, symmetry, soft select, loops, extrude, crease) over see-through reference images
+
+## Audit, 2026-11-14
+
+SketchUp's menus and toolbars (free, Pro, Studio) checked against the code,
+not against this list. Ranked by how often a SketchUp user would hit it.
+
+**P1: everyday modeling (free SketchUp has these)**
+
+| Gap | Today |
+| --- | --- |
+| Arc variants: center **Arc**, **3-Point Arc**, **Pie**; **Rotated Rectangle**; **Freehand** | only the 2-point arc |
+| **Select connected** (triple-click), select all with the same material / tag | double-click only; Shift-paint replaces a material |
+| Components that **glue to faces and cut openings** (windows and doors in walls) | components sit on top |
+| **Scenes remember** style, hidden things, tag visibility, section, shadows | camera only |
+| **Axes tool** (draw on a tilted plane), **Hide Rest of Model** while editing, **Paste in Place** | missing |
+| Tape Measure **rescales the model** (measure, type the real length) | missing |
+| **Outliner search**, **command search** (Shift+S) | missing |
+| Several **named section planes** to switch between | one active cut |
+
+**P2: looks and files**
+
+| Gap | Today |
+| --- | --- |
+| Physically based materials (roughness, metal, normal maps) in the view and renders | color, texture, opacity |
+| **Fog**, **watermarks** | missing |
+| **Tag folders**, dashed tag lines, Tag tool | flat tags |
+| Components that **face the camera** (2D people and trees) | missing |
+| Import images (as an image, a texture or a photo to match); 3DS, KMZ | Match Photo only |
+| Export FBX, KMZ, USDZ | missing |
+
+**P3: Pro / Studio depth**
+
+| Gap | Today |
+| --- | --- |
+| IFC import (the route for Revit) | export only |
+| A denoiser, then GPU tracing (V-Ray-class) | CPU path tracer |
+| LayOut depth: dimensions and text on sheets, scrapbooks, pattern fills | layout-lite PDF |
+| An extension API | MCP commands only |
 
 ## Known gaps (next)
 
