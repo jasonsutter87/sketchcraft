@@ -2538,3 +2538,37 @@ details.panel-fold {
 
 /* 3D Text: a live preview of the font */
 .text3d-preview { width: 100%; height: 64px; border-radius: 8px; background: var(--bg-sunk, rgba(0,0,0,0.04)); color: var(--text); margin: 4px 0 8px; }
+
+/* Timeline: clips for videos, over the bottom of the model */
+.timeline { position: absolute; left: 16px; right: 16px; bottom: 76px; z-index: 6; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow, 0 8px 24px rgba(0,0,0,.12)); padding: 8px 10px 10px; display: flex; flex-direction: column; gap: 8px; font-size: 12px; }
+.tl-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.tl-head button, .tl-inspect button { border: 1px solid var(--line); background: var(--panel); color: var(--text); border-radius: 7px; padding: 4px 9px; font: inherit; cursor: pointer; }
+.tl-head button.on, .tl-inspect button.on { background: var(--accent); color: var(--accent-ink, #fff); border-color: transparent; }
+.tl-head button:disabled { opacity: .45; cursor: default; }
+.tl-head .lbl { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.tl-head .sep { width: 1px; height: 18px; background: var(--line); margin: 0 4px; }
+.tl-play { width: 30px; height: 26px; font-size: 12px; }
+.tl-time { font-variant-numeric: tabular-nums; color: var(--muted); min-width: 92px; }
+.tl-rec { color: #d33 !important; border-color: #d33 !important; background: transparent !important; animation: tl-blink 1.2s steps(2) infinite; }
+@keyframes tl-blink { 50% { opacity: .55; } }
+@media (prefers-reduced-motion: reduce) { .tl-rec { animation: none; } }
+.tl-close { margin-left: 2px; width: 26px; padding: 2px 0 !important; }
+.tl-lane { position: relative; display: flex; flex-direction: column; gap: 2px; }
+.tl-ruler { position: relative; height: 16px; margin: 0 4px; cursor: ew-resize; touch-action: none; border-bottom: 1px solid var(--line); }
+.tl-ruler span { position: absolute; bottom: 1px; transform: translateX(-50%); font-size: 9.5px; color: var(--muted); font-variant-numeric: tabular-nums; pointer-events: none; }
+.tl-track { position: relative; display: flex; gap: 3px; min-height: 44px; border-radius: 8px; background: var(--bg-sunk, rgba(0,0,0,.04)); padding: 4px; }
+.tl-empty { color: var(--muted); align-self: center; padding: 0 8px; }
+.tl-clip { flex-basis: 0; min-width: 64px; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 1px; padding: 4px 8px; border-radius: 6px; border: 1px solid transparent; font: inherit; color: #fff; cursor: pointer; overflow: hidden; text-align: left; }
+.tl-clip b { font-size: 11px; }
+.tl-clip span { font-size: 10.5px; opacity: .85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.tl-clip.k-turntable { background: #5b6ee1; }
+.tl-clip.k-walk { background: #2f9e74; }
+.tl-clip.k-scenes { background: #8a63d2; }
+.tl-clip.k-sun { background: #d98a1c; }
+.tl-clip.sel { outline: 2px solid var(--text); outline-offset: 1px; }
+.tl-head-line { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--text); pointer-events: none; }
+.tl-inspect { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.tl-inspect label { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); }
+.tl-inspect input.num { width: 64px; }
+.tl-views { display: inline-flex; gap: 8px; flex-wrap: wrap; }
+@media (max-width: 720px) { .timeline { left: 8px; right: 8px; } }

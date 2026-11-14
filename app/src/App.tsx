@@ -16,6 +16,7 @@ import { WorkspaceStrip } from "./wsstrip";
 import { PhotoModeler } from "./photomodel";
 import { RefImageDialog } from "./refimage";
 import { Text3dDialog } from "./text3d";
+import { TimelinePanel } from "./timeline";
 import { LearnCenter, LessonCard, lessonsDone, useLearnCtx } from "./learn";
 
 const DEFAULT_BUILD: BuildSettings = {
@@ -202,6 +203,7 @@ export default function App() {
   const [showPhotoModel, setShowPhotoModel] = useState(false);
   const [showRef, setShowRef] = useState(false);
   const [showText3d, setShowText3d] = useState(false);
+  const [showTimeline, setShowTimeline] = useState(false);
   const [showLearn, setShowLearn] = useState(false);
   const [lesson, setLesson] = useState<string | null>(null);
   const [showWs, setShowWs] = useState(false);
@@ -612,7 +614,8 @@ export default function App() {
                   <button onClick={() => file.export("dae")}>Export Collada (.dae)…</button>
                   <button onClick={() => file.export("dxf")}>Export 3D DXF (mm)…</button>
                   <button onClick={() => file.export("pdf")}>Export PDF (this view)…</button>
-                  <button onClick={file.animation}>Export animation (MP4)…</button>
+                  <button onClick={() => setShowTimeline(true)}>Timeline (video)…</button>
+                  <button onClick={file.animation}>Export scene tour (MP4)…</button>
                   <button onClick={file.blueprint}>Make blueprint (PDF)…</button>
                   <button onClick={() => setShowSheets(true)}>Drawing sheets (PDF)…</button>
                   <button onClick={() => file.export("ifc")}>Export IFC (BIM)…</button>
@@ -844,7 +847,7 @@ export default function App() {
           <input ref={typedRef} value={typed} placeholder={measure.value || "type, then Enter"} onChange={(e) => setTyped(e.target.value)} onKeyDown={(e) => e.key === "Escape" && (setTyped(""), typedRef.current?.blur())} />
         </form>
 
-        {scene && (
+        {scene && !showTimeline && (
           <WorkspaceStrip
             ws={wsId}
             scene={scene}
@@ -857,9 +860,10 @@ export default function App() {
               setSection(on);
               setSectionTick((t) => t + 1);
             }}
-            actions={{ blueprint: file.blueprint, sheets: () => setShowSheets(true), location: () => setShowLocation(true), render: () => setShowRender(true), animation: file.animation }}
+            actions={{ blueprint: file.blueprint, sheets: () => setShowSheets(true), location: () => setShowLocation(true), render: () => setShowRender(true), animation: () => setShowTimeline((v) => !v) }}
           />
         )}
+        {scene && showTimeline && <TimelinePanel scene={scene} run={run} api={api} setTool={chooseTool} onToast={say} onClose={() => setShowTimeline(false)} />}
         {showLearn && (
           <LearnCenter
             onStart={(id) => {

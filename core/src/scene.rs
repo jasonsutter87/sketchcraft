@@ -171,6 +171,7 @@ pub fn build(root: &Model, ctx: Option<u32>) -> Value {
         "tagColors": root.tag_colors,
         "guides": root.guides.iter().map(|g| json!({"id": g.id, "p": g.p.to_array(), "dir": g.dir.map(|d| d.to_array())})).collect::<Vec<_>>(),
         "views": root.views,
+        "timeline": root.timeline,
         "classes": root.classes,
         "location": root.location,
         "environment": root.environment,

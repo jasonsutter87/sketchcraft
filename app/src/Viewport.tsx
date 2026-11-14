@@ -106,6 +106,12 @@ export interface ViewportApi {
   /** the active section plane (a point on it and its normal), if any */
   sectionPlane: () => { origin: Vec3; normal: Vec3 } | null;
   previousView: () => void;
+  /** timeline playback: the camera exactly here */
+  setCamera: (c: Cam) => void;
+  /** a sun-study angle [azimuth, altitude] in degrees, or null for the usual light */
+  setSun: (s: [number, number] | null) => void;
+  /** render one frame at this size, as a JPEG data URL */
+  captureFrame: (w: number, h: number, caption?: string) => string;
   nextView: () => void;
   /** SubD mode on a subdivision object (false when it isn't one) */
   editCage: (id: number) => boolean;
@@ -425,6 +431,8 @@ export default function Viewport(props: Props) {
   /** SubD mode: the cage editor while a subdivision object is being shaped */
   const cageEd = useRef<CageEditor | null>(null);
   const lastPointer = useRef({ x: 0, y: 0 });
+  /** lights: the sky, where the sun sits around the model, and a sun-study angle */
+  const rig = useRef<{ hemi: THREE.HemisphereLight | null; c: THREE.Vector3; r: number; sun: [number, number] | null }>({ hemi: null, c: new THREE.Vector3(), r: 20, sun: null });
   const [cageUi, setCageUi] = useState<CageUi | null>(null);
   /** newest section-fill request (older answers are dropped) */
   const sectionTicket = useRef(0);
@@ -546,7 +554,9 @@ export default function Viewport(props: Props) {
     renderer.domElement.addEventListener("wheel", () => backdropOn.current && showBackdrop(null));
 
     const world = new THREE.Scene();
-    world.add(new THREE.HemisphereLight(0xffffff, 0xe2e4ec, 2.7));
+    const hemi = new THREE.HemisphereLight(0xffffff, 0xe2e4ec, 2.7);
+    rig.current.hemi = hemi;
+    world.add(hemi);
     const sun = new THREE.DirectionalLight(0xffffff, 1.3);
     sun.position.set(30, -50, 80);
     sun.shadow.mapSize.set(2048, 2048);
@@ -1042,7 +1052,9 @@ export default function Viewport(props: Props) {
     if (!bb.isEmpty()) {
       const c = bb.getCenter(new THREE.Vector3());
       const r = bb.getSize(new THREE.Vector3()).length() / 2 + 5;
-      T.sun.position.copy(c.clone().add(new THREE.Vector3(0.35, -0.55, 0.76).multiplyScalar(r * 2)));
+      rig.current.c.copy(c);
+      rig.current.r = r;
+      placeSun();
       T.sun.target.position.copy(c);
       const sc = T.sun.shadow.camera;
       sc.left = sc.bottom = -r;
@@ -1484,6 +1496,90 @@ export default function Viewport(props: Props) {
     step();
   }
 
+  // ---------------------------------------------------------------- lights and frames
+  /** The sun where a sun study puts it (compass azimuth, altitude), or the usual light. */
+  function placeSun() {
+    const T = t.current!;
+    const { c, r, sun, hemi } = rig.current;
+    let dir = new THREE.Vector3(0.35, -0.55, 0.76);
+    if (sun) {
+      const [az, al] = sun.map(THREE.MathUtils.degToRad);
+      // +Y north, +X east
+      dir = new THREE.Vector3(Math.sin(az) * Math.cos(al), Math.cos(az) * Math.cos(al), Math.sin(al));
+      const up = Math.max(0, Math.sin(al));
+      // shadows read best when the sun carries most of the light; dusk fades it
+      T.sun.intensity = up > 0 ? 1.2 + 1.8 * Math.min(1, up * 2.5) : 0;
+      T.sun.color.setHSL(0.09, Math.max(0, 0.7 - up * 1.6), 0.5 + Math.min(0.5, up * 1.5));
+      if (hemi) hemi.intensity = 0.7 + 1.2 * Math.min(1, up * 3);
+    } else {
+      T.sun.intensity = 1.3;
+      T.sun.color.set(0xffffff);
+      if (hemi) hemi.intensity = 2.7;
+    }
+    T.sun.position.copy(c.clone().add(dir.normalize().multiplyScalar(r * 2)));
+  }
+  function setSun(s: [number, number] | null) {
+    rig.current.sun = s;
+    placeSun();
+  }
+  /** Put the camera exactly here (no glide): timeline playback. */
+  function setCamera(c: Cam) {
+    const T = t.current!;
+    setFov(c.fov || 40);
+    T.camera.position.set(...c.eye);
+    T.controls.target.set(...c.target);
+    if (T.camera === T.ortho) {
+      T.persp.position.copy(T.camera.position);
+      syncOrtho(false);
+    }
+    T.camera.lookAt(T.controls.target);
+  }
+  /** Render one frame at w × h and return it as a JPEG data URL (with a caption). */
+  function captureFrame(w: number, h: number, caption?: string): string {
+    const T = t.current!;
+    const r = T.renderer;
+    const prev = r.getSize(new THREE.Vector2());
+    const ratio = r.getPixelRatio();
+    r.setPixelRatio(1);
+    r.setSize(w, h, false);
+    const cam = T.camera as THREE.PerspectiveCamera;
+    const aspect = cam.aspect;
+    if (cam.isPerspectiveCamera) {
+      cam.aspect = w / h;
+      cam.updateProjectionMatrix();
+    }
+    T.controls.update();
+    // a clean picture: no selection, snaps or SubD cage
+    const hide = [T.overlay, T.preview, T.cage];
+    const was = hide.map((o) => o.visible);
+    hide.forEach((o) => (o.visible = false));
+    r.render(T.world, T.camera);
+    hide.forEach((o, i) => (o.visible = was[i]));
+    const c = document.createElement("canvas");
+    c.width = w;
+    c.height = h;
+    const ctx = c.getContext("2d")!;
+    ctx.drawImage(r.domElement, 0, 0, w, h);
+    if (caption) {
+      const s = Math.round(h / 22);
+      ctx.font = `600 ${s}px system-ui, sans-serif`;
+      const tw = ctx.measureText(caption).width;
+      ctx.fillStyle = "rgba(0,0,0,0.45)";
+      ctx.beginPath();
+      ctx.roundRect(s * 0.8, h - s * 2.6, tw + s * 1.2, s * 1.7, s * 0.4);
+      ctx.fill();
+      ctx.fillStyle = "#fff";
+      ctx.fillText(caption, s * 1.4, h - s * 1.35);
+    }
+    r.setPixelRatio(ratio);
+    r.setSize(prev.x, prev.y, false);
+    if (cam.isPerspectiveCamera) {
+      cam.aspect = aspect;
+      cam.updateProjectionMatrix();
+    }
+    return c.toDataURL("image/jpeg", 0.92);
+  }
+
   // ---------------------------------------------------------------- camera tools
   const CAMERA_TOOLS = ["position", "lookaround", "walk", "zoomwindow"];
   /** Remember where the camera was (for Previous / Next view). */
@@ -1733,6 +1829,9 @@ export default function Viewport(props: Props) {
     },
     editCage: (id: number) => enterCage(id),
     previousView: () => stepView(-1),
+    setCamera,
+    setSun,
+    captureFrame,
     nextView: () => stepView(1),
     exitCage: () => exitCage(),
     inCage: () => cageEd.current != null,

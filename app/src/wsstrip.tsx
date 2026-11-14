@@ -162,8 +162,8 @@ function PrevizStrip({ scene, run, api, actions }: Props) {
       <span className="sep" />
       <SettingPicker scene={scene} run={run} />
       <span className="sep" />
-      <button onClick={actions.animation} disabled={scene.views.length < 2} title={scene.views.length < 2 ? "Add two scenes to fly between them" : "A video flying through your scenes"}>
-        Animation…
+      <button onClick={actions.animation} title="Turntables, walkthroughs, scene glides and sun studies, exported as video">
+        Timeline
       </button>
       <button className="on" onClick={actions.render} title="Photoreal: sun, sky, soft shadows, reflections">
         Render…

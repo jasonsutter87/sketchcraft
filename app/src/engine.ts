@@ -118,6 +118,8 @@ export interface Scene {
   triFace: number[];
   faces: FaceInfo[];
   edgeList: EdgeInfo[];
+  /** video clips, played in order */
+  timeline?: { clips: Clip[] };
   edges: number[];
   edgeIds: number[];
   softEdges: number[];
@@ -171,3 +173,23 @@ export const ASSETS = [
   { key: "bench", name: "Bench" },
   { key: "hydrant", name: "Hydrant" },
 ] as const;
+
+export interface CamSpec {
+  eye: Vec3;
+  target: Vec3;
+  fov: number;
+}
+
+/** A timeline clip: scenes, turntable, walk or sun study. */
+export type Clip = { name?: string | null; seconds: number } & (
+  | { kind: "scenes"; views: string[]; hold?: number }
+  | { kind: "turntable"; turns?: number; from?: CamSpec | null }
+  | { kind: "walk"; keys?: CamSpec[]; path?: Vec3[]; eye_height?: number }
+  | { kind: "sun"; date?: string; from?: string; to?: string; camera?: CamSpec | null }
+);
+
+export interface TimelineFrame extends CamSpec {
+  sun?: [number, number];
+  clock?: string;
+  clip: number;
+}

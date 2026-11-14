@@ -26,7 +26,7 @@ Checked items are in `main`.
       sketchy edges, extensions, ambient occlusion, paper / blueprint / night; presets
 - [x] Scenes (saved views), section cuts with **section fills**, X-ray, back edges, shadows, parallel projection
 - [x] **Match Photo**: camera from a photo's vanishing lines; the scene keeps the photo
-- [x] **Scene animation** export (MP4, or a turntable)
+- [x] **Timeline** for video: turntables, recorded walkthroughs, glides through scenes, and sun studies (built-in solar position, clock on the frame); previewed live, exported as MP4 at 720p / 1080p / square / vertical with viewport shadows
 - [x] **LayOut-lite drawing sheets**: viewports at true scale, scale bars, title blocks, multi-page PDF
 
 ## Files
