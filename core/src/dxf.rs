@@ -392,6 +392,7 @@ pub fn import(m: &mut Model, text: &str, name: &str, units: Option<&str>, at: DV
     let outer = m.begin_group(name.to_string());
     let (mut faces, mut edges) = (0, 0);
     let layers = by_layer.len();
+    let mut bulks: Vec<Bulk> = vec![];
     for (layer, shapes) in by_layer {
         let g = m.begin_group(layer.clone());
         let mut b = Bulk::new(g);
@@ -415,9 +416,114 @@ pub fn import(m: &mut Model, text: &str, name: &str, units: Option<&str>, at: DV
         if layer != "0" {
             m.set_tag(&[g], Some(layer)).ok();
         }
+        bulks.push(b);
     }
+    edges += cut_across_layers(m, &mut bulks);
     m.active_group = m.groups.get(&outer).and_then(|g| g.parent);
     Ok(DxfResult { group: outer, layers, faces, edges, units: unit.into(), skipped })
+}
+
+/// Layers are separate groups, so a sheet border on one layer would fill as a
+/// solid face under the shapes drawn on others, and the two would fight for
+/// the same plane. Like SketchUp, cut them out: a flat face from one layer
+/// that lies inside a flat face of another, on the same level, becomes a hole
+/// in it (outermost ones only; a shape inside that shape stays its business).
+/// Returns how many edges the holes added.
+fn cut_across_layers(m: &mut Model, bulks: &mut [Bulk]) -> usize {
+    struct Flat {
+        id: Id,
+        layer: usize,
+        z: f64,
+        ring: Vec<glam::DVec2>,
+        lo: glam::DVec2,
+        hi: glam::DVec2,
+        area: f64,
+    }
+    let mut flats: Vec<Flat> = vec![];
+    for (li, b) in bulks.iter().enumerate() {
+        for (id, f) in m.faces.iter() {
+            if f.group != Some(b.group) || f.outer.len() < 3 {
+                continue;
+            }
+            let pts: Vec<DVec3> = f.outer.iter().map(|v| m.p(*v)).collect();
+            let z = pts[0].z;
+            if pts.iter().any(|p| (p.z - z).abs() > 1e-6) {
+                continue;
+            }
+            let ring: Vec<glam::DVec2> = pts.iter().map(|p| p.truncate()).collect();
+            let lo = ring.iter().fold(glam::DVec2::splat(f64::MAX), |a, p| a.min(*p));
+            let hi = ring.iter().fold(glam::DVec2::splat(f64::MIN), |a, p| a.max(*p));
+            let area = ring.iter().zip(ring.iter().cycle().skip(1)).map(|(a, b)| a.perp_dot(*b)).sum::<f64>().abs() / 2.0;
+            flats.push(Flat { id: *id, layer: li, z, ring, lo, hi, area });
+        }
+    }
+    if flats.len() < 2 || flats.len() > 20_000 {
+        return 0;
+    }
+    let inside = |p: glam::DVec2, ring: &[glam::DVec2]| -> bool {
+        let mut c = false;
+        for i in 0..ring.len() {
+            let (a, b) = (ring[i], ring[(i + 1) % ring.len()]);
+            if (a.y > p.y) != (b.y > p.y) && p.x < a.x + (p.y - a.y) / (b.y - a.y) * (b.x - a.x) {
+                c = !c;
+            }
+        }
+        c
+    };
+    // `inner` lies within `outer` (every corner inside or on it, and smaller)
+    let within = |inner: &Flat, outer: &Flat| -> bool {
+        (inner.z - outer.z).abs() < 1e-6
+            && inner.area < outer.area
+            && inner.lo.cmpge(outer.lo - 1e-9).all()
+            && inner.hi.cmple(outer.hi + 1e-9).all()
+            && {
+                // test a point just inside each corner's neighborhood: the centroid of each ear
+                let n = inner.ring.len();
+                (0..n).all(|i| {
+                    let c = (inner.ring[i] * 0.98) + (inner.ring[(i + 1) % n] * 0.01) + (inner.ring[(i + n - 1) % n] * 0.01);
+                    inside(c, &outer.ring)
+                })
+            }
+    };
+    let mut added = 0;
+    for oi in 0..flats.len() {
+        let outer = &flats[oi];
+        // faces from other layers inside this one
+        let cands: Vec<usize> = (0..flats.len()).filter(|&gi| flats[gi].layer != outer.layer && within(&flats[gi], outer)).collect();
+        // only the outermost of them, and not ones already inside a hole of this face
+        let holes_now: Vec<Vec<glam::DVec2>> = m.faces[&outer.id].holes.iter().map(|h| h.iter().map(|v| m.p(*v).truncate()).collect()).collect();
+        let top: Vec<usize> = cands
+            .iter()
+            .copied()
+            .filter(|&gi| !cands.iter().any(|&hi| hi != gi && within(&flats[gi], &flats[hi])))
+            .filter(|&gi| !holes_now.iter().any(|h| inside(flats[gi].ring[0], h)))
+            .collect();
+        if top.is_empty() {
+            continue;
+        }
+        let normal = crate::geom::newell(&m.faces[&outer.id].outer.iter().map(|v| m.p(*v)).collect::<Vec<_>>());
+        let b = &mut bulks[outer.layer];
+        let z = outer.z;
+        let mut new_holes = vec![];
+        for gi in top {
+            let mut pts: Vec<DVec3> = flats[gi].ring.iter().map(|p| p.extend(z)).collect();
+            // holes run clockwise about the face normal
+            if crate::geom::newell(&pts).dot(normal) > 0.0 {
+                pts.reverse();
+            }
+            let ids: Vec<Id> = pts.iter().map(|p| b.vertex(m, *p)).collect();
+            for i in 0..ids.len() {
+                if b.edge(m, ids[i], ids[(i + 1) % ids.len()]) {
+                    added += 1;
+                }
+            }
+            new_holes.push(ids);
+        }
+        if let Some(f) = m.faces.get_mut(&outer.id) {
+            f.holes.extend(new_holes);
+        }
+    }
+    added
 }
 
 /// Building a big drawing fast: points welded through a hash (not a search
