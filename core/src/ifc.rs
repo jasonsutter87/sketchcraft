@@ -85,7 +85,9 @@ pub fn write_ifc(m: &Model, path: &str, project: &str) -> Result<usize> {
     let org = id("IFCORGANIZATION($,'SketchCraft',$,$,$)".into(), &mut lines);
     let po = id(format!("IFCPERSONANDORGANIZATION(#{owner},#{org},$)"), &mut lines);
     let app = id(format!("IFCAPPLICATION(#{org},'0.2','SketchCraft','SketchCraft')"), &mut lines);
-    let hist = id(format!("IFCOWNERHISTORY(#{po},#{app},$,.ADDED.,$,$,$,0)"), &mut lines);
+    // made now; IFC4 wants a modified date whenever a change action is given
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let hist = id(format!("IFCOWNERHISTORY(#{po},#{app},$,.ADDED.,{now},#{po},#{app},{now})"), &mut lines);
     let origin = id("IFCCARTESIANPOINT((0.,0.,0.))".into(), &mut lines);
     let zdir = id("IFCDIRECTION((0.,0.,1.))".into(), &mut lines);
     let xdir = id("IFCDIRECTION((1.,0.,0.))".into(), &mut lines);

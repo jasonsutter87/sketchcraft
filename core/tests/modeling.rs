@@ -930,6 +930,9 @@ fn ifc_export_with_classifier() {
     assert!(t.contains("FILE_SCHEMA(('IFC4'))"));
     assert!(t.contains("=IFCWALL(") && t.contains("=IFCSLAB("), "wall guessed from its name, slab classified");
     assert!(t.contains("IFCTRIANGULATEDFACESET") && t.contains("IFCRELCONTAINEDINSPATIALSTRUCTURE"));
+    // IFC4's CorrectChangeAction rule (found by IfcOpenShell): .ADDED. needs a modified date
+    let hist = t.lines().find(|l| l.contains("IFCOWNERHISTORY(")).unwrap();
+    assert!(hist.contains(".ADDED.,") && !hist.contains(".ADDED.,$"), "{hist}");
     // every #ref points at a line that exists
     let n = t.lines().filter(|l| l.starts_with('#')).count();
     for cap in t.split('#').skip(1) {
