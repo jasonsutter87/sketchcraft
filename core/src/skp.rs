@@ -157,7 +157,7 @@ impl<'a> Reader<'a> {
     }
 
     fn obj(&mut self) -> R<Slot> {
-        if self.depth > 400 {
+        if self.depth > 400 || (self.counter & 1023 == 1023 && out_of_time()) {
             return Err(Fail);
         }
         let tag = self.u16()?;
@@ -555,7 +555,7 @@ fn materials(d: &[u8]) -> HashMap<u32, (String, [f32; 3])> {
 fn parse_prefix(mut r: Reader, n: usize) -> (usize, Option<usize>) {
     let mut k = 0;
     while k < n {
-        if r.obj().is_err() {
+        if r.obj().is_err() || (k % 256 == 255 && out_of_time()) {
             break;
         }
         k += 1;
