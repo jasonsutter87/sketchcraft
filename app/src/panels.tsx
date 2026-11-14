@@ -573,6 +573,24 @@ export function contextItems(scene: Scene, sel: Sel, run: Run, setSel: (s: Sel) 
     items.push({ label: "Ungroup (keep what's inside)", run: () => run({ cmd: "ungroup", id: ids[0] }).then(() => setSel(EMPTY)) });
     if (g) items.push({ label: g.locked ? "Unlock" : "Lock", run: () => run({ cmd: "lock", ids: [g.id], locked: !g.locked }) });
   }
+  // walls from an imported plan: the thin bands between wall lines, pulled up
+  if (one && sel.groups.length) {
+    items.push({
+      label: "Raise walls…",
+      run: async () => {
+        const units = scene.units || "m";
+        const raw = await ask("Wall height", formatLength(2.7, units), "The thin bands between wall lines go up this high (wall layers first, if the drawing has them).");
+        if (raw == null) return;
+        const height = parseLength(raw, units);
+        if (!(height > 0)) return onToast?.("That isn't a height");
+        const r = await run({ cmd: "raise_walls", group: ids[0], height });
+        if (!r.ok) return;
+        const n = r.walls as number;
+        const layers = (r.layers as string[]) ?? [];
+        onToast?.(n ? `Raised ${n} wall${n === 1 ? "" : "s"}${layers.length ? ` from ${layers.join(", ")}` : ""}` : "No walls found: wall bands need both lines of the wall, closed at the ends");
+      },
+    });
+  }
   // a shared component: give this one its own definition
   if (one && sel.instances.length) {
     const def = scene.instances.find((i) => i.id === ids[0])?.component;

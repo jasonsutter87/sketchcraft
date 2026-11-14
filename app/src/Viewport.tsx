@@ -101,6 +101,8 @@ export interface ViewportApi {
   applyTyped: (text: string) => void;
   fit: () => void;
   fitSoon: () => void;
+  /** frame this box (world corners), e.g. where most of an imported drawing is */
+  fitBox: (lo: Vec3, hi: Vec3) => void;
   view: (name: "iso" | "top" | "front" | "right" | "back" | "left") => void;
   camera: () => Cam;
   goTo: (c: Cam & { photo?: string }) => void;
@@ -1440,13 +1442,17 @@ export default function Viewport(props: Props) {
 
   // ---------------------------------------------------------------- camera
   function fit(owners?: Set<number>) {
-    const T = t.current;
     const s = live.current.scene;
-    if (!T) return;
     const b = new THREE.Box3();
     const pos = owners ? trianglesOf(owners) : s?.positions ?? [];
     for (let i = 0; i < pos.length; i += 3) b.expandByPoint(new THREE.Vector3(pos[i], pos[i + 1], pos[i + 2]));
     if (b.isEmpty()) b.set(new THREE.Vector3(-5, -5, 0), new THREE.Vector3(5, 5, 3));
+    fitTo(b);
+  }
+
+  function fitTo(b: THREE.Box3) {
+    const T = t.current;
+    if (!T) return;
     const c = b.getCenter(new THREE.Vector3());
     const rad = Math.max(b.getSize(new THREE.Vector3()).length() / 2, 1.5);
     const dir = T.camera.position.clone().sub(T.controls.target).normalize();
@@ -1818,6 +1824,11 @@ export default function Viewport(props: Props) {
     applyTyped,
     fit: () => fit(),
     fitSoon: () => void (st.current.fitNext = true),
+    fitBox: (lo, hi) => {
+      st.current.fitNext = false;
+      st.current.fitted = true;
+      fitTo(new THREE.Box3(V(lo), V(hi)));
+    },
     view,
     camera,
     goTo,

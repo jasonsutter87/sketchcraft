@@ -470,7 +470,16 @@ export default function App() {
 
   /** what a CAD import made, in a sentence */
   const cadSummary = (name: string, r: Reply) =>
-    `Imported ${name}: ${r.layers} layer${r.layers === 1 ? "" : "s"} (as tags), ${r.faces} faces, ${r.edges} edges, read as ${r.units}${r.skipped ? `; ${r.skipped} text/hatch items skipped` : ""}`;
+    `Imported ${name}: ${r.layers} layer${r.layers === 1 ? "" : "s"} (as tags), ${r.faces} faces, ${r.labels ? `${r.labels} labels, ` : ""}${r.dimensions ? `${r.dimensions} dimensions, ` : ""}read as ${r.units}${r.skipped ? `; ${r.skipped} hatch/other items skipped` : ""}. A floor plan? Right-click it › Raise walls.`;
+
+  /** after a CAD import: land on where most of the drawing is (not a scaled-up sheet border) */
+  const landOn = (r: Reply) => {
+    const f = r.focus as [number, number, number][] | undefined;
+    if (f && f.length === 2) {
+      const pad = Math.max(f[1][0] - f[0][0], f[1][1] - f[0][1]) * 0.05;
+      api.current?.fitBox([f[0][0] - pad, f[0][1] - pad, f[0][2]], [f[1][0] + pad, f[1][1] + pad, f[1][2]]);
+    } else api.current?.fitSoon();
+  };
 
   const importFile = async (file: File) => {
     let r: Reply;
@@ -490,8 +499,13 @@ export default function App() {
     }
     if (r.ok) {
       say(r.layers != null ? cadSummary(file.name, r) : `Imported ${file.name}: ${r.faces} faces`);
-      api.current?.fitSoon();
-      await refresh();
+      if (r.focus) {
+        await refresh();
+        landOn(r);
+      } else {
+        api.current?.fitSoon();
+        await refresh();
+      }
     }
   };
 
@@ -508,8 +522,13 @@ export default function App() {
             : await run({ cmd: "import_obj", path, up: "y" });
     if (r.ok) {
       say(r.layers != null ? cadSummary(path.split("/").pop()!, r) : `Imported ${path.split("/").pop()}: ${r.faces} faces`);
-      api.current?.fitSoon();
-      await refresh();
+      if (r.focus) {
+        await refresh();
+        landOn(r);
+      } else {
+        api.current?.fitSoon();
+        await refresh();
+      }
     }
     return r.ok;
   };
