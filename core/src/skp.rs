@@ -563,9 +563,6 @@ fn parse_prefix(mut r: Reader, n: usize) -> (usize, Option<usize>) {
     (k, r.validate().map(|(good, _)| good))
 }
 
-/// Parse `n` list items. When an item can't be decoded (a dimension, a text
-/// label...), look ahead for a plausible next item where the rest of the list
-/// parses cleanly, allowing for the object indices the skipped item used.
 // How long one file may take: a damaged file sends the look-ahead searching
 // everywhere, so the whole parse has a deadline (real files take well under a second).
 thread_local! {
@@ -576,6 +573,9 @@ fn out_of_time() -> bool {
     DEADLINE.with(|d| d.get().is_some_and(|t| std::time::Instant::now() > t))
 }
 
+/// Parse `n` list items. When an item can't be decoded (a dimension, a text
+/// label...), look ahead for a plausible next item where the rest of the list
+/// parses cleanly, allowing for the object indices the skipped item used.
 fn parse_items<'a>(mut r: Reader<'a>, n: usize, budget: usize, tries: &mut usize) -> Option<(Reader<'a>, Vec<Slot>)> {
     let mut items = Vec::with_capacity(n.min(1 << 20));
     for k in 0..n {

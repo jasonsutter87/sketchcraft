@@ -161,18 +161,128 @@ pub fn write_dae(m: &Model, path: &str) -> Result<usize> {
     Ok(tris)
 }
 
-/// 3D DXF (R12): every face as 3DFACE triangles, in millimeters, one layer
-/// per object.
+/// 3D DXF (AutoCAD 2000): every face as 3DFACE triangles, in millimeters,
+/// one layer per object. Written with the tables, block records, handles and
+/// owners a full drawing has, so DWG converters (LibreDWG, ODA) keep the faces.
 pub fn write_dxf(m: &Model, path: &str) -> Result<usize> {
-    let mut s = String::from("0\nSECTION\n2\nENTITIES\n");
+    // fixed handles for the tables and model/paper space; the rest count up
+    const BLOCK_RECORDS: &str = "1";
+    const LAYERS: &str = "2";
+    const STYLES: &str = "3";
+    const LTYPES: &str = "5";
+    const VIEWS: &str = "6";
+    const UCSS: &str = "7";
+    const VPORTS: &str = "8";
+    const APPIDS: &str = "9";
+    const DIMSTYLES: &str = "A";
+    const ROOT: &str = "C";
+    const GROUPS: &str = "D";
+    const MODEL: [&str; 3] = ["1F", "20", "21"]; // record, BLOCK, ENDBLK
+    const PAPER: [&str; 3] = ["1B", "1C", "1D"];
+    let mut next = 0x30u32;
+    let mut handle = || {
+        next += 1;
+        format!("{next:X}")
+    };
+    let mut s = String::new();
+    let g = |s: &mut String, code: u32, v: &str| {
+        let _ = writeln!(s, "{code}\n{v}");
+    };
+    let objs = objects(m);
+    let layer_of = |name: &str| -> String { name.chars().map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' }).collect() };
+    let mut layers: Vec<String> = vec!["0".into()];
+    for name in objs.keys() {
+        let l = layer_of(name);
+        if !layers.contains(&l) {
+            layers.push(l);
+        }
+    }
+
+    for (c, v) in [(0, "SECTION"), (2, "HEADER"), (9, "$ACADVER"), (1, "AC1015"), (9, "$INSUNITS"), (70, "4"), (9, "$HANDSEED"), (5, "FFFFF"), (0, "ENDSEC")] {
+        g(&mut s, c, v);
+    }
+    g(&mut s, 0, "SECTION");
+    g(&mut s, 2, "TABLES");
+    let table = |s: &mut String, name: &str, h: &str, n: usize| {
+        for (c, v) in [(0, "TABLE"), (2, name), (5, h), (330, "0"), (100, "AcDbSymbolTable")] {
+            let _ = writeln!(s, "{c}\n{v}");
+        }
+        let _ = writeln!(s, "70\n{n}");
+    };
+    let record = |s: &mut String, kind: &str, h: &str, owner: &str, class: &str, name: &str| {
+        for (c, v) in [(0, kind), (5, h), (330, owner), (100, "AcDbSymbolTableRecord"), (100, class), (2, name), (70, "0")] {
+            let _ = writeln!(s, "{c}\n{v}");
+        }
+    };
+    table(&mut s, "VPORT", VPORTS, 0);
+    g(&mut s, 0, "ENDTAB");
+    table(&mut s, "LTYPE", LTYPES, 3);
+    for name in ["ByBlock", "ByLayer", "Continuous"] {
+        let h = handle();
+        record(&mut s, "LTYPE", &h, LTYPES, "AcDbLinetypeTableRecord", name);
+        for (c, v) in [(3, if name == "Continuous" { "Solid line" } else { "" }), (72, "65"), (73, "0"), (40, "0.0")] {
+            g(&mut s, c, v);
+        }
+    }
+    g(&mut s, 0, "ENDTAB");
+    table(&mut s, "LAYER", LAYERS, layers.len());
+    for name in &layers {
+        let h = handle();
+        record(&mut s, "LAYER", &h, LAYERS, "AcDbLayerTableRecord", name);
+        g(&mut s, 62, "7");
+        g(&mut s, 6, "Continuous");
+    }
+    g(&mut s, 0, "ENDTAB");
+    table(&mut s, "STYLE", STYLES, 1);
+    let h = handle();
+    record(&mut s, "STYLE", &h, STYLES, "AcDbTextStyleTableRecord", "Standard");
+    for (c, v) in [(40, "0.0"), (41, "1.0"), (50, "0.0"), (71, "0"), (42, "2.5"), (3, "txt"), (4, "")] {
+        g(&mut s, c, v);
+    }
+    g(&mut s, 0, "ENDTAB");
+    for (name, h) in [("VIEW", VIEWS), ("UCS", UCSS)] {
+        table(&mut s, name, h, 0);
+        g(&mut s, 0, "ENDTAB");
+    }
+    table(&mut s, "APPID", APPIDS, 1);
+    let h = handle();
+    record(&mut s, "APPID", &h, APPIDS, "AcDbRegAppTableRecord", "ACAD");
+    g(&mut s, 0, "ENDTAB");
+    table(&mut s, "DIMSTYLE", DIMSTYLES, 0);
+    g(&mut s, 100, "AcDbDimStyleTable");
+    g(&mut s, 0, "ENDTAB");
+    table(&mut s, "BLOCK_RECORD", BLOCK_RECORDS, 2);
+    for (h, name) in [(MODEL[0], "*Model_Space"), (PAPER[0], "*Paper_Space")] {
+        for (c, v) in [(0, "BLOCK_RECORD"), (5, h), (330, BLOCK_RECORDS), (100, "AcDbSymbolTableRecord"), (100, "AcDbBlockTableRecord"), (2, name)] {
+            g(&mut s, c, v);
+        }
+    }
+    g(&mut s, 0, "ENDTAB");
+    g(&mut s, 0, "ENDSEC");
+
+    g(&mut s, 0, "SECTION");
+    g(&mut s, 2, "BLOCKS");
+    for (hs, name) in [(MODEL, "*Model_Space"), (PAPER, "*Paper_Space")] {
+        for (c, v) in [(0, "BLOCK"), (5, hs[1]), (330, hs[0]), (100, "AcDbEntity"), (8, "0"), (100, "AcDbBlockBegin"), (2, name), (70, "0"), (10, "0.0"), (20, "0.0"), (30, "0.0"), (3, name), (1, "")] {
+            g(&mut s, c, v);
+        }
+        for (c, v) in [(0, "ENDBLK"), (5, hs[2]), (330, hs[0]), (100, "AcDbEntity"), (8, "0"), (100, "AcDbBlockEnd")] {
+            g(&mut s, c, v);
+        }
+    }
+    g(&mut s, 0, "ENDSEC");
+
+    g(&mut s, 0, "SECTION");
+    g(&mut s, 2, "ENTITIES");
     let mut tris = 0;
-    for (name, faces) in objects(m) {
-        let layer: String = name.chars().map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' }).collect();
+    for (name, faces) in &objs {
+        let layer = layer_of(name);
         for f in faces {
             for t in geom::triangulate(&f.outer, &f.holes, f.normal) {
-                s += "0\n3DFACE\n8\n";
-                s += &layer;
-                s += "\n";
+                let h = handle();
+                for (c, v) in [(0, "3DFACE"), (5, h.as_str()), (330, MODEL[0]), (100, "AcDbEntity"), (8, layer.as_str()), (100, "AcDbFace")] {
+                    g(&mut s, c, v);
+                }
                 for (k, p) in [t[0], t[1], t[2], t[2]].iter().enumerate() {
                     write!(s, "1{k}\n{:.3}\n2{k}\n{:.3}\n3{k}\n{:.3}\n", p.x * 1000.0, p.y * 1000.0, p.z * 1000.0)?;
                 }
@@ -180,7 +290,18 @@ pub fn write_dxf(m: &Model, path: &str) -> Result<usize> {
             }
         }
     }
-    s += "0\nENDSEC\n0\nEOF\n";
+    g(&mut s, 0, "ENDSEC");
+
+    g(&mut s, 0, "SECTION");
+    g(&mut s, 2, "OBJECTS");
+    for (c, v) in [(0, "DICTIONARY"), (5, ROOT), (330, "0"), (100, "AcDbDictionary"), (281, "1"), (3, "ACAD_GROUP"), (350, GROUPS)] {
+        g(&mut s, c, v);
+    }
+    for (c, v) in [(0, "DICTIONARY"), (5, GROUPS), (330, ROOT), (100, "AcDbDictionary"), (281, "1")] {
+        g(&mut s, c, v);
+    }
+    g(&mut s, 0, "ENDSEC");
+    g(&mut s, 0, "EOF");
     write_to(path, s.as_bytes())?;
     Ok(tris)
 }

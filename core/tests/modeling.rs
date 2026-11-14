@@ -1732,3 +1732,27 @@ fn project_a_matched_photo_onto_faces() {
     run(&mut e, json!({"cmd":"save_view","name":"Plain","eye":[0,-10,1],"target":[0,0,1]}));
     assert_eq!(e.exec_json(&json!({"cmd":"project_photo","view":"Plain","ids":[wall]}).to_string())["ok"], false);
 }
+
+/// Needs a DWG converter (LibreDWG or ODA); skipped when there isn't one.
+#[test]
+fn dwg_round_trip_through_converter() {
+    let mut e = Engine::new();
+    make_box(&mut e);
+    let dir = std::env::temp_dir().join(format!("sketchcraft-dwg-rt-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("box.dwg").to_string_lossy().to_string();
+    let r = e.exec_json(&json!({"cmd":"export_dwg","path":path}).to_string());
+    if r["ok"] != true {
+        let msg = r.to_string();
+        assert!(msg.contains("needs a converter"), "{msg}");
+        eprintln!("no DWG converter installed; skipped");
+        return;
+    }
+    let dwg = std::fs::read(&path).unwrap();
+    assert!(dwg.starts_with(b"AC10"), "not a DWG header");
+    let mut back = Engine::new();
+    let r = run(&mut back, json!({"cmd":"import_dwg","path":path}));
+    eprintln!("dwg import: {r}");
+    assert_eq!(r["faces"], 12, "{r}");
+    std::fs::remove_dir_all(&dir).ok();
+}
