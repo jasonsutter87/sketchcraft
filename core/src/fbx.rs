@@ -113,13 +113,19 @@ impl<'a> Reader<'a> {
         if want > 512 << 20 {
             bail!("FBX array too large");
         }
-        if enc == 1 {
-            let mut out = Vec::with_capacity(want);
-            flate2::read::ZlibDecoder::new(raw).read_to_end(&mut out)?;
-            Ok(out)
+        // the declared size can lie: reserve a little and grow as data really
+        // arrives, never inflate past it (a zlib bomb), and insist it matches
+        let out = if enc == 1 {
+            let mut out = Vec::with_capacity(want.min(raw.len().saturating_mul(16)).min(16 << 20));
+            flate2::read::ZlibDecoder::new(raw).take(want as u64 + 1).read_to_end(&mut out)?;
+            out
         } else {
-            Ok(raw.to_vec())
+            raw.to_vec()
+        };
+        if out.len() != want {
+            bail!("FBX array is damaged (says {want} bytes, holds {})", out.len());
         }
+        Ok(out)
     }
 
     fn prop(&mut self) -> Result<Prop> {
@@ -154,6 +160,7 @@ impl<'a> Reader<'a> {
         if depth > 64 {
             bail!("FBX nesting too deep");
         }
+        let start = self.p;
         let end = self.len()? as usize;
         let nprops = self.len()?;
         let _plen = self.len()?;
@@ -161,7 +168,9 @@ impl<'a> Reader<'a> {
         if end == 0 {
             return Ok(None);
         }
-        if end > self.d.len() {
+        // a node ends after it starts: a damaged length pointing backwards
+        // would send the reader round the same bytes forever
+        if end > self.d.len() || end <= start {
             bail!("bad FBX node length");
         }
         let name = String::from_utf8_lossy(self.take(nlen)?).to_string();
@@ -174,6 +183,9 @@ impl<'a> Reader<'a> {
                 Some(k) => n.kids.push(k),
                 None => break,
             }
+        }
+        if self.p > end {
+            bail!("bad FBX node length");
         }
         self.p = end;
         Ok(Some(n))

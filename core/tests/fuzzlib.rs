@@ -50,6 +50,10 @@ pub fn fuzz(name: &str, seed: &[u8], text: bool, iters: usize, f: impl Fn(&[u8])
     let (mut panics, mut slowest) = (0, 0u128);
     for i in 0..iters {
         let d = mutate(&mut r, seed, text);
+        // a crash that can't be caught (stack overflow, abort) leaves its input here
+        if std::env::var_os("FUZZ_TRACE").is_some() {
+            std::fs::write(format!("../out/fuzz/{name}-current.bin"), &d).ok();
+        }
         let t = std::time::Instant::now();
         let ok = std::panic::catch_unwind(|| f(&d)).is_ok();
         let ms = t.elapsed().as_millis();

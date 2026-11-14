@@ -143,3 +143,14 @@ fn fuzz_fbx() {
     });
     println!("fbx: {p} panics, slowest {ms} ms");
 }
+
+#[test]
+fn a_node_pointing_backwards_is_refused_not_looped() {
+    // found by fuzzing: a 1 KB file whose node length points backwards made
+    // the reader loop over the same bytes until the process ran out of memory
+    let d = std::fs::read("tests/data/fbx-backward-node.bin").unwrap();
+    let mut m = sketchcraft::model::Model::default();
+    let t = std::time::Instant::now();
+    assert!(sketchcraft::fbx::import(&mut m, &d, "f", glam::DVec3::ZERO).is_err());
+    assert!(t.elapsed().as_secs() < 2);
+}

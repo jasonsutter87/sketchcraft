@@ -16,19 +16,40 @@ use std::sync::Mutex;
 
 struct App(Mutex<Live>);
 
+/// The engine, even if an earlier call panicked while holding it (a bug in one
+/// command shouldn't lock you out of the rest of the app).
+fn engine<'a>(state: &'a tauri::State<'_, App>) -> std::sync::MutexGuard<'a, Live> {
+    state.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// Run `f`, turning a panic into an error reply instead of a crash.
+fn guarded<T>(f: impl FnOnce() -> T, fallback: impl FnOnce(String) -> T) -> T {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
+        Ok(v) => v,
+        Err(e) => {
+            let msg = e.downcast_ref::<&str>().map(|s| s.to_string()).or_else(|| e.downcast_ref::<String>().cloned()).unwrap_or_else(|| "unknown".into());
+            eprintln!("sketchcraft: a command panicked: {msg}");
+            fallback(msg)
+        }
+    }
+}
+
 #[tauri::command]
 fn exec(state: tauri::State<App>, cmd: Value) -> Value {
-    state.0.lock().unwrap().exec(&cmd)
+    let mut live = engine(&state);
+    guarded(|| live.exec(&cmd), |msg| serde_json::json!({"ok": false, "error": format!("SketchCraft hit a bug running that ({msg}). Undo if anything looks wrong.")}))
 }
 
 #[tauri::command]
 fn scene(state: tauri::State<App>) -> Value {
-    state.0.lock().unwrap().scene()
+    let live = engine(&state);
+    guarded(|| live.scene(), |_| serde_json::json!({"ok": false}))
 }
 
 #[tauri::command]
 fn sync(state: tauri::State<App>) -> bool {
-    state.0.lock().unwrap().sync()
+    let mut live = engine(&state);
+    guarded(|| live.sync(), |_| false)
 }
 
 fn main() {

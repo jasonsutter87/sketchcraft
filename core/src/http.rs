@@ -51,7 +51,8 @@ pub fn serve(mut live: Live, port: u16) -> anyhow::Result<()> {
                 use std::io::Read as _;
                 req.as_reader().take(MAX_BODY).read_to_string(&mut text).ok();
                 match serde_json::from_str::<Value>(&text) {
-                    Ok(cmd) => live.exec(&cmd),
+                    // a bug in one command answers with an error, not a dead bridge
+                    Ok(cmd) => std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| live.exec(&cmd))).unwrap_or_else(|_| json!({"ok": false, "error": "SketchCraft hit a bug running that. Undo if anything looks wrong."})),
                     Err(e) => json!({"ok": false, "error": format!("bad JSON: {e}")}),
                 }
             }

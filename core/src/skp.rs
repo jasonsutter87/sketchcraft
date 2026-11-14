@@ -566,9 +566,22 @@ fn parse_prefix(mut r: Reader, n: usize) -> (usize, Option<usize>) {
 /// Parse `n` list items. When an item can't be decoded (a dimension, a text
 /// label...), look ahead for a plausible next item where the rest of the list
 /// parses cleanly, allowing for the object indices the skipped item used.
+// How long one file may take: a damaged file sends the look-ahead searching
+// everywhere, so the whole parse has a deadline (real files take well under a second).
+thread_local! {
+    static DEADLINE: std::cell::Cell<Option<std::time::Instant>> = const { std::cell::Cell::new(None) };
+}
+
+fn out_of_time() -> bool {
+    DEADLINE.with(|d| d.get().is_some_and(|t| std::time::Instant::now() > t))
+}
+
 fn parse_items<'a>(mut r: Reader<'a>, n: usize, budget: usize, tries: &mut usize) -> Option<(Reader<'a>, Vec<Slot>)> {
-    let mut items = Vec::with_capacity(n);
+    let mut items = Vec::with_capacity(n.min(1 << 20));
     for k in 0..n {
+        if out_of_time() {
+            return None;
+        }
         let start = r.p;
         let counter = r.counter;
         let classes = r.classes.clone();
@@ -607,7 +620,7 @@ fn parse_items<'a>(mut r: Reader<'a>, n: usize, budget: usize, tries: &mut usize
                     for skipped in 0..=rest.min(5) {
                         for extra in 1..=16u32 {
                             *tries += 1;
-                            if *tries > 60_000 {
+                            if *tries > 60_000 || (*tries % 64 == 0 && out_of_time()) {
                                 return None;
                             }
                             let want = rest - skipped;
@@ -649,6 +662,18 @@ pub fn parse(d: &[u8]) -> Result<SkpFile> {
     if major >= 13 || crate::skp_vff::zip_start(d).is_some() {
         return crate::skp_vff::parse(d, file.version);
     }
+
+    // 4 s, plus 4 s per megabyte
+    let allowed = std::time::Duration::from_millis(4000 + (d.len() as u64 * 4000 >> 20));
+    let deadline = std::time::Instant::now() + allowed;
+    DEADLINE.with(|c| c.set(Some(deadline)));
+    struct Clear;
+    impl Drop for Clear {
+        fn drop(&mut self) {
+            DEADLINE.with(|c| c.set(None));
+        }
+    }
+    let _clear = Clear;
 
     let mut known = learn(d);
     file.materials = materials(d);
@@ -695,6 +720,9 @@ pub fn parse(d: &[u8]) -> Result<SkpFile> {
     let mut i = 0usize;
     let mut last_counter = 1u32;
     while i + 12 < d.len() {
+        if out_of_time() {
+            bail!("this SketchUp file looks damaged: SketchCraft stopped reading it after {} s", allowed.as_secs());
+        }
         // a component definition's list: [u32 def][u16 0][u32 n][object]
         let x = u32::from_le_bytes(d[i..i + 4].try_into().unwrap());
         let z = u16::from_le_bytes([d[i + 4], d[i + 5]]);

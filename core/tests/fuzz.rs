@@ -35,10 +35,13 @@ fn fuzz_obj() {
 fn fuzz_skp() {
     let dir = std::path::PathBuf::from(std::env::var("HOME").unwrap()).join("Documents/SketchCraft/skp-samples");
     let Ok(rd) = std::fs::read_dir(&dir) else { return println!("no SketchUp samples; skipped") };
-    for e in rd.flatten().filter(|e| e.path().extension().is_some_and(|x| x == "skp")).take(3) {
+    let iters: usize = std::env::var("FUZZ_SKP_ITERS").ok().and_then(|v| v.parse().ok()).unwrap_or(1500);
+    let mut files: Vec<_> = rd.flatten().filter(|e| e.path().extension().is_some_and(|x| x == "skp")).collect();
+    files.sort_by_key(|e| e.metadata().map(|m| m.len()).unwrap_or(0));
+    for e in files.into_iter().take(3) {
         let seed = std::fs::read(e.path()).unwrap();
         let name = format!("skp-{}", e.path().file_stem().unwrap().to_string_lossy().replace(' ', "_"));
-        report(&name, fuzzlib::fuzz(&name, &seed, false, 1500, |d| {
+        report(&name, fuzzlib::fuzz(&name, &seed, false, iters, |d| {
             let mut m = Model::default();
             let _ = sketchcraft::skp::import(&mut m, d, DVec3::ZERO, "f");
         }));
