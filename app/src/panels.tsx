@@ -414,20 +414,20 @@ export function Views({ scene, run, camera, goTo, onMatchPhoto, onPhotoModel, on
           <Icons.plus /> Save
         </button>
       </div>
-      <div className="row" style={{ marginTop: 8 }}>
-        <button className="btn small ghost" onClick={() => photoInput.current?.click()} title="Line a photo up with the axes and model over it">
-          <Icons.camera /> Match photo…
+      <div className="photo-actions" role="group" aria-label="From photos">
+        <span className="section-label">From photos</span>
+        <button onClick={() => photoInput.current?.click()}>
+          <b>Match photo…</b>
+          <span>Line a photo up with the axes, then model over it</span>
         </button>
         <input ref={photoInput} type="file" accept="image/*" hidden onChange={(e) => e.target.files?.[0] && (onMatchPhoto(e.target.files[0]), (e.target.value = ""))} />
-        <button
-          className="btn small ghost"
-          onClick={onPhotoModel}
-          title={scene.views.filter((v) => v.photo).length >= 2 ? "Mark the same corners in your matched photos and build them in 3D" : "Match two or more photos of the same building first"}
-        >
-          Model from photos…
+        <button onClick={onPhotoModel}>
+          <b>Model from photos…</b>
+          <span>{scene.views.filter((v) => v.photo).length >= 2 ? "Mark the same corners in your matched photos, get 3D" : "Needs two or more matched photos of one building"}</span>
         </button>
-        <button className="btn small ghost" onClick={onRefImage} title="A photo or drawing on a front, side or top board to model over">
-          Reference image…
+        <button onClick={onRefImage}>
+          <b>Reference image…</b>
+          <span>A see-through front, side or top board to trace</span>
         </button>
       </div>
       <ul className="layers views-list">
