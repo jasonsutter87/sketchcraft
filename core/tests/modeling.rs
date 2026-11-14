@@ -1629,7 +1629,9 @@ fn dxf_import_layers_units_blocks_and_bulges() {
     let r = run(&mut e, json!({"cmd":"import_dxf","text":text,"name":"Plan"}));
     assert_eq!(r["units"], "in");
     assert_eq!(r["layers"], 4, "Walls, Furniture, Doors, Roof: {r}");
-    assert_eq!(r["skipped"], 1, "the text");
+    assert_eq!(r["skipped"], 0, "{r}");
+    assert_eq!(r["labels"], 1, "the text is a label: {r}");
+    assert!(e.model.annotations.iter().any(|a| matches!(a, sketchcraft::model::Annotation::Text { text, .. } if text == "Kitchen")));
     let g = r["group"].as_u64().unwrap() as u32;
     assert_eq!(e.model.groups[&g].name, "Plan");
     let layer = |n: &str| e.model.groups.iter().find(|(_, x)| x.name == n && x.parent == Some(g)).map(|(k, x)| (*k, x.tag.clone())).unwrap();
