@@ -587,7 +587,8 @@ export function contextItems(scene: Scene, sel: Sel, run: Run, setSel: (s: Sel) 
         if (!r.ok) return;
         const n = r.walls as number;
         const layers = (r.layers as string[]) ?? [];
-        onToast?.(n ? `Raised ${n} wall${n === 1 ? "" : "s"}${layers.length ? ` from ${layers.join(", ")}` : ""}` : "No walls found: wall bands need both lines of the wall, closed at the ends");
+        const w = (r.windows as number) ?? 0;
+        onToast?.(n || w ? `Raised ${n} wall${n === 1 ? "" : "s"}${w ? ` with ${w} window opening${w === 1 ? "" : "s"}` : ""}${layers.length ? ` from ${layers.join(", ")}` : ""}` : "No walls found: wall bands need both lines of the wall, closed at the ends");
       },
     });
   }

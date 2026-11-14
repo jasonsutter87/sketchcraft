@@ -20,6 +20,33 @@ fn fuzz_dxf() {
     }));
 }
 
+/// The newer readers: hatch boundaries (lines, arcs, ellipse arcs, splines,
+/// polylines), splines, ellipses, text, and every kind of dimension.
+#[test]
+#[ignore]
+fn fuzz_dxf_rich() {
+    let seed = concat!(
+        "0\nSECTION\n2\nENTITIES\n",
+        "0\nHATCH\n8\nH\n10\n0\n20\n0\n30\n0\n2\nSOLID\n70\n1\n71\n0\n91\n2\n",
+        "92\n1\n93\n4\n72\n1\n10\n0\n20\n0\n11\n4\n21\n0\n72\n2\n10\n4\n20\n2\n40\n2\n50\n270\n51\n90\n73\n1\n",
+        "72\n3\n10\n2\n20\n4\n11\n2\n21\n0\n40\n0.5\n50\n0\n51\n180\n73\n0\n",
+        "72\n4\n94\n3\n73\n0\n74\n0\n95\n8\n96\n4\n40\n0\n40\n0\n40\n0\n40\n0\n40\n1\n40\n1\n40\n1\n40\n1\n10\n0\n20\n4\n10\n0\n20\n3\n10\n0\n20\n1\n10\n0\n20\n0\n97\n0\n",
+        "92\n3\n72\n1\n73\n1\n93\n3\n10\n1\n20\n1\n42\n0.5\n10\n2\n20\n1\n10\n1\n20\n2\n97\n0\n75\n0\n76\n1\n",
+        "0\nSPLINE\n8\nS\n70\n8\n71\n3\n72\n8\n73\n4\n40\n0\n40\n0\n40\n0\n40\n0\n40\n1\n40\n1\n40\n1\n40\n1\n10\n0\n20\n0\n30\n0\n10\n1\n20\n2\n30\n0\n10\n2\n20\n2\n30\n0\n10\n3\n20\n0\n30\n0\n41\n1\n41\n2\n41\n2\n41\n1\n",
+        "0\nSPLINE\n8\nS\n70\n8\n71\n3\n74\n3\n11\n0\n21\n0\n31\n0\n11\n1\n21\n1\n31\n0\n11\n2\n21\n0\n31\n0\n",
+        "0\nELLIPSE\n8\nE\n10\n5\n20\n5\n30\n0\n11\n2\n21\n0\n31\n0\n40\n0.5\n41\n0.5\n42\n3\n",
+        "0\nMTEXT\n8\nT\n10\n0\n20\n0\n30\n0\n1\n{\\fArial|b1;Room}\\P\\S1^2;\\U+00B0 %%c\n",
+        "0\nDIMENSION\n8\nD\n70\n1\n10\n0\n20\n-1\n30\n0\n13\n0\n23\n0\n33\n0\n14\n4\n24\n0\n34\n0\n",
+        "0\nDIMENSION\n8\nD\n70\n4\n10\n0\n20\n0\n30\n0\n11\n1\n21\n1\n31\n0\n15\n2\n25\n0\n35\n0\n",
+        "0\nDIMENSION\n8\nD\n70\n2\n10\n1\n20\n1\n30\n0\n11\n1\n21\n1\n31\n0\n13\n0\n23\n0\n33\n0\n14\n1\n24\n0\n34\n0\n15\n0\n25\n0\n35\n0\n16\n1\n26\n1\n36\n0\n",
+        "0\nENDSEC\n0\nEOF\n"
+    );
+    report("dxf-rich", fuzzlib::fuzz("dxf-rich", seed.as_bytes(), true, 20000, |d| {
+        let mut m = Model::default();
+        let _ = sketchcraft::dxf::import(&mut m, &String::from_utf8_lossy(d), "f", None, DVec3::ZERO);
+    }));
+}
+
 #[test]
 #[ignore]
 fn fuzz_obj() {

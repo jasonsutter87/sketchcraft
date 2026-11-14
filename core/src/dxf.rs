@@ -40,6 +40,270 @@ enum Shape {
     Text(DVec3, String),
     /// a linear dimension: measured points and the offset to its line
     Dim(DVec3, DVec3, DVec3),
+    /// a filled region: its boundary loops (outlines and islands)
+    Hatch(Vec<Vec<DVec3>>),
+    /// a dimension our dimensions can't draw (angle, radius, diameter): a
+    /// label with a leader; the text is made once the units are known
+    Measure { at: DVec3, leader: DVec3, value: Measured, text: Option<String> },
+}
+
+#[derive(Clone, Copy, Debug)]
+enum Measured {
+    Radius(f64),
+    Diameter(f64),
+    Angle(f64),
+}
+
+/// Points along a B-spline or NURBS curve (de Boor), `per` samples per span.
+fn spline_curve(ctrl: &[DVec3], weights: &[f64], knots: &[f64], p: usize, per: usize) -> Vec<DVec3> {
+    let n = ctrl.len();
+    if p == 0 || n <= p || knots.len() != n + p + 1 {
+        return ctrl.to_vec();
+    }
+    let w = |i: usize| if weights.len() == n { weights[i].max(1e-12) } else { 1.0 };
+    let (u0, u1) = (knots[p], knots[n]);
+    if !(u1 > u0) {
+        return ctrl.to_vec();
+    }
+    let spans = (p..n).filter(|&k| knots[k + 1] > knots[k]).count().max(1);
+    let total = (spans * per).clamp(2, 4000);
+    (0..=total)
+        .map(|j| {
+            let u = (u0 + (u1 - u0) * j as f64 / total as f64).min(u1);
+            // the knot span holding u (the last non-empty one at the very end)
+            let mut k = p;
+            while k + 1 < n && knots[k + 1] <= u {
+                k += 1;
+            }
+            // homogeneous de Boor
+            let mut d: Vec<(DVec3, f64)> = (0..=p).map(|r| {
+                let i = k + r - p;
+                (ctrl[i] * w(i), w(i))
+            }).collect();
+            for r in 1..=p {
+                for jj in (r..=p).rev() {
+                    let i = k + jj - p;
+                    let den = knots[i + p + 1 - r] - knots[i];
+                    let a = if den.abs() < 1e-15 { 0.0 } else { (u - knots[i]) / den };
+                    d[jj] = (d[jj - 1].0 * (1.0 - a) + d[jj].0 * a, d[jj - 1].1 * (1.0 - a) + d[jj].1 * a);
+                }
+            }
+            d[p].0 / d[p].1
+        })
+        .collect()
+}
+
+/// A smooth curve through fit points (centripetal Catmull-Rom), `per`
+/// samples between each pair.
+fn through(fit: &[DVec3], per: usize) -> Vec<DVec3> {
+    if fit.len() < 3 {
+        return fit.to_vec();
+    }
+    let n = fit.len();
+    let at = |i: isize| -> DVec3 {
+        if i < 0 {
+            fit[0] * 2.0 - fit[1]
+        } else if i as usize >= n {
+            fit[n - 1] * 2.0 - fit[n - 2]
+        } else {
+            fit[i as usize]
+        }
+    };
+    let mut out = vec![fit[0]];
+    for i in 0..n - 1 {
+        let (p0, p1, p2, p3) = (at(i as isize - 1), at(i as isize), at(i as isize + 1), at(i as isize + 2));
+        let k = |a: DVec3, b: DVec3| a.distance(b).sqrt().max(1e-12);
+        let (t1, t2, t3) = (k(p0, p1), k(p1, p2), k(p2, p3));
+        let (t0, t1, t2, t3) = (0.0, t1, t1 + t2, t1 + t2 + t3);
+        for s in 1..=per {
+            let t = t1 + (t2 - t1) * s as f64 / per as f64;
+            let a1 = p0 * ((t1 - t) / (t1 - t0)) + p1 * ((t - t0) / (t1 - t0));
+            let a2 = p1 * ((t2 - t) / (t2 - t1)) + p2 * ((t - t1) / (t2 - t1));
+            let a3 = p2 * ((t3 - t) / (t3 - t2)) + p3 * ((t - t2) / (t3 - t2));
+            let b1 = a1 * ((t2 - t) / (t2 - t0)) + a2 * ((t - t0) / (t2 - t0));
+            let b2 = a2 * ((t3 - t) / (t3 - t1)) + a3 * ((t - t1) / (t3 - t1));
+            out.push(b1 * ((t2 - t) / (t2 - t1)) + b2 * ((t - t1) / (t2 - t1)));
+        }
+    }
+    out
+}
+
+/// Points of x/y(/z) triples for one code (10 → 10, 20, 30) in the order given.
+fn triples(codes: &[(i32, String)], x: i32) -> Vec<DVec3> {
+    let mut out = vec![];
+    for (c, v) in codes {
+        let v = v.trim().parse::<f64>().unwrap_or(0.0);
+        if *c == x {
+            out.push(DVec3::new(v, 0.0, 0.0));
+        } else if *c == x + 10 {
+            if let Some(q) = out.last_mut() {
+                q.y = v;
+            }
+        } else if *c == x + 20 {
+            if let Some(q) = out.last_mut() {
+                q.z = v;
+            }
+        }
+    }
+    out
+}
+
+/// Points on an ellipse: center, major axis (from the center), minor axis,
+/// from parameter t0 to t1 (radians, counter-clockwise).
+fn ellipse_pts(c: DVec3, major: DVec3, minor: DVec3, t0: f64, t1: f64, tol: f64) -> (Vec<DVec3>, bool) {
+    let mut sweep = (t1 - t0).rem_euclid(std::f64::consts::TAU);
+    if sweep < 1e-9 {
+        sweep = std::f64::consts::TAU;
+    }
+    let full = sweep >= std::f64::consts::TAU - 1e-9;
+    let n = arc_steps(sweep, major.length().max(minor.length()), tol).max(if full { 16 } else { 2 });
+    let mut pts: Vec<DVec3> = (0..=n).map(|k| {
+        let t = t0 + sweep * k as f64 / n as f64;
+        c + major * t.cos() + minor * t.sin()
+    }).collect();
+    if full {
+        pts.pop();
+    }
+    (pts, full)
+}
+
+/// A HATCH's boundary loops, read in order (paths of lines, arcs, ellipse
+/// arcs, splines, or polylines). None when the data doesn't add up.
+fn hatch_loops(e: &Ent, tol: f64) -> Option<Vec<Vec<DVec3>>> {
+    let c = &e.codes;
+    let start = c.iter().position(|(k, _)| *k == 91)?;
+    let num = |i: usize, want: i32| -> Option<f64> { c.get(i).filter(|(k, _)| *k == want).and_then(|(_, v)| v.trim().parse().ok()) };
+    let paths = num(start, 91)? as usize;
+    if paths > 10_000 {
+        return None;
+    }
+    let mut i = start + 1;
+    let mut loops = vec![];
+    for _ in 0..paths {
+        let flags = num(i, 92)? as i64;
+        i += 1;
+        let mut pts: Vec<DVec3> = vec![];
+        if flags & 2 != 0 {
+            let has_bulge = num(i, 72)? != 0.0;
+            i += 1;
+            if num(i, 73).is_some() {
+                i += 1;
+            }
+            let n = num(i, 93)? as usize;
+            i += 1;
+            let mut vs = vec![];
+            for _ in 0..n.min(1_000_000) {
+                let x = num(i, 10)?;
+                let y = num(i + 1, 20)?;
+                i += 2;
+                let mut b = 0.0;
+                if has_bulge && num(i, 42).is_some() {
+                    b = num(i, 42)?;
+                    i += 1;
+                }
+                vs.push((DVec3::new(x, y, 0.0), b));
+            }
+            pts = bulged(&vs, true, tol);
+        } else {
+            let n = num(i, 93)? as usize;
+            i += 1;
+            for _ in 0..n.min(1_000_000) {
+                let kind = num(i, 72)? as i64;
+                i += 1;
+                let mut seg: Vec<DVec3> = match kind {
+                    1 => {
+                        let v = [num(i, 10)?, num(i + 1, 20)?, num(i + 2, 11)?, num(i + 3, 21)?];
+                        i += 4;
+                        vec![DVec3::new(v[0], v[1], 0.0), DVec3::new(v[2], v[3], 0.0)]
+                    }
+                    2 => {
+                        let (cx, cy, r, a0, a1) = (num(i, 10)?, num(i + 1, 20)?, num(i + 2, 40)?, num(i + 3, 50)?, num(i + 4, 51)?);
+                        let ccw = num(i + 5, 73)? != 0.0;
+                        i += 6;
+                        let ctr = DVec3::new(cx, cy, 0.0);
+                        let mut a = arc(ctr, r, a0, a1, tol);
+                        if !ccw {
+                            // clockwise arcs are stored mirrored
+                            for q in &mut a {
+                                q.y = 2.0 * cy - q.y;
+                            }
+                        }
+                        a
+                    }
+                    3 => {
+                        let (cx, cy, mx, my, ratio, a0, a1) = (num(i, 10)?, num(i + 1, 20)?, num(i + 2, 11)?, num(i + 3, 21)?, num(i + 4, 40)?, num(i + 5, 50)?, num(i + 6, 51)?);
+                        let ccw = num(i + 7, 73)? != 0.0;
+                        i += 8;
+                        let major = DVec3::new(mx, my, 0.0);
+                        let minor = DVec3::new(-my, mx, 0.0) * ratio;
+                        let (mut a, _) = ellipse_pts(DVec3::new(cx, cy, 0.0), major, minor, a0.to_radians(), a1.to_radians(), tol);
+                        if !ccw {
+                            for q in &mut a {
+                                q.y = 2.0 * cy - q.y;
+                            }
+                        }
+                        a
+                    }
+                    4 => {
+                        let p = num(i, 94)? as usize;
+                        let rational = num(i + 1, 73)? != 0.0;
+                        i += 3; // 94, 73, 74
+                        let nk = num(i, 95)? as usize;
+                        let nc = num(i + 1, 96)? as usize;
+                        i += 2;
+                        if nk > 100_000 || nc > 100_000 {
+                            return None;
+                        }
+                        let mut knots = vec![];
+                        for _ in 0..nk {
+                            knots.push(num(i, 40)?);
+                            i += 1;
+                        }
+                        let (mut ctrl, mut ws) = (vec![], vec![]);
+                        for _ in 0..nc {
+                            ctrl.push(DVec3::new(num(i, 10)?, num(i + 1, 20)?, 0.0));
+                            i += 2;
+                            if rational && num(i, 42).is_some() {
+                                ws.push(num(i, 42)?);
+                                i += 1;
+                            }
+                        }
+                        // fit points and end tangents (newer files)
+                        if let Some(nf) = num(i, 97) {
+                            if c.get(i + 1).is_some_and(|(k, _)| *k == 11) {
+                                i += 1 + 2 * nf as usize;
+                                for t in [12, 13] {
+                                    if num(i, t).is_some() {
+                                        i += 2;
+                                    }
+                                }
+                            }
+                        }
+                        spline_curve(&ctrl, &ws, &knots, p, 12)
+                    }
+                    _ => return None,
+                };
+                // join the edges end to end
+                if let (Some(last), Some(first)) = (pts.last(), seg.first()) {
+                    if last.distance(*first) < 1e-9 {
+                        seg.remove(0);
+                    }
+                }
+                pts.extend(seg);
+            }
+            if pts.len() > 1 && pts[0].distance(*pts.last().unwrap()) < 1e-9 {
+                pts.pop();
+            }
+        }
+        // the boundary objects it was made from (handles)
+        if let Some(nb) = num(i, 97) {
+            i += 1 + nb as usize;
+        }
+        if pts.len() >= 3 {
+            loops.push(pts);
+        }
+    }
+    Some(loops)
 }
 
 /// Plain text from DXF TEXT/MTEXT: formatting codes out, specials in.
@@ -376,7 +640,35 @@ fn shapes(e: &Ent, blocks: &HashMap<String, (DVec3, Vec<Ent>)>, t: DMat4, layer:
                 let r = e.f(50).unwrap_or(0.0).to_radians();
                 DVec3::new(r.cos(), r.sin(), 0.0)
             } else {
-                DVec3::ZERO
+                // angles, radii, diameters: a label at the text, leading to what's measured
+                let user = e.s(1).map(plain_text).filter(|t| !t.is_empty() && t != "<>");
+                let at = xf(vec![e.p(11)], DMat4::IDENTITY)[0];
+                let w = |pts: Vec<DVec3>| xf(pts, DMat4::IDENTITY);
+                let m = match kind {
+                    3 | 4 => {
+                        let q = w(vec![e.p(10), e.p(15)]);
+                        let len = q[0].distance(q[1]);
+                        Some((q[1], if kind == 3 { Measured::Diameter(len) } else { Measured::Radius(len) }))
+                    }
+                    2 | 5 => {
+                        // two lines (13-14 and 15-10), or a vertex (15) and two points (13, 14)
+                        let (v1, v2) = if kind == 5 {
+                            (e.p(13) - e.p(15), e.p(14) - e.p(15))
+                        } else {
+                            (e.p(14) - e.p(13), e.p(10) - e.p(15))
+                        };
+                        let ang = v1.angle_between(v2).to_degrees();
+                        let ang = if kind == 2 && ang > 90.0 && e.f(42).is_some_and(|x| x.to_degrees() < 90.0) { 180.0 - ang } else { ang };
+                        let tip = w(vec![if kind == 5 { e.p(15) } else { e.p(16) }])[0];
+                        ang.is_finite().then_some((tip, Measured::Angle(ang)))
+                    }
+                    _ => None,
+                };
+                match m {
+                    Some((leader, value)) => out.push((lay, Shape::Measure { at, leader, value, text: user })),
+                    None => *skipped += 1,
+                }
+                return;
             };
             if dir == DVec3::ZERO || a.distance(b) < 1e-12 {
                 *skipped += 1;
@@ -387,7 +679,42 @@ fn shapes(e: &Ent, blocks: &HashMap<String, (DVec3, Vec<Ent>)>, t: DMat4, layer:
             let w = xf(vec![a, b2, a + off], DMat4::IDENTITY);
             out.push((lay, Shape::Dim(w[0], w[1], w[2] - w[0])));
         }
-        "POINT" | "HATCH" | "ATTRIB" | "ATTDEF" | "VIEWPORT" | "SOLID" | "SPLINE" | "ELLIPSE" | "LEADER" | "MLEADER" | "IMAGE" | "WIPEOUT" => *skipped += 1,
+        "SPLINE" => {
+            let deg = e.i(71).max(1) as usize;
+            let knots: Vec<f64> = e.codes.iter().filter(|(c, _)| *c == 40).filter_map(|(_, v)| v.trim().parse().ok()).collect();
+            let weights: Vec<f64> = e.codes.iter().filter(|(c, _)| *c == 41).filter_map(|(_, v)| v.trim().parse().ok()).collect();
+            let ctrl = triples(&e.codes, 10);
+            let pts = if ctrl.len() > deg && knots.len() == ctrl.len() + deg + 1 {
+                spline_curve(&ctrl, &weights, &knots, deg, 12)
+            } else {
+                through(&triples(&e.codes, 11), 12)
+            };
+            if pts.len() < 2 {
+                *skipped += 1;
+                return;
+            }
+            let line = xf(pts, DMat4::IDENTITY);
+            let closed = e.i(70) & 1 == 1 && line.len() > 2;
+            out.push((lay, if closed { Shape::Loop(line[..line.len() - 1].to_vec()) } else { Shape::Path(line) }));
+        }
+        "ELLIPSE" => {
+            let n = DVec3::new(e.f(210).unwrap_or(0.0), e.f(220).unwrap_or(0.0), e.f(230).unwrap_or(1.0)).normalize_or(DVec3::Z);
+            let major = e.p(11);
+            let minor = n.cross(major) * e.f(40).unwrap_or(1.0);
+            let (pts, full) = ellipse_pts(e.p(10), major, minor, e.f(41).unwrap_or(0.0), e.f(42).unwrap_or(std::f64::consts::TAU), tol);
+            let line = xf(pts, DMat4::IDENTITY);
+            out.push((lay, if full { Shape::Loop(line) } else { Shape::Path(line) }));
+        }
+        "HATCH" => match hatch_loops(e, tol) {
+            Some(loops) if !loops.is_empty() => {
+                // boundaries are in the hatch's own (OCS) plane, at its elevation
+                let z = e.f(30).unwrap_or(0.0);
+                let loops = loops.into_iter().map(|l| xf(l.into_iter().map(|p| DVec3::new(p.x, p.y, z)).collect(), o)).collect();
+                out.push((lay, Shape::Hatch(loops)));
+            }
+            _ => *skipped += 1,
+        },
+        "POINT" | "ATTRIB" | "ATTDEF" | "VIEWPORT" | "SOLID" | "LEADER" | "MLEADER" | "IMAGE" | "WIPEOUT" => *skipped += 1,
         _ => *skipped += 1,
     }
 }
@@ -496,6 +823,7 @@ pub fn import(m: &mut Model, text: &str, name: &str, units: Option<&str>, at: DV
         for (_, sh) in &shapes_out {
             let pts: &[DVec3] = match sh {
                 Shape::Path(p) | Shape::Loop(p) | Shape::Face(p) => p,
+                Shape::Hatch(ls) => ls.first().map(|l| l.as_slice()).unwrap_or(&[]),
                 _ => &[],
             };
             for q in pts {
@@ -529,11 +857,27 @@ pub fn import(m: &mut Model, text: &str, name: &str, units: Option<&str>, at: DV
                 m.annotations.push(crate::model::Annotation::Dimension { id, a, b, offset });
                 dimensions += 1;
             }
+            Shape::Measure { at, leader, value, text } => {
+                // in the drawing's own units
+                let len = |x: f64| {
+                    let v = x / scale;
+                    let s = if v >= 100.0 { format!("{v:.0}") } else { format!("{v:.2}") };
+                    format!("{s} {unit}")
+                };
+                let text = text.unwrap_or_else(|| match value {
+                    Measured::Radius(r) => format!("R {}", len(r)),
+                    Measured::Diameter(d) => format!("\u{2300} {}", len(d)),
+                    Measured::Angle(a) => format!("{a:.1}\u{b0}").replace(".0\u{b0}", "\u{b0}"),
+                });
+                let id = m.new_id();
+                m.annotations.push(crate::model::Annotation::Text { id, at, text, leader: Some(leader) });
+                dimensions += 1;
+            }
             s => by_layer.entry(l).or_default().push(s),
         }
     }
     let outer = m.begin_group(name.to_string());
-    let (mut faces, mut edges) = (0, 0);
+    let mut faces = 0;
     let layers = by_layer.len();
     // straight lines, by layer: a wall layer borrows the ones that join two of
     // its own points (the wall drawn on through a window on another layer)
@@ -542,6 +886,8 @@ pub fn import(m: &mut Model, text: &str, name: &str, units: Option<&str>, at: DV
         .flat_map(|(l, ss)| ss.iter().filter_map(move |s| if let Shape::Path(p) = s { (p.len() == 2).then(|| (l.clone(), p[0], p[1])) } else { None }))
         .collect();
     let mut bulks: Vec<Bulk> = vec![];
+    // hatches wait until every layer's own faces exist (bulk index, loops)
+    let mut hatches: Vec<(usize, Vec<Vec<DVec3>>)> = vec![];
     for (layer, shapes) in by_layer {
         let g = m.begin_group(layer.clone());
         let mut b = Bulk::new(g);
@@ -558,27 +904,198 @@ pub fn import(m: &mut Model, text: &str, name: &str, units: Option<&str>, at: DV
                     b.path(m, &p);
                 }
                 Shape::Path(p) => b.path(m, &p),
-                Shape::Text(..) | Shape::Dim(..) => {}
+                Shape::Text(..) | Shape::Dim(..) | Shape::Measure { .. } => {}
+                Shape::Hatch(h) => hatches.push((bulks.len(), h)),
             }
         }
         if b.walls {
-            for (l, p, q) in &lines {
-                if *l != layer && b.has(*p) && b.has(*q) {
-                    b.path(m, &[*p, *q]);
-                }
+            let borrowed: Vec<(DVec3, DVec3)> = lines.iter().filter(|(l, p, q)| *l != layer && b.has(*p) && b.has(*q)).map(|(_, p, q)| (*p, *q)).collect();
+            for (p, q) in &borrowed {
+                b.path(m, &[*p, *q]);
+            }
+            // two of them side by side, a wall's thickness apart: a window.
+            // Close its ends, so it's a piece of its own (raise_walls leaves an opening)
+            for w in window_pairs(&borrowed) {
+                b.path(m, &[w[0], w[3]]);
+                b.path(m, &[w[1], w[2]]);
+                b.windows.push(w);
             }
         }
         faces += b.faces + b.find_faces(m);
-        edges += b.edges.len();
+        mark_windows(m, &b);
         m.active_group = Some(outer);
         if layer != "0" {
             m.set_tag(&[g], Some(layer)).ok();
         }
         bulks.push(b);
     }
+    faces += add_hatches(m, &mut bulks, hatches);
+    let mut edges: usize = bulks.iter().map(|b| b.edges.len()).sum();
     edges += cut_across_layers(m, &mut bulks);
     m.active_group = m.groups.get(&outer).and_then(|g| g.parent);
     Ok(DxfResult { group: outer, layers, faces, edges, units: unit.into(), skipped, labels, dimensions, focus })
+}
+
+/// The material that marks a window's piece of a wall band on a plan.
+pub const WINDOW: &str = "Window opening";
+
+/// Pairs of lines side by side (parallel, the same length, ends level, 1 cm
+/// to 60 cm apart): a window drawn through a wall. Each as its four corners
+/// (first line, then the second back), closest pairs first, each line once.
+fn window_pairs(lines: &[(DVec3, DVec3)]) -> Vec<[DVec3; 4]> {
+    let mut cands = vec![];
+    for i in 0..lines.len() {
+        for j in i + 1..lines.len() {
+            let (p, q) = lines[i];
+            let (mut r, mut t) = lines[j];
+            let (di, dj) = (q - p, t - r);
+            let (li, lj) = (di.length(), dj.length());
+            if li < 0.1 || lj < 0.1 || (li - lj).abs() > 0.02 + 0.02 * li {
+                continue;
+            }
+            let u = di / li;
+            if (dj / lj).dot(u).abs() < 0.995 {
+                continue;
+            }
+            if dj.dot(u) < 0.0 {
+                std::mem::swap(&mut r, &mut t);
+            }
+            let o = r - p;
+            let along = o.dot(u);
+            let gap = (o - u * along).length();
+            if along.abs() > 0.05 || ((t - q).dot(u)).abs() > 0.05 || !(0.01..=0.6).contains(&gap) {
+                continue;
+            }
+            cands.push((gap, i, j, [p, q, t, r]));
+        }
+    }
+    cands.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let mut used = std::collections::HashSet::new();
+    let mut out = vec![];
+    for (_, i, j, quad) in cands {
+        if used.insert(i) && used.insert(j) {
+            out.push(quad);
+        } 
+    }
+    out
+}
+
+/// Give the faces that fill a found window the window material.
+fn mark_windows(m: &mut Model, b: &Bulk) {
+    if b.windows.is_empty() {
+        return;
+    }
+    let area = |l: &[DVec3]| l.iter().zip(l.iter().cycle().skip(1)).map(|(a, b)| a.truncate().perp_dot(b.truncate())).sum::<f64>().abs() / 2.0;
+    let inside = |p: DVec3, l: &[DVec3]| {
+        let mut c = false;
+        for i in 0..l.len() {
+            let (a, b) = (l[i], l[(i + 1) % l.len()]);
+            if (a.y > p.y) != (b.y > p.y) && p.x < a.x + (p.y - a.y) / (b.y - a.y) * (b.x - a.x) {
+                c = !c;
+            }
+        }
+        c
+    };
+    let mut hits = vec![];
+    for (id, f) in &m.faces {
+        if f.group != Some(b.group) || !f.holes.is_empty() {
+            continue;
+        }
+        let pts: Vec<DVec3> = f.outer.iter().map(|v| m.p(*v)).collect();
+        let c = pts.iter().copied().sum::<DVec3>() / pts.len() as f64;
+        let a = area(&pts);
+        if b.windows.iter().any(|w| inside(c, w) && (a - area(w)).abs() < 0.05 * area(w)) {
+            hits.push(*id);
+        }
+    }
+    if hits.is_empty() {
+        return;
+    }
+    m.materials.entry(WINDOW.into()).or_insert(crate::model::Material { color: [0.62, 0.78, 0.92], ..Default::default() });
+    for id in hits {
+        if let Some(f) = m.faces.get_mut(&id) {
+            f.material = Some(WINDOW.into());
+        }
+    }
+}
+
+/// Hatches as faces: each set of loops is outlines with islands as holes.
+/// A region that's already a face on some layer (wall poché over a wall
+/// band) isn't made twice. Returns the faces made.
+fn add_hatches(m: &mut Model, bulks: &mut [Bulk], hatches: Vec<(usize, Vec<Vec<DVec3>>)>) -> usize {
+    use glam::DVec2;
+    let area = |l: &[DVec3]| l.iter().zip(l.iter().cycle().skip(1)).map(|(a, b)| a.truncate().perp_dot(b.truncate())).sum::<f64>() / 2.0;
+    let sig = |l: &[DVec3]| -> (i64, i64, i64, i64, i64, i64) {
+        let lo = l.iter().fold(DVec3::splat(f64::MAX), |a, p| a.min(*p));
+        let hi = l.iter().fold(DVec3::splat(f64::MIN), |a, p| a.max(*p));
+        let q = |x: f64| (x / 1e-5).round() as i64;
+        (q(lo.x), q(lo.y), q(hi.x), q(hi.y), q(lo.z), q(area(l).abs()))
+    };
+    let existing: std::collections::HashSet<_> = m.faces.values().map(|f| sig(&f.outer.iter().map(|v| m.p(*v)).collect::<Vec<_>>())).collect();
+    let inside = |p: DVec2, l: &[DVec3]| {
+        let mut c = false;
+        for i in 0..l.len() {
+            let (a, b) = (l[i].truncate(), l[(i + 1) % l.len()].truncate());
+            if (a.y > p.y) != (b.y > p.y) && p.x < a.x + (p.y - a.y) / (b.y - a.y) * (b.x - a.x) {
+                c = !c;
+            }
+        }
+        c
+    };
+    let mut made = 0;
+    for (bi, mut loops) in hatches {
+        let Some(b) = bulks.get_mut(bi) else { continue };
+        loops.retain(|l| l.len() >= 3 && area(l).abs() > 1e-10);
+        loops.sort_by(|x, y| area(y).abs().total_cmp(&area(x).abs()));
+        // outlines and the islands inside them
+        let mut regions: Vec<(Vec<DVec3>, Vec<Vec<DVec3>>)> = vec![];
+        for l in loops {
+            let probe = l[0].truncate();
+            match regions.iter_mut().find(|(o, hs)| inside(probe, o) && !hs.iter().any(|h| inside(probe, h))) {
+                Some((_, hs)) => hs.push(l),
+                None => regions.push((l, vec![])),
+            }
+        }
+        for (mut outer, mut holes) in regions {
+            if existing.contains(&sig(&outer)) {
+                continue;
+            }
+            let n = crate::geom::newell(&outer);
+            if n == DVec3::ZERO {
+                continue;
+            }
+            // face up when flat; holes the other way round
+            if n.z < 0.0 {
+                outer.reverse();
+            }
+            let up = crate::geom::newell(&outer);
+            for h in &mut holes {
+                if crate::geom::newell(h).dot(up) > 0.0 {
+                    h.reverse();
+                }
+            }
+            let ring = |b: &mut Bulk, m: &mut Model, l: &[DVec3]| -> Vec<Id> {
+                let mut ids: Vec<Id> = l.iter().map(|p| b.vertex(m, *p)).collect();
+                ids.dedup();
+                if ids.len() > 1 && ids.first() == ids.last() {
+                    ids.pop();
+                }
+                for i in 0..ids.len() {
+                    b.edge(m, ids[i], ids[(i + 1) % ids.len()]);
+                }
+                ids
+            };
+            let o = ring(b, m, &outer);
+            if o.len() < 3 {
+                continue;
+            }
+            let hs: Vec<Vec<Id>> = holes.iter().map(|h| ring(b, m, h)).filter(|h| h.len() >= 3).collect();
+            let id = m.new_id();
+            m.faces.insert(id, crate::model::Face { outer: o, holes: hs, group: Some(b.group), ..Default::default() });
+            made += 1;
+        }
+    }
+    made
 }
 
 /// Layers are separate groups, so a sheet border on one layer would fill as a
@@ -698,13 +1215,15 @@ struct Bulk {
     faces: usize,
     /// a wall layer: close the bands at openings (see `jambs`)
     walls: bool,
+    /// windows found in a wall layer: their four corners
+    windows: Vec<[DVec3; 4]>,
 }
 
 const Q: f64 = 1e-6;
 
 impl Bulk {
     fn new(group: Id) -> Bulk {
-        Bulk { group, at: HashMap::new(), edges: Default::default(), ids: HashMap::new(), loose: vec![], faces: 0, walls: false }
+        Bulk { group, at: HashMap::new(), edges: Default::default(), ids: HashMap::new(), loose: vec![], faces: 0, walls: false, windows: vec![] }
     }
 
     fn key(p: DVec3) -> (i64, i64, i64) {
@@ -1065,8 +1584,64 @@ fn faces_in_plan(m: &mut Model, es: &[(Id, Id)], group: Id) -> usize {
 /// What `raise_walls` did.
 pub struct Raised {
     pub walls: usize,
+    /// window openings left in them
+    pub windows: usize,
     /// the layers (groups) it looked in
     pub layers: Vec<String>,
+}
+
+/// A straight prism over `loops` (outline counter-clockwise from above, holes
+/// clockwise) from `lo` to `hi`. `floor`: an existing face at `lo` to turn
+/// face-down as its bottom (else a new bottom is made).
+#[allow(clippy::too_many_arguments)]
+fn prism(m: &mut Model, have: &mut std::collections::HashSet<(Id, Id)>, loops: &[Vec<Id>], group: Option<Id>, lo: f64, hi: f64, floor: Option<Id>, material: Option<String>) {
+    let at = |m: &mut Model, v: Id, z: f64, map: &mut HashMap<Id, Id>| -> Id {
+        if let Some(x) = map.get(&v) {
+            return *x;
+        }
+        let mut p = m.p(v);
+        p.z = z;
+        let id = m.new_id();
+        m.vertices.insert(id, crate::model::Vertex { p, group });
+        map.insert(v, id);
+        id
+    };
+    let (mut bot, mut top) = (HashMap::new(), HashMap::new());
+    let mut edge = |m: &mut Model, a: Id, b: Id| {
+        if have.insert((a.min(b), a.max(b))) {
+            let id = m.new_id();
+            m.edges.insert(id, crate::model::Edge { a, b, group, ..Default::default() });
+        }
+    };
+    let bl: Vec<Vec<Id>> = loops
+        .iter()
+        .map(|l| l.iter().map(|v| if floor.is_some() { *v } else { at(m, *v, lo, &mut bot) }).collect())
+        .collect();
+    let tl: Vec<Vec<Id>> = loops.iter().map(|l| l.iter().map(|v| at(m, *v, hi, &mut top)).collect()).collect();
+    for (b, t) in bl.iter().zip(&tl) {
+        for i in 0..b.len() {
+            let j = (i + 1) % b.len();
+            edge(m, b[i], b[j]);
+            edge(m, b[i], t[i]);
+            edge(m, t[i], t[j]);
+            let side = m.new_id();
+            m.faces.insert(side, crate::model::Face { outer: vec![b[i], b[j], t[j], t[i]], group, material: material.clone(), ..Default::default() });
+        }
+    }
+    let cap = m.new_id();
+    m.faces.insert(cap, crate::model::Face { outer: tl[0].clone(), holes: tl[1..].to_vec(), group, material: material.clone(), ..Default::default() });
+    // the bottom faces down
+    let down = |l: &Vec<Id>| l.iter().rev().copied().collect::<Vec<Id>>();
+    let bottom = crate::model::Face { outer: down(&bl[0]), holes: bl[1..].iter().map(down).collect(), group, material, ..Default::default() };
+    match floor {
+        Some(id) => {
+            m.faces.insert(id, bottom);
+        }
+        None => {
+            let id = m.new_id();
+            m.faces.insert(id, bottom);
+        }
+    }
 }
 
 /// Wall layers by their usual names (AIA A-WALL, Spanish MURO, French MUR,
@@ -1080,6 +1655,12 @@ fn wallish(name: &str) -> bool {
 /// lines of a wall, `max_thickness` across at most) pulled up `height`. Looks
 /// in the group's wall layers when it has any, else in the whole group.
 pub fn raise_walls(m: &mut Model, group: Id, height: f64, max_thickness: f64) -> Result<Raised> {
+    raise_walls_with(m, group, height, max_thickness, 0.9, 2.1)
+}
+
+/// `raise_walls`, with the window sill and head heights (windows found on
+/// the plan get a wall below the sill and above the head, open between).
+pub fn raise_walls_with(m: &mut Model, group: Id, height: f64, max_thickness: f64, sill: f64, head: f64) -> Result<Raised> {
     if !m.groups.contains_key(&group) {
         anyhow::bail!("no group {group}");
     }
@@ -1122,15 +1703,17 @@ pub fn raise_walls(m: &mut Model, group: Id, height: f64, max_thickness: f64) ->
             continue;
         }
         let thick = 2.0 * area / per;
-        if thick <= max_thickness && thick > 0.01 {
-            picked.push((*id, n.z.signum()));
+        let window = f.material.as_deref() == Some(WINDOW);
+        if window || (thick <= max_thickness && thick > 0.01) {
+            picked.push((*id, n.z.signum(), window));
         }
     }
     // extrude each band straight up (a wall is a prism: no need for push/pull's
     // checks, which search the whole model for every edge)
     let mut have: std::collections::HashSet<(Id, Id)> = m.edges.values().map(|e| (e.a.min(e.b), e.a.max(e.b))).collect();
     let mut walls = 0;
-    for (id, up) in picked {
+    let mut windows = 0;
+    for (id, up, window) in picked {
         let Some(f) = m.faces.get(&id).cloned() else { continue };
         // loops counter-clockwise about +Z for the outline, clockwise for holes
         let mut loops: Vec<Vec<Id>> = f.loops().cloned().collect();
@@ -1139,42 +1722,22 @@ pub fn raise_walls(m: &mut Model, group: Id, height: f64, max_thickness: f64) ->
                 l.reverse();
             }
         }
-        let rise = DVec3::new(0.0, 0.0, height);
-        let mut top: HashMap<Id, Id> = HashMap::new();
-        for &v in loops.iter().flatten() {
-            if let std::collections::hash_map::Entry::Vacant(e) = top.entry(v) {
-                let id = m.new_id();
-                let p = m.p(v) + rise;
-                m.vertices.insert(id, crate::model::Vertex { p, group: f.group });
-                e.insert(id);
+        if window && head < height && sill < head {
+            // below the sill, and above the head
+            let base = m.p(loops[0][0]).z;
+            if sill > 0.0 {
+                prism(m, &mut have, &loops, f.group, base, base + sill, Some(id), None);
+            } else {
+                m.faces.remove(&id);
             }
+            prism(m, &mut have, &loops, f.group, base + head, base + height, None, None);
+            windows += 1;
+            continue;
         }
-        let mut edge = |m: &mut Model, a: Id, b: Id| {
-            if have.insert((a.min(b), a.max(b))) {
-                let id = m.new_id();
-                m.edges.insert(id, crate::model::Edge { a, b, group: f.group, ..Default::default() });
-            }
-        };
-        for l in &loops {
-            for i in 0..l.len() {
-                let (a, b) = (l[i], l[(i + 1) % l.len()]);
-                let (ta, tb) = (top[&a], top[&b]);
-                edge(m, a, ta);
-                edge(m, ta, tb);
-                let side = m.new_id();
-                m.faces.insert(side, crate::model::Face { outer: vec![a, b, tb, ta], group: f.group, ..Default::default() });
-            }
-        }
-        let lift = |l: &Vec<Id>| -> Vec<Id> { l.iter().map(|v| top[v]).collect() };
-        let cap = m.new_id();
-        m.faces.insert(cap, crate::model::Face { outer: lift(&loops[0]), holes: loops[1..].iter().map(lift).collect(), group: f.group, material: f.material.clone(), ..Default::default() });
-        // the footprint now faces down, under the wall
-        if let Some(base) = m.faces.get_mut(&id) {
-            base.outer = loops[0].iter().rev().copied().collect();
-            base.holes = loops[1..].iter().map(|l| l.iter().rev().copied().collect()).collect();
-        }
+        let base = m.p(loops[0][0]).z;
+        prism(m, &mut have, &loops, f.group, base, base + height, Some(id), f.material.clone().filter(|x| x != WINDOW));
         walls += 1;
     }
     let layers = look.iter().filter(|g| **g != group).map(|g| m.groups[g].name.clone()).collect();
-    Ok(Raised { walls, layers })
+    Ok(Raised { walls, windows, layers })
 }

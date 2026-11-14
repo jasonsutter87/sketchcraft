@@ -622,6 +622,11 @@ pub enum Command {
         height: f64,
         #[serde(default = "wall_thickness")]
         max_thickness: f64,
+        /// windows found on the plan: wall below the sill and above the head
+        #[serde(default = "window_sill")]
+        sill: f64,
+        #[serde(default = "window_head")]
+        head: f64,
     },
     /// Export the model as an AutoCAD DWG (3D faces, through a converter).
     ExportDwg { path: String },
@@ -862,6 +867,14 @@ fn wall_height() -> f64 {
 
 fn wall_thickness() -> f64 {
     0.6
+}
+
+fn window_sill() -> f64 {
+    0.9
+}
+
+fn window_head() -> f64 {
+    2.1
 }
 
 fn one() -> f64 {
@@ -1676,9 +1689,9 @@ impl Engine {
                 let r = r?;
                 json!({"group": r.group, "layers": r.layers, "faces": r.faces, "edges": r.edges, "units": r.units, "skipped": r.skipped, "labels": r.labels, "dimensions": r.dimensions, "focus": [r.focus[0].to_array(), r.focus[1].to_array()]})
             }
-            Command::RaiseWalls { group, height, max_thickness } => {
-                let r = crate::dxf::raise_walls(m, group, height, max_thickness)?;
-                json!({"walls": r.walls, "layers": r.layers})
+            Command::RaiseWalls { group, height, max_thickness, sill, head } => {
+                let r = crate::dxf::raise_walls_with(m, group, height, max_thickness, sill, head)?;
+                json!({"walls": r.walls, "windows": r.windows, "layers": r.layers})
             }
             Command::ExportDwg { path } => {
                 let tmp = std::env::temp_dir().join(format!("sketchcraft-dwgout-{}", std::process::id()));

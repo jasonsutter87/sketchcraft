@@ -1847,3 +1847,101 @@ fn dxf_plan_t_junctions_labels_dimensions_and_raise_walls() {
     assert!(raised_over(3.1, 2.0), "the partition is up");
     assert!(!raised_over(1.5, 2.0) && !raised_over(4.5, 2.0), "the rooms are not");
 }
+
+/// Splines, ellipses, hatches (with an island; a copy of an existing face is
+/// skipped) and radius / angle dimensions.
+#[test]
+fn dxf_splines_ellipses_hatches_and_round_dimensions() {
+    let mut s = String::from("0\nSECTION\n2\nHEADER\n9\n$INSUNITS\n70\n6\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n");
+    // a clamped cubic through (0,0) .. (3,0) with two pulls up: ends on its end points
+    s += "0\nSPLINE\n8\nCurves\n70\n8\n71\n3\n72\n8\n73\n4\n74\n0\n";
+    for k in [0, 0, 0, 0, 1, 1, 1, 1] {
+        s += &format!("40\n{k}\n");
+    }
+    for (x, y) in [(0.0, 0.0), (1.0, 2.0), (2.0, 2.0), (3.0, 0.0)] {
+        s += &format!("10\n{x}\n20\n{y}\n30\n0\n");
+    }
+    // a full ellipse 2 x 1 at (10, 0): a closed outline, so a face
+    s += "0\nELLIPSE\n8\nCurves\n10\n10\n20\n0\n30\n0\n11\n1\n21\n0\n31\n0\n40\n0.5\n41\n0\n42\n6.283185307179586\n";
+    // a 4 m square hatch with a 1 m square island (polyline paths)
+    let path = |pts: &[(f64, f64)]| {
+        let mut p = format!("92\n3\n72\n0\n73\n1\n93\n{}\n", pts.len());
+        for (x, y) in pts {
+            p += &format!("10\n{x}\n20\n{y}\n");
+        }
+        p + "97\n0\n"
+    };
+    s += "0\nHATCH\n8\nPoche\n10\n0\n20\n0\n30\n0\n2\nSOLID\n70\n1\n71\n0\n91\n2\n";
+    s += &path(&[(20.0, 0.0), (24.0, 0.0), (24.0, 4.0), (20.0, 4.0)]);
+    s += &path(&[(21.5, 1.5), (22.5, 1.5), (22.5, 2.5), (21.5, 2.5)]);
+    s += "75\n0\n76\n1\n";
+    // an outline on one layer and the same region hatched on another: one face
+    s += "0\nLWPOLYLINE\n8\nWalls\n90\n4\n70\n1\n10\n30\n20\n0\n10\n31\n20\n0\n10\n31\n20\n1\n10\n30\n20\n1\n";
+    s += "0\nHATCH\n8\nPoche\n10\n0\n20\n0\n30\n0\n2\nANSI31\n70\n0\n71\n0\n91\n1\n";
+    s += &path(&[(30.0, 0.0), (31.0, 0.0), (31.0, 1.0), (30.0, 1.0)]);
+    s += "75\n0\n76\n1\n";
+    // a radius dimension (center 10, point on the arc 15, text at 11), and a 3-point angle
+    s += "0\nDIMENSION\n8\nDims\n70\n4\n10\n50\n20\n0\n30\n0\n11\n51\n21\n1\n31\n0\n15\n52\n25\n0\n35\n0\n";
+    s += "0\nDIMENSION\n8\nDims\n70\n5\n10\n0\n20\n0\n30\n0\n11\n61\n21\n1\n31\n0\n13\n61\n23\n0\n33\n0\n14\n61\n24\n1\n34\n0\n15\n60\n25\n0\n35\n0\n";
+    s += "0\nENDSEC\n0\nEOF\n";
+    let mut e = Engine::new();
+    let r = run(&mut e, json!({"cmd":"import_dxf","text":s,"name":"Bits"}));
+    assert_eq!(r["skipped"], 0, "{r}");
+    let layer = |n: &str| *e.model.groups.iter().find(|(_, g)| g.name == n).unwrap().0;
+    // the spline starts and ends on its end points and bulges up between
+    let curves = layer("Curves");
+    let pts: Vec<DVec3> = e.model.vertices.values().filter(|v| v.group == Some(curves) && v.p.x < 5.0).map(|v| v.p).collect();
+    assert!(pts.iter().any(|p| p.distance(DVec3::ZERO) < 1e-9) && pts.iter().any(|p| p.distance(DVec3::new(3.0, 0.0, 0.0)) < 1e-9));
+    let top = pts.iter().map(|p| p.y).fold(f64::MIN, f64::max);
+    assert!((top - 1.5).abs() < 0.01, "a cubic with pulls at 2 peaks at 1.5: {top}");
+    // the ellipse is a face, about pi * 1 * 0.5 in area
+    let area = |f: &sketchcraft::model::Face| {
+        let p: Vec<DVec3> = f.outer.iter().map(|v| e.model.vertices[v].p).collect();
+        p.iter().zip(p.iter().cycle().skip(1)).map(|(a, b)| a.x * b.y - b.x * a.y).sum::<f64>().abs() / 2.0
+    };
+    let ell = e.model.faces.values().find(|f| f.group == Some(curves)).expect("the ellipse is a face");
+    assert!((area(ell) - std::f64::consts::PI * 0.5).abs() < 0.02, "{}", area(ell));
+    // the hatch: one face with one hole; the copy of the walls' square isn't made again
+    let poche: Vec<_> = e.model.faces.values().filter(|f| f.group == Some(layer("Poche"))).collect();
+    assert_eq!(poche.len(), 1, "the hatch over the wall outline is skipped");
+    assert_eq!(poche[0].holes.len(), 1);
+    assert!((area(poche[0]) - 16.0).abs() < 1e-9);
+    // round dimensions are labels with leaders
+    use sketchcraft::model::Annotation;
+    let texts: Vec<(String, bool)> = e.model.annotations.iter().filter_map(|a| if let Annotation::Text { text, leader, .. } = a { Some((text.clone(), leader.is_some())) } else { None }).collect();
+    assert!(texts.contains(&("R 2.00 m".into(), true)), "{texts:?}");
+    assert!(texts.contains(&("45\u{b0}".into(), true)), "{texts:?}");
+}
+
+/// A window drawn through a wall (its two lines on another layer): raise_walls
+/// leaves an opening between sill and head.
+#[test]
+fn raise_walls_leaves_window_openings() {
+    let l = |lay: &str, a: (f64, f64), b: (f64, f64)| format!("0\nLINE\n8\n{lay}\n10\n{}\n20\n{}\n30\n0\n11\n{}\n21\n{}\n31\n0\n", a.0, a.1, b.0, b.1);
+    let mut s = String::from("0\nSECTION\n2\nHEADER\n9\n$INSUNITS\n70\n6\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n");
+    // a 4 x 3 room, 0.2 walls; the front wall stops for a window from x 1 to 2
+    for (a, b) in [((0., 0.), (1., 0.)), ((2., 0.), (4., 0.)), ((4., 0.), (4., 3.)), ((4., 3.), (0., 3.)), ((0., 3.), (0., 0.)),
+                   ((0.2, 0.2), (1., 0.2)), ((2., 0.2), (3.8, 0.2)), ((3.8, 0.2), (3.8, 2.8)), ((3.8, 2.8), (0.2, 2.8)), ((0.2, 2.8), (0.2, 0.2))] {
+        s += &l("A-WALL", a, b);
+    }
+    s += &l("Windows", (1., 0.), (2., 0.));
+    s += &l("Windows", (1., 0.2), (2., 0.2));
+    s += "0\nENDSEC\n0\nEOF\n";
+    let mut e = Engine::new();
+    let r = run(&mut e, json!({"cmd":"import_dxf","text":s}));
+    let w = run(&mut e, json!({"cmd":"raise_walls","group":r["group"],"height":2.7}));
+    assert_eq!(w["windows"], 1, "{w}");
+    assert!(w["walls"].as_u64().unwrap() >= 1, "{w}");
+    // over the window's middle: a sill top at 0.9 and a head underside at 2.1, nothing between
+    let flat_at = |z: f64| e.model.faces.values().any(|f| {
+        let p: Vec<DVec3> = f.outer.iter().map(|v| e.model.vertices[v].p).collect();
+        p.iter().all(|q| (q.z - z).abs() < 1e-9) && {
+            let (lo, hi) = p.iter().fold((DVec3::splat(1e9), DVec3::splat(-1e9)), |(a, b), q| (a.min(*q), b.max(*q)));
+            lo.x <= 1.5 && hi.x >= 1.5 && lo.y <= 0.1 && hi.y >= 0.1 && hi.x - lo.x < 1.5
+        }
+    });
+    assert!(flat_at(0.9), "sill");
+    assert!(flat_at(2.1), "head");
+    assert!(flat_at(2.7), "top over the window");
+    assert!(!flat_at(1.5), "open between");
+}
