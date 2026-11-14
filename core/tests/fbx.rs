@@ -129,3 +129,17 @@ fn rejects_text_fbx_with_a_hint() {
     assert_eq!(r["ok"], false);
     assert!(r["error"].as_str().unwrap().contains("binary"));
 }
+
+#[path = "fuzzlib.rs"]
+mod fuzzlib;
+
+#[test]
+#[ignore]
+fn fuzz_fbx() {
+    let seed = tiny_fbx();
+    let (p, ms) = fuzzlib::fuzz("fbx", &seed, false, 20000, |d| {
+        let mut m = sketchcraft::model::Model::default();
+        let _ = sketchcraft::fbx::import(&mut m, d, "f", glam::DVec3::ZERO);
+    });
+    println!("fbx: {p} panics, slowest {ms} ms");
+}

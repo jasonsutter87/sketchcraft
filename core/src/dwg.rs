@@ -47,7 +47,7 @@ pub fn to_dxf(dwg: &Path, tmp: &Path) -> Result<PathBuf> {
     let out = tmp.join("drawing.dxf");
     if let Some(bin) = find("dwg2dxf") {
         let mut c = Command::new(bin);
-        c.arg("-y").arg("-o").arg(&out).arg(dwg);
+        c.arg("-y").arg("-o").arg(crate::safety::path_arg(&out)).arg(crate::safety::path_arg(dwg));
         run(c)?;
     } else if let Some(bin) = oda() {
         // ODA converts folders: copy the one file into its own input folder
@@ -55,7 +55,7 @@ pub fn to_dxf(dwg: &Path, tmp: &Path) -> Result<PathBuf> {
         std::fs::create_dir_all(&input)?;
         std::fs::copy(dwg, input.join("drawing.dwg"))?;
         let mut c = Command::new(bin);
-        c.arg(&input).arg(tmp).args(["ACAD2018", "DXF", "0", "1", "*.DWG"]);
+        c.arg(crate::safety::path_arg(&input)).arg(crate::safety::path_arg(tmp)).args(["ACAD2018", "DXF", "0", "1", "*.DWG"]);
         run(c)?;
     } else {
         bail!("{HELP}");
@@ -70,14 +70,14 @@ pub fn to_dxf(dwg: &Path, tmp: &Path) -> Result<PathBuf> {
 pub fn from_dxf(dxf: &Path, dwg: &Path) -> Result<()> {
     if let Some(bin) = find("dxf2dwg") {
         let mut c = Command::new(bin);
-        c.arg("-y").arg("-o").arg(dwg).arg(dxf);
+        c.arg("-y").arg("-o").arg(crate::safety::path_arg(dwg)).arg(crate::safety::path_arg(dxf));
         run(c)?;
     } else if let Some(bin) = oda() {
         let dir = dxf.parent().unwrap_or(Path::new("."));
         let out = dir.join("out");
         std::fs::create_dir_all(&out)?;
         let mut c = Command::new(bin);
-        c.arg(dir).arg(&out).args(["ACAD2018", "DWG", "0", "1", "*.DXF"]);
+        c.arg(crate::safety::path_arg(dir)).arg(crate::safety::path_arg(&out)).args(["ACAD2018", "DWG", "0", "1", "*.DXF"]);
         run(c)?;
         let made = out.join(dxf.with_extension("dwg").file_name().unwrap());
         std::fs::copy(&made, dwg)?;

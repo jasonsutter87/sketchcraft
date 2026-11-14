@@ -112,7 +112,7 @@ pub fn animate_cams(m: &Model, path: &str, cams: &[CameraSpec], fps: f64, base: 
             .arg("-i")
             .arg(dir.join("frame_%05d.png"))
             .args(["-c:v", "libx264", "-pix_fmt", "yuv420p", "-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2"])
-            .arg(path)
+            .arg(crate::safety::path_arg(path))
             .output();
         std::fs::remove_dir_all(&dir).ok();
         match out {

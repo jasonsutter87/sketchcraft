@@ -1606,6 +1606,9 @@ impl Engine {
             }
             Command::VideoFrame { session, index, data } => {
                 use base64::Engine as _;
+                if index >= crate::timeline::MAX_FRAMES || data.len() > 40 << 20 {
+                    bail!("that frame is out of range");
+                }
                 let dir = video_dir(&session)?;
                 std::fs::create_dir_all(&dir)?;
                 let (head, b64) = data.split_once(',').unwrap_or(("", &data));
@@ -1623,7 +1626,7 @@ impl Engine {
                     .arg("-i")
                     .arg(dir.join(format!("frame_%05d.{ext}")))
                     .args(["-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18", "-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2"])
-                    .arg(&path)
+                    .arg(crate::safety::path_arg(&path))
                     .output();
                 let frames = std::fs::read_dir(&dir).map(|d| d.count()).unwrap_or(0);
                 std::fs::remove_dir_all(&dir).ok();
@@ -2030,10 +2033,12 @@ impl Engine {
                 json!({"path": path.to_string_lossy()})
             }
             Command::Reveal { path } => {
-                let p = path.map(std::path::PathBuf::from).unwrap_or_else(crate::library::default_dir);
+                let p = crate::safety::path_arg(path.map(std::path::PathBuf::from).unwrap_or_else(crate::library::default_dir));
                 std::fs::create_dir_all(if p.extension().is_some() { p.parent().unwrap_or(&p) } else { &p }).ok();
                 #[cfg(target_os = "macos")]
-                let r = if p.is_dir() { std::process::Command::new("open").arg(&p).status() } else { std::process::Command::new("open").arg("-R").arg(&p).status() };
+                // folders open; files and app bundles are only shown, never launched
+                let bundle = p.extension().is_some_and(|e| e.eq_ignore_ascii_case("app"));
+                let r = if p.is_dir() && !bundle { std::process::Command::new("open").arg(&p).status() } else { std::process::Command::new("open").arg("-R").arg(&p).status() };
                 #[cfg(target_os = "windows")]
                 let r = std::process::Command::new("explorer").arg(&p).status();
                 #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
