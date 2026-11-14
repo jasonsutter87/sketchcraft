@@ -7,7 +7,7 @@ import { useEffect, useState } from "react";
 import { ask } from "./ask";
 import { exec } from "./engine";
 import { Icons } from "./icons";
-import { applySkin, isDark, readSkin, SKINS, TOKEN_LABELS, TOKENS, type Skin, type SkinToken } from "./skins";
+import { isDark, readSkin, SKINS, TOKEN_LABELS, TOKENS, type Skin, type SkinToken } from "./skins";
 import type { Tool } from "./Viewport";
 import { TOOL_INFO, WORKSPACES, type Workspace, type WorkspaceEdits } from "./workspace";
 
@@ -29,6 +29,10 @@ export function AppearanceDialog({ current, onPick, onClose, onToast }: { curren
   const [mine, setMine] = useState<Skin[]>([]);
   const [dir, setDir] = useState("");
   const [editing, setEditing] = useState<Skin | null>(null);
+  // the skin worn before editing began (Undo changes goes back to it), and
+  // the edited skin's original id (to name it when saving)
+  const [before, setBefore] = useState<Skin | null>(null);
+  const [origin, setOrigin] = useState("");
   const load = () =>
     exec({ cmd: "skins" }).then((r) => {
       if (!r.ok) return;
@@ -39,17 +43,18 @@ export function AppearanceDialog({ current, onPick, onClose, onToast }: { curren
   useEffect(() => {
     load();
   }, []);
-  // editing previews live; closing without saving puts the old skin back
+  // edits are worn (and remembered) as you make them, saved file or not;
+  // only Undo changes puts the old skin back
   const edit = (k: SkinToken, v: string) => {
     if (!editing) return;
-    const next = { ...editing, tokens: { ...editing.tokens, [k]: v } };
+    const next = { ...editing, id: "custom", tokens: { ...editing.tokens, [k]: v } };
     next.dark = isDark(next.tokens.panel);
     setEditing(next);
-    applySkin(next);
+    onPick(next, false);
   };
   const save = async () => {
     if (!editing) return;
-    const name = await ask("Name this skin", editing.id.startsWith("file:") ? editing.name : `My ${editing.name}`);
+    const name = await ask("Name this skin", origin.startsWith("file:") ? editing.name : `My ${editing.name}`);
     if (!name) return;
     const skin = { name, blurb: "Made in SketchCraft", dark: editing.dark, backdrop: editing.backdrop, tokens: editing.tokens };
     const r = await exec({ cmd: "save_skin", name, skin });
@@ -64,10 +69,7 @@ export function AppearanceDialog({ current, onPick, onClose, onToast }: { curren
   return (
     <div
       className="sheet-backdrop"
-      onClick={() => {
-        if (editing) applySkin(current);
-        onClose();
-      }}
+      onClick={onClose}
     >
       <div className="sheet" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Appearance">
         <div className="sheet-head">
@@ -85,8 +87,10 @@ export function AppearanceDialog({ current, onPick, onClose, onToast }: { curren
                   className="btn small ghost"
                   onClick={(e) => {
                     e.stopPropagation();
+                    setBefore(current);
+                    setOrigin(s.id);
                     setEditing({ ...s, tokens: { ...s.tokens } });
-                    applySkin(s);
+                    onPick(s, s.id !== current.id);
                   }}
                 >
                   Edit colors…
@@ -137,11 +141,16 @@ export function AppearanceDialog({ current, onPick, onClose, onToast }: { curren
               <button
                 className="btn small ghost"
                 onClick={() => {
-                  applySkin(current);
+                  if (before) onPick(before, false);
                   setEditing(null);
                 }}
               >
-                Cancel
+                Undo changes
+              </button>
+              <span className="muted small">Your changes are kept as you make them; save to share them as a file.</span>
+              <span style={{ flex: 1 }} />
+              <button className="btn small" onClick={onClose}>
+                Done
               </button>
             </>
           ) : (
