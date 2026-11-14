@@ -39,7 +39,7 @@ export const TOKEN_LABELS: Record<SkinToken, string> = {
 const SYSTEM = `-apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", system-ui, sans-serif`;
 const MONO = `"SF Mono", Menlo, Monaco, Consolas, monospace`;
 
-const BRICOLAGE = `"Bricolage Grotesque", "Avenir Next", ${SYSTEM}`;
+const BRICOLAGE = `"Bricolage Grotesque Variable", "Bricolage Grotesque", "Avenir Next", ${SYSTEM}`;
 
 export const SKINS: Skin[] = [
   {
@@ -108,7 +108,12 @@ export const SKINS: Skin[] = [
 /** Put a skin on the page. */
 export function applySkin(s: Skin) {
   const root = document.documentElement;
-  for (const k of TOKENS) root.style.setProperty(`--${k}`, s.tokens[k]);
+  for (const k of TOKENS) {
+    let v = s.tokens[k];
+    // skins saved before the font was bundled name it without "Variable"
+    if (k === "font" && v.includes('"Bricolage Grotesque"') && !v.includes("Bricolage Grotesque Variable")) v = v.replace('"Bricolage Grotesque"', '"Bricolage Grotesque Variable", "Bricolage Grotesque"');
+    root.style.setProperty(`--${k}`, v);
+  }
   root.dataset.skin = s.id;
   root.dataset.dark = s.dark ? "1" : "0";
   root.style.colorScheme = s.dark ? "dark" : "light";
