@@ -1985,3 +1985,53 @@ fn dynamic_components_position_rotation_and_options() {
     let top = e.model.world_faces().iter().flat_map(|f| f.outer.iter().map(|p| p.z)).fold(f64::MIN, f64::max);
     assert!((top - 1.8).abs() < 1e-9, "{top}");
 }
+
+/// Point clouds: import, show in the scene, fetch points, hide, survive save
+/// and open, delete.
+#[test]
+fn point_cloud_import_scene_data_save_and_delete() {
+    let dir = std::env::temp_dir().join(format!("sketchcraft-cloud-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let xyz = dir.join("scan.xyz");
+    let mut t = String::from("// x y z r g b\n");
+    for i in 0..1000 {
+        t += &format!("{} {} 0 200 100 50\n", (i % 50) as f64 * 0.1, (i / 50) as f64 * 0.1);
+    }
+    std::fs::write(&xyz, t).unwrap();
+    let mut e = Engine::new();
+    let r = run(&mut e, json!({"cmd":"import_cloud","path":xyz.to_str().unwrap(),"max_points":500}));
+    assert_eq!(r["points"], 500, "thinned to the budget: {r}");
+    assert_eq!(r["colored"], true);
+    let id = r["cloud"].as_u64().unwrap();
+    let s = sketchcraft::scene::build(&e.model, None);
+    let c = &s["clouds"][0];
+    assert_eq!(c["count"], 500);
+    assert_eq!(c["hi"][1].as_f64().unwrap(), 1.9f32 as f64);
+    // the points, base64 f32 x y z
+    let d = run(&mut e, json!({"cmd":"cloud_data","id":id,"max":100}));
+    assert_eq!(d["count"], 100);
+    use base64::Engine as _;
+    let b = base64::engine::general_purpose::STANDARD.decode(d["points"].as_str().unwrap()).unwrap();
+    assert_eq!(b.len(), 100 * 12);
+    assert_eq!(base64::engine::general_purpose::STANDARD.decode(d["colors"].as_str().unwrap()).unwrap()[..3], [200, 100, 50]);
+    // hide, save, open
+    run(&mut e, json!({"cmd":"cloud","id":id,"hidden":true,"name":"Lot scan"}));
+    let path = dir.join("m.sketchcraft").to_string_lossy().to_string();
+    run(&mut e, json!({"cmd":"save","path":path}));
+    let mut e2 = Engine::new();
+    run(&mut e2, json!({"cmd":"open","path":path}));
+    let c2 = &e2.model.clouds[&(id as u32)];
+    assert_eq!((c2.len(), c2.hidden, c2.name.as_str()), (500, true, "Lot scan"));
+    assert_eq!(c2.points, e.model.clouds[&(id as u32)].points);
+    // undo brings a deleted cloud back
+    run(&mut e2, json!({"cmd":"cloud","id":id,"delete":true}));
+    assert!(e2.model.clouds.is_empty());
+    run(&mut e2, json!({"cmd":"undo"}));
+    assert_eq!(e2.model.clouds.len(), 1);
+    // a LAZ is refused with a way forward
+    let laz = dir.join("x.laz");
+    std::fs::write(&laz, b"LASF").unwrap();
+    let r = e.exec_json(&json!({"cmd":"import_cloud","path":laz.to_str().unwrap()}).to_string());
+    assert!(r["error"].as_str().unwrap().contains("convert"), "{r}");
+    std::fs::remove_dir_all(dir).ok();
+}

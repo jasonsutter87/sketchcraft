@@ -10,7 +10,7 @@ export interface Snap {
   p: THREE.Vector3;
   /** a hovered point this one lines up with (draw a dotted line from it) */
   from?: THREE.Vector3;
-  kind: "endpoint" | "midpoint" | "guide-point" | "axis" | "on-edge" | "on-guide" | "face" | "ground" | "plane";
+  kind: "endpoint" | "midpoint" | "guide-point" | "scan-point" | "axis" | "on-edge" | "on-guide" | "face" | "ground" | "plane";
   label: string;
   axis?: Axis;
   /** direction of the edge or guide we're on */
@@ -49,6 +49,8 @@ export interface InferEnv {
   scene: Scene;
   pick: (e: { clientX: number; clientY: number }) => Pick | null;
   groundZ: number;
+  /** the point-cloud point under the cursor, if any (snapping to scans) */
+  cloudPoint?: (e: { clientX: number; clientY: number }) => THREE.Vector3 | null;
 }
 
 export interface InferOpts {
@@ -121,6 +123,14 @@ export function infer(env: InferEnv, e: { clientX: number; clientY: number }, op
       const a = new THREE.Vector3(segs[i], segs[i + 1], segs[i + 2]);
       const b = new THREE.Vector3(segs[i + 3], segs[i + 4], segs[i + 5]);
       consider(a.add(b).multiplyScalar(0.5), "midpoint", "Midpoint", 10);
+    }
+  }
+  // a point of a scan (after the model's own points, before guides)
+  if (!best && env.cloudPoint) {
+    const q = env.cloudPoint(e);
+    if (q && onPlane(q)) {
+      remember(q);
+      return { p: q, kind: "scan-point", label: "Scan Point", normal: planeN.clone(), face: hit?.face ?? undefined };
     }
   }
   if (!best) for (const g of s.guides) if (!g.dir) consider(V(g.p), "guide-point", "Guide Point", 10);

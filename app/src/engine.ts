@@ -90,7 +90,21 @@ export interface MaterialInfo {
   opacity?: number;
 }
 
+export interface CloudInfo {
+  id: number;
+  name: string;
+  count: number;
+  colored: boolean;
+  hidden: boolean;
+  /** changes when its points do */
+  version: number;
+  lo: Vec3;
+  hi: Vec3;
+}
+
 export interface Scene {
+  /** point clouds (scans); their points come by cloud_data */
+  clouds?: CloudInfo[];
   /** Classifier: IFC type by group / placement id */
   classes?: Record<string, string>;
   /** geo-location of the origin */

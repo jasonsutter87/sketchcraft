@@ -4,16 +4,17 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 const inTauri = "__TAURI_INTERNALS__" in window;
 
 export async function pickOpen(): Promise<string | null> {
-  if (!inTauri) return window.prompt("Open which file? (full path to .sketchcraft, .skp, .dwg, .dxf, .fbx or .obj)");
+  if (!inTauri) return window.prompt("Open which file? (full path to .sketchcraft, .skp, .dwg, .dxf, .fbx, .obj, or a .ply / .las / .xyz scan)");
   const r = await open({
     multiple: false,
     filters: [
-      { name: "Models and drawings", extensions: ["sketchcraft", "skp", "dwg", "dxf", "fbx", "obj"] },
+      { name: "Models, drawings and scans", extensions: ["sketchcraft", "skp", "dwg", "dxf", "fbx", "obj", "ply", "las", "xyz", "pts"] },
       { name: "SketchCraft", extensions: ["sketchcraft"] },
       { name: "SketchUp", extensions: ["skp"] },
       { name: "AutoCAD (DWG, DXF)", extensions: ["dwg", "dxf"] },
       { name: "FBX (binary)", extensions: ["fbx"] },
       { name: "OBJ", extensions: ["obj"] },
+      { name: "Point clouds (PLY, LAS, XYZ, PTS, TXT)", extensions: ["ply", "las", "laz", "xyz", "pts", "txt"] },
     ],
   });
   return typeof r === "string" ? r : null;

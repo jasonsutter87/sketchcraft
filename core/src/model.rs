@@ -246,6 +246,9 @@ pub struct Model {
     /// Geo-location of the model's origin
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub location: Option<Location>,
+    /// Point clouds (scans), by id
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub clouds: BTreeMap<Id, crate::cloud::Cloud>,
 }
 
 /// Where the model's origin is on Earth (+Y is north).

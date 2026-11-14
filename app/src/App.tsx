@@ -511,6 +511,17 @@ export default function App() {
 
   const importPath = async (path: string) => {
     const lower = path.toLowerCase();
+    if (/\.(ply|las|laz|xyz|pts|txt)$/.test(lower)) {
+      const r = await run({ cmd: "import_cloud", path });
+      if (r.ok) {
+        const shift = r.shift as number[] | undefined;
+        const moved = shift && shift.some((v) => Math.abs(v) > 0) ? `; moved ${shift.map((v) => v.toFixed(1)).join(", ")} m to the origin` : "";
+        say(`Imported ${path.split("/").pop()}: ${(r.points as number).toLocaleString()} points${r.colored ? " in color" : ""}${moved}. Drawing tools snap to them.`);
+        await refresh();
+        api.current?.fit();
+      }
+      return r.ok;
+    }
     const r = lower.endsWith(".skp")
       ? await run({ cmd: "import_skp", path })
       : lower.endsWith(".fbx")

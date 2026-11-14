@@ -47,6 +47,41 @@ fn fuzz_dxf_rich() {
     }));
 }
 
+/// Point clouds: binary PLY and LAS headers that lie about their sizes.
+#[test]
+#[ignore]
+fn fuzz_clouds() {
+    let mut ply = b"ply\nformat binary_little_endian 1.0\nelement vertex 3\nproperty float x\nproperty float y\nproperty float z\nproperty uchar red\nproperty uchar green\nproperty uchar blue\nend_header\n".to_vec();
+    for i in 0..3u8 {
+        for v in [i as f32, 1.0, 2.0] {
+            ply.extend(v.to_le_bytes());
+        }
+        ply.extend([i, 10, 20]);
+    }
+    report("ply", fuzzlib::fuzz("ply", &ply, false, 20000, |d| {
+        let _ = sketchcraft::cloud::read("f.ply", d, 1.0, 1000);
+    }));
+    let mut las = vec![0u8; 227];
+    las[0..4].copy_from_slice(b"LASF");
+    las[25] = 2;
+    las[96..100].copy_from_slice(&227u32.to_le_bytes());
+    las[104] = 3;
+    las[105..107].copy_from_slice(&34u16.to_le_bytes());
+    las[107..111].copy_from_slice(&3u32.to_le_bytes());
+    for o in [131, 139, 147] {
+        las[o..o + 8].copy_from_slice(&0.01f64.to_le_bytes());
+    }
+    for i in 0..3 {
+        let mut r = vec![0u8; 34];
+        r[0..4].copy_from_slice(&(i * 100i32).to_le_bytes());
+        r[28..30].copy_from_slice(&40000u16.to_le_bytes());
+        las.extend(r);
+    }
+    report("las", fuzzlib::fuzz("las", &las, false, 20000, |d| {
+        let _ = sketchcraft::cloud::read("f.las", d, 1.0, 1000);
+    }));
+}
+
 #[test]
 #[ignore]
 fn fuzz_obj() {

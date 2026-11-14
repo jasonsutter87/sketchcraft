@@ -237,6 +237,7 @@ export function Outliner({ scene, sel, setSel, run, byTag, setByTag }: { scene: 
         {!tree.length && !scene.loose && <li className="empty">Nothing yet. Press R and draw on the ground, or drop something from the Library.</li>}
       </ul>
       {tree.length > 0 && !dragging && <p className="hint-line">Right-click › Make group to group a selection; drag rows onto a group to nest them.</p>}
+      {!!scene.clouds?.length && <Clouds scene={scene} run={run} />}
       <Tags scene={scene} sel={sel} run={run} byTag={byTag} setByTag={setByTag} />
     </>
   );
@@ -307,6 +308,43 @@ function Tags({ scene, sel, run, byTag, setByTag }: { scene: Scene; sel: Sel; ru
       >
         {taggable.length ? `Tag ${taggable.length} selected…` : "New tag (select something first)"}
       </button>
+    </>
+  );
+}
+
+/** Point clouds (scans): show / hide, rename, delete. */
+function Clouds({ scene, run }: { scene: Scene; run: Run }) {
+  const [renaming, setRenaming] = useState<number | null>(null);
+  const [name, setName] = useState("");
+  const commit = async () => {
+    if (renaming != null && name.trim()) await run({ cmd: "cloud", id: renaming, name: name.trim() });
+    setRenaming(null);
+  };
+  return (
+    <>
+      <div className="section-title sub">Point clouds</div>
+      <ul className="otree" aria-label="Point clouds">
+        {scene.clouds!.map((c) => (
+          <li key={c.id}>
+            <div className={`orow ${c.hidden ? "dim" : ""}`} style={{ paddingLeft: 6 }} onDoubleClick={() => (setRenaming(c.id), setName(c.name))} title="Double-click to rename. Drawing tools snap to its points.">
+              {renaming === c.id ? (
+                <input className="rename" autoFocus value={name} onChange={(e) => setName(e.target.value)} onBlur={commit} onKeyDown={(e) => e.key === "Enter" && commit()} />
+              ) : (
+                <span className="name">{c.name}</span>
+              )}
+              <span className="count" title={`${c.count.toLocaleString()} points`}>
+                {c.count >= 1e6 ? `${(c.count / 1e6).toFixed(1)}M` : c.count >= 1e3 ? `${Math.round(c.count / 1e3)}k` : c.count}
+              </span>
+              <button className="rowbtn" title="Delete this point cloud" aria-label={`Delete ${c.name}`} onClick={() => run({ cmd: "cloud", id: c.id, delete: true })}>
+                ×
+              </button>
+              <button className={`rowbtn eye ${c.hidden ? "keep" : ""}`} title={c.hidden ? "Show" : "Hide"} aria-label={c.hidden ? "Show" : "Hide"} onClick={() => run({ cmd: "cloud", id: c.id, hidden: !c.hidden })}>
+                {c.hidden ? <Icons.eyeOff /> : <Icons.eye />}
+              </button>
+            </div>
+          </li>
+        ))}
+      </ul>
     </>
   );
 }

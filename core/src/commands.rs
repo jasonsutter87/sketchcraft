@@ -373,6 +373,32 @@ pub enum Command {
     /// Dynamic Component attributes on a placement (or defaults on a
     /// component, by its component id). An empty value removes one.
     SetAttrs { id: Id, attrs: std::collections::BTreeMap<String, String> },
+    /// A point cloud (scan) from .ply, .las, .xyz, .pts or .txt. `units` the
+    /// file's (default m); at most `max_points` (thinned evenly beyond that).
+    ImportCloud {
+        path: String,
+        #[serde(default)]
+        units: Option<String>,
+        #[serde(default = "cloud_budget")]
+        max_points: usize,
+    },
+    /// A cloud's points for showing: base64 little-endian f32 x, y, z and
+    /// u8 r, g, b (empty when uncolored), at most `max` points.
+    CloudData {
+        id: Id,
+        #[serde(default = "cloud_show")]
+        max: usize,
+    },
+    /// Rename, hide / show, or delete a cloud.
+    Cloud {
+        id: Id,
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        hidden: Option<bool>,
+        #[serde(default)]
+        delete: bool,
+    },
     /// Component Options: the attributes a placement offers its user (those
     /// with an `_name_access` of textbox, list or view).
     Options { id: Id },
@@ -872,6 +898,14 @@ fn wall_thickness() -> f64 {
     0.6
 }
 
+fn cloud_budget() -> usize {
+    5_000_000
+}
+
+fn cloud_show() -> usize {
+    2_000_000
+}
+
 fn window_sill() -> f64 {
     0.9
 }
@@ -922,6 +956,7 @@ impl Command {
                 | Command::SaveSkin { .. }
                 | Command::Report { .. }
                 | Command::Options { .. }
+                | Command::CloudData { .. }
                 | Command::Section { .. }
                 | Command::Info
                 | Command::Components
@@ -1931,6 +1966,44 @@ impl Engine {
             Command::FlipEdge { edge } => {
                 m.flip_edge(edge)?;
                 json!({})
+            }
+            Command::ImportCloud { path, units, max_points } => {
+                let scale = match units.as_deref().unwrap_or("m") {
+                    "m" => 1.0,
+                    "cm" => 0.01,
+                    "mm" => 0.001,
+                    "ft" => 0.3048,
+                    "in" => 0.0254,
+                    u => bail!("units must be m, cm, mm, ft or in (not {u})"),
+                };
+                let bytes = anyhow::Context::with_context(std::fs::read(&path), || format!("can't read {path}"))?;
+                let (c, shift) = crate::cloud::read(&path, &bytes, scale, max_points.clamp(1, 50_000_000))?;
+                let id = m.new_id();
+                let (count, colored) = (c.len(), !c.colors.is_empty());
+                m.clouds.insert(id, c);
+                json!({"cloud": id, "points": count, "colored": colored, "shift": shift.to_array()})
+            }
+            Command::CloudData { id, max } => {
+                let c = m.clouds.get(&id).ok_or_else(|| anyhow::anyhow!("no cloud {id}"))?;
+                let (p, col) = c.thinned(max.clamp(1, 20_000_000));
+                use base64::Engine as _;
+                let b = base64::engine::general_purpose::STANDARD;
+                json!({"points": b.encode(crate::cloud::f32_bytes(&p)), "colors": b.encode(&col), "count": p.len() / 3, "version": c.version})
+            }
+            Command::Cloud { id, name, hidden, delete } => {
+                if delete {
+                    m.clouds.remove(&id).ok_or_else(|| anyhow::anyhow!("no cloud {id}"))?;
+                    json!({"deleted": id})
+                } else {
+                    let c = m.clouds.get_mut(&id).ok_or_else(|| anyhow::anyhow!("no cloud {id}"))?;
+                    if let Some(n) = name.filter(|n| !n.trim().is_empty()) {
+                        c.name = n.trim().chars().take(80).collect();
+                    }
+                    if let Some(h) = hidden {
+                        c.hidden = h;
+                    }
+                    json!({"cloud": id})
+                }
             }
             Command::Options { id } => {
                 let i = m.instances.get(&id).ok_or_else(|| anyhow::anyhow!("{id} is not a component placement"))?;

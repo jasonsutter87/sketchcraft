@@ -434,6 +434,9 @@ export default function Viewport(props: Props) {
 
   /** camera tools: eye height, the drag in progress, keys held, view history */
   const camTool = useRef<{ eyeH: number; drag: { x: number; y: number; at: number } | null; keys: Set<string>; loop: number; history: Cam[]; at: number; box: HTMLDivElement | null }>({ eyeH: 1.68, drag: null, keys: new Set(), loop: 0, history: [], at: -1, box: null });
+  /** point clouds on show: their group, and each one's points by id (with the version they're from) */
+  const cloudGroup = useRef(new THREE.Group());
+  const cloudObjs = useRef(new Map<number, { version: number; points: THREE.Points }>());
   /** SubD mode: the cage editor while a subdivision object is being shaped */
   const cageEd = useRef<CageEditor | null>(null);
   const lastPointer = useRef({ x: 0, y: 0 });
@@ -589,7 +592,7 @@ export default function Viewport(props: Props) {
     const overlay = new THREE.Group();
     const preview = new THREE.Group();
     const cage = new THREE.Group();
-    world.add(model, overlay, preview, cage);
+    world.add(model, overlay, preview, cage, cloudGroup.current);
 
     t.current = { renderer, persp, ortho, camera: persp, controls, world, sun, model, overlay, preview, cage, ground, catcher, pickMesh: null, editMesh: null, groundZ: 0 };
 
@@ -855,6 +858,7 @@ export default function Viewport(props: Props) {
     const T = t.current;
     const s = live.current.scene;
     if (!T || !s) return;
+    syncClouds();
     T.model.children.forEach((c) => (c as THREE.Mesh).geometry?.dispose());
     T.model.clear();
     const xray = live.current.styles.xray;
@@ -1125,7 +1129,80 @@ export default function Viewport(props: Props) {
 
   function env(): InferEnv {
     const T = t.current!;
-    return { camera: T.camera, rect: rect(), scene: sceneNow(), pick, groundZ: T.groundZ };
+    return { camera: T.camera, rect: rect(), scene: sceneNow(), pick, groundZ: T.groundZ, cloudPoint: cloudObjs.current.size ? cloudPoint : undefined };
+  }
+
+  /** the nearest shown scan point within a few pixels of the cursor */
+  function cloudPoint(e: { clientX: number; clientY: number }): THREE.Vector3 | null {
+    const T = t.current!;
+    const shown = cloudGroup.current.children.filter((c) => c.visible);
+    if (!shown.length) return null;
+    const r = rect();
+    const rc = new THREE.Raycaster();
+    rc.setFromCamera(new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1), T.camera);
+    // ~6 px at the distance being looked at
+    const dist = T.camera.position.distanceTo(T.controls.target);
+    const px = T.camera === T.persp ? (2 * dist * Math.tan(THREE.MathUtils.degToRad(T.persp.fov / 2))) / r.height : (T.ortho.top - T.ortho.bottom) / T.ortho.zoom / r.height;
+    rc.params.Points = { threshold: px * 6 };
+    const hits = rc.intersectObjects(shown, false);
+    if (!hits.length) return null;
+    // the one closest to the ray, among the nearest few
+    const near = hits.slice(0, 64).sort((a, b) => (a.distanceToRay ?? 0) - (b.distanceToRay ?? 0) || a.distance - b.distance)[0];
+    return near.point.clone();
+  }
+
+  /** show the scene's clouds: fetch points for new or changed ones, drop deleted ones */
+  function syncClouds() {
+    const s = live.current.scene;
+    const list = s?.clouds ?? [];
+    const keep = new Set(list.map((c) => c.id));
+    for (const [id, o] of cloudObjs.current) {
+      if (!keep.has(id)) {
+        cloudGroup.current.remove(o.points);
+        o.points.geometry.dispose();
+        (o.points.material as THREE.Material).dispose();
+        cloudObjs.current.delete(id);
+      }
+    }
+    for (const c of list) {
+      const have = cloudObjs.current.get(c.id);
+      if (have && have.version === c.version) {
+        have.points.visible = !c.hidden;
+        continue;
+      }
+      const version = c.version;
+      exec({ cmd: "cloud_data", id: c.id }).then((r) => {
+        if (!r.ok) return;
+        const now = live.current.scene?.clouds?.find((x) => x.id === c.id);
+        if (!now || now.version !== version) return;
+        const bytes = (b64: string) => {
+          const bin = atob(b64);
+          const out = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+          return out;
+        };
+        const pos = new Float32Array(bytes(r.points as string).buffer);
+        const col = bytes((r.colors as string) ?? "");
+        const g = new THREE.BufferGeometry();
+        g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+        const colored = col.length === pos.length;
+        if (colored) g.setAttribute("color", new THREE.BufferAttribute(col, 3, true));
+        g.computeBoundingSphere();
+        const pts = new THREE.Points(g, new THREE.PointsMaterial({ size: 2, sizeAttenuation: false, vertexColors: colored, color: colored ? 0xffffff : 0x6e7f99 }));
+        pts.userData.cloud = c.id;
+        pts.visible = !now.hidden;
+        const old = cloudObjs.current.get(c.id);
+        if (old) {
+          cloudGroup.current.remove(old.points);
+          old.points.geometry.dispose();
+          (old.points.material as THREE.Material).dispose();
+        }
+        cloudGroup.current.add(pts);
+        cloudObjs.current.set(c.id, { version, points: pts });
+        // a first cloud in an empty view: look at it
+        if (!live.current.scene?.positions.length && cloudObjs.current.size === 1) fit();
+      });
+    }
   }
 
   function ray(e: { clientX: number; clientY: number }): THREE.Ray {
@@ -1446,6 +1523,8 @@ export default function Viewport(props: Props) {
     const b = new THREE.Box3();
     const pos = owners ? trianglesOf(owners) : s?.positions ?? [];
     for (let i = 0; i < pos.length; i += 3) b.expandByPoint(new THREE.Vector3(pos[i], pos[i + 1], pos[i + 2]));
+    // scans count too (when not fitting a selection)
+    if (!owners) for (const c of s?.clouds ?? []) if (!c.hidden) b.expandByPoint(V(c.lo)).expandByPoint(V(c.hi));
     if (b.isEmpty()) b.set(new THREE.Vector3(-5, -5, 0), new THREE.Vector3(5, 5, 3));
     fitTo(b);
   }

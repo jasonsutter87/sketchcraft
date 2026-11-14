@@ -40,7 +40,7 @@ ORGANIZE
 - animate {path: .mp4|.mov|folder, fps?=24, transition?=2 s, delay?=1 s, views?: names, turntable?=8 s, + render options}: scene animation (turntable with <2 views)
 - match_photo {name, width, height, red:[[x1,y1,x2,y2]x2], green:[..x2], origin:[x,y], distance?=15, photo?: data URL}: camera from a photo's vanishing lines, saved as a view with the photo
 - sheets {path(.pdf), sheet?=a3|a4|a2|letter|tabloid, project?, pages?: [{title, viewports:[{view: saved name|iso|top|front|back|left|right, scale?: "1:100", cut?: meters (floor plan at that height), x?,y?,w?,h? mm, label?}]}]}: LayOut-style drawing sheets
-- set_attrs {id: placement or component, attrs:{name: value|"=formula"}}: Dynamic Components (lenx/leny/lenz m, copies, spacing, material, hidden; formulas with min/max/round/if, parent!name). report {path?.csv}: Generate Report
+- set_attrs {id: placement or component, attrs:{name: value|"=formula"}}: Dynamic Components (lenx/leny/lenz m, x/y/z m, rotx/roty/rotz deg, copies, spacing, material, hidden; formulas with min/max/round/if, parent!name; offer one to users with _name_access textbox|list|view, _name_label, _name_options "A=1&B=2"). options {id}: Component Options. report {path?.csv}: Generate Report
 - classify {ids, class: IfcWall|IfcSlab|IfcRoof|IfcDoor|IfcWindow|IfcColumn|IfcBeam|IfcStair|IfcRailing|IfcCovering|IfcFurniture|IfcPlate|IfcMember|"" }; export_ifc {path, project?}: IFC4 (unclassified things typed from their names)
 - add_location {lat, lon, size?=300 m, cells?=60, imagery?=true}: real terrain (+ OpenStreetMap imagery) around a place; origin at ground, +Y north
 - blueprint {path(.pdf), sheet?=a3, project?}: every floor plan + 4 elevations, white on blue, true scale. levels: floor heights. sheets also takes blueprint:true
@@ -54,7 +54,9 @@ ORGANIZE
 - cage_edit {id, moves?:[[i,x,y,z]], mirror?=true, crease?/uncrease?:[[i,j]], op?:{kind: insert_loop {edge:[i,j], t} | extrude {faces, distance} | delete_faces {faces} | merge {points}}, levels?, symmetry?: "auto"|"off"|0|1|2}: edit a subd object's cage (scene.cages has it) and rebuild
 - timeline {clips:[{seconds, kind:"scenes",views,hold?}|{kind:"turntable",turns?,from?}|{kind:"walk",path:[[x,y,z]..],eye_height?}|{kind:"sun",date?,from?:"07:00",to?:"19:00",camera?}]}: the video timeline; animate {path, timeline:true} renders it
 - timeline_frames {fps?}: every frame's camera (and sun)
-- import_dxf {path|text, units?: in/ft/mm/cm/m, at?, name?}: a CAD drawing; layers become tagged groups, closed outlines faces
+- import_dxf {path|text, units?: in/ft/mm/cm/m, at?, name?}: a CAD drawing; layers become tagged groups, closed outlines and hatches faces, text labels, dimensions dimensions; returns focus [lo, hi] (where most of it is)
+- raise_walls {group, height?: 2.7, max_thickness?: 0.6, sill?: 0.9, head?: 2.1}: walls from an imported plan (window openings where the plan shows windows)
+- import_cloud {path .ply/.las/.xyz/.pts/.txt, units?, max_points?: 5e6}: a point cloud (scan); far-off survey coordinates are moved to the origin (shift returned). cloud {id, name?, hidden?, delete?}; cloud_data {id, max?}
 - import_dwg {path, units?} / export_dwg {path}: AutoCAD DWG through LibreDWG or the ODA File Converter if installed
 - project_photo {view, ids, size?=1024}: a matched photo onto faces (or groups' faces) as straightened textures
 - weld {edges} / explode_curve {edges}: join a chain of edges into one curve, or split it

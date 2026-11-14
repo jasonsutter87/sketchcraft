@@ -131,7 +131,17 @@ pub fn build(root: &Model, ctx: Option<u32>) -> Value {
     // 1/1000 colors; texture coordinates only when something is textured.
     let q = |v: &[f32], step: f64| -> Vec<f64> { v.iter().map(|x| (*x as f64 / step).round() * step).map(|x| (x * 1e6).round() / 1e6).collect() };
     let textured = tri_tex.iter().any(|t| *t >= 0);
+    // point clouds: what they are and where; the points come by cloud_data
+    let clouds: Vec<Value> = root
+        .clouds
+        .iter()
+        .map(|(id, c)| {
+            let (lo, hi) = c.bounds().unwrap_or_default();
+            json!({"id": id, "name": c.name, "count": c.len(), "colored": !c.colors.is_empty(), "hidden": c.hidden, "version": c.version, "lo": lo.to_array(), "hi": hi.to_array()})
+        })
+        .collect();
     json!({
+        "clouds": clouds,
         "positions": q(&positions, 1e-5),
         "colors": q(&colors, 1e-3),
         "backColors": q(&back_colors, 1e-3),

@@ -771,6 +771,13 @@ button.tile:hover .tile-art {
   box-shadow: 0 0 0 1.5px #30a46c;
 }
 
+/* a point of a scan: an amber ring, so it reads as "on the cloud", not the model */
+.snap-dot.scan-point {
+  background: #f5a524;
+  border-color: #fff;
+  box-shadow: 0 0 0 1.5px #b86e00;
+}
+
 .snap-dot.midpoint {
   background: #3e8ef7;
   border-color: #fff;
