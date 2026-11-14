@@ -31,8 +31,9 @@ Checked items are in `main`.
 
 ## Files
 
-- [x] Import: SketchUp `.skp` (6–8 and 2013+), **DXF** (layers as tags, blocks, units), **DWG** (via LibreDWG / ODA converter), OBJ (+ .mtl), binary FBX
+- [x] Import: SketchUp `.skp` (6–8 and 2013+), **DXF** (layers as tags, blocks, units, text as labels, linear dimensions), **DWG** (via LibreDWG / ODA converter; tested on AutoCAD 2004 and 2018 files), OBJ (+ .mtl), binary FBX
 - [x] Export: glTF, OBJ, Collada (all with textures), STL, 3D DXF, **DWG** (via converter), PDF, section cuts (SVG / DXF), IFC4 (BIM)
+- [x] **Raise walls** from an imported floor plan (wall bands found across T-junctions, window lines and drafting slips)
 - [x] **Classifier** (IFC types) and **Generate Report** (CSV)
 - [x] **Add Location**: real terrain and OpenStreetMap imagery around a lat / lon
 
@@ -44,7 +45,7 @@ Checked items are in `main`.
 ## Known gaps (next)
 
 - DWG needs a converter installed (LibreDWG or ODA); a native DWG reader is out of scope
-- DXF: text, dimensions, hatches, splines and ellipses are skipped
+- DXF: hatches, splines, ellipses and angular/radial dimensions are skipped; raised walls run full height over windows
 - Dynamic Component position / rotation attributes (x, y, z, rotz) and option dialogs
 - IFC checked structurally (tests), not yet against IfcOpenShell / Revit
 - Point clouds (Scan Essentials), V-Ray-class rendering, Revit import (Studio)
