@@ -76,6 +76,10 @@ export function guide(tool: Tool, c: GuideCtx): Guide {
       return g("Pan", "Drag to slide the view.", [["Right-drag", "pan from any tool"]]);
     case "zoom":
       return g("Zoom", "Drag up to zoom in, down to zoom out.", [["Scroll", "zoom from any tool"], ["⇧Z", "see everything"], ["Type", "a field of view: 35 (degrees) or 50mm"]]);
+    case "protractor":
+      if (c.op === "rotate" && c.stage === 2) return g("Protractor", "Swing to the angle and click: a guide line is laid there (15° steps snap).", [["Type", "an exact angle, then Enter"]]);
+      if (c.op === "rotate") return g("Protractor", "Click a point on the baseline the angle starts from.", []);
+      return g("Protractor", "Click the corner the angle turns around (on a face to measure in its plane).", [["Esc", "start over"]]);
     case "zoomwindow":
       return g("Zoom Window", "Drag a box around what you want to fill the view.", [["⌘[ / ⌘]", "previous / next view"]]);
     case "position":

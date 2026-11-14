@@ -24,7 +24,7 @@ export type Tool =
   | "select" | "line" | "arc" | "rect" | "circle" | "polygon"
   | "push" | "offset" | "followme" | "move" | "rotate" | "scale"
   | "tape" | "dimension" | "text" | "paint" | "erase" | "orbit" | "pan" | "zoom" | "section" | "place"
-  | "position" | "lookaround" | "walk" | "zoomwindow"
+  | "position" | "lookaround" | "walk" | "zoomwindow" | "protractor"
   | "wall" | "stairs" | "roof" | "column"
   | "smoove" | "stamp" | "drape" | "flipedge";
 
@@ -1133,6 +1133,13 @@ export default function Viewport(props: Props) {
     return { face: faceById(owner), owner, point: hit.point.clone(), distance: hit.distance };
   }
 
+  /** The whole curve an edge belongs to (an arc, a circle, a welded run). */
+  function curveOf(id: number): number[] {
+    const s = sceneNow();
+    const c = s.edgeList.find((x) => x.id === id)?.curve;
+    return c == null ? [id] : s.edgeList.filter((x) => x.curve === c).map((x) => x.id);
+  }
+
   /** Editable edge under the cursor (within 5 px, not hidden behind a face). */
   function pickEdge(e: { clientX: number; clientY: number }): number | null {
     const s = sceneNow();
@@ -1289,8 +1296,12 @@ export default function Viewport(props: Props) {
     }
     const he = st.current.hoverEdge;
     if (he != null) {
-      const e = s.edgeList.find((x) => x.id === he);
-      if (e) T.overlay.add(lines([...e.a, ...e.b], tool === "erase" ? RED : ACCENT, false));
+      const seg: number[] = [];
+      for (const id of curveOf(he)) {
+        const e = s.edgeList.find((x) => x.id === id);
+        if (e) seg.push(...e.a, ...e.b);
+      }
+      if (seg.length) T.overlay.add(lines(seg, tool === "erase" ? RED : ACCENT, false));
     }
   }
 
@@ -1819,6 +1830,12 @@ export default function Viewport(props: Props) {
     if (op?.t !== "rotate" || !op.ref) return;
     st.current.op = null;
     clearPreview();
+    if (live.current.tool === "protractor") {
+      // an angled guide line through the center
+      const dir = op.ref.clone().sub(op.center).normalize().applyAxisAngle(op.n, THREE.MathUtils.degToRad(op.angle));
+      await run({ cmd: "guide", point: arr(op.center), direction: arr(dir) });
+      return;
+    }
     let ids = op.ids;
     if (op.copy) {
       // Option / Ctrl: rotate a copy, leave the original
@@ -2108,7 +2125,12 @@ export default function Viewport(props: Props) {
           T.preview.add(polyline([op.center, op.ref], 0x8a8ea0));
           T.preview.add(polyline([op.center, q], ACCENT));
           const c = op.center;
-          ghost(new THREE.Matrix4().makeTranslation(c.x, c.y, c.z).multiply(new THREE.Matrix4().makeRotationAxis(op.n, THREE.MathUtils.degToRad(ang))).multiply(new THREE.Matrix4().makeTranslation(-c.x, -c.y, -c.z)));
+          if (op.ids.length) ghost(new THREE.Matrix4().makeTranslation(c.x, c.y, c.z).multiply(new THREE.Matrix4().makeRotationAxis(op.n, THREE.MathUtils.degToRad(ang))).multiply(new THREE.Matrix4().makeTranslation(-c.x, -c.y, -c.z)));
+          // the protractor: the guide it will lay, long and dashed
+          else {
+            const d = q.clone().sub(c).normalize().multiplyScalar(200);
+            T.preview.add(polyline([c.clone().sub(d), c.clone().add(d)], 0x8a8ea0));
+          }
           L.onMeasure("Angle", `${ang.toFixed(1)}°`);
           return;
         }
@@ -2125,7 +2147,7 @@ export default function Viewport(props: Props) {
       }
 
       // nothing in progress: show what a click would hit
-      if (["line", "arc", "rect", "circle", "polygon", "tape", "dimension", "text", "move", "rotate", "scale", "place", "wall", "stairs", "column"].includes(L.tool)) showSnap(infer(E, e, {}));
+      if (["line", "arc", "rect", "circle", "polygon", "tape", "dimension", "text", "move", "rotate", "scale", "place", "wall", "stairs", "column", "protractor"].includes(L.tool)) showSnap(infer(E, e, {}));
       else setHint(null);
       if (["select", "erase", "paint", "push", "offset", "followme", "section", "move", "rotate", "scale", "roof"].includes(L.tool)) {
         const he = ["select", "erase", "move"].includes(L.tool) ? pickEdge(e) : null;
@@ -2219,7 +2241,7 @@ export default function Viewport(props: Props) {
               return;
             }
           }
-          if (he != null) return L.setSel(toggle(sel, "edges", he, selMode(e)));
+          if (he != null) return L.setSel(combine(sel, { ...EMPTY, edges: curveOf(he) }, selMode(e)));
           if (h) {
             const ent = entityOf(h);
             return L.setSel(toggle(sel, ent.kind, ent.id, selMode(e)));
@@ -2293,6 +2315,17 @@ export default function Viewport(props: Props) {
           L.setSel(EMPTY);
           return;
         }
+        case "protractor": {
+          if (op?.t === "rotate") {
+            if (op.ref) return void (await commitRotate());
+            const q = ray(e).intersectPlane(new THREE.Plane().setFromNormalAndCoplanarPoint(op.n, op.center), new THREE.Vector3());
+            if (q && q.distanceTo(op.center) > 1e-4) op.ref = q;
+            return;
+          }
+          const sn = infer(E, e, {});
+          st.current.op = { t: "rotate", center: sn.p, n: sn.face ? V(sn.face.normal) : UP.clone(), ref: null, angle: 0, ids: [] };
+          return;
+        }
         case "move":
         case "rotate":
         case "scale": {
@@ -2309,7 +2342,7 @@ export default function Viewport(props: Props) {
           if (selIds(sel).length === 0) {
             const he = pickEdge(e);
             const h = he == null ? pick(e) : null;
-            if (he != null) s2 = toggle(EMPTY, "edges", he, false);
+            if (he != null) s2 = { ...EMPTY, edges: curveOf(he) };
             else if (h) {
               const ent = entityOf(h);
               s2 = toggle(EMPTY, ent.kind, ent.id, false);
@@ -2463,8 +2496,8 @@ export default function Viewport(props: Props) {
           const he = pickEdge(e);
           const soften = e.altKey || e.ctrlKey;
           if (he != null) {
-            if (soften) return void (await run({ cmd: "soften", ids: [he], soft: !e.shiftKey }));
-            return void (await run({ cmd: e.shiftKey ? "hide" : "delete", ids: [he] }));
+            if (soften) return void (await run({ cmd: "soften", ids: curveOf(he), soft: !e.shiftKey }));
+            return void (await run({ cmd: e.shiftKey ? "hide" : "delete", ids: curveOf(he) }));
           }
           const h = pick(e);
           if (h && !soften) await run({ cmd: e.shiftKey ? "hide" : "delete", ids: [entityOf(h).id] });

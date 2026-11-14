@@ -185,6 +185,13 @@ export const Icons = {
       <path d="M14 11V6.5a1.5 1.5 0 0 1 3 0V14a6 6 0 0 1-6 6h-.6a5 5 0 0 1-4-2l-2.8-3.7a1.5 1.5 0 0 1 2.3-1.9L8 14" />
     </Svg>
   ),
+  protractor: () => (
+    <Svg>
+      <path d="M3 17a9 9 0 0 1 18 0z" />
+      <path d="M12 17 17 9.5" />
+      <path d="M7.5 17a4.5 4.5 0 0 1 9 0" />
+    </Svg>
+  ),
   zoomwindow: () => (
     <Svg>
       <rect x="3.5" y="3.5" width="11" height="9" rx="1.5" strokeDasharray="2.5 2" />

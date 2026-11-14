@@ -112,7 +112,7 @@ pub fn build(root: &Model, ctx: Option<u32>) -> Value {
         .edges
         .iter()
         .map(|(&id, e)| {
-            json!({"id": id, "a": t.transform_point3(m.p(e.a)).to_array(), "b": t.transform_point3(m.p(e.b)).to_array(), "soft": e.soft, "group": e.group})
+            json!({"id": id, "a": t.transform_point3(m.p(e.a)).to_array(), "b": t.transform_point3(m.p(e.b)).to_array(), "soft": e.soft, "group": e.group, "curve": e.curve})
         })
         .collect();
     let groups: Vec<Value> = root

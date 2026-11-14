@@ -13,7 +13,9 @@ Checked items are in `main`.
 - [x] **Solid Tools**: outer shell, union, intersect, subtract, trim, split; solid check and volume
 - [x] **Intersect Faces** (with model / with selection)
 - [x] **Sandbox**: from contours, from scratch, smoove, stamp, drape, flip edge
-- [x] Tape measure guides, dimensions, text, units (m/cm/mm/ft-in/in)
+- [x] Tape measure and **Protractor** guides, dimensions, text, **3D Text** (any system font, extruded or flat), units (m/cm/mm/ft-in/in)
+- [x] Curves: arcs and circles pick as one; **Weld** and **Explode Curve**; **Make Unique**; **Orient Faces**
+- [x] Camera tools: **Position Camera**, **Look Around**, **Walk** (walls stop you, stairs climb), **Zoom Window**, previous / next view, typed eye height and field of view (`35` or `50mm`)
 - [x] **Dynamic Components**: attributes and formulas (lengths, copies, material, hidden, `parent!`)
 - [x] Keyboard shortcuts 1:1 with SketchUp's defaults (press `?`)
 
@@ -37,6 +39,7 @@ Checked items are in `main`.
 ## Also
 
 - [x] Headless + MCP: every action is a command Claude can run
+- [x] **SubD modeling**: edit a subdivision cage (points / edges / faces, symmetry, soft select, loops, extrude, crease) over see-through reference images
 
 ## Known gaps (next)
 

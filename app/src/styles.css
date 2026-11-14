@@ -2535,3 +2535,6 @@ details.panel-fold {
 .subd-coach {
   border-left: 3px solid var(--accent);
 }
+
+/* 3D Text: a live preview of the font */
+.text3d-preview { width: 100%; height: 64px; border-radius: 8px; background: var(--bg-sunk, rgba(0,0,0,0.04)); color: var(--text); margin: 4px 0 8px; }

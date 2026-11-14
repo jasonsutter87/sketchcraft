@@ -573,6 +573,12 @@ export function contextItems(scene: Scene, sel: Sel, run: Run, setSel: (s: Sel) 
     items.push({ label: "Ungroup (keep what's inside)", run: () => run({ cmd: "ungroup", id: ids[0] }).then(() => setSel(EMPTY)) });
     if (g) items.push({ label: g.locked ? "Unlock" : "Lock", run: () => run({ cmd: "lock", ids: [g.id], locked: !g.locked }) });
   }
+  // a shared component: give this one its own definition
+  if (one && sel.instances.length) {
+    const def = scene.instances.find((i) => i.id === ids[0])?.component;
+    if (def != null && scene.instances.filter((i) => i.component === def).length > 1) items.push({ label: "Make unique", run: () => run({ cmd: "make_unique", id: ids[0] }) });
+  }
+  if (sel.faces.length === 1 && !sel.groups.length && !sel.instances.length) items.push({ label: "Orient faces (match this one)", run: () => run({ cmd: "orient_faces", face: sel.faces[0] }) });
   if (sel.faces.length || sel.groups.length) {
     items.push({
       label: "Make component…",
@@ -606,6 +612,11 @@ export function contextItems(scene: Scene, sel: Sel, run: Run, setSel: (s: Sel) 
         if (size) run({ cmd: "bevel", edges: sel.edges, size, segments: 8 }).then((r) => r.ok && setSel(EMPTY));
       },
     });
+    // curves: weld a chain of edges into one, or explode one back to edges
+    const curves = new Set(sel.edges.map((id) => scene.edgeList.find((e) => e.id === id)?.curve).filter((c) => c != null));
+    if (curves.size) items.push({ label: "Explode curve", run: () => run({ cmd: "explode_curve", edges: sel.edges }) });
+    if (sel.edges.length >= 2 && !(curves.size === 1 && sel.edges.every((id) => scene.edgeList.find((e) => e.id === id)?.curve != null)))
+      items.push({ label: "Weld edges", run: () => run({ cmd: "weld", edges: sel.edges }) });
     if (sel.edges.length === 1)
       items.push({
         label: "Divide…",

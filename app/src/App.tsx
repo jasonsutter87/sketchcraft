@@ -15,6 +15,7 @@ import { AppearanceDialog, WorkspaceDialog } from "./appearance";
 import { WorkspaceStrip } from "./wsstrip";
 import { PhotoModeler } from "./photomodel";
 import { RefImageDialog } from "./refimage";
+import { Text3dDialog } from "./text3d";
 import { LearnCenter, LessonCard, lessonsDone, useLearnCtx } from "./learn";
 
 const DEFAULT_BUILD: BuildSettings = {
@@ -200,6 +201,7 @@ export default function App() {
   const [showSkins, setShowSkins] = useState(false);
   const [showPhotoModel, setShowPhotoModel] = useState(false);
   const [showRef, setShowRef] = useState(false);
+  const [showText3d, setShowText3d] = useState(false);
   const [showLearn, setShowLearn] = useState(false);
   const [lesson, setLesson] = useState<string | null>(null);
   const [showWs, setShowWs] = useState(false);
@@ -615,6 +617,7 @@ export default function App() {
                   <button onClick={() => setShowSheets(true)}>Drawing sheets (PDF)…</button>
                   <button onClick={() => file.export("ifc")}>Export IFC (BIM)…</button>
                   <button onClick={() => setShowLocation(true)}>Add location…</button>
+                  <button onClick={() => setShowText3d(true)}>3D Text…</button>
                   <button onClick={file.report}>Generate report (CSV)…</button>
                   <button onClick={file.render}>Render PNG…</button>
                   {section && (
@@ -868,6 +871,7 @@ export default function App() {
           />
         )}
         {lesson && learnCtx && <LessonCard key={lesson} id={lesson} ctx={learnCtx} onClose={() => setLesson(null)} onToast={say} />}
+        {showText3d && scene && <Text3dDialog scene={scene} run={run} camera={() => api.current!.camera()} onClose={() => setShowText3d(false)} onToast={say} />}
         {showRef && scene && <RefImageDialog scene={scene} run={run} onClose={() => setShowRef(false)} onToast={say} />}
         {showPhotoModel && scene && <PhotoModeler scene={scene} run={run} onClose={() => setShowPhotoModel(false)} onToast={say} />}
         {showSkins && <AppearanceDialog current={skin} onPick={wearSkin} onClose={() => setShowSkins(false)} onToast={say} />}

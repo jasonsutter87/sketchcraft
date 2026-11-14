@@ -23,6 +23,8 @@ export interface EdgeInfo {
   b: Vec3;
   soft: boolean;
   group: number | null;
+  /** edges of one arc, circle or welded curve share this */
+  curve?: number | null;
 }
 
 export interface GroupInfo {
