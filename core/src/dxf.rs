@@ -112,13 +112,34 @@ fn ocs(n: DVec3) -> DMat4 {
     DMat4::from_cols(ax.extend(0.0), ay.extend(0.0), n.extend(0.0), glam::DVec4::W)
 }
 
-/// Points along an arc (center, radius, start and end angle in degrees, counter-clockwise).
-fn arc(c: DVec3, r: f64, a0: f64, a1: f64) -> Vec<DVec3> {
+/// How far a curve's segments may stray from the true curve, in meters (in
+/// the model). Small arcs get fewer segments: a revision cloud's thousands of
+/// tiny scallops become one segment each, not fifteen.
+const CURVE_TOLERANCE: f64 = 0.0005;
+
+/// Segments for an arc of `sweep` radians and radius `r`: 48 to a full turn
+/// at most, fewer when fewer stay within `tol` (same units as `r`).
+fn arc_steps(sweep: f64, r: f64, tol: f64) -> usize {
+    let by_angle = ((sweep.abs() / std::f64::consts::TAU * 48.0).ceil() as usize).max(2);
+    if !(tol > 0.0) || !r.is_finite() {
+        return by_angle;
+    }
+    if r <= tol {
+        return 1;
+    }
+    let per = 2.0 * (1.0 - tol / r).acos();
+    by_angle.min(((sweep.abs() / per).ceil() as usize).max(1))
+}
+
+/// Points along an arc (center, radius, start and end angle in degrees,
+/// counter-clockwise); `tol` is the allowed error in the arc's own units.
+fn arc(c: DVec3, r: f64, a0: f64, a1: f64, tol: f64) -> Vec<DVec3> {
     let mut sweep = (a1 - a0).rem_euclid(360.0);
     if sweep < 1e-9 {
         sweep = 360.0;
     }
-    let n = ((sweep / 360.0 * 48.0).ceil() as usize).max(2);
+    let full = sweep >= 360.0;
+    let n = arc_steps(sweep.to_radians(), r, tol).max(if full { 8 } else { 1 });
     (0..=n)
         .map(|k| {
             let a = (a0 + sweep * k as f64 / n as f64).to_radians();
@@ -128,7 +149,7 @@ fn arc(c: DVec3, r: f64, a0: f64, a1: f64) -> Vec<DVec3> {
 }
 
 /// A polyline's points, with arc bulges between them turned into segments.
-fn bulged(pts: &[(DVec3, f64)], closed: bool) -> Vec<DVec3> {
+fn bulged(pts: &[(DVec3, f64)], closed: bool, tol: f64) -> Vec<DVec3> {
     let mut out = Vec::new();
     let n = pts.len();
     for i in 0..n {
@@ -152,7 +173,7 @@ fn bulged(pts: &[(DVec3, f64)], closed: bool) -> Vec<DVec3> {
             let left = DVec3::new(-chord.y, chord.x, 0.0).normalize();
             let c = mid + left * ((l / 2.0) / (sweep / 2.0).tan());
             let a0 = (p.y - c.y).atan2(p.x - c.x);
-            let steps = ((sweep.abs() / std::f64::consts::TAU * 48.0).ceil() as usize).max(2);
+            let steps = arc_steps(sweep, r, tol);
             for k in 1..steps {
                 let a = a0 + sweep * k as f64 / steps as f64;
                 out.push(DVec3::new(c.x + r * a.cos(), c.y + r * a.sin(), p.z + (q.z - p.z) * k as f64 / steps as f64));
@@ -171,6 +192,9 @@ fn shapes(e: &Ent, blocks: &HashMap<String, (DVec3, Vec<Ent>)>, t: DMat4, layer:
     };
     let xf = |pts: Vec<DVec3>, o: DMat4| -> Vec<DVec3> { pts.into_iter().map(|p| t.transform_point3(o.transform_point3(p))).collect() };
     let o = ocs(DVec3::new(e.f(210).unwrap_or(0.0), e.f(220).unwrap_or(0.0), e.f(230).unwrap_or(1.0)));
+    // the curve tolerance in this entity's own units (blocks may be scaled)
+    let k = t.x_axis.truncate().length().max(t.y_axis.truncate().length()).max(t.z_axis.truncate().length());
+    let tol = if k > 1e-12 { CURVE_TOLERANCE / k } else { 0.0 };
     match e.kind.as_str() {
         "LINE" => out.push((lay, Shape::Path(xf(vec![e.p(10), e.p(11)], DMat4::IDENTITY)))),
         "3DFACE" => {
@@ -181,11 +205,11 @@ fn shapes(e: &Ent, blocks: &HashMap<String, (DVec3, Vec<Ent>)>, t: DMat4, layer:
             out.push((lay, Shape::Face(xf(c, DMat4::IDENTITY))));
         }
         "CIRCLE" => {
-            let mut pts = arc(e.p(10), e.f(40).unwrap_or(0.0), 0.0, 360.0);
+            let mut pts = arc(e.p(10), e.f(40).unwrap_or(0.0), 0.0, 360.0, tol);
             pts.pop();
             out.push((lay, Shape::Loop(xf(pts, o))));
         }
-        "ARC" => out.push((lay, Shape::Path(xf(arc(e.p(10), e.f(40).unwrap_or(0.0), e.f(50).unwrap_or(0.0), e.f(51).unwrap_or(360.0)), o)))),
+        "ARC" => out.push((lay, Shape::Path(xf(arc(e.p(10), e.f(40).unwrap_or(0.0), e.f(50).unwrap_or(0.0), e.f(51).unwrap_or(360.0), tol), o)))),
         "LWPOLYLINE" => {
             let z = e.f(38).unwrap_or(0.0);
             let mut pts: Vec<(DVec3, f64)> = vec![];
@@ -208,7 +232,7 @@ fn shapes(e: &Ent, blocks: &HashMap<String, (DVec3, Vec<Ent>)>, t: DMat4, layer:
                 }
             }
             let closed = e.i(70) & 1 == 1;
-            let line = xf(bulged(&pts, closed), o);
+            let line = xf(bulged(&pts, closed, tol), o);
             out.push((lay, if closed { Shape::Loop(line) } else { Shape::Path(line) }));
         }
         "POLYLINE" => {
@@ -230,7 +254,7 @@ fn shapes(e: &Ent, blocks: &HashMap<String, (DVec3, Vec<Ent>)>, t: DMat4, layer:
                 let three_d = flags & 8 != 0;
                 let pts: Vec<(DVec3, f64)> = vs.iter().map(|v| (v.p(10), v.f(42).unwrap_or(0.0))).collect();
                 let closed = flags & 1 == 1;
-                let line = xf(bulged(&pts, closed), if three_d { DMat4::IDENTITY } else { o });
+                let line = xf(bulged(&pts, closed, tol), if three_d { DMat4::IDENTITY } else { o });
                 out.push((lay, if closed { Shape::Loop(line) } else { Shape::Path(line) }));
             }
         }

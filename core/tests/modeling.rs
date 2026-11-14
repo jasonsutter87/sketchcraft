@@ -1756,3 +1756,28 @@ fn dwg_round_trip_through_converter() {
     assert_eq!(r["faces"], 12, "{r}");
     std::fs::remove_dir_all(&dir).ok();
 }
+
+/// Arcs are split by how far a segment strays from the curve, so a revision
+/// cloud's tiny scallops stay one segment each while a big arc stays smooth.
+#[test]
+fn dxf_tiny_bulges_stay_light_big_arcs_stay_smooth() {
+    // a 50 mm square outline of 400 half-millimeter scallops (bulge 0.52, ~110°)
+    let mut pts = vec![];
+    for k in 0..400 {
+        let (side, t) = (k / 100, (k % 100) as f64 * 0.5);
+        let (x, y) = match side { 0 => (t, 0.0), 1 => (50.0, t), 2 => (50.0 - t, 50.0), _ => (0.0, 50.0 - t) };
+        pts.push((x, y));
+    }
+    let mut s = String::from("0\nSECTION\n2\nENTITIES\n0\nLWPOLYLINE\n8\nCloud\n90\n400\n70\n1\n");
+    for (x, y) in &pts {
+        s += &format!("10\n{x}\n20\n{y}\n42\n0.52\n");
+    }
+    // and a 2 m arc, which should keep its full 48-to-a-turn smoothness
+    s += "0\nARC\n8\nArc\n10\n5000\n20\n0\n30\n0\n40\n2000\n50\n0\n51\n180\n0\nENDSEC\n0\nEOF\n";
+    let mut e = Engine::new();
+    let r = run(&mut e, json!({"cmd":"import_dxf","text":s,"units":"mm"}));
+    let edges = r["edges"].as_u64().unwrap();
+    // 400 chords + 24 arc segments; the old fixed split made ~6,000
+    assert!(edges <= 400 + 24 + 8, "{r}");
+    assert!(edges >= 400 + 24, "{r}");
+}
