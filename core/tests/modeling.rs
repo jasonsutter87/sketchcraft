@@ -1602,3 +1602,95 @@ fn textures_reach_exports_and_headless_renders() {
     assert!(reds > 2000, "the image shows on the box: {reds} red pixels");
     std::fs::remove_dir_all(&dir).ok();
 }
+
+fn dxf(body: &[(&str, &str)]) -> String {
+    body.iter().map(|(c, v)| format!("{c}\n{v}\n")).collect()
+}
+
+#[test]
+fn dxf_import_layers_units_blocks_and_bulges() {
+    let mut p: Vec<(&str, &str)> = vec![("0", "SECTION"), ("2", "HEADER"), ("9", "$INSUNITS"), ("70", "1"), ("0", "ENDSEC")];
+    // a door block: a 36" leaf line and its swing arc, based at the hinge
+    p.extend([("0", "SECTION"), ("2", "BLOCKS"), ("0", "BLOCK"), ("8", "0"), ("2", "Door"), ("10", "0"), ("20", "0"), ("30", "0")]);
+    p.extend([("0", "LINE"), ("8", "0"), ("10", "0"), ("20", "0"), ("30", "0"), ("11", "0"), ("21", "36"), ("31", "0")]);
+    p.extend([("0", "ARC"), ("8", "0"), ("10", "0"), ("20", "0"), ("30", "0"), ("40", "36"), ("50", "0"), ("51", "90")]);
+    p.extend([("0", "ENDBLK"), ("0", "ENDSEC")]);
+    p.extend([("0", "SECTION"), ("2", "ENTITIES")]);
+    // a 120" x 96" room, the top edge bowed out by a half-circle bulge
+    p.extend([("0", "LWPOLYLINE"), ("8", "Walls"), ("90", "4"), ("70", "1"), ("10", "0"), ("20", "0"), ("10", "120"), ("20", "0"), ("10", "120"), ("20", "96"), ("42", "1.0"), ("10", "0"), ("20", "96")]);
+    p.extend([("0", "CIRCLE"), ("8", "Furniture"), ("10", "60"), ("20", "48"), ("30", "0"), ("40", "12")]);
+    p.extend([("0", "INSERT"), ("8", "Doors"), ("2", "Door"), ("10", "200"), ("20", "0"), ("30", "0"), ("50", "90")]);
+    p.extend([("0", "INSERT"), ("8", "Doors"), ("2", "Door"), ("10", "300"), ("20", "0"), ("30", "0"), ("41", "2"), ("42", "2"), ("43", "2")]);
+    p.extend([("0", "3DFACE"), ("8", "Roof"), ("10", "0"), ("20", "0"), ("30", "100"), ("11", "50"), ("21", "0"), ("31", "100"), ("12", "50"), ("22", "50"), ("32", "120"), ("13", "50"), ("23", "50"), ("33", "120")]);
+    p.extend([("0", "TEXT"), ("8", "Notes"), ("10", "0"), ("20", "0"), ("1", "Kitchen")]);
+    p.extend([("0", "ENDSEC"), ("0", "EOF")]);
+    let text = dxf(&p);
+    let mut e = Engine::new();
+    let r = run(&mut e, json!({"cmd":"import_dxf","text":text,"name":"Plan"}));
+    assert_eq!(r["units"], "in");
+    assert_eq!(r["layers"], 4, "Walls, Furniture, Doors, Roof: {r}");
+    assert_eq!(r["skipped"], 1, "the text");
+    let g = r["group"].as_u64().unwrap() as u32;
+    assert_eq!(e.model.groups[&g].name, "Plan");
+    let layer = |n: &str| e.model.groups.iter().find(|(_, x)| x.name == n && x.parent == Some(g)).map(|(k, x)| (*k, x.tag.clone())).unwrap();
+    assert_eq!(layer("Walls").1.as_deref(), Some("Walls"));
+    // the room is a face, in meters, with the bulge bowing past the top edge
+    let walls = layer("Walls").0;
+    let (lo, hi) = e.model.faces.values().filter(|f| f.group == Some(walls)).flat_map(|f| f.outer.iter().map(|v| e.model.vertices[v].p)).fold((DVec3::splat(1e9), DVec3::splat(-1e9)), |(a, b), p| (a.min(p), b.max(p)));
+    assert!((hi.x - 3.048).abs() < 1e-6 && lo.x.abs() < 1e-6, "120 in = 3.048 m wide: {hi}");
+    assert!((hi.y - (2.4384 + 1.524)).abs() < 0.01, "a half circle of radius 60 in above the 96 in edge: {hi}");
+    // doors: a rotated one at 200", a double-size one at 300"
+    let doors = layer("Doors").0;
+    let pts: Vec<DVec3> = e.model.vertices.values().filter(|v| v.group == Some(doors)).map(|v| v.p).collect();
+    assert!(pts.iter().any(|p| (p.x - (200.0 - 36.0) * 0.0254).abs() < 1e-6 && p.y.abs() < 1e-6), "rotated 90°: the leaf points -x");
+    assert!(pts.iter().any(|p| (p.x - 300.0 * 0.0254).abs() < 1e-6 && (p.y - 72.0 * 0.0254).abs() < 1e-6), "scaled 2×: a 72 in leaf");
+    // the circle is a face too; the 3D face sits up high
+    assert_eq!(e.model.faces.values().filter(|f| f.group == Some(layer("Furniture").0)).count(), 1);
+    assert!(e.model.faces.values().any(|f| f.group == Some(layer("Roof").0)));
+    // units can be overridden
+    let mut e2 = Engine::new();
+    let r2 = run(&mut e2, json!({"cmd":"import_dxf","text":dxf(&p),"units":"mm"}));
+    assert_eq!(r2["units"], "mm");
+    // our own DXF export comes back with the same faces
+    let dir = std::env::temp_dir().join(format!("sketchcraft-dxf-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut b = Engine::new();
+    let r = run(&mut b, json!({"cmd":"rect","from":[0,0,0],"to":[2,3,0]}));
+    run(&mut b, json!({"cmd":"pushpull","face":r["face"],"distance":1.5}));
+    let out = dir.join("box.dxf");
+    run(&mut b, json!({"cmd":"export_dxf","path":out.to_str().unwrap()}));
+    let mut c = Engine::new();
+    let back = run(&mut c, json!({"cmd":"import_dxf","path":out.to_str().unwrap()}));
+    assert_eq!(back["faces"], 12, "six sides, two triangles each: {back}");
+    let (_, hi) = c.model.vertices.values().map(|v| v.p).fold((DVec3::splat(1e9), DVec3::splat(-1e9)), |(a, b), p| (a.min(p), b.max(p)));
+    assert!((hi - DVec3::new(2.0, 3.0, 1.5)).length() < 1e-6, "millimeters back to meters: {hi}");
+    // DWG without a converter says what to install
+    if sketchcraft::dwg::converter().is_none() {
+        let r = c.exec_json(&json!({"cmd":"import_dwg","path":out.to_str().unwrap()}).to_string());
+        assert!(r["error"].as_str().unwrap().contains("libredwg"));
+    }
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn dxf_islands_become_holes_and_spikes_are_kept_as_edges() {
+    let l = |x0: f64, y0: f64, x1: f64, y1: f64| format!("0\nLINE\n8\nPlan\n10\n{x0}\n20\n{y0}\n30\n0\n11\n{x1}\n21\n{y1}\n31\n0\n");
+    let mut t = String::from("0\nSECTION\n2\nENTITIES\n");
+    // a 4 m room, a 0.4 m column in the middle, and a wall stub poking in
+    for (a, b, c, d) in [(0., 0., 4000., 0.), (4000., 0., 4000., 4000.), (4000., 4000., 0., 4000.), (0., 4000., 0., 0.), (1800., 1800., 2200., 1800.), (2200., 1800., 2200., 2200.), (2200., 2200., 1800., 2200.), (1800., 2200., 1800., 1800.), (0., 1000., 900., 1000.)] {
+        t += &l(a, b, c, d);
+    }
+    t += "0\nENDSEC\n0\nEOF\n";
+    let mut e = Engine::new();
+    let r = run(&mut e, json!({"cmd":"import_dxf","text":t}));
+    assert_eq!(r["faces"], 2, "the room (with a hole) and the column: {r}");
+    assert_eq!(r["edges"], 9);
+    let room = e.model.faces.values().find(|f| f.outer.len() >= 4 && !f.holes.is_empty()).expect("a room face with a hole");
+    assert_eq!(room.holes.len(), 1);
+    // the room points up, and the stub didn't split it
+    let n = e.model.normal(*e.model.faces.iter().find(|(_, f)| !f.holes.is_empty()).unwrap().0);
+    assert!(n.z > 0.99);
+    // it can be pushed up into a solid room around a column
+    let rid = *e.model.faces.iter().find(|(_, f)| !f.holes.is_empty()).unwrap().0;
+    run(&mut e, json!({"cmd":"pushpull","face":rid,"distance":0.1}));
+}

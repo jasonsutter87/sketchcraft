@@ -592,6 +592,30 @@ pub enum Command {
     VideoFrame { session: String, index: usize, data: String },
     /// ...then encode them (ffmpeg) to `path` (.mp4 / .mov) and clean up.
     VideoFinish { session: String, path: String, #[serde(default = "anim_fps")] fps: f64 },
+    /// Import a DXF drawing (text DXF): a group with a group per layer, tagged
+    /// by layer; closed outlines become faces. `units` overrides the file's.
+    ImportDxf {
+        #[serde(default)]
+        path: Option<String>,
+        #[serde(default)]
+        text: Option<String>,
+        #[serde(default)]
+        units: Option<String>,
+        #[serde(default)]
+        at: [f64; 3],
+        #[serde(default)]
+        name: Option<String>,
+    },
+    /// Import an AutoCAD DWG (through LibreDWG or the ODA File Converter, if installed).
+    ImportDwg {
+        path: String,
+        #[serde(default)]
+        units: Option<String>,
+        #[serde(default)]
+        at: [f64; 3],
+    },
+    /// Export the model as an AutoCAD DWG (3D faces, through a converter).
+    ExportDwg { path: String },
     /// Join connected edges into one curve (picked, offset and followed as one).
     Weld { edges: Vec<Id> },
     /// Split curves back into separate edges.
@@ -876,6 +900,7 @@ impl Command {
                 | Command::TimelineFrames { .. }
                 | Command::VideoFrame { .. }
                 | Command::VideoFinish { .. }
+                | Command::ExportDwg { .. }
                 | Command::ExportDxf { .. }
                 | Command::ExportPdf { .. }
                 | Command::Assets
@@ -1595,6 +1620,38 @@ impl Engine {
                     Ok(o) => bail!("ffmpeg couldn't make the video: {}", String::from_utf8_lossy(&o.stderr).lines().last().unwrap_or("")),
                     Err(_) => bail!("making a video needs ffmpeg installed (brew install ffmpeg)"),
                 }
+            }
+            Command::ImportDxf { path, text, units, at, name } => {
+                let text = match (text, &path) {
+                    (Some(t), _) => t,
+                    (None, Some(p)) => String::from_utf8_lossy(&std::fs::read(p)?).into_owned(),
+                    _ => bail!("import_dxf needs a path or text"),
+                };
+                let label = name.or_else(|| path.as_deref().and_then(|p| std::path::Path::new(p).file_stem()).map(|s| tidy_name(&s.to_string_lossy()))).unwrap_or_else(|| "DXF drawing".into());
+                let r = crate::dxf::import(m, &text, &label, units.as_deref(), v3(at))?;
+                json!({"group": r.group, "layers": r.layers, "faces": r.faces, "edges": r.edges, "units": r.units, "skipped": r.skipped})
+            }
+            Command::ImportDwg { path, units, at } => {
+                let tmp = std::env::temp_dir().join(format!("sketchcraft-dwg-{}", std::process::id()));
+                std::fs::create_dir_all(&tmp)?;
+                let dxf = crate::dwg::to_dxf(std::path::Path::new(&path), &tmp);
+                let r = dxf.and_then(|d| {
+                    let text = String::from_utf8_lossy(&std::fs::read(&d)?).into_owned();
+                    let label = std::path::Path::new(&path).file_stem().map(|s| tidy_name(&s.to_string_lossy())).unwrap_or_else(|| "DWG drawing".into());
+                    crate::dxf::import(m, &text, &label, units.as_deref(), v3(at))
+                });
+                std::fs::remove_dir_all(&tmp).ok();
+                let r = r?;
+                json!({"group": r.group, "layers": r.layers, "faces": r.faces, "edges": r.edges, "units": r.units, "skipped": r.skipped})
+            }
+            Command::ExportDwg { path } => {
+                let tmp = std::env::temp_dir().join(format!("sketchcraft-dwgout-{}", std::process::id()));
+                std::fs::create_dir_all(&tmp)?;
+                let stem = std::path::Path::new(&path).file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "model".into());
+                let dxf = tmp.join(format!("{stem}.dxf"));
+                let r = crate::export2::write_dxf(&self.model, dxf.to_str().unwrap()).and_then(|n| crate::dwg::from_dxf(&dxf, std::path::Path::new(&path)).map(|_| n));
+                std::fs::remove_dir_all(&tmp).ok();
+                json!({"path": path, "triangles": r?})
             }
             Command::Weld { edges } => json!({"curve": m.weld(&edges)?}),
             Command::ExplodeCurve { edges } => json!({"edges": m.explode_curve(&edges)}),

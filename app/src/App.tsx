@@ -452,6 +452,10 @@ export default function App() {
     await refresh();
   };
 
+  /** what a CAD import made, in a sentence */
+  const cadSummary = (name: string, r: Reply) =>
+    `Imported ${name}: ${r.layers} layer${r.layers === 1 ? "" : "s"} (as tags), ${r.faces} faces, ${r.edges} edges, read as ${r.units}${r.skipped ? `; ${r.skipped} text/hatch items skipped` : ""}`;
+
   const importFile = async (file: File) => {
     let r: Reply;
     const lower = file.name.toLowerCase();
@@ -461,11 +465,15 @@ export default function App() {
       for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
       const fbx = lower.endsWith(".fbx");
       r = await run({ cmd: fbx ? "import_fbx" : "import_skp", data: btoa(bin), name: file.name.replace(/\.(skp|fbx)$/i, "") });
+    } else if (lower.endsWith(".dxf")) {
+      r = await run({ cmd: "import_dxf", text: await file.text(), name: file.name.replace(/\.dxf$/i, "") });
+    } else if (lower.endsWith(".dwg")) {
+      return say("Open DWG files with File › Import (the desktop app converts them)", true);
     } else {
       r = await run({ cmd: "import_obj", text: await file.text(), up: "y" });
     }
     if (r.ok) {
-      say(`Imported ${file.name}: ${r.faces} faces`);
+      say(r.layers != null ? cadSummary(file.name, r) : `Imported ${file.name}: ${r.faces} faces`);
       api.current?.fitSoon();
       await refresh();
     }
@@ -477,9 +485,13 @@ export default function App() {
       ? await run({ cmd: "import_skp", path })
       : lower.endsWith(".fbx")
         ? await run({ cmd: "import_fbx", path })
-        : await run({ cmd: "import_obj", path, up: "y" });
+        : lower.endsWith(".dxf")
+          ? await run({ cmd: "import_dxf", path })
+          : lower.endsWith(".dwg")
+            ? await run({ cmd: "import_dwg", path })
+            : await run({ cmd: "import_obj", path, up: "y" });
     if (r.ok) {
-      say(`Imported ${path.split("/").pop()}: ${r.faces} faces`);
+      say(r.layers != null ? cadSummary(path.split("/").pop()!, r) : `Imported ${path.split("/").pop()}: ${r.faces} faces`);
       api.current?.fitSoon();
       await refresh();
     }
@@ -525,7 +537,7 @@ export default function App() {
       const path = await pickOpen();
       if (path) await importPath(path);
     },
-    export: async (kind: "obj" | "glb" | "stl" | "dae" | "dxf" | "pdf" | "ifc") => {
+    export: async (kind: "obj" | "glb" | "stl" | "dae" | "dxf" | "dwg" | "pdf" | "ifc") => {
       const base = (currentFile?.split("/").pop() ?? "model").replace(/\.sketchcraft$/, "");
       const path = await pickSave(`${base}.${kind}`, kind, kind.toUpperCase());
       if (!path) return;
@@ -605,7 +617,7 @@ export default function App() {
                   <button onClick={() => file.save(false)}>Save <kbd>⌘S</kbd></button>
                   <button onClick={() => file.save(true)}>Save As… <kbd>⇧⌘S</kbd></button>
                   <hr />
-                  <button onClick={file.import}>Import SketchUp or OBJ… <kbd>⌘I</kbd></button>
+                  <button onClick={file.import}>Import SketchUp, CAD or OBJ… <kbd>⌘I</kbd></button>
                   <button onClick={() => fileRef.current?.click()}>Import from browser upload…</button>
                   <hr />
                   <button onClick={() => file.export("glb")}>Export glTF (.glb)…</button>
@@ -613,6 +625,7 @@ export default function App() {
                   <button onClick={() => file.export("stl")}>Export STL (mm)…</button>
                   <button onClick={() => file.export("dae")}>Export Collada (.dae)…</button>
                   <button onClick={() => file.export("dxf")}>Export 3D DXF (mm)…</button>
+                  <button onClick={() => file.export("dwg")}>Export DWG (AutoCAD)…</button>
                   <button onClick={() => file.export("pdf")}>Export PDF (this view)…</button>
                   <button onClick={() => setShowTimeline(true)}>Timeline (video)…</button>
                   <button onClick={file.animation}>Export scene tour (MP4)…</button>
@@ -670,7 +683,7 @@ export default function App() {
           <button className="icon-btn" title="Redo (⇧⌘Z)" onClick={() => run({ cmd: "redo" })}>
             <Icons.redo />
           </button>
-          <input ref={fileRef} type="file" accept=".obj,.skp,.fbx" hidden onChange={(e) => e.target.files?.[0] && importFile(e.target.files[0])} />
+          <input ref={fileRef} type="file" accept=".obj,.skp,.fbx,.dxf" hidden onChange={(e) => e.target.files?.[0] && importFile(e.target.files[0])} />
           <button className="btn primary" onClick={() => setShowRender(true)} title="A photoreal picture of this view">
             <Icons.camera /> Render
           </button>

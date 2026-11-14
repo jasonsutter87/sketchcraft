@@ -12,6 +12,8 @@ pub mod commands;
 pub mod components;
 pub mod csg;
 pub mod dynamic;
+pub mod dwg;
+pub mod dxf;
 pub mod edges;
 pub mod entities;
 pub mod environment;

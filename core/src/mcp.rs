@@ -54,6 +54,8 @@ ORGANIZE
 - cage_edit {id, moves?:[[i,x,y,z]], mirror?=true, crease?/uncrease?:[[i,j]], op?:{kind: insert_loop {edge:[i,j], t} | extrude {faces, distance} | delete_faces {faces} | merge {points}}, levels?, symmetry?: "auto"|"off"|0|1|2}: edit a subd object's cage (scene.cages has it) and rebuild
 - timeline {clips:[{seconds, kind:"scenes",views,hold?}|{kind:"turntable",turns?,from?}|{kind:"walk",path:[[x,y,z]..],eye_height?}|{kind:"sun",date?,from?:"07:00",to?:"19:00",camera?}]}: the video timeline; animate {path, timeline:true} renders it
 - timeline_frames {fps?}: every frame's camera (and sun)
+- import_dxf {path|text, units?: in/ft/mm/cm/m, at?, name?}: a CAD drawing; layers become tagged groups, closed outlines faces
+- import_dwg {path, units?} / export_dwg {path}: AutoCAD DWG through LibreDWG or the ODA File Converter if installed
 - weld {edges} / explode_curve {edges}: join a chain of edges into one curve, or split it
 - make_unique {id}: a component placement gets its own definition
 - orient_faces {face}: flip a surface to face the same way as that face
