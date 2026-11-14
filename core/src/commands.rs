@@ -1644,7 +1644,7 @@ impl Engine {
                 };
                 let label = name.or_else(|| path.as_deref().and_then(|p| std::path::Path::new(p).file_stem()).map(|s| tidy_name(&s.to_string_lossy()))).unwrap_or_else(|| "DXF drawing".into());
                 let r = crate::dxf::import(m, &text, &label, units.as_deref(), v3(at))?;
-                json!({"group": r.group, "layers": r.layers, "faces": r.faces, "edges": r.edges, "units": r.units, "skipped": r.skipped})
+                json!({"group": r.group, "layers": r.layers, "faces": r.faces, "edges": r.edges, "units": r.units, "skipped": r.skipped, "labels": r.labels, "dimensions": r.dimensions, "focus": [r.focus[0].to_array(), r.focus[1].to_array()]})
             }
             Command::ImportDwg { path, units, at } => {
                 let tmp = std::env::temp_dir().join(format!("sketchcraft-dwg-{}", std::process::id()));
@@ -1657,7 +1657,7 @@ impl Engine {
                 });
                 std::fs::remove_dir_all(&tmp).ok();
                 let r = r?;
-                json!({"group": r.group, "layers": r.layers, "faces": r.faces, "edges": r.edges, "units": r.units, "skipped": r.skipped})
+                json!({"group": r.group, "layers": r.layers, "faces": r.faces, "edges": r.edges, "units": r.units, "skipped": r.skipped, "labels": r.labels, "dimensions": r.dimensions, "focus": [r.focus[0].to_array(), r.focus[1].to_array()]})
             }
             Command::ExportDwg { path } => {
                 let tmp = std::env::temp_dir().join(format!("sketchcraft-dwgout-{}", std::process::id()));

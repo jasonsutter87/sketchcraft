@@ -20,6 +20,12 @@ pub struct DxfResult {
     /// units the drawing said it was in (or the ones assumed)
     pub units: String,
     pub skipped: usize,
+    /// text labels and dimensions brought in as annotations
+    pub labels: usize,
+    pub dimensions: usize,
+    /// where most of the drawing is (the 2nd to 98th percentile of its points),
+    /// so the view can land on the plans and not a scaled-up sheet border
+    pub focus: [DVec3; 2],
 }
 
 #[derive(Clone, Debug)]
@@ -30,6 +36,64 @@ enum Shape {
     Loop(Vec<DVec3>),
     /// a 3D face
     Face(Vec<DVec3>),
+    /// a text label
+    Text(DVec3, String),
+    /// a linear dimension: measured points and the offset to its line
+    Dim(DVec3, DVec3, DVec3),
+}
+
+/// Plain text from DXF TEXT/MTEXT: formatting codes out, specials in.
+fn plain_text(raw: &str) -> String {
+    let mut out = String::new();
+    let mut it = raw.chars().peekable();
+    while let Some(c) = it.next() {
+        match c {
+            '\\' => match it.next() {
+                Some('P') | Some('p') | Some('~') | Some('X') => out.push(' '),
+                Some(c @ ('\\' | '{' | '}')) => out.push(c),
+                Some('L' | 'l' | 'O' | 'o' | 'K' | 'k') => {}
+                Some('U') if it.peek() == Some(&'+') => {
+                    it.next();
+                    let hex: String = (0..4).filter_map(|_| it.next()).collect();
+                    if let Some(ch) = u32::from_str_radix(&hex, 16).ok().and_then(char::from_u32) {
+                        out.push(ch);
+                    }
+                }
+                Some('S') => {
+                    // stacked fraction "1^2;" or "1#2;"
+                    for c in it.by_ref() {
+                        if c == ';' {
+                            break;
+                        }
+                        out.push(if c == '^' || c == '#' { '/' } else { c });
+                    }
+                }
+                // \A1; \C3; \fArial|b0; \H2.5; ... : codes with an argument up to ';'
+                Some(_) => {
+                    for c in it.by_ref() {
+                        if c == ';' {
+                            break;
+                        }
+                    }
+                }
+                None => {}
+            },
+            '{' | '}' => {}
+            '%' if it.peek() == Some(&'%') => {
+                it.next();
+                match it.next().map(|c| c.to_ascii_lowercase()) {
+                    Some('c') => out.push('\u{2300}'),
+                    Some('d') => out.push('\u{b0}'),
+                    Some('p') => out.push('\u{b1}'),
+                    Some('%') => out.push('%'),
+                    _ => {}
+                }
+            }
+            c if c.is_control() => out.push(' '),
+            c => out.push(c),
+        }
+    }
+    out.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 #[derive(Clone, Debug)]
@@ -283,7 +347,47 @@ fn shapes(e: &Ent, blocks: &HashMap<String, (DVec3, Vec<Ent>)>, t: DMat4, layer:
                 }
             }
         }
-        "POINT" | "TEXT" | "MTEXT" | "DIMENSION" | "HATCH" | "ATTRIB" | "ATTDEF" | "VIEWPORT" | "SOLID" | "SPLINE" | "ELLIPSE" | "LEADER" | "MLEADER" | "IMAGE" | "WIPEOUT" => *skipped += 1,
+        "TEXT" | "MTEXT" => {
+            let raw = if e.kind == "MTEXT" {
+                // long MTEXT comes in 250-character pieces (code 3), then the rest (code 1)
+                let mut r: String = e.codes.iter().filter(|(c, _)| *c == 3).map(|(_, v)| v.as_str()).collect();
+                r += e.s(1).unwrap_or("");
+                r
+            } else {
+                e.s(1).unwrap_or("").to_string()
+            };
+            let text = plain_text(&raw);
+            if text.is_empty() {
+                return;
+            }
+            // TEXT: aligned text is placed by its second point; MTEXT is in world coordinates
+            let aligned = e.kind == "TEXT" && (e.i(72) != 0 || e.i(73) != 0) && e.f(11).is_some();
+            let at = if aligned { e.p(11) } else { e.p(10) };
+            let at = xf(vec![at], if e.kind == "MTEXT" { DMat4::IDENTITY } else { o })[0];
+            out.push((lay, Shape::Text(at, text.chars().take(200).collect())));
+        }
+        "DIMENSION" => {
+            // linear dimensions (rotated/horizontal/vertical, and aligned), from their definition points
+            let kind = e.i(70) & 7;
+            let (a, b, d) = (e.p(13), e.p(14), e.p(10));
+            let dir = if kind == 1 {
+                (b - a).normalize_or_zero()
+            } else if kind == 0 {
+                let r = e.f(50).unwrap_or(0.0).to_radians();
+                DVec3::new(r.cos(), r.sin(), 0.0)
+            } else {
+                DVec3::ZERO
+            };
+            if dir == DVec3::ZERO || a.distance(b) < 1e-12 {
+                *skipped += 1;
+                return;
+            }
+            let b2 = a + dir * (b - a).dot(dir);
+            let off = (d - a) - dir * (d - a).dot(dir);
+            let w = xf(vec![a, b2, a + off], DMat4::IDENTITY);
+            out.push((lay, Shape::Dim(w[0], w[1], w[2] - w[0])));
+        }
+        "POINT" | "HATCH" | "ATTRIB" | "ATTDEF" | "VIEWPORT" | "SOLID" | "SPLINE" | "ELLIPSE" | "LEADER" | "MLEADER" | "IMAGE" | "WIPEOUT" => *skipped += 1,
         _ => *skipped += 1,
     }
 }
@@ -385,9 +489,48 @@ pub fn import(m: &mut Model, text: &str, name: &str, units: Option<&str>, at: DV
     if shapes_out.is_empty() {
         bail!("nothing SketchCraft can draw in that DXF ({skipped} text, hatch or other items skipped)");
     }
+    // where the drawing mostly is: percentiles of its points, so a sheet
+    // border drawn hundreds of times larger doesn't decide the view
+    let focus = {
+        let (mut xs, mut ys, mut zs) = (vec![], vec![], vec![]);
+        for (_, sh) in &shapes_out {
+            let pts: &[DVec3] = match sh {
+                Shape::Path(p) | Shape::Loop(p) | Shape::Face(p) => p,
+                _ => &[],
+            };
+            for q in pts {
+                xs.push(q.x);
+                ys.push(q.y);
+                zs.push(q.z);
+            }
+        }
+        let pick = |v: &mut Vec<f64>| -> (f64, f64) {
+            if v.is_empty() {
+                return (0.0, 0.0);
+            }
+            v.sort_by(|a, b| a.total_cmp(b));
+            let k = |f: f64| v[((v.len() - 1) as f64 * f).round() as usize];
+            (k(0.02), k(0.98))
+        };
+        let ((x0, x1), (y0, y1), (z0, z1)) = (pick(&mut xs), pick(&mut ys), pick(&mut zs));
+        [DVec3::new(x0, y0, z0), DVec3::new(x1, y1, z1)]
+    };
     let mut by_layer: std::collections::BTreeMap<String, Vec<Shape>> = Default::default();
+    let (mut labels, mut dimensions) = (0, 0);
     for (l, s) in shapes_out {
-        by_layer.entry(l).or_default().push(s);
+        match s {
+            Shape::Text(at, text) => {
+                let id = m.new_id();
+                m.annotations.push(crate::model::Annotation::Text { id, at, text, leader: None });
+                labels += 1;
+            }
+            Shape::Dim(a, b, offset) => {
+                let id = m.new_id();
+                m.annotations.push(crate::model::Annotation::Dimension { id, a, b, offset });
+                dimensions += 1;
+            }
+            s => by_layer.entry(l).or_default().push(s),
+        }
     }
     let outer = m.begin_group(name.to_string());
     let (mut faces, mut edges) = (0, 0);
@@ -408,6 +551,7 @@ pub fn import(m: &mut Model, text: &str, name: &str, units: Option<&str>, at: DV
                     b.path(m, &p);
                 }
                 Shape::Path(p) => b.path(m, &p),
+                Shape::Text(..) | Shape::Dim(..) => {}
             }
         }
         faces += b.faces + b.find_faces(m);
@@ -420,7 +564,7 @@ pub fn import(m: &mut Model, text: &str, name: &str, units: Option<&str>, at: DV
     }
     edges += cut_across_layers(m, &mut bulks);
     m.active_group = m.groups.get(&outer).and_then(|g| g.parent);
-    Ok(DxfResult { group: outer, layers, faces, edges, units: unit.into(), skipped })
+    Ok(DxfResult { group: outer, layers, faces, edges, units: unit.into(), skipped, labels, dimensions, focus })
 }
 
 /// Layers are separate groups, so a sheet border on one layer would fill as a
