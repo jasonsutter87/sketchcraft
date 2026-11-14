@@ -31,9 +31,11 @@ Checked items are in `main`.
 
 ## Files
 
-- [x] Import: SketchUp `.skp` (6–8 and 2013+), **DXF** (layers as tags, blocks, units, text as labels, linear dimensions), **DWG** (via LibreDWG / ODA converter; tested on AutoCAD 2004 and 2018 files), OBJ (+ .mtl), binary FBX
+- [x] Import: SketchUp `.skp` (6–8 and 2013+), **DXF** (layers as tags, blocks, units, text as labels, dimensions, splines, ellipses, hatches), **DWG** (via LibreDWG / ODA converter; tested on AutoCAD 2004 and 2018 files), OBJ (+ .mtl), binary FBX
 - [x] Export: glTF, OBJ, Collada (all with textures), STL, 3D DXF, **DWG** (via converter), PDF, section cuts (SVG / DXF), IFC4 (BIM)
-- [x] **Raise walls** from an imported floor plan (wall bands found across T-junctions, window lines and drafting slips)
+- [x] **Raise walls** from an imported floor plan (wall bands found across T-junctions, window lines and drafting slips; window openings with sill and head)
+- [x] **Point clouds** (Scan Essentials core): PLY, LAS, XYZ / PTS / TXT; colored, thinned to a budget, survey coordinates moved home; drawing tools snap to scan points
+- [x] **Dynamic Components**: size, copies, material, hidden, position (x, y, z) and rotation (rotx, roty, rotz), formulas, and Component Options (text boxes, lists, read-outs)
 - [x] **Classifier** (IFC types) and **Generate Report** (CSV)
 - [x] **Add Location**: real terrain and OpenStreetMap imagery around a lat / lon
 
@@ -45,7 +47,7 @@ Checked items are in `main`.
 ## Known gaps (next)
 
 - DWG needs a converter installed (LibreDWG or ODA); a native DWG reader is out of scope
-- DXF: hatches, splines, ellipses and angular/radial dimensions are skipped; raised walls run full height over windows
-- Dynamic Component position / rotation attributes (x, y, z, rotz) and option dialogs
-- IFC checked structurally (tests), not yet against IfcOpenShell / Revit
-- Point clouds (Scan Essentials), V-Ray-class rendering, Revit import (Studio)
+- Revit (.rvt) is a closed format with no public reader; the practical route is IFC import (Revit exports IFC), not built yet
+- Rendering is a CPU path tracer: no denoiser or GPU tracing yet, so not V-Ray-class
+- Point clouds: LAZ (compressed) needs converting to LAS first; scans aren't drawn in headless renders
+- Raise walls works from wall layers (or the whole drawing); walls drawn only as single lines aren't thickened
