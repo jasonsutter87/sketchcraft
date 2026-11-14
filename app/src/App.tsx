@@ -168,7 +168,23 @@ export default function App() {
   const [typed, setTyped] = useState("");
   const [toast, setToast] = useState<{ text: string; bad?: boolean } | null>(null);
   const [tab, setTab] = useState<Tab>("outliner");
-  const [styles, setStyles] = useState<Styles>({ xray: false, backEdges: false, shadows: false, edges: true, parallel: false, face: "textured", background: "default" });
+  const [styles, setStyles] = useState<Styles>(() => {
+    let help = true;
+    try {
+      help = localStorage.getItem("sketchcraft.help") !== "off";
+    } catch {
+      /* private window: help stays on */
+    }
+    return { xray: false, backEdges: false, shadows: false, edges: true, parallel: false, face: "textured", background: "default", help };
+  });
+  // help on or off is remembered
+  useEffect(() => {
+    try {
+      localStorage.setItem("sketchcraft.help", styles.help === false ? "off" : "on");
+    } catch {
+      /* not saved: fine */
+    }
+  }, [styles.help]);
   const [section, setSection] = useState(false);
   // skin and workspace, remembered between launches
   const [skin, setSkinState] = useState<Skin>(rememberedSkin);
@@ -736,6 +752,10 @@ export default function App() {
 
       <main className="stage">
         <Viewport
+          onHideHelp={() => {
+            setStyles((s) => ({ ...s, help: false }));
+            say("Help hidden. Turn it back on with Help in the view bar.");
+          }}
           scene={scene}
           tool={tool}
           setTool={chooseTool}
@@ -802,13 +822,14 @@ export default function App() {
               ["edges", "Edges"],
               ["parallel", "Parallel"],
               ["notes", "Notes"],
+              ["help", "Help"],
             ] as [keyof Styles, string][]
           ).map(([k, label]) => (
             <button
               key={k}
-              className={(k === "notes" ? styles.notes !== false : styles[k]) ? "on" : ""}
-              title={k === "notes" ? "Dimensions, labels and door swings" : undefined}
-              onClick={() => setStyles((s) => ({ ...s, [k]: k === "notes" ? s.notes === false : !s[k] }))}
+              className={(k === "notes" || k === "help" ? styles[k] !== false : styles[k]) ? "on" : ""}
+              title={k === "notes" ? "Dimensions, labels and door swings" : k === "help" ? "The tool coach, top-left: what each tool needs next" : undefined}
+              onClick={() => setStyles((s) => ({ ...s, [k]: k === "notes" || k === "help" ? s[k] === false : !s[k] }))}
             >
               {label}
             </button>

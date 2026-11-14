@@ -71,6 +71,8 @@ export interface Styles {
   byTag?: boolean;
   /** dimensions, labels and door swings (on unless turned off) */
   notes?: boolean;
+  /** the tool coach, top-left: what to do next (on unless turned off) */
+  help?: boolean;
   /** SketchUp's face styles */
   face?: FaceStyle;
   /** bold outlines around shapes */
@@ -142,6 +144,8 @@ interface Props {
   onContext: (x: number, y: number) => void;
   onToast: (t: string, bad?: boolean) => void;
   onSection: (on: boolean) => void;
+  /** the coach's × */
+  onHideHelp?: () => void;
   api: React.MutableRefObject<ViewportApi | null>;
 }
 
@@ -2867,11 +2871,16 @@ export default function Viewport(props: Props) {
   return (
     <div className="viewport" ref={host} style={{ cursor }}>
       {backdrop && <img className="backdrop" src={backdrop} alt="" />}
-      {coach && coach.step && !cageUi && (
+      {coach && coach.step && !cageUi && props.styles.help !== false && (
         <div className="coach" aria-live="polite">
           <div className="coach-head">
             <span className="coach-icon">{(Icons as unknown as Record<string, () => React.ReactNode>)[tool]?.()}</span>
             <b>{coach.title}</b>
+            {props.onHideHelp && (
+              <button className="coach-hide" onClick={props.onHideHelp} aria-label="Hide help" title="Hide help (turn it back on with Help in the view bar)">
+                ×
+              </button>
+            )}
           </div>
           <div className="coach-step">{coach.step}</div>
           {coach.keys.length > 0 && (
