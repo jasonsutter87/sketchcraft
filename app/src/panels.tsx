@@ -551,7 +551,7 @@ export interface MenuItem {
   run: () => void;
 }
 
-export function contextItems(scene: Scene, sel: Sel, run: Run, setSel: (s: Sel) => void, fitSel: () => void, section?: { origin: number[]; normal: number[] } | null, onCage?: (id: number) => void): MenuItem[] {
+export function contextItems(scene: Scene, sel: Sel, run: Run, setSel: (s: Sel) => void, fitSel: () => void, section?: { origin: number[]; normal: number[] } | null, onCage?: (id: number) => void, onToast?: (t: string) => void): MenuItem[] {
   const ids = selIds(sel);
   const items: MenuItem[] = [];
   if (isEmpty(sel)) {
@@ -579,6 +579,18 @@ export function contextItems(scene: Scene, sel: Sel, run: Run, setSel: (s: Sel) 
     if (def != null && scene.instances.filter((i) => i.component === def).length > 1) items.push({ label: "Make unique", run: () => run({ cmd: "make_unique", id: ids[0] }) });
   }
   if (sel.faces.length === 1 && !sel.groups.length && !sel.instances.length) items.push({ label: "Orient faces (match this one)", run: () => run({ cmd: "orient_faces", face: sel.faces[0] }) });
+  // a matched photo onto these faces, as textures (SketchUp's Project Photo)
+  if (sel.faces.length || sel.groups.length)
+    for (const v of scene.views.filter((x) => x.photo).slice(0, 4))
+      items.push({
+        label: `Project photo "${v.name}"`,
+        run: () =>
+          run({ cmd: "project_photo", view: v.name, ids: [...sel.faces, ...sel.groups] }).then((r) => {
+            if (!r.ok) return;
+            const n = (r.faces as number[]).length;
+            onToast?.(`Photo projected onto ${n} face${n === 1 ? "" : "s"}${r.away ? `; ${r.away} facing away from that camera were left alone` : ""}`);
+          }),
+      });
   if (sel.faces.length || sel.groups.length) {
     items.push({
       label: "Make component…",

@@ -1694,3 +1694,41 @@ fn dxf_islands_become_holes_and_spikes_are_kept_as_edges() {
     let rid = *e.model.faces.iter().find(|(_, f)| !f.holes.is_empty()).unwrap().0;
     run(&mut e, json!({"cmd":"pushpull","face":rid,"distance":0.1}));
 }
+
+#[test]
+fn project_a_matched_photo_onto_faces() {
+    use base64::Engine as _;
+    // the "photo": left half red, right half blue, 400 x 300
+    let img = image::RgbImage::from_fn(400, 300, |x, _| if x < 200 { image::Rgb([220, 30, 30]) } else { image::Rgb([30, 30, 220]) });
+    let mut png = std::io::Cursor::new(Vec::new());
+    img.write_to(&mut png, image::ImageFormat::Png).unwrap();
+    let photo = format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(png.into_inner()));
+    let mut e = Engine::new();
+    // a wall 4 m wide, 2 m tall, facing the camera (-y), and a box behind it facing away
+    let wall = run(&mut e, json!({"cmd":"polygon","points":[[-2,0,0],[2,0,0],[2,0,2],[-2,0,2]]}));
+    let wall = wall["face"].as_u64().unwrap() as u32;
+    if e.model.normal(wall).y > 0.0 {
+        e.model.faces.get_mut(&wall).unwrap().reverse();
+    }
+    let back = run(&mut e, json!({"cmd":"polygon","points":[[-1,3,0],[1,3,0],[1,3,1],[-1,3,1]]}));
+    let back = back["face"].as_u64().unwrap() as u32;
+    if e.model.normal(back).y < 0.0 {
+        e.model.faces.get_mut(&back).unwrap().reverse();
+    }
+    run(&mut e, json!({"cmd":"save_view","name":"Front photo","eye":[0,-10,1],"target":[0,0,1],"fov":40.0,"photo":photo}));
+    let r = run(&mut e, json!({"cmd":"project_photo","view":"Front photo","ids":[wall, back],"size":256}));
+    assert_eq!(r["faces"], json!([wall]));
+    assert_eq!(r["away"], 1, "the far face looks away from the camera");
+    let mname = e.model.faces[&wall].material.clone().unwrap();
+    let t = e.model.materials[&mname].texture.clone().unwrap();
+    let (_, bytes) = sketchcraft::texmap::bytes(&t).unwrap();
+    let tex = image::load_from_memory(&bytes).unwrap().to_rgb8();
+    let map = sketchcraft::texmap::Mapping::of(&t, e.model.normal(wall));
+    let at = |x: f64| sketchcraft::texmap::sample(&tex, map.uv(DVec3::new(x, 0.0, 1.0)));
+    let (l, rr) = (at(-1.5), at(1.5));
+    assert!(l[0] > 0.6 && l[2] < 0.3, "left of the wall is red: {l:?}");
+    assert!(rr[2] > 0.6 && rr[0] < 0.3, "right of the wall is blue: {rr:?}");
+    // a view without a photo is refused
+    run(&mut e, json!({"cmd":"save_view","name":"Plain","eye":[0,-10,1],"target":[0,0,1]}));
+    assert_eq!(e.exec_json(&json!({"cmd":"project_photo","view":"Plain","ids":[wall]}).to_string())["ok"], false);
+}

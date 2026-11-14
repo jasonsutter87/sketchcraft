@@ -616,6 +616,14 @@ pub enum Command {
     },
     /// Export the model as an AutoCAD DWG (3D faces, through a converter).
     ExportDwg { path: String },
+    /// Project a matched photo (a saved view with a photo) onto faces, or the
+    /// faces of groups: each gets a straightened texture cut from the photo.
+    ProjectPhoto {
+        view: String,
+        ids: Vec<Id>,
+        #[serde(default = "photo_px")]
+        size: u32,
+    },
     /// Join connected edges into one curve (picked, offset and followed as one).
     Weld { edges: Vec<Id> },
     /// Split curves back into separate edges.
@@ -928,6 +936,10 @@ const UNDO_LIMIT: usize = 200;
 
 fn v3(a: [f64; 3]) -> DVec3 {
     DVec3::from(a)
+}
+
+fn photo_px() -> u32 {
+    1024
 }
 
 fn x_axis() -> [f64; 3] {
@@ -1652,6 +1664,11 @@ impl Engine {
                 let r = crate::export2::write_dxf(&self.model, dxf.to_str().unwrap()).and_then(|n| crate::dwg::from_dxf(&dxf, std::path::Path::new(&path)).map(|_| n));
                 std::fs::remove_dir_all(&tmp).ok();
                 json!({"path": path, "triangles": r?})
+            }
+            Command::ProjectPhoto { view, ids, size } => {
+                let faces = m.faces_of(&ids)?;
+                let r = crate::photoproject::project(m, &view, &faces, size)?;
+                json!({"faces": r.faces, "away": r.away})
             }
             Command::Weld { edges } => json!({"curve": m.weld(&edges)?}),
             Command::ExplodeCurve { edges } => json!({"edges": m.explode_curve(&edges)}),

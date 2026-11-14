@@ -25,14 +25,14 @@ Checked items are in `main`.
 - [x] **Styles**: shaded / textured / monochrome / hidden line / wireframe, profiles,
       sketchy edges, extensions, ambient occlusion, paper / blueprint / night; presets
 - [x] Scenes (saved views), section cuts with **section fills**, X-ray, back edges, shadows, parallel projection
-- [x] **Match Photo**: camera from a photo's vanishing lines; the scene keeps the photo
+- [x] **Match Photo**: camera from a photo's vanishing lines; the scene keeps the photo; **Project Photo** onto faces as straightened textures
 - [x] **Timeline** for video: turntables, recorded walkthroughs, glides through scenes, and sun studies (built-in solar position, clock on the frame); previewed live, exported as MP4 at 720p / 1080p / square / vertical with viewport shadows
 - [x] **LayOut-lite drawing sheets**: viewports at true scale, scale bars, title blocks, multi-page PDF
 
 ## Files
 
-- [x] Import: SketchUp `.skp` (6–8 and 2013+), OBJ (+ .mtl), binary FBX
-- [x] Export: glTF, OBJ, STL, Collada (.dae), 3D DXF, PDF, section cuts (SVG / DXF), IFC4 (BIM)
+- [x] Import: SketchUp `.skp` (6–8 and 2013+), **DXF** (layers as tags, blocks, units), **DWG** (via LibreDWG / ODA converter), OBJ (+ .mtl), binary FBX
+- [x] Export: glTF, OBJ, Collada (all with textures), STL, 3D DXF, **DWG** (via converter), PDF, section cuts (SVG / DXF), IFC4 (BIM)
 - [x] **Classifier** (IFC types) and **Generate Report** (CSV)
 - [x] **Add Location**: real terrain and OpenStreetMap imagery around a lat / lon
 
@@ -43,9 +43,8 @@ Checked items are in `main`.
 
 ## Known gaps (next)
 
-- DWG (binary AutoCAD) import/export: DXF covers interchange today
-- Textures in exports and headless renders (those use each material's color)
-- Photo-textures projected from a matched photo onto faces
+- DWG needs a converter installed (LibreDWG or ODA); a native DWG reader is out of scope
+- DXF: text, dimensions, hatches, splines and ellipses are skipped
 - Dynamic Component position / rotation attributes (x, y, z, rotz) and option dialogs
 - IFC checked structurally (tests), not yet against IfcOpenShell / Revit
 - Point clouds (Scan Essentials), V-Ray-class rendering, Revit import (Studio)
