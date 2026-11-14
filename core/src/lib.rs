@@ -40,6 +40,7 @@ pub mod section;
 pub mod shapes;
 pub mod skp;
 pub mod subd;
+pub mod timeline;
 pub mod skp_vff;
 pub mod topology;
 pub mod transform;

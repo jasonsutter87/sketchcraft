@@ -52,6 +52,8 @@ ORGANIZE
 - photo_solve {points:[{name?, marks:{viewName:[u,v]}}], edges?:[[i,j]], fixed?, scale?:{a,b,length}, place?=true, build?}: multi-photo modeling. Marks are photo-centered, y up, in half-photo-heights. Corners marked in 2+ matched photos (all matched with the origin on the same real corner) are solved to 3D along with each photo distance; returns points, misses (m), distances
 - subd {name?, points, faces:[[i,j,k,l],...], materials?:[name|null per face], creases?:[[i,j]], levels?=2}: Catmull-Clark smooth surface from a cage (box modeling); subdivide {id, levels?, keep_sharp?}: smooth an existing group
 - cage_edit {id, moves?:[[i,x,y,z]], mirror?=true, crease?/uncrease?:[[i,j]], op?:{kind: insert_loop {edge:[i,j], t} | extrude {faces, distance} | delete_faces {faces} | merge {points}}, levels?, symmetry?: "auto"|"off"|0|1|2}: edit a subd object's cage (scene.cages has it) and rebuild
+- timeline {clips:[{seconds, kind:"scenes",views,hold?}|{kind:"turntable",turns?,from?}|{kind:"walk",path:[[x,y,z]..],eye_height?}|{kind:"sun",date?,from?:"07:00",to?:"19:00",camera?}]}: the video timeline; animate {path, timeline:true} renders it
+- timeline_frames {fps?}: every frame's camera (and sun)
 - weld {edges} / explode_curve {edges}: join a chain of edges into one curve, or split it
 - make_unique {id}: a component placement gets its own definition
 - orient_faces {face}: flip a surface to face the same way as that face

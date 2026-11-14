@@ -225,6 +225,9 @@ pub enum Command {
         views: Vec<String>,
         #[serde(default = "anim_turntable")]
         turntable: f64,
+        /// render the timeline instead of a tour of the scenes
+        #[serde(default)]
+        timeline: bool,
         #[serde(flatten)]
         opts: RenderOpts,
     },
@@ -578,6 +581,17 @@ pub enum Command {
         #[serde(default)]
         keep_sharp: bool,
     },
+    /// Set the timeline: clips played in order (scenes, turntable, walk, sun).
+    Timeline { clips: Vec<crate::timeline::Clip> },
+    /// Every frame of the timeline: camera (and sun) per frame.
+    TimelineFrames {
+        #[serde(default = "anim_fps")]
+        fps: f64,
+    },
+    /// The app's rendered frames for a video: one PNG/JPEG data URL each...
+    VideoFrame { session: String, index: usize, data: String },
+    /// ...then encode them (ffmpeg) to `path` (.mp4 / .mov) and clean up.
+    VideoFinish { session: String, path: String, #[serde(default = "anim_fps")] fps: f64 },
     /// Join connected edges into one curve (picked, offset and followed as one).
     Weld { edges: Vec<Id> },
     /// Split curves back into separate edges.
@@ -859,6 +873,9 @@ impl Command {
                 | Command::Blueprint { .. }
                 | Command::Levels
                 | Command::Animate { .. }
+                | Command::TimelineFrames { .. }
+                | Command::VideoFrame { .. }
+                | Command::VideoFinish { .. }
                 | Command::ExportDxf { .. }
                 | Command::ExportPdf { .. }
                 | Command::Assets
@@ -1520,7 +1537,15 @@ impl Engine {
             }
             Command::ExportGlb { path } => json!({"path": path, "triangles": export::write_glb(&self.model, &path)?}),
             Command::ExportStl { path, scale } => json!({"path": path, "triangles": export::write_stl(&self.model, &path, scale)?}),
-            Command::Animate { path, fps, transition, delay, views, turntable, opts } => {
+            Command::Animate { path, fps, transition, delay, views, turntable, timeline, opts } => {
+                if timeline {
+                    let model = &self.model;
+                    let fs = crate::timeline::frames(model, &model.timeline, fps, &|d, t| timeline_sun(model, d, t))?;
+                    if fs.is_empty() {
+                        bail!("the timeline is empty: add a clip first");
+                    }
+                    return Ok(json!({"path": path, "frames": crate::animate::animate_cams(model, &path, &crate::timeline::cameras(&fs), fps, &opts)?}));
+                }
                 let a = crate::animate::Anim { fps, transition, delay, views, turntable };
                 json!({"path": path, "frames": crate::animate::animate(&self.model, &path, &a, &opts)?})
             }
@@ -1530,6 +1555,47 @@ impl Engine {
                 json!({"path": path, "pages": crate::layout::blueprint(&building, &path, &sheet, &project, &notes)?, "levels": crate::layout::floor_levels(&building)})
             }
             Command::Levels => json!({"levels": crate::layout::floor_levels(&crate::environment::without(&self.model))}),
+            Command::Timeline { clips } => {
+                m.timeline = crate::timeline::Timeline { clips };
+                // check it now, so a bad clip is caught when it's made
+                let model = &*m;
+                let n = crate::timeline::frames(model, &model.timeline, 10.0, &|d, t| timeline_sun(model, d, t))?.len();
+                json!({"clips": m.timeline.clips.len(), "seconds": m.timeline.clips.iter().map(|c| c.seconds).sum::<f64>(), "frames_at_10fps": n})
+            }
+            Command::TimelineFrames { fps } => {
+                let model = &self.model;
+                let fs = crate::timeline::frames(model, &model.timeline, fps, &|d, t| timeline_sun(model, d, t))?;
+                json!({"fps": fps, "frames": fs})
+            }
+            Command::VideoFrame { session, index, data } => {
+                use base64::Engine as _;
+                let dir = video_dir(&session)?;
+                std::fs::create_dir_all(&dir)?;
+                let (head, b64) = data.split_once(',').unwrap_or(("", &data));
+                let ext = if head.contains("jpeg") { "jpg" } else { "png" };
+                let bytes = base64::engine::general_purpose::STANDARD.decode(b64.trim())?;
+                std::fs::write(dir.join(format!("frame_{index:05}.{ext}")), bytes)?;
+                json!({"index": index})
+            }
+            Command::VideoFinish { session, path, fps } => {
+                let dir = video_dir(&session)?;
+                let ext = if dir.join("frame_00000.jpg").exists() { "jpg" } else { "png" };
+                let out = std::process::Command::new("ffmpeg")
+                    .args(["-y", "-loglevel", "error", "-framerate"])
+                    .arg(format!("{}", fps.clamp(1.0, 60.0)))
+                    .arg("-i")
+                    .arg(dir.join(format!("frame_%05d.{ext}")))
+                    .args(["-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18", "-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2"])
+                    .arg(&path)
+                    .output();
+                let frames = std::fs::read_dir(&dir).map(|d| d.count()).unwrap_or(0);
+                std::fs::remove_dir_all(&dir).ok();
+                match out {
+                    Ok(o) if o.status.success() => json!({"path": path, "frames": frames}),
+                    Ok(o) => bail!("ffmpeg couldn't make the video: {}", String::from_utf8_lossy(&o.stderr).lines().last().unwrap_or("")),
+                    Err(_) => bail!("making a video needs ffmpeg installed (brew install ffmpeg)"),
+                }
+            }
             Command::Weld { edges } => json!({"curve": m.weld(&edges)?}),
             Command::ExplodeCurve { edges } => json!({"edges": m.explode_curve(&edges)}),
             Command::MakeUnique { id } => json!({"component": m.make_unique(id)?}),
@@ -2032,6 +2098,20 @@ fn sun_at(model: &Model, date: Option<&str>, time: Option<&str>, utc_offset: Opt
     let utc_offset = utc_offset.unwrap_or((lon / 15.0).round());
     let (azimuth, altitude) = crate::pt::solar_position(lat, lon, y as i32, mo as u32, da as u32, h + m / 60.0, utc_offset);
     Ok(SunAt { azimuth, altitude, lat, lon, located, utc_offset })
+}
+
+/// The sun for a sun-study frame: [azimuth, altitude] from the model's location.
+fn timeline_sun(model: &Model, date: &str, time: &str) -> Result<[f64; 2]> {
+    let s = sun_at(model, Some(date), Some(time), None)?;
+    Ok([s.azimuth, s.altitude])
+}
+
+/// Where a video's frames wait to be encoded (a session name is letters and digits only).
+fn video_dir(session: &str) -> Result<std::path::PathBuf> {
+    if session.is_empty() || session.len() > 40 || !session.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+        bail!("bad video session name");
+    }
+    Ok(std::env::temp_dir().join(format!("sketchcraft-video-{session}")))
 }
 
 /// Where app skins live: ~/Documents/SketchCraft/Skins.

@@ -1503,3 +1503,48 @@ fn text_3d_from_outlines() {
     assert_eq!(faces.iter().filter(|f| f.holes.len() == 1).count(), 2, "the O's front and back keep the counter");
     assert!(e.model.active_group.is_none(), "back out of the text group");
 }
+
+#[test]
+fn timeline_turntable_walk_scenes_and_sun() {
+    let mut e = Engine::new();
+    run(&mut e, json!({"cmd":"rect","from":[0,0,0],"to":[4,4,0]}));
+    run(&mut e, json!({"cmd":"save_view","name":"A","eye":[10,0,2],"target":[2,2,1]}));
+    run(&mut e, json!({"cmd":"save_view","name":"B","eye":[0,10,2],"target":[2,2,1]}));
+    let r = run(&mut e, json!({"cmd":"timeline","clips":[
+        {"kind":"turntable","seconds":2},
+        {"kind":"walk","seconds":3,"path":[[0,-5,0],[0,5,0],[6,5,0]]},
+        {"kind":"scenes","seconds":2,"views":["A","B"],"hold":0.5},
+        {"kind":"sun","seconds":1,"date":"2026-06-21","from":"06:00","to":"20:00"}
+    ]}));
+    assert_eq!(r["seconds"], 8.0);
+    let f = run(&mut e, json!({"cmd":"timeline_frames","fps":10}));
+    let fs = f["frames"].as_array().unwrap();
+    assert_eq!(fs.len(), 80);
+    let p = |i: usize, k: &str| -> Vec<f64> { fs[i][k].as_array().unwrap().iter().map(|v| v.as_f64().unwrap()).collect() };
+    // turntable: goes around and nearly comes back
+    let (a, b, t) = (p(0, "eye"), p(19, "eye"), p(0, "target"));
+    let radius = ((a[0] - t[0]).powi(2) + (a[1] - t[1]).powi(2)).sqrt();
+    let gap = ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2)).sqrt();
+    assert!(gap < radius * 0.35, "one step short of a full turn: {gap} of {radius}");
+    let half = p(10, "eye");
+    assert!(((a[0] - half[0]).powi(2) + (a[1] - half[1]).powi(2)).sqrt() > radius * 1.9, "halfway is the far side");
+    assert!(fs[0]["sun"].is_null());
+    // walk: eye height above the floor, starts at the first point, ends at the last
+    let w0 = p(20, "eye");
+    assert!((w0[2] - 1.68).abs() < 1e-6 && w0[0].abs() < 1e-6 && (w0[1] + 5.0).abs() < 1e-6);
+    let w1 = p(49, "eye");
+    assert!((w1[0] - 6.0).abs() < 1e-6 && (w1[1] - 5.0).abs() < 1e-6);
+    // scenes: holds on A, ends on B
+    assert_eq!(p(50, "eye"), vec![10.0, 0.0, 2.0]);
+    assert_eq!(p(69, "eye"), vec![0.0, 10.0, 2.0]);
+    // sun: low in the morning, higher at midday, a clock on each frame
+    let s0 = p(70, "sun");
+    let s5 = p(75, "sun");
+    assert!(s5[1] > s0[1], "the sun climbs toward midday");
+    assert_eq!(fs[70]["clock"], "06:00");
+    assert_eq!(fs[79]["clock"], "20:00");
+    // undo removes the timeline; bad scenes are refused
+    run(&mut e, json!({"cmd":"undo"}));
+    assert!(e.model.timeline.clips.is_empty());
+    assert_eq!(e.exec_json(&json!({"cmd":"timeline","clips":[{"kind":"scenes","seconds":2,"views":["Nope"]}]}).to_string())["ok"], false);
+}

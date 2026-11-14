@@ -232,6 +232,9 @@ pub struct Model {
     pub photo_guides: Vec<Id>,
     #[serde(default)]
     pub views: Vec<View>,
+    /// clips played in order for videos (turntables, walks, sun studies)
+    #[serde(default, skip_serializing_if = "crate::timeline::Timeline::is_empty")]
+    pub timeline: crate::timeline::Timeline,
     #[serde(default)]
     pub annotations: Vec<Annotation>,
     /// Display units: "m", "cm", "mm", "ft" (feet and inches) or "in". Geometry is always meters.

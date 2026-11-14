@@ -75,6 +75,11 @@ pub fn cameras(m: &Model, a: &Anim, base: &RenderOpts) -> Result<Vec<CameraSpec>
 /// (needs ffmpeg). Returns the number of frames.
 pub fn animate(m: &Model, path: &str, a: &Anim, base: &RenderOpts) -> Result<usize> {
     let cams = cameras(m, a, base)?;
+    animate_cams(m, path, &cams, a.fps, base)
+}
+
+/// Render these cameras to `path` (frames folder, or .mp4/.mov).
+pub fn animate_cams(m: &Model, path: &str, cams: &[CameraSpec], fps: f64, base: &RenderOpts) -> Result<usize> {
     let video = matches!(Path::new(path).extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase()).as_deref(), Some("mp4" | "mov"));
     let dir: PathBuf = if video { std::env::temp_dir().join(format!("sketchcraft-frames-{}", std::process::id())) } else { PathBuf::from(path) };
     std::fs::create_dir_all(&dir)?;
@@ -103,7 +108,7 @@ pub fn animate(m: &Model, path: &str, a: &Anim, base: &RenderOpts) -> Result<usi
     if video {
         let out = std::process::Command::new("ffmpeg")
             .args(["-y", "-loglevel", "error", "-framerate"])
-            .arg(format!("{}", a.fps.clamp(1.0, 60.0)))
+            .arg(format!("{}", fps.clamp(1.0, 60.0)))
             .arg("-i")
             .arg(dir.join("frame_%05d.png"))
             .args(["-c:v", "libx264", "-pix_fmt", "yuv420p", "-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2"])
