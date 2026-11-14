@@ -526,7 +526,8 @@ export function EntityInfo({ scene, sel, run }: { scene: Scene; sel: Sel; run: R
           </select>
         </label>
       )}
-      {insts.length === 1 && <AttrEditor key={insts[0].id} id={insts[0].id} attrs={insts[0].attrs ?? {}} run={run} />}
+      {insts.length === 1 && <ComponentOptions key={`o${insts[0].id}:${JSON.stringify(insts[0].attrs ?? {})}`} id={insts[0].id} run={run} />}
+      {insts.length === 1 && <AttrEditor key={`a${insts[0].id}:${JSON.stringify(insts[0].attrs ?? {})}`} id={insts[0].id} attrs={insts[0].attrs ?? {}} run={run} />}
       {taggable.length > 0 && (
         <div className="row gap">
           <input className="num wide-input" placeholder="Tag (e.g. Trees)" value={tag} onChange={(e) => setTag(e.target.value)} list="tag-list" />
@@ -1015,6 +1016,62 @@ export function SheetsDialog({ scene, onMake, onClose }: { scene: Scene; onMake:
 }
 
 
+interface Opt {
+  name: string;
+  label: string;
+  access: "textbox" | "list" | "view";
+  choices: [string, string][];
+  value: string;
+  number: number | null;
+}
+
+/** SketchUp's Component Options: the attributes a component offers its user
+ * (a text box, a list of choices, or a value to read). */
+function ComponentOptions({ id, run }: { id: number; run: Run }) {
+  const [opts, setOpts] = useState<Opt[]>([]);
+  const [draft, setDraft] = useState<Record<string, string>>({});
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    exec({ cmd: "options", id }).then((r) => r.ok && setOpts((r.options as Opt[]) ?? []));
+  }, [id]);
+  if (!opts.length) return null;
+  const set = async (name: string, value: string) => {
+    const r = await run({ cmd: "set_attrs", id, attrs: { [name]: value } });
+    setErr(r.ok ? null : (r.error ?? "That didn't work"));
+  };
+  const shown = (o: Opt) => (o.number != null ? String(Math.round(o.number * 1000) / 1000) : o.value);
+  return (
+    <div className="attrs">
+      <div className="section-title sub">Component options</div>
+      {opts.map((o) => (
+        <label key={o.name} className="field">
+          <span>{o.label}</span>
+          {o.access === "list" && o.choices.length ? (
+            <select value={o.choices.find(([, v]) => v === o.value)?.[1] ?? ""} onChange={(e) => set(o.name, e.target.value)}>
+              {!o.choices.some(([, v]) => v === o.value) && <option value="">{shown(o)}</option>}
+              {o.choices.map(([l, v]) => (
+                <option key={l} value={v}>
+                  {l}
+                </option>
+              ))}
+            </select>
+          ) : o.access === "view" ? (
+            <b>{shown(o)}</b>
+          ) : (
+            <input
+              value={draft[o.name] ?? o.value}
+              onChange={(e) => setDraft((d) => ({ ...d, [o.name]: e.target.value }))}
+              onBlur={() => draft[o.name] != null && draft[o.name] !== o.value && set(o.name, draft[o.name])}
+              onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+            />
+          )}
+        </label>
+      ))}
+      {err && <p className="attr-err">{err}</p>}
+    </div>
+  );
+}
+
 /** Dynamic Component attributes of one placement: values or =formulas. */
 function AttrEditor({ id, attrs, run }: { id: number; attrs: Record<string, string>; run: Run }) {
   const [rows, setRows] = useState<[string, string][]>(() => [...Object.entries(attrs), ["", ""]]);
@@ -1050,7 +1107,7 @@ function AttrEditor({ id, attrs, run }: { id: number; attrs: Record<string, stri
           + Row
         </button>
       </div>
-      <p className="muted small">lenx / leny / lenz (m), copies, spacing, material, hidden. Formulas: =lenx*2, =if(a&gt;1, 2, 3), =parent!lenx</p>
+      <p className="muted small">lenx / leny / lenz (m), x / y / z (m), rotx / roty / rotz (°), copies, spacing, material, hidden. Formulas: =lenx*2, =if(a&gt;1, 2, 3), =parent!lenx. Offer one in Component options: _name_access = textbox, list or view; _name_label; _name_options = Low=0.9&amp;Tall=1.8</p>
     </div>
   );
 }

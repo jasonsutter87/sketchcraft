@@ -373,6 +373,9 @@ pub enum Command {
     /// Dynamic Component attributes on a placement (or defaults on a
     /// component, by its component id). An empty value removes one.
     SetAttrs { id: Id, attrs: std::collections::BTreeMap<String, String> },
+    /// Component Options: the attributes a placement offers its user (those
+    /// with an `_name_access` of textbox, list or view).
+    Options { id: Id },
     /// Generate Report: every group and component with size, area, volume
     /// and attributes; `path` writes CSV.
     Report {
@@ -918,6 +921,7 @@ impl Command {
                 | Command::Skins
                 | Command::SaveSkin { .. }
                 | Command::Report { .. }
+                | Command::Options { .. }
                 | Command::Section { .. }
                 | Command::Info
                 | Command::Components
@@ -1927,6 +1931,10 @@ impl Engine {
             Command::FlipEdge { edge } => {
                 m.flip_edge(edge)?;
                 json!({})
+            }
+            Command::Options { id } => {
+                let i = m.instances.get(&id).ok_or_else(|| anyhow::anyhow!("{id} is not a component placement"))?;
+                json!({"options": crate::dynamic::options(i, m.definitions.get(&i.def))})
             }
             Command::SetAttrs { id, attrs } => {
                 let target = if let Some(i) = m.instances.get_mut(&id) {

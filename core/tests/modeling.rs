@@ -1945,3 +1945,40 @@ fn raise_walls_leaves_window_openings() {
     assert!(flat_at(2.7), "top over the window");
     assert!(!flat_at(1.5), "open between");
 }
+
+/// Dynamic Components: x / y / z and rotz place a picket; Component Options
+/// lists what's offered, with labels and list choices.
+#[test]
+fn dynamic_components_position_rotation_and_options() {
+    let mut e = Engine::new();
+    let g = run(&mut e, json!({"cmd":"begin_group","name":"Picket"}))["group"].as_u64().unwrap();
+    let f = run(&mut e, json!({"cmd":"polygon","points":[[0,0,0],[1,0,0],[1,0.1,0],[0,0.1,0]]}))["face"].as_u64().unwrap();
+    let up = e.model.normal(f as _).z > 0.0;
+    run(&mut e, json!({"cmd":"pushpull","face":f,"distance": if up { 1.0 } else { -1.0 }}));
+    run(&mut e, json!({"cmd":"end_group"}));
+    let inst = run(&mut e, json!({"cmd":"make_component","ids":[g],"name":"Picket"}))["instance"].as_u64().unwrap();
+    // moved to (5, 2) and turned a quarter: it now runs along +Y from there
+    run(&mut e, json!({"cmd":"set_attrs","id":inst,"attrs":{"x":"5","y":"=1+1","rotz":"90"}}));
+    let pts: Vec<DVec3> = e.model.world_faces().iter().flat_map(|f| f.outer.clone()).collect();
+    let (lo, hi) = pts.iter().fold((DVec3::splat(1e9), DVec3::splat(-1e9)), |(a, b), p| (a.min(*p), b.max(*p)));
+    assert!((lo.x - 4.9).abs() < 1e-9 && (hi.x - 5.0).abs() < 1e-9, "{lo} {hi}");
+    assert!((lo.y - 2.0).abs() < 1e-9 && (hi.y - 3.0).abs() < 1e-9, "{lo} {hi}");
+    // options: a labeled list and a text box; plain and hidden attributes aren't offered
+    run(&mut e, json!({"cmd":"set_attrs","id":inst,"attrs":{
+        "height":"1.2", "_height_access":"LIST", "_height_label":"Picket height", "_height_options":"Low=0.9&Tall%20one=1.8",
+        "spacing":"0.25", "_spacing_access":"textbox",
+        "lenz":"=height"
+    }}));
+    let o = run(&mut e, json!({"cmd":"options","id":inst}));
+    let opts = o["options"].as_array().unwrap();
+    assert_eq!(opts.len(), 2, "{o}");
+    let h = opts.iter().find(|x| x["name"] == "height").unwrap();
+    assert_eq!(h["label"], "Picket height");
+    assert_eq!(h["access"], "list");
+    assert_eq!(h["choices"], json!([["Low", "0.9"], ["Tall one", "1.8"]]));
+    assert_eq!(h["number"], 1.2);
+    // picking a choice is just setting the attribute
+    run(&mut e, json!({"cmd":"set_attrs","id":inst,"attrs":{"height":"1.8"}}));
+    let top = e.model.world_faces().iter().flat_map(|f| f.outer.iter().map(|p| p.z)).fold(f64::MIN, f64::max);
+    assert!((top - 1.8).abs() < 1e-9, "{top}");
+}

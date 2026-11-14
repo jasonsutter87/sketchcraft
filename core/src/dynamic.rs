@@ -7,6 +7,14 @@
 //!   its own length), like fence pickets or stair treads
 //! - `material`: a color ("#a05a2c" or a material name) for its unpainted faces
 //! - `hidden`: 1 to hide it
+//! - `x`, `y`, `z`: where it sits in its parent (meters), and `rotx`, `roty`,
+//!   `rotz`: its turn about the parent's axes (degrees, applied x, then y,
+//!   then z)
+//!
+//! Like SketchUp's Component Options, an attribute can be offered to whoever
+//! uses the component: `_name_access` = `textbox`, `list` or `view`,
+//! `_name_label` = what the option is called, and for a list
+//! `_name_options` = `Small=0.4&Large=0.8` (labels and values).
 //!
 //! Formulas can use + - * / ^, parentheses, comparisons (< <= > >= = <>),
 //! min, max, round, floor, ceil, abs, sqrt, if(cond, a, b), other attributes
@@ -261,15 +269,96 @@ pub fn draw(root: &Model, inst: &Instance, def: Option<&Definition>, size: DVec3
     v.entry("lenx".into()).or_insert(size.x * s.x);
     v.entry("leny".into()).or_insert(size.y * s.y);
     v.entry("lenz".into()).or_insert(size.z * s.z);
-    let base = inst.transform * DMat4::from_scale(s);
+    // position and turn, where the attributes say so
+    let (scale0, rot0, t0) = inst.transform.to_scale_rotation_translation();
+    let pos = DVec3::new(v.get("x").copied().unwrap_or(t0.x), v.get("y").copied().unwrap_or(t0.y), v.get("z").copied().unwrap_or(t0.z));
+    let turned = ["rotx", "roty", "rotz"].iter().any(|k| v.contains_key(*k));
+    let rot = if turned {
+        let d = |k: &str| v.get(k).copied().unwrap_or(0.0).to_radians();
+        glam::DQuat::from_euler(glam::EulerRot::ZYX, d("rotz"), d("roty"), d("rotx"))
+    } else {
+        rot0
+    };
+    let placed = DMat4::from_scale_rotation_translation(scale0, rot, pos);
+    for (k, x) in [("x", pos.x), ("y", pos.y), ("z", pos.z)] {
+        v.entry(k.into()).or_insert(x);
+    }
+    let base = placed * DMat4::from_scale(s);
     let copies = v.get("copies").map(|c| c.round().clamp(0.0, 1000.0) as usize).unwrap_or(0);
     // spacing is measured in the parent's space, along the placement's red axis
     let step_len = v.get("spacing").copied().unwrap_or(size.x * s.x);
-    let axis = inst.transform.transform_vector3(DVec3::X).normalize_or_zero();
+    let axis = placed.transform_vector3(DVec3::X).normalize_or_zero();
     let placements = (0..=copies).map(|k| DMat4::from_translation(axis * step_len * k as f64) * base).collect();
     let color = attrs.get("material").and_then(|m| hex(m).or_else(|| root.find_material(m).map(|x| x.color)));
     let hidden = v.get("hidden").map_or(false, |h| *h != 0.0);
     Draw { placements, color, hidden, scope: v }
+}
+
+/// One of a component's options (see the module notes).
+#[derive(serde::Serialize)]
+pub struct Opt {
+    pub name: String,
+    pub label: String,
+    /// "textbox", "list" or "view"
+    pub access: String,
+    /// for a list: (label, value)
+    pub choices: Vec<(String, String)>,
+    /// as written (a value or =formula)
+    pub value: String,
+    /// worked out, when it's a number
+    pub number: Option<f64>,
+}
+
+fn unescape(s: &str) -> String {
+    // %20-style escapes and + for spaces, as SketchUp writes them
+    let b = s.replace('+', " ");
+    let mut out = Vec::new();
+    let bytes = b.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let Some(x) = std::str::from_utf8(&bytes[i + 1..i + 3]).ok().and_then(|h| u8::from_str_radix(h, 16).ok()) {
+                out.push(x);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// The options a placement offers (attributes with an `_access` of textbox,
+/// list or view), in name order.
+pub fn options(inst: &Instance, def: Option<&Definition>) -> Vec<Opt> {
+    let attrs = attrs_of(inst, def);
+    let vals = resolve(&attrs, &BTreeMap::new());
+    let mut out = vec![];
+    for (name, value) in &attrs {
+        if name.starts_with('_') {
+            continue;
+        }
+        let access = attrs.get(&format!("_{name}_access")).map(|a| a.trim().to_ascii_lowercase()).unwrap_or_default();
+        if !matches!(access.as_str(), "textbox" | "list" | "view") {
+            continue;
+        }
+        let label = attrs.get(&format!("_{name}_label")).or_else(|| attrs.get(&format!("_{name}_formlabel"))).cloned().unwrap_or_else(|| name.clone());
+        let choices = attrs
+            .get(&format!("_{name}_options"))
+            .map(|o| {
+                o.split('&')
+                    .filter(|p| !p.is_empty())
+                    .map(|p| match p.split_once('=') {
+                        Some((l, v)) => (unescape(l), unescape(v)),
+                        None => (unescape(p), unescape(p)),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        out.push(Opt { name: name.clone(), label, access, choices, value: value.clone(), number: vals.get(name).copied() });
+    }
+    out
 }
 
 /// A report row value: numbers rounded for reading.
