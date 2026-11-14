@@ -35,6 +35,10 @@ pub struct Edge {
     /// curved surface, or the splits in a long street.
     #[serde(default, skip_serializing_if = "is_false")]
     pub soft: bool,
+    /// edges of one arc, circle or welded curve share an id: picked, offset
+    /// and followed as one
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub curve: Option<Id>,
     #[serde(default, skip_serializing_if = "is_false")]
     pub hidden: bool,
 }
@@ -815,9 +819,12 @@ impl Model {
             map.insert(k, id);
         }
         let edges: Vec<Edge> = self.edges.values().filter(|e| e.group == Some(gid)).cloned().collect();
+        let mut curves: HashMap<Id, Id> = HashMap::new();
         for e in edges {
+            // a copy's curves are its own
+            let curve = e.curve.map(|c| *curves.entry(c).or_insert_with(|| self.new_id()));
             let id = self.new_id();
-            self.edges.insert(id, Edge { a: map[&e.a], b: map[&e.b], group: Some(new), soft: e.soft, hidden: e.hidden });
+            self.edges.insert(id, Edge { a: map[&e.a], b: map[&e.b], group: Some(new), soft: e.soft, hidden: e.hidden, curve });
         }
         let faces: Vec<Face> = self.faces.values().filter(|f| f.group == Some(gid)).cloned().collect();
         for f in faces {

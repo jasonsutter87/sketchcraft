@@ -578,6 +578,29 @@ pub enum Command {
         #[serde(default)]
         keep_sharp: bool,
     },
+    /// Join connected edges into one curve (picked, offset and followed as one).
+    Weld { edges: Vec<Id> },
+    /// Split curves back into separate edges.
+    ExplodeCurve { edges: Vec<Id> },
+    /// Give one placement of a shared component its own definition.
+    MakeUnique { id: Id },
+    /// Flip a surface's faces to face the same way as `face`.
+    OrientFaces { face: Id },
+    /// 3D text from outlines (the app traces the font): `rings` in meters in the
+    /// text plane, laid at `at` along `right` and `up`, pulled `depth` (0 = flat).
+    #[serde(rename = "text_3d", alias = "text3d")]
+    Text3d {
+        rings: Vec<Vec<[f64; 2]>>,
+        at: [f64; 3],
+        #[serde(default = "x_axis")]
+        right: [f64; 3],
+        #[serde(default = "z_axis")]
+        up: [f64; 3],
+        #[serde(default)]
+        depth: f64,
+        #[serde(default)]
+        name: Option<String>,
+    },
     /// How see-through a material is in the view (reference images): 0-1.
     Opacity { material: String, value: f32 },
     /// Put the model in a ready-made setting: suburban, city, park, desert,
@@ -865,6 +888,14 @@ fn v3(a: [f64; 3]) -> DVec3 {
     DVec3::from(a)
 }
 
+fn x_axis() -> [f64; 3] {
+    [1.0, 0.0, 0.0]
+}
+
+fn z_axis() -> [f64; 3] {
+    [0.0, 0.0, 1.0]
+}
+
 impl Engine {
     pub fn new() -> Self {
         Self::default()
@@ -1056,7 +1087,12 @@ impl Engine {
                 }
                 json!({"edges": edges, "faces": faces, "face": faces.last()})
             }
-            Command::Circle { center, radius, normal, segments } => json!({"face": m.circle(v3(center), v3(normal), radius, segments)?}),
+            Command::Circle { center, radius, normal, segments } => {
+                let f = m.circle(v3(center), v3(normal), radius, segments)?;
+                let ring = m.pts(&m.face(f)?.outer.clone());
+                m.curve_through(&ring, true);
+                json!({"face": f})
+            }
             Command::Arc { start, end, bulge, normal, segments } => {
                 let pts = Model::arc_points(v3(start), v3(end), bulge, v3(normal), segments)?;
                 let mut edges = vec![];
@@ -1066,6 +1102,7 @@ impl Engine {
                     edges.extend(r.edges);
                     faces.extend(r.faces);
                 }
+                m.curve_through(&pts, false);
                 json!({"edges": edges, "faces": faces, "face": faces.last()})
             }
             Command::Offset { face, distance } => json!({"face": m.offset(face, distance)?}),
@@ -1493,6 +1530,18 @@ impl Engine {
                 json!({"path": path, "pages": crate::layout::blueprint(&building, &path, &sheet, &project, &notes)?, "levels": crate::layout::floor_levels(&building)})
             }
             Command::Levels => json!({"levels": crate::layout::floor_levels(&crate::environment::without(&self.model))}),
+            Command::Weld { edges } => json!({"curve": m.weld(&edges)?}),
+            Command::ExplodeCurve { edges } => json!({"edges": m.explode_curve(&edges)}),
+            Command::MakeUnique { id } => json!({"component": m.make_unique(id)?}),
+            Command::OrientFaces { face } => json!({"flipped": m.orient_faces(face)?}),
+            Command::Text3d { rings, at, right, up, depth, name } => {
+                // its own group, like SketchUp's 3D Text
+                let g = m.begin_group(name.unwrap_or_else(|| "3D Text".into()));
+                let r = m.text_3d(&rings, v3(at), v3(right), v3(up), depth);
+                m.active_group = m.groups.get(&g).and_then(|g| g.parent);
+                let faces = r?;
+                json!({"group": g, "faces": faces})
+            }
             Command::Opacity { material, value } => {
                 let Some(mat) = m.materials.get_mut(&material) else { bail!("no material {material}") };
                 mat.opacity = value.clamp(0.05, 1.0);

@@ -1439,3 +1439,67 @@ fn reference_images_can_be_see_through() {
     assert!((e.model.materials["Ref"].opacity - 0.4).abs() < 1e-6);
     assert_eq!(e.exec_json(&json!({"cmd":"opacity","material":"Nope","value":0.4}).to_string())["ok"], false);
 }
+
+#[test]
+fn curves_weld_and_explode() {
+    let mut e = Engine::new();
+    let c = run(&mut e, json!({"cmd":"circle","center":[0,0,0],"radius":1.0,"normal":[0,0,1],"segments":12}));
+    let f = c["face"].as_u64().unwrap() as u32;
+    let ring = e.model.faces[&f].outer.clone();
+    let one = e.model.find_edge(ring[0], ring[1]).unwrap();
+    assert_eq!(e.model.curve_edges(&[one]).len(), 12, "a circle is one curve");
+    run(&mut e, json!({"cmd":"explode_curve","edges":[one]}));
+    assert_eq!(e.model.curve_edges(&[one]).len(), 1);
+    // weld three of its edges back into one curve
+    let three: Vec<u32> = (0..3).map(|i| e.model.find_edge(ring[i], ring[i + 1]).unwrap()).collect();
+    run(&mut e, json!({"cmd":"weld","edges": three}));
+    assert_eq!(e.model.curve_edges(&[three[1]]).len(), 3);
+    // a gap is refused
+    let gap: Vec<u32> = vec![e.model.find_edge(ring[0], ring[1]).unwrap(), e.model.find_edge(ring[5], ring[6]).unwrap()];
+    assert_eq!(e.exec_json(&json!({"cmd":"weld","edges": gap}).to_string())["ok"], false);
+}
+
+#[test]
+fn orient_faces_and_make_unique() {
+    let mut e = Engine::new();
+    let r = run(&mut e, json!({"cmd":"rect","from":[0,0,0],"to":[2,2,0]}));
+    let f = r["face"].as_u64().unwrap() as u32;
+    run(&mut e, json!({"cmd":"pushpull","face":f,"distance":1.0}));
+    // flip two side faces the wrong way, then orient from the top
+    let sides: Vec<u32> = e.model.faces.keys().copied().filter(|&k| e.model.normal(k).z.abs() < 0.5).take(2).collect();
+    for s in &sides {
+        e.model.faces.get_mut(s).unwrap().reverse();
+    }
+    let top = e.model.faces.keys().copied().find(|&k| e.model.normal(k).z > 0.5).unwrap();
+    let out = run(&mut e, json!({"cmd":"orient_faces","face":top}));
+    assert_eq!(out["flipped"].as_array().unwrap().len(), 2);
+    let c = glam::DVec3::new(1.0, 1.0, 0.5);
+    for (&k, face) in &e.model.faces {
+        let p = e.model.vertices[&face.outer[0]].p;
+        assert!(e.model.normal(k).dot(p - c) > 0.0, "every face points out");
+    }
+    // two placements of one component; make one unique
+    let all: Vec<u32> = e.model.faces.keys().copied().collect();
+    let mc = run(&mut e, json!({"cmd":"make_component","ids":all,"name":"Block"}));
+    let inst = mc["instance"].as_u64().unwrap() as u32;
+    let other = run(&mut e, json!({"cmd":"place","component":"Block","at":[5,0,0]}));
+    let other = other["instance"].as_u64().unwrap() as u32;
+    let u = run(&mut e, json!({"cmd":"make_unique","id":other}));
+    assert_ne!(e.model.instances[&inst].def, e.model.instances[&other].def);
+    assert_eq!(e.model.definitions[&(u["component"].as_u64().unwrap() as u32)].name, "Block #2");
+}
+
+#[test]
+fn text_3d_from_outlines() {
+    let mut e = Engine::new();
+    // an "O": a square ring with a square counter, and an "I" bar
+    let o = vec![vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]], vec![[0.3, 0.3], [0.3, 0.7], [0.7, 0.7], [0.7, 0.3]], vec![[1.2, 0.0], [1.4, 0.0], [1.4, 1.0], [1.2, 1.0]]];
+    let r = run(&mut e, json!({"cmd":"text_3d","rings": o, "at":[0,0,0], "depth": 0.1, "name": "OI"}));
+    let g = r["group"].as_u64().unwrap() as u32;
+    assert_eq!(e.model.groups[&g].name, "OI");
+    let faces: Vec<_> = e.model.faces.values().filter(|f| f.group == Some(g)).collect();
+    // O: front, back, 4 outer sides, 4 counter sides; I: 6
+    assert_eq!(faces.len(), 16, "got {}", faces.len());
+    assert_eq!(faces.iter().filter(|f| f.holes.len() == 1).count(), 2, "the O's front and back keep the counter");
+    assert!(e.model.active_group.is_none(), "back out of the text group");
+}

@@ -13,6 +13,7 @@ pub mod components;
 pub mod csg;
 pub mod dynamic;
 pub mod edges;
+pub mod entities;
 pub mod environment;
 pub mod export;
 pub mod export2;
