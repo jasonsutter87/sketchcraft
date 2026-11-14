@@ -535,10 +535,17 @@ pub fn import(m: &mut Model, text: &str, name: &str, units: Option<&str>, at: DV
     let outer = m.begin_group(name.to_string());
     let (mut faces, mut edges) = (0, 0);
     let layers = by_layer.len();
+    // straight lines, by layer: a wall layer borrows the ones that join two of
+    // its own points (the wall drawn on through a window on another layer)
+    let lines: Vec<(String, DVec3, DVec3)> = by_layer
+        .iter()
+        .flat_map(|(l, ss)| ss.iter().filter_map(move |s| if let Shape::Path(p) = s { (p.len() == 2).then(|| (l.clone(), p[0], p[1])) } else { None }))
+        .collect();
     let mut bulks: Vec<Bulk> = vec![];
     for (layer, shapes) in by_layer {
         let g = m.begin_group(layer.clone());
         let mut b = Bulk::new(g);
+        b.walls = wallish(&layer);
         for s in shapes {
             match s {
                 // 3D faces go in as they are
@@ -552,6 +559,13 @@ pub fn import(m: &mut Model, text: &str, name: &str, units: Option<&str>, at: DV
                 }
                 Shape::Path(p) => b.path(m, &p),
                 Shape::Text(..) | Shape::Dim(..) => {}
+            }
+        }
+        if b.walls {
+            for (l, p, q) in &lines {
+                if *l != layer && b.has(*p) && b.has(*q) {
+                    b.path(m, &[*p, *q]);
+                }
             }
         }
         faces += b.faces + b.find_faces(m);
@@ -677,16 +691,28 @@ struct Bulk {
     group: Id,
     at: HashMap<(i64, i64, i64), Id>,
     edges: std::collections::HashSet<(Id, Id)>,
+    /// the model edge made for each pair (to split it later)
+    ids: HashMap<(Id, Id), Id>,
     /// edges from outlines and lines (faces are looked for among these)
     loose: Vec<(Id, Id)>,
     faces: usize,
+    /// a wall layer: close the bands at openings (see `jambs`)
+    walls: bool,
 }
 
 const Q: f64 = 1e-6;
 
 impl Bulk {
     fn new(group: Id) -> Bulk {
-        Bulk { group, at: HashMap::new(), edges: Default::default(), loose: vec![], faces: 0 }
+        Bulk { group, at: HashMap::new(), edges: Default::default(), ids: HashMap::new(), loose: vec![], faces: 0, walls: false }
+    }
+
+    fn key(p: DVec3) -> (i64, i64, i64) {
+        ((p.x / Q).round() as i64, (p.y / Q).round() as i64, (p.z / Q).round() as i64)
+    }
+
+    fn has(&self, p: DVec3) -> bool {
+        self.at.contains_key(&Bulk::key(p))
     }
 
     fn vertex(&mut self, m: &mut Model, p: DVec3) -> Id {
@@ -706,7 +732,187 @@ impl Bulk {
         }
         let id = m.new_id();
         m.edges.insert(id, crate::model::Edge { a, b, group: Some(self.group), ..Default::default() });
+        self.ids.insert((a.min(b), a.max(b)), id);
         true
+    }
+
+    /// Close wall bands at openings: where two parallel wall lines both stop
+    /// (a door or window), a wall's thickness apart and side by side, add the
+    /// short line across their ends, so the band between them is a face.
+    fn jambs(&mut self, m: &mut Model, es: &[(Id, Id)]) -> Vec<(Id, Id)> {
+        const MAX: f64 = 0.6; // meters: thicker than this isn't one wall
+        let mut nb: HashMap<Id, Vec<Id>> = HashMap::new();
+        for &(a, b) in es {
+            nb.entry(a).or_default().push(b);
+            nb.entry(b).or_default().push(a);
+        }
+        // each loose end, and the direction its line runs out of it
+        let ends: Vec<(Id, DVec3, DVec3)> = nb
+            .iter()
+            .filter(|(_, v)| v.len() == 1)
+            .map(|(e, v)| {
+                let p = m.p(*e);
+                (*e, p, (p - m.p(v[0])).normalize_or_zero())
+            })
+            .collect();
+        if ends.len() > 5000 {
+            return vec![];
+        }
+        let mut out = vec![];
+        // drafting slips first: an end that stops just short of another point
+        // (under 2.5 cm) is joined to it
+        const SLIP: f64 = 0.025;
+        let pts: Vec<(Id, DVec3)> = nb.keys().map(|v| (*v, m.p(*v))).collect();
+        let mut fixed = std::collections::HashSet::new();
+        for (e, p, _) in &ends {
+            let near = pts.iter().filter(|(v, q)| v != e && !nb[e].contains(v) && q.distance(*p) < SLIP).min_by(|a, b| a.1.distance(*p).total_cmp(&b.1.distance(*p)));
+            if let Some((v, _)) = near {
+                if self.edge(m, *e, *v) {
+                    out.push((*e, *v));
+                }
+                fixed.insert(*e);
+                fixed.insert(*v);
+            }
+        }
+        let ends: Vec<(Id, DVec3, DVec3)> = ends.into_iter().filter(|(e, ..)| !fixed.contains(e)).collect();
+        let mut pairs = vec![];
+        for (i, (a, pa, da)) in ends.iter().enumerate() {
+            for (b, pb, db) in &ends[i + 1..] {
+                let gap = *pb - *pa;
+                let d = gap.length();
+                // parallel lines ending the same way, the gap straight across them
+                if d < 0.01 || d > MAX || da.dot(*db) < 0.98 || (gap / d).dot(*da).abs() > 0.2 {
+                    continue;
+                }
+                pairs.push((d, *a, *b));
+            }
+        }
+        pairs.sort_by(|x, y| x.0.total_cmp(&y.0));
+        let mut used = std::collections::HashSet::new();
+        for (_, a, b) in pairs {
+            if used.contains(&a) || used.contains(&b) {
+                continue;
+            }
+            used.insert(a);
+            used.insert(b);
+            if self.edge(m, a, b) {
+                out.push((a, b));
+            }
+        }
+        out
+    }
+
+    /// Split flat edges where they cross or where one ends on another (CAD
+    /// walls meet in T-junctions without sharing a point), so the faces they
+    /// enclose can be found. `es` are one level's edges; returns the new set.
+    fn node(&mut self, m: &mut Model, es: &[(Id, Id)]) -> Vec<(Id, Id)> {
+        use glam::DVec2;
+        const TOL: f64 = 1e-4; // 0.1 mm: ends this close to a line are on it
+        let n = es.len();
+        if n < 2 || n > 200_000 {
+            return es.to_vec();
+        }
+        let seg: Vec<(DVec2, DVec2)> = es.iter().map(|(a, b)| (m.p(*a).truncate(), m.p(*b).truncate())).collect();
+        let z = m.p(es[0].0).z;
+        let lo = seg.iter().fold(DVec2::splat(f64::MAX), |l, (a, b)| l.min(*a).min(*b));
+        let hi = seg.iter().fold(DVec2::splat(f64::MIN), |h, (a, b)| h.max(*a).max(*b));
+        let g = ((n as f64).sqrt().ceil() as usize).clamp(1, 512);
+        let cell = ((hi - lo) / g as f64).max(DVec2::splat(1e-9));
+        let at = |p: DVec2| -> (usize, usize) {
+            let c = ((p - lo) / cell).floor();
+            ((c.x.max(0.0) as usize).min(g - 1), (c.y.max(0.0) as usize).min(g - 1))
+        };
+        let mut grid: HashMap<(usize, usize), Vec<usize>> = HashMap::new();
+        for (i, (a, b)) in seg.iter().enumerate() {
+            let (c0, c1) = (at(a.min(*b) - TOL), at(a.max(*b) + TOL));
+            // a long diagonal would fill a big block of cells; that's still bounded by g²
+            for x in c0.0..=c1.0 {
+                for y in c0.1..=c1.1 {
+                    grid.entry((x, y)).or_default().push(i);
+                }
+            }
+        }
+        // split points per segment, as parameters along it
+        let mut cuts: Vec<Vec<f64>> = vec![vec![]; n];
+        let mut seen = std::collections::HashSet::new();
+        for list in grid.values() {
+            for (k, &i) in list.iter().enumerate() {
+                for &j in &list[k + 1..] {
+                    if !seen.insert((i.min(j), i.max(j))) {
+                        continue;
+                    }
+                    let ((p, p2), (q, q2)) = (seg[i], seg[j]);
+                    let (r, sv) = (p2 - p, q2 - q);
+                    let (lr, ls) = (r.length(), sv.length());
+                    if lr < 1e-12 || ls < 1e-12 {
+                        continue;
+                    }
+                    let den = r.perp_dot(sv);
+                    if den.abs() < 1e-12 * lr * ls {
+                        // parallel: if on one line, each one's ends inside the other split it
+                        if (q - p).perp_dot(r).abs() / lr > TOL {
+                            continue;
+                        }
+                        for (a, len, dir, others, idx) in [(p, lr, r, [q, q2], i), (q, ls, sv, [p, p2], j)] {
+                            for o in others {
+                                let t = (o - a).dot(dir) / (len * len);
+                                if t * len > TOL && (1.0 - t) * len > TOL {
+                                    cuts[idx].push(t);
+                                }
+                            }
+                        }
+                        continue;
+                    }
+                    let t = (q - p).perp_dot(sv) / den;
+                    let u = (q - p).perp_dot(r) / den;
+                    let (et, eu) = (TOL / lr, TOL / ls);
+                    if t < -et || t > 1.0 + et || u < -eu || u > 1.0 + eu {
+                        continue;
+                    }
+                    if t > et && t < 1.0 - et {
+                        cuts[i].push(t);
+                    }
+                    if u > eu && u < 1.0 - eu {
+                        cuts[j].push(u);
+                    }
+                }
+            }
+        }
+        let mut out = Vec::with_capacity(n);
+        for (i, &(a, b)) in es.iter().enumerate() {
+            if cuts[i].is_empty() {
+                out.push((a, b));
+                continue;
+            }
+            let c = &mut cuts[i];
+            c.sort_by(|x, y| x.total_cmp(y));
+            // replace the edge with its pieces
+            let key = (a.min(b), a.max(b));
+            if let Some(id) = self.ids.remove(&key) {
+                m.edges.remove(&id);
+            }
+            self.edges.remove(&key);
+            let (pa, pb) = (m.p(a), m.p(b));
+            let mut prev = a;
+            for &t in c.iter() {
+                let mut q = pa.lerp(pb, t);
+                q.z = z;
+                let v = self.vertex(m, q);
+                if v != prev {
+                    self.edge(m, prev, v);
+                    out.push((prev, v));
+                }
+                prev = v;
+            }
+            if prev != b {
+                self.edge(m, prev, b);
+                out.push((prev, b));
+            }
+        }
+        // a split may land on an edge that already existed: keep each pair once
+        let mut once = std::collections::HashSet::new();
+        out.retain(|(a, b)| a != b && once.insert((*a.min(b), *a.max(b))));
+        out
     }
 
     fn path(&mut self, m: &mut Model, p: &[DVec3]) {
@@ -749,6 +955,11 @@ impl Bulk {
         }
         let mut made = 0;
         for (_, es) in levels {
+            let mut es = self.node(m, &es);
+            if self.walls {
+                let j = self.jambs(m, &es);
+                es.extend(j);
+            }
             made += faces_in_plan(m, &es, self.group);
         }
         made
@@ -849,4 +1060,121 @@ fn faces_in_plan(m: &mut Model, es: &[(Id, Id)], group: Id) -> usize {
         m.faces.insert(id, crate::model::Face { outer, holes: holes.remove(&i).unwrap_or_default(), group: Some(group), ..Default::default() });
     }
     n
+}
+
+/// What `raise_walls` did.
+pub struct Raised {
+    pub walls: usize,
+    /// the layers (groups) it looked in
+    pub layers: Vec<String>,
+}
+
+/// Wall layers by their usual names (AIA A-WALL, Spanish MURO, French MUR,
+/// German WAND, Norwegian VEGG, Italian PARETE...).
+fn wallish(name: &str) -> bool {
+    let n = name.to_lowercase();
+    ["wall", "muro", "mur", "wand", "vegg", "pared", "parete", "tabique"].iter().any(|w| n.contains(w))
+}
+
+/// Walls from a plan: the flat, thin faces of a drawing (bands between the two
+/// lines of a wall, `max_thickness` across at most) pulled up `height`. Looks
+/// in the group's wall layers when it has any, else in the whole group.
+pub fn raise_walls(m: &mut Model, group: Id, height: f64, max_thickness: f64) -> Result<Raised> {
+    if !m.groups.contains_key(&group) {
+        anyhow::bail!("no group {group}");
+    }
+    if !(height > 0.0 && height < 1000.0) || !(max_thickness > 0.0) {
+        anyhow::bail!("height must be above 0 (and the wall thickness too)");
+    }
+    // the group and everything inside it
+    let mut all = vec![group];
+    let mut i = 0;
+    while i < all.len() {
+        let g = all[i];
+        all.extend(m.groups.iter().filter(|(_, x)| x.parent == Some(g)).map(|(k, _)| *k));
+        i += 1;
+    }
+    let named: Vec<Id> = all.iter().copied().filter(|g| wallish(&m.groups[g].name) || m.groups[g].tag.as_deref().is_some_and(wallish)).collect();
+    let look: Vec<Id> = if named.is_empty() { all } else { named };
+    let mut picked = vec![];
+    for (id, f) in &m.faces {
+        if !f.group.is_some_and(|g| look.contains(&g)) || f.hidden {
+            continue;
+        }
+        let n = m.normal(*id);
+        if n.z.abs() < 1.0 - 1e-6 {
+            continue;
+        }
+        // a band's thickness: twice its area over its perimeter
+        let ring = |l: &[Id]| -> (f64, f64) {
+            let p: Vec<DVec3> = l.iter().map(|v| m.p(*v)).collect();
+            let a = p.iter().zip(p.iter().cycle().skip(1)).map(|(a, b)| a.truncate().perp_dot(b.truncate())).sum::<f64>().abs() / 2.0;
+            let per = p.iter().zip(p.iter().cycle().skip(1)).map(|(a, b)| a.distance(*b)).sum::<f64>();
+            (a, per)
+        };
+        let (mut area, mut per) = ring(&f.outer);
+        for h in &f.holes {
+            let (a, p) = ring(h);
+            area -= a;
+            per += p;
+        }
+        if per <= 0.0 || area < 1e-4 {
+            continue;
+        }
+        let thick = 2.0 * area / per;
+        if thick <= max_thickness && thick > 0.01 {
+            picked.push((*id, n.z.signum()));
+        }
+    }
+    // extrude each band straight up (a wall is a prism: no need for push/pull's
+    // checks, which search the whole model for every edge)
+    let mut have: std::collections::HashSet<(Id, Id)> = m.edges.values().map(|e| (e.a.min(e.b), e.a.max(e.b))).collect();
+    let mut walls = 0;
+    for (id, up) in picked {
+        let Some(f) = m.faces.get(&id).cloned() else { continue };
+        // loops counter-clockwise about +Z for the outline, clockwise for holes
+        let mut loops: Vec<Vec<Id>> = f.loops().cloned().collect();
+        if up < 0.0 {
+            for l in &mut loops {
+                l.reverse();
+            }
+        }
+        let rise = DVec3::new(0.0, 0.0, height);
+        let mut top: HashMap<Id, Id> = HashMap::new();
+        for &v in loops.iter().flatten() {
+            if let std::collections::hash_map::Entry::Vacant(e) = top.entry(v) {
+                let id = m.new_id();
+                let p = m.p(v) + rise;
+                m.vertices.insert(id, crate::model::Vertex { p, group: f.group });
+                e.insert(id);
+            }
+        }
+        let mut edge = |m: &mut Model, a: Id, b: Id| {
+            if have.insert((a.min(b), a.max(b))) {
+                let id = m.new_id();
+                m.edges.insert(id, crate::model::Edge { a, b, group: f.group, ..Default::default() });
+            }
+        };
+        for l in &loops {
+            for i in 0..l.len() {
+                let (a, b) = (l[i], l[(i + 1) % l.len()]);
+                let (ta, tb) = (top[&a], top[&b]);
+                edge(m, a, ta);
+                edge(m, ta, tb);
+                let side = m.new_id();
+                m.faces.insert(side, crate::model::Face { outer: vec![a, b, tb, ta], group: f.group, ..Default::default() });
+            }
+        }
+        let lift = |l: &Vec<Id>| -> Vec<Id> { l.iter().map(|v| top[v]).collect() };
+        let cap = m.new_id();
+        m.faces.insert(cap, crate::model::Face { outer: lift(&loops[0]), holes: loops[1..].iter().map(lift).collect(), group: f.group, material: f.material.clone(), ..Default::default() });
+        // the footprint now faces down, under the wall
+        if let Some(base) = m.faces.get_mut(&id) {
+            base.outer = loops[0].iter().rev().copied().collect();
+            base.holes = loops[1..].iter().map(|l| l.iter().rev().copied().collect()).collect();
+        }
+        walls += 1;
+    }
+    let layers = look.iter().filter(|g| **g != group).map(|g| m.groups[g].name.clone()).collect();
+    Ok(Raised { walls, layers })
 }

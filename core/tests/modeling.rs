@@ -1686,7 +1686,7 @@ fn dxf_islands_become_holes_and_spikes_are_kept_as_edges() {
     let mut e = Engine::new();
     let r = run(&mut e, json!({"cmd":"import_dxf","text":t}));
     assert_eq!(r["faces"], 2, "the room (with a hole) and the column: {r}");
-    assert_eq!(r["edges"], 9);
+    assert_eq!(r["edges"], 10, "the stub's end splits the side it touches");
     let room = e.model.faces.values().find(|f| f.outer.len() >= 4 && !f.holes.is_empty()).expect("a room face with a hole");
     assert_eq!(room.holes.len(), 1);
     // the room points up, and the stub didn't split it
@@ -1782,4 +1782,68 @@ fn dxf_tiny_bulges_stay_light_big_arcs_stay_smooth() {
     // 400 chords + 24 arc segments; the old fixed split made ~6,000
     assert!(edges <= 400 + 24 + 8, "{r}");
     assert!(edges >= 400 + 24, "{r}");
+}
+
+/// A small plan the way CAD draws it: walls as an outer and inner outline, an
+/// inner wall as two lines that only touch them (T-junctions), formatted
+/// MTEXT and a dimension. Walls come up; rooms stay floors.
+#[test]
+fn dxf_plan_t_junctions_labels_dimensions_and_raise_walls() {
+    let mut s = String::from("0\nSECTION\n2\nHEADER\n9\n$INSUNITS\n70\n6\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n");
+    let poly = |pts: &[(f64, f64)]| {
+        let mut p = format!("0\nLWPOLYLINE\n8\nA-WALL\n90\n{}\n70\n1\n", pts.len());
+        for (x, y) in pts {
+            p += &format!("10\n{x}\n20\n{y}\n");
+        }
+        p
+    };
+    // 6.4 x 4.4 outside, 0.2 walls: inside 6 x 4
+    s += &poly(&[(0.0, 0.0), (6.4, 0.0), (6.4, 4.4), (0.0, 4.4)]);
+    s += &poly(&[(0.2, 0.2), (6.2, 0.2), (6.2, 4.2), (0.2, 4.2)]);
+    // a partition at x = 3.0..3.2, ending on the inner outline
+    for x in [3.0, 3.2] {
+        s += &format!("0\nLINE\n8\nA-WALL\n10\n{x}\n20\n0.2\n30\n0\n11\n{x}\n21\n4.2\n31\n0\n");
+    }
+    s += "0\nMTEXT\n8\nNotes\n10\n1.5\n20\n2\n30\n0\n1\n{\\fArial|b1;Kitchen}\\PArea 12%%d\n";
+    // an aligned dimension across the front, 0.5 below it
+    s += "0\nDIMENSION\n8\nDims\n70\n1\n10\n0\n20\n-0.5\n30\n0\n13\n0\n23\n0\n33\n0\n14\n6.4\n24\n0\n34\n0\n";
+    s += "0\nENDSEC\n0\nEOF\n";
+    let mut e = Engine::new();
+    let r = run(&mut e, json!({"cmd":"import_dxf","text":s,"name":"Plan"}));
+    assert_eq!(r["units"], "m", "{r}");
+    assert_eq!(r["labels"], 1, "{r}");
+    assert_eq!(r["dimensions"], 1, "{r}");
+    use sketchcraft::model::Annotation;
+    assert!(e.model.annotations.iter().any(|a| matches!(a, Annotation::Text { text, .. } if text == "Kitchen Area 12\u{b0}")), "{:?}", e.model.annotations);
+    assert!(e.model.annotations.iter().any(|a| matches!(a, Annotation::Dimension { a, b, offset, .. } if (a.distance(*b) - 6.4).abs() < 1e-9 && (offset.y + 0.5).abs() < 1e-9)));
+    let f = &r["focus"];
+    assert!(f[0][0].as_f64().unwrap() < 0.5 && f[1][0].as_f64().unwrap() > 5.9, "{f}");
+    // the T-junctions are split, so the wall band (with the partition) is a face, and so are both rooms
+    assert!(r["faces"].as_u64().unwrap() >= 3, "{r}");
+    let g = r["group"].as_u64().unwrap();
+    let w = run(&mut e, json!({"cmd":"raise_walls","group":g,"height":2.5}));
+    assert_eq!(w["layers"], json!(["A-WALL"]), "{w}");
+    assert!(w["walls"].as_u64().unwrap() >= 1, "{w}");
+    let top = e.model.vertices.values().map(|v| v.p.z).fold(f64::MIN, f64::max);
+    assert!((top - 2.5).abs() < 1e-9, "walls are 2.5 m: {top}");
+    // the rooms stay floors: nothing is raised over a room's middle
+    let inside = |l: &[u32], x: f64, y: f64| {
+        let p: Vec<_> = l.iter().map(|v| e.model.vertices[v].p).collect();
+        let mut c = false;
+        for i in 0..p.len() {
+            let (a, b) = (p[i], p[(i + 1) % p.len()]);
+            if (a.y > y) != (b.y > y) && x < a.x + (y - a.y) / (b.y - a.y) * (b.x - a.x) {
+                c = !c;
+            }
+        }
+        c
+    };
+    let raised_over = |x: f64, y: f64| {
+        e.model.faces.values().any(|f| {
+            f.outer.iter().all(|v| (e.model.vertices[v].p.z - 2.5).abs() < 1e-9) && inside(&f.outer, x, y) && !f.holes.iter().any(|h| inside(h, x, y))
+        })
+    };
+    assert!(raised_over(0.1, 2.0), "the outside wall is up");
+    assert!(raised_over(3.1, 2.0), "the partition is up");
+    assert!(!raised_over(1.5, 2.0) && !raised_over(4.5, 2.0), "the rooms are not");
 }

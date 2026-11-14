@@ -614,6 +614,15 @@ pub enum Command {
         #[serde(default)]
         at: [f64; 3],
     },
+    /// Walls from an imported plan: the thin faces between wall lines, pulled up
+    /// `height` meters (in the group's wall layers if it has any).
+    RaiseWalls {
+        group: Id,
+        #[serde(default = "wall_height")]
+        height: f64,
+        #[serde(default = "wall_thickness")]
+        max_thickness: f64,
+    },
     /// Export the model as an AutoCAD DWG (3D faces, through a converter).
     ExportDwg { path: String },
     /// Project a matched photo (a saved view with a photo) onto faces, or the
@@ -845,6 +854,14 @@ fn roof_t() -> f64 {
 }
 fn col_size() -> f64 {
     0.3
+}
+
+fn wall_height() -> f64 {
+    2.7
+}
+
+fn wall_thickness() -> f64 {
+    0.6
 }
 
 fn one() -> f64 {
@@ -1658,6 +1675,10 @@ impl Engine {
                 std::fs::remove_dir_all(&tmp).ok();
                 let r = r?;
                 json!({"group": r.group, "layers": r.layers, "faces": r.faces, "edges": r.edges, "units": r.units, "skipped": r.skipped, "labels": r.labels, "dimensions": r.dimensions, "focus": [r.focus[0].to_array(), r.focus[1].to_array()]})
+            }
+            Command::RaiseWalls { group, height, max_thickness } => {
+                let r = crate::dxf::raise_walls(m, group, height, max_thickness)?;
+                json!({"walls": r.walls, "layers": r.layers})
             }
             Command::ExportDwg { path } => {
                 let tmp = std::env::temp_dir().join(format!("sketchcraft-dwgout-{}", std::process::id()));
