@@ -62,7 +62,19 @@ fn bounds_center(m: &Model) -> DVec3 {
 /// A 3D view from a saved view's name or a standard one (iso, top, front, back, left, right).
 fn view3d(m: &Model, name: &str, parallel: bool) -> ViewKind {
     let cam = crate::render::camera_for(m, &crate::render::RenderOpts { view: name.to_string(), ..Default::default() });
-    ViewKind::View3d { eye: cam.eye, target: cam.target, fov: cam.fov, parallel }
+    ViewKind::View3d { eye: cam.eye, target: cam.target, fov: cam.fov, parallel, extra: Extra::new() }
+}
+
+/// What a viewport shows when nobody said: a floor plan cut at 1.2 m if the model is cut by that height (else halfway
+/// up it), or a 3D view when the model has no height to cut (a flat site plan, nothing drawn yet). It always draws.
+fn default_view(m: &Model, parallel: bool) -> ViewKind {
+    match m.world_bounds() {
+        Some((lo, hi)) if hi.z - lo.z >= 0.05 => {
+            let cut = if lo.z + 0.01 < 1.2 && 1.2 < hi.z - 0.01 { 1.2 } else { (lo.z + hi.z) / 2.0 };
+            ViewKind::Plan { cut_z: cut, floor_z: cut - 1.2192, depth: 0.0, extra: Extra::new() }
+        }
+        _ => view3d(m, "iso", parallel),
+    }
 }
 
 fn validate(v: &Viewport) -> Result<()> {
@@ -97,7 +109,7 @@ impl Engine {
         let view = match (&a.view, &a.from_view) {
             (Some(v), _) => v.clone(),
             (None, Some(name)) => view3d(m, name, scale.is_some()),
-            (None, None) => ViewKind::Plan { cut_z: 1.2, floor_z: 1.2 - 1.2192, depth: 0.0 },
+            (None, None) => default_view(m, scale.is_some()),
         };
         let c = bounds_center(m);
         let anchor = a.anchor.unwrap_or(match &view {
@@ -457,16 +469,16 @@ fn spec_to_viewport(m: &Model, spec: &ViewportSpec) -> Result<Viewport> {
         _ => None,
     };
     let (view, anchor) = if let Some(z) = spec.cut {
-        (ViewKind::Plan { cut_z: z, floor_z: spec.floor.unwrap_or(z - 1.2192), depth: 0.0 }, [c.x, c.y, z])
+        (ViewKind::Plan { cut_z: z, floor_z: spec.floor.unwrap_or(z - 1.2192), depth: 0.0, extra: Extra::new() }, [c.x, c.y, z])
     } else if let Some(s) = spec.section {
-        (ViewKind::Section { origin: [s[0], s[1], s[2]], normal: [s[3], s[4], 0.0], depth: 0.0 }, c.to_array())
+        (ViewKind::Section { origin: [s[0], s[1], s[2]], normal: [s[3], s[4], 0.0], depth: 0.0, extra: Extra::new() }, c.to_array())
     } else if let (Some(dir), true, true) = (standard_dir, spec.callouts, scale.is_some()) {
         if m.views.iter().any(|v| v.name == spec.view) {
             let v = view3d(m, &spec.view, true);
             let t = if let ViewKind::View3d { target, .. } = &v { *target } else { c.to_array() };
             (v, t)
         } else {
-            (ViewKind::Elevation { dir, depth: 0.0 }, c.to_array())
+            (ViewKind::Elevation { dir, depth: 0.0, extra: Extra::new() }, c.to_array())
         }
     } else {
         let v = view3d(m, &spec.view, scale.is_some());

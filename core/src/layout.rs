@@ -141,7 +141,7 @@ pub(crate) fn write_pages(m: &Model, path: &str, sheet: &str, project: &str, mut
         }
     }
     if pages.len() > 50 {
-        bail!("at most 50 pages");
+        bail!("a PDF holds at most 50 pages here, and this set has {}: export part of it with pages: [sheet ids] (a page-at-a-time writer lifts this limit)", pages.len());
     }
     let date = today();
     let total = pages.len();

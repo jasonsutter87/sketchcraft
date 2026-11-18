@@ -109,7 +109,7 @@ pub struct Sheet {
 #[serde(rename_all = "snake_case")]
 pub enum AnchorAt {
     Vertex(Id),
-    Between { a: Id, b: Id, t: f64 },
+    Between { a: Id, b: Id, t: f64, #[serde(flatten)] extra: Extra },
     CurveCenter(Id),
     Guide(Id),
 }
@@ -126,6 +126,15 @@ pub struct Anchor {
     pub last: [f64; 3],
     #[serde(flatten)]
     pub extra: Extra,
+}
+
+/// A value of a type this build knows, or the JSON it came as when it doesn't fit (a newer build's value for a field,
+/// an enum value this build has no name for): kept as it is, written back unchanged, and never fails the file.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum Keep<T> {
+    Known(T),
+    Raw(Value),
 }
 
 // ---- styles --------------------------------------------------------------------------------------------------
@@ -240,16 +249,16 @@ pub struct TextStyle {
 #[serde(default)]
 pub struct Drafting {
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
-    pub tag_styles: BTreeMap<String, TagStyle>,
+    pub tag_styles: BTreeMap<String, Keep<TagStyle>>,
     /// hatch patterns kept in the file (parsed `.pat` text by name), so the file is self-contained
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub patterns: BTreeMap<String, String>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
-    pub line_types: BTreeMap<String, LineType>,
+    pub line_types: BTreeMap<String, Keep<LineType>>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
-    pub dim_styles: BTreeMap<String, DimStyle>,
+    pub dim_styles: BTreeMap<String, Keep<DimStyle>>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
-    pub text_styles: BTreeMap<String, TextStyle>,
+    pub text_styles: BTreeMap<String, Keep<TextStyle>>,
     #[serde(flatten)]
     pub extra: Extra,
 }
@@ -316,13 +325,13 @@ pub struct TagOverride {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ViewKind {
     /// a floor plan: the model cut at `cut_z`, with what is between `floor_z` and the cut in thin lines
-    Plan { cut_z: f64, floor_z: f64, #[serde(default)] depth: f64 },
+    Plan { cut_z: f64, floor_z: f64, #[serde(default)] depth: f64, #[serde(flatten)] extra: Extra },
     /// a side view, parallel: `dir` is the horizontal direction from the model toward the viewer (the side you
     /// look at: a front elevation is [0, -1, 0], as the camera of the "front" standard view)
-    Elevation { dir: [f64; 3], #[serde(default)] depth: f64 },
+    Elevation { dir: [f64; 3], #[serde(default)] depth: f64, #[serde(flatten)] extra: Extra },
     /// the model cut by the vertical plane through `origin` with `normal`; `normal` is the direction looked along (the viewer is on the side it points away from)
-    Section { origin: [f64; 3], normal: [f64; 3], #[serde(default)] depth: f64 },
-    View3d { eye: [f64; 3], target: [f64; 3], fov: f64, #[serde(default)] parallel: bool },
+    Section { origin: [f64; 3], normal: [f64; 3], #[serde(default)] depth: f64, #[serde(flatten)] extra: Extra },
+    View3d { eye: [f64; 3], target: [f64; 3], fov: f64, #[serde(default)] parallel: bool, #[serde(flatten)] extra: Extra },
 }
 
 /// A window on the model. It keeps its own anchor, scale, rotation and crop: nothing re-fits it when the model changes.
@@ -377,7 +386,7 @@ impl Default for Viewport {
             anchor: [0.0; 3],
             rotation: 0.0,
             scale: hundred(),
-            view: ViewKind::Plan { cut_z: 1.2, floor_z: 0.0, depth: 0.0 },
+            view: ViewKind::Plan { cut_z: 1.2, floor_z: 0.0, depth: 0.0, extra: Extra::new() },
             tags: BTreeMap::new(),
             opacity: one(),
             render: RenderMode::Vector,
@@ -596,9 +605,9 @@ impl ItemKind {
                     && v.crop.as_ref().is_none_or(|c| c.iter().all(p2))
                     && v.tags.values().all(|t| t.weight_mm.is_none_or(sane))
                     && match &v.view {
-                        ViewKind::Plan { cut_z, floor_z, depth } => sane(*cut_z) && sane(*floor_z) && sane(*depth),
-                        ViewKind::Elevation { dir, depth } => p3(dir) && sane(*depth),
-                        ViewKind::Section { origin, normal, depth } => p3(origin) && p3(normal) && sane(*depth),
+                        ViewKind::Plan { cut_z, floor_z, depth, .. } => sane(*cut_z) && sane(*floor_z) && sane(*depth),
+                        ViewKind::Elevation { dir, depth, .. } => p3(dir) && sane(*depth),
+                        ViewKind::Section { origin, normal, depth, .. } => p3(origin) && p3(normal) && sane(*depth),
                         ViewKind::View3d { eye, target, fov, .. } => p3(eye) && p3(target) && sane(*fov),
                     }
             }
@@ -733,6 +742,8 @@ impl Drafting {
     }
     pub fn sane(&self) -> bool {
         let w = |x: f64| sane(x);
-        self.tag_styles.values().all(|t| w(t.weight_mm) && w(t.cut.outline_mm) && w(t.beyond.weight_mm)) && self.line_types.values().all(|l| l.dash_mm.iter().all(|&x| w(x))) && self.text_styles.values().all(|t| w(t.height_mm))
+        self.tag_styles.values().all(|t| matches!(t, Keep::Known(t) if w(t.weight_mm) && w(t.cut.outline_mm) && w(t.beyond.weight_mm) && t.cut.hatch.iter().chain(t.surface_hatch.iter()).all(|h| w(h.weight_mm) && w(h.scale) && w(h.angle))) || matches!(t, Keep::Raw(_)))
+            && self.line_types.values().all(|l| matches!(l, Keep::Known(l) if l.dash_mm.iter().all(|&x| w(x))) || matches!(l, Keep::Raw(_)))
+            && self.text_styles.values().all(|t| matches!(t, Keep::Known(t) if w(t.height_mm)) || matches!(t, Keep::Raw(_)))
     }
 }

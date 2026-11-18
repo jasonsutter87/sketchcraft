@@ -387,6 +387,83 @@ fn edits_made_after_sheets_are_what_the_pdf_draws() {
 }
 
 #[test]
+fn newer_values_inside_known_things_are_kept_and_never_stop_the_file_opening() {
+    // review findings: unknown fields inside a viewport's view and an anchor, and unknown values in drafting styles
+    let dir = scratch("fwd");
+    let mut e = with_sheets();
+    let sheet = *e.model.sheets.keys().next().unwrap();
+    let a = dir.join("a.sketchcraft");
+    ok(&mut e, json!({"cmd": "save", "path": a}));
+    let mut f = file(&a);
+    let next = f["next_id"].as_u64().unwrap();
+    let plan = f["sheet_items"].as_object().unwrap().iter().find(|(_, v)| v["view"]["type"] == "plan").map(|(k, _)| k.clone()).unwrap();
+    f["sheet_items"][&plan]["view"]["show_below"] = json!(true);
+    let dim = json!({"kind": "dimension", "sheet": sheet, "anchors": [{"at": {"between": {"a": 1, "b": 2, "t": 0.5, "snap": "mid"}}, "last": [0, 0, 0], "stale": false}], "offset_mm": 8.0});
+    f["sheet_items"][(next + 1).to_string()] = dim.clone();
+    f["drafting"] = json!({
+        "tag_styles": {"Walls": {"weight_mm": 0.5, "cut": {"fill": "gradient", "stops": 3}}, "Doors": {"weight_mm": 0.25}},
+        "line_types": {"dash": {"dash_mm": "long-short"}},
+    });
+    f["next_id"] = json!(next + 1);
+    let p = dir.join("newer.sketchcraft");
+    std::fs::write(&p, serde_json::to_vec(&f).unwrap()).unwrap();
+    let mut g = Engine::new();
+    let r = ok(&mut g, json!({"cmd": "open", "path": p}));
+    assert!(r["read_only"].is_null(), "{r}");
+    ok(&mut g, json!({"cmd": "sheet_edit", "sheet": sheet, "name": "Renamed"}));
+    let out = dir.join("out.sketchcraft");
+    ok(&mut g, json!({"cmd": "save", "path": out}));
+    let w = file(&out);
+    assert_eq!(w["sheet_items"][&plan]["view"]["show_below"], true);
+    // (a known kind is written with its defaults filled in; what this build doesn't know stays)
+    let kept = &w["sheet_items"][(next + 1).to_string()]["anchors"][0];
+    assert_eq!(kept["at"]["between"]["snap"], "mid");
+    assert_eq!(kept["at"]["between"]["t"], 0.5);
+    assert_eq!(kept["stale"], false);
+    let _ = dim;
+    assert_eq!(w["drafting"]["tag_styles"]["Walls"], f["drafting"]["tag_styles"]["Walls"], "a style with a value this build has no name for is written back as it was");
+    assert_eq!(w["drafting"]["line_types"], f["drafting"]["line_types"]);
+    assert_eq!(w["drafting"]["tag_styles"]["Doors"]["weight_mm"], 0.25);
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn a_viewport_added_with_no_view_always_draws() {
+    let dir = scratch("default-view");
+    // a flat model (nothing 1.2 m high to cut), a low one, a tall one, and an empty one
+    for (what, h) in [("flat", None), ("low", Some(0.5)), ("tall", Some(3.0)), ("empty", None)] {
+        let mut e = Engine::new();
+        if what != "empty" {
+            let f = ok(&mut e, json!({"cmd": "rect", "from": [0, 0, 0], "to": [4, 3, 0]}))["face"].clone();
+            if let Some(h) = h {
+                ok(&mut e, json!({"cmd": "pushpull", "face": f, "distance": h}));
+            }
+        }
+        let s = ok(&mut e, json!({"cmd": "sheet_add"}))["sheet"].clone();
+        ok(&mut e, json!({"cmd": "viewport_add", "sheet": s}));
+        let p = dir.join(format!("{what}.pdf"));
+        let r = e.exec_json(&json!({"cmd": "export_sheets", "path": p}).to_string());
+        assert_eq!(r["ok"], true, "{what}: {r}");
+    }
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn more_sheets_than_one_pdf_holds_say_how_to_export_them() {
+    let dir = scratch("many");
+    let mut e = Engine::new();
+    ok(&mut e, json!({"cmd": "sheets", "pages": (0..60).map(|i| json!({"title": format!("S{i}"), "table": [["a"]]})).collect::<Vec<_>>()}));
+    let p = dir.join("all.pdf");
+    let r = e.exec_json(&json!({"cmd": "export_sheets", "path": p}).to_string());
+    assert_eq!(r["ok"], false);
+    assert!(r["error"].as_str().unwrap().contains("pages: [sheet ids]"), "{r}");
+    let ids: Vec<u32> = e.model.sheets.keys().copied().take(50).collect();
+    let r = e.exec_json(&json!({"cmd": "export_sheets", "path": p, "pages": ids}).to_string());
+    assert_eq!(r["ok"], true, "{r}");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn sheets_info_is_read_only() {
     let mut e = with_sheets();
     let (rev, depth) = (e.revision(), e.undo_depth());
