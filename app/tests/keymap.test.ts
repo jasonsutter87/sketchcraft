@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { COMMANDS, DEFAULT_STATE, PRESETS, assign, comboFromEvent, exportKeymap, formatCombo, holderOf, importKeymap, isTypingTarget, normalizeCombo, parseSaved, presetBindings, readKeymap, reservedReason, resetOne, resolveKeymap, withPreset } from "../src/keymap";
+import { COMMANDS, DEFAULT_STATE, PRESETS, assign, comboFromEvent, commandForCombo, exportKeymap, formatCombo, holderOf, importKeymap, isTypingTarget, normalizeCombo, parseSaved, presetBindings, readKeymap, reservedReason, resetOne, resolveKeymap, withPreset } from "../src/keymap";
 import { TOOL_INFO } from "../src/workspace";
 
 const ev = (o: Partial<KeyboardEvent> & { key: string }) => ({ code: "", metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, ...o });
@@ -253,6 +253,26 @@ describe("export and import of our own file", () => {
     expect(got.applied).toBe(2);
     expect(got.state.overrides).toEqual({ "tool:line": "J", "tool:push": "" });
     expect(got.skipped.map((s) => s.name).sort()).toEqual(["ghost.cmd", "tool:circle", "tool:move", "tool:rect"]);
+  });
+});
+
+describe("commandForCombo", () => {
+  const { byCombo } = resolveKeymap(DEFAULT_STATE);
+  it("looks a key up", () => {
+    expect(commandForCombo("L", byCombo)).toBe("tool:line");
+    expect(commandForCombo("Mod+Z", byCombo)).toBe("edit.undo");
+    expect(commandForCombo("Delete", byCombo)).toBe("edit.delete");
+    expect(commandForCombo("Q+Q", byCombo)).toBeNull();
+  });
+  it("leaves Space to the 3D view, so holding it doesn't drop the tool in use", () => {
+    expect(byCombo.get("Space")).toBe("tool:select");
+    expect(commandForCombo("Space", byCombo)).toBeNull();
+  });
+  it("always takes plain Backspace as Delete, even if Delete is rebound", () => {
+    expect(commandForCombo("Backspace", byCombo)).toBe("edit.delete");
+    const moved = resolveKeymap(assign(DEFAULT_STATE, resolveKeymap(DEFAULT_STATE), "edit.delete", "Shift+Delete"));
+    expect(commandForCombo("Backspace", moved.byCombo)).toBe("edit.delete");
+    expect(commandForCombo("Shift+Delete", moved.byCombo)).toBe("edit.delete");
   });
 });
 

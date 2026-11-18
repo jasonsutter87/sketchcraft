@@ -13,7 +13,7 @@ import { Outliner } from "./outliner";
 import { RenderDialog } from "./renderdialog";
 import { ShortcutSheet } from "./shortcuts";
 import { ShortcutEditor } from "./shortcutseditor";
-import { comboFromEvent, isTypingTarget } from "./keymap";
+import { comboFromEvent, commandForCombo, isTypingTarget } from "./keymap";
 import { keymap, keyText, useKeymap } from "./keymapstore";
 import { Textures } from "./materialspanel";
 import { Views } from "./views";
@@ -458,7 +458,7 @@ export default function App() {
         return;
       }
       if (e.key === "Escape" && showKeysRef.current) return setShowKeys(false);
-      const id = keymap.resolved().byCombo.get(combo);
+      const id = commandForCombo(combo, keymap.resolved().byCombo);
       if (!id) return;
       e.preventDefault();
       if (id === "help.shortcuts") return setShowKeys((v) => !v);

@@ -3,7 +3,7 @@
 // and use it, keep it across a reload, see a conflict and resolve it, the SketchUp preset, importing SketchUp's
 // shortcuts, text fields never firing shortcuts, and junk in storage never stopping the app from starting.
 //   node tools/ui-tests/run.mjs shortcuts        (starts a scratch bridge and dev page; see CONTRIBUTING.md)
-import { launch, PAGE, pageExec } from '../demos/lib.mjs';
+import { launch, PAGE, pageExec, pageScene } from '../demos/lib.mjs';
 
 if (!process.env.SKETCHCRAFT_DOC) {
   console.error('Set SKETCHCRAFT_DOC to a scratch model path (and run the bridge with the same).');
@@ -224,6 +224,34 @@ const isMac = process.platform === 'darwin';
   await ctx.close();
 }
 
+// ---- keys the viewport and the app keep: Space (hold to orbit, tap for Select) and Backspace (a second Delete) --------------------
+{
+  const { p, ctx } = await open();
+  await press(p, 'l');
+  await p.keyboard.down('Space');
+  await wait(300);
+  check((await activeTool(p)) === 'Line', 'holding Space leaves the tool you are using alone (it orbits)');
+  await p.keyboard.up('Space');
+  await wait(300);
+  check((await activeTool(p)) === 'Select', 'tapping Space picks Select');
+  // Delete and Backspace both delete the selection
+  for (const key of ['Delete', 'Backspace']) {
+    await pageExec(p, { cmd: 'new' });
+    await pageExec(p, { cmd: 'rect', from: [0, 0, 0], to: [2, 2, 0] });
+    await p.reload();
+    await p.waitForSelector('.viewport canvas', { state: 'attached' });
+    await wait(700);
+    await p.keyboard.press('Control+a');
+    await wait(200);
+    const before = (await pageScene(p)).faces.length;
+    await p.keyboard.press(key);
+    await wait(500);
+    const after = (await pageScene(p)).faces.length;
+    check(before > 0 && after === 0, `${key} deletes the selection (${before} faces, then ${after})`);
+  }
+  await ctx.close();
+}
+
 // ---- junk in storage never stops the app -----------------------------------------------------------------------------------
 for (const [what, value] of [
   ['text that is not JSON', '{not json'],
@@ -249,7 +277,7 @@ for (const [what, value] of [
 
 check(problems.length === 0, `no page errors ${problems.slice(0, 3).join(' | ').slice(0, 300)}`);
 void isMac;
-void pageExec;
+
 await b.close();
 console.log(failed ? `${failed} check(s) failed` : 'all checks passed');
 process.exit(failed ? 1 : 0);

@@ -336,6 +336,17 @@ export function resolveKeymap(state: KeymapState, extra: CommandDef[] = []): Res
   return { bindings, byCombo, dropped };
 }
 
+/**
+ * The command a key press runs (null for none). Two keys are not looked up: Space belongs to the 3D view
+ * (held, it orbits; tapped, it picks Select, so a tool in use isn't dropped the moment Space goes down),
+ * and plain Backspace is always a second Delete.
+ */
+export function commandForCombo(combo: Combo, byCombo: Map<Combo, string>): string | null {
+  if (combo === "Space") return null;
+  if (combo === "Backspace") return "edit.delete";
+  return byCombo.get(combo) ?? null;
+}
+
 /** The command that already has this key (other than `id`), if any. */
 export function holderOf(res: Resolved, combo: Combo, id: string): string | null {
   const h = res.byCombo.get(combo);
