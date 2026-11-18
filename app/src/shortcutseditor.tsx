@@ -6,6 +6,7 @@ import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Sheet, useEscapeToClose } from "./sheet";
 import { COMMANDS, PRESETS, assign, comboFromEvent, commandDef, formatCombo, holderOf, importKeymap, exportKeymap, presetBindings, reservedReason, resetOne, withPreset, type CommandDef, type CommandGroup, type Combo } from "./keymap";
 import { importSketchUp, readSketchUpShortcuts, type SketchUpEntry } from "./sketchupkeys";
+import type { KeymapState } from "./keymap";
 import { keymap, useKeymap } from "./keymapstore";
 
 const GROUPS: CommandGroup[] = ["Tools", "Camera", "Edit", "File", "View", "Window", "Plugins"];
@@ -37,6 +38,8 @@ export function ShortcutEditor({ onClose }: { onClose: () => void }) {
   const [tools, setTools] = useState(false);
   const [text, setText] = useState("");
   const [report, setReport] = useState<Report | null>(null);
+  /** your keys from before the last import, so it can be undone */
+  const [undo, setUndo] = useState<KeymapState | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
   const all: CommandDef[] = useMemo(() => [...COMMANDS, ...keymap.extra()], [res]);
@@ -59,6 +62,8 @@ export function ShortcutEditor({ onClose }: { onClose: () => void }) {
     if (!rec) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") return;
+      // Tab moves on as usual (and ends the pick), so the keyboard is never trapped
+      if (e.key === "Tab") return setRec(null);
       e.preventDefault();
       e.stopImmediatePropagation();
       if (e.key === "Backspace") {
@@ -88,12 +93,15 @@ export function ShortcutEditor({ onClose }: { onClose: () => void }) {
     setClash(null);
     const ours = importKeymap(raw);
     if (ours) {
+      setUndo(keymap.state());
       keymap.set(ours.state);
       return setReport({ title: `Imported ${ours.applied} shortcuts from a SketchCraft file.`, unmapped: [], skipped: ours.skipped });
     }
     const read = readSketchUpShortcuts(raw);
     if (read.format === "none" || (!read.entries.length && !read.unreadable.length)) return setReport({ title: "That doesn't look like a SketchCraft or SketchUp shortcuts file. Nothing was changed.", unmapped: [], skipped: [], bad: true });
     const imp = importSketchUp(read);
+    if (!imp.applied.length) return setReport({ title: "Nothing in that file matched a SketchCraft command. Nothing was changed.", unmapped: imp.unmapped, skipped: imp.skipped, bad: true });
+    setUndo(keymap.state());
     keymap.set(imp.state);
     setReport({ title: `Imported ${imp.applied.length} of SketchUp's shortcuts (${read.format === "plist" ? "a Mac property list" : read.format === "settings" ? "SketchUp's settings file" : "a list of commands and keys"}).`, unmapped: imp.unmapped, skipped: imp.skipped });
   };
@@ -129,7 +137,7 @@ export function ShortcutEditor({ onClose }: { onClose: () => void }) {
     <Sheet onClose={onClose} label="Customize shortcuts" className="key-editor" width={760}>
       <div className="sheet-head">
         <b>Shortcuts</b>
-        <span className="muted">Click a key, then press the one you want. Backspace takes it away.</span>
+        <span className="muted">Click a key, then press the one you want. Esc cancels, Backspace takes it away.</span>
         <button className="btn small ghost" onClick={onClose}>
           Close
         </button>
@@ -177,9 +185,15 @@ export function ShortcutEditor({ onClose }: { onClose: () => void }) {
               Download .json
             </button>
           </div>
-          {report && (
-            <div className={`key-report ${report.bad ? "bad" : ""}`} role="status">
+          <div className={`key-report ${report?.bad ? "bad" : ""}`} role="status">
+            {report && (
+              <>
               <b>{report.title}</b>
+              {undo && !report.bad && (
+                <button className="btn small" onClick={() => (keymap.set(undo), setUndo(null), setReport({ title: "Import undone: your keys are back as they were.", unmapped: [], skipped: [] }))}>
+                  Undo import
+                </button>
+              )}
               {report.unmapped.length > 0 && (
                 <details open>
                   <summary>{report.unmapped.length} SketchUp command{report.unmapped.length === 1 ? " has" : "s have"} no match here</summary>
@@ -204,8 +218,9 @@ export function ShortcutEditor({ onClose }: { onClose: () => void }) {
                   </ul>
                 </details>
               )}
-            </div>
-          )}
+              </>
+            )}
+          </div>
         </div>
       )}
 
@@ -248,7 +263,8 @@ export function ShortcutEditor({ onClose }: { onClose: () => void }) {
                     <span className="key-name">{d.label}</span>
                     <button
                       className={`key-btn ${isRec ? "rec" : ""} ${k ? "" : "none"}`}
-                      aria-label={`${d.label} shortcut: ${k ? formatCombo(k) : "none"}. Click to change.`}
+                      aria-label={isRec ? `${d.label}: press the new key, Esc to cancel, Backspace to clear` : `${d.label} shortcut: ${k ? formatCombo(k) : "none"}. Click to change.`}
+                      aria-pressed={isRec}
                       onClick={() => (setClash(null), setProblem(""), setRec(isRec ? null : d.id))}
                     >
                       {isRec ? "Press a key…" : k ? <kbd>{formatCombo(k)}</kbd> : "none"}

@@ -89,7 +89,10 @@ export function comboFromEvent(e: Pick<KeyboardEvent, "key" | "code" | "metaKey"
   let key = e.key;
   // letters and digits by the physical key when the character isn't one (Option+L types "¬" on a Mac; Shift+1 types "!")
   const code = /^Key([A-Z])$/.exec(e.code) ?? /^Digit([0-9])$/.exec(e.code);
-  if (code && !(/^[a-z]$/i.test(key) && !/^[0-9]$/.test(code[1]))) key = code[1];
+  if (code) {
+    if (!/^[\x21-\x7e]$/.test(key)) key = code[1]; // a character from the physical key (Option+L types "¬")
+    else if (e.shiftKey && /^Digit/.test(e.code)) key = code[1]; // Shift+1 types "!", but is Shift+1
+  }
   if (key === "/" && e.shiftKey) key = "?"; // some layouts type "/" with Shift
   const name = keyName(key);
   if (!name) return null;
@@ -357,7 +360,9 @@ export function holderOf(res: Resolved, combo: Combo, id: string): string | null
 export function assign(state: KeymapState, res: Resolved, id: string, combo: Combo, holder: "swap" | "clear" = "clear"): KeymapState {
   const overrides = { ...state.overrides, [id]: combo };
   const other = combo ? holderOf(res, combo, id) : null;
-  if (other) overrides[other] = holder === "swap" ? res.bindings[id] ?? "" : "";
+  // a swap gives the other command this one's key, unless that key is one it may not have (Space belongs to Select)
+  const mine = res.bindings[id] ?? "";
+  if (other) overrides[other] = holder === "swap" && mine && !reservedReason(mine, other) ? mine : "";
   return compact({ preset: state.preset, overrides });
 }
 

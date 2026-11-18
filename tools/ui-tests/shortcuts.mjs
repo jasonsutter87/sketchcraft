@@ -208,6 +208,10 @@ const isMac = process.platform === 'darwin';
   await p.getByLabel('Shortcuts file text').fill('this is not a shortcuts file');
   await p.getByRole('button', { name: 'Import', exact: true }).click();
   check(/doesn't look like/.test(await p.locator('.key-report').innerText()) && /^X$/.test(await keyOf(p, 'tool:push')), 'a file that is not shortcuts changes nothing');
+  // an unrelated text file that merely has "name: value" lines changes nothing either (it must not wipe your keys)
+  await p.getByLabel('Shortcuts file text').fill('title: My notes\nauthor: someone\ncolor = blue\n');
+  await p.getByRole('button', { name: 'Import', exact: true }).click();
+  check(/Nothing in that file matched/.test(await p.locator('.key-report').innerText()) && /^X$/.test(await keyOf(p, 'tool:push')), 'an unrelated "name: value" file leaves your keys alone');
   // export, change something, import it back
   await p.getByRole('button', { name: 'Export', exact: true }).click();
   const json = await p.getByLabel('Shortcuts file text').inputValue();

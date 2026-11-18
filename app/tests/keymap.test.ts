@@ -32,6 +32,11 @@ describe("comboFromEvent", () => {
   it("takes Ctrl as Mod too", () => expect(comboFromEvent(ev({ key: "z", ctrlKey: true }))).toBe("Mod+Z"));
   it("uses the physical key when Option changes the letter", () => expect(comboFromEvent(ev({ key: "¬", code: "KeyL", altKey: true }))).toBe("Alt+L"));
   it("reads Shift+digit as the digit", () => expect(comboFromEvent(ev({ key: "!", code: "Digit1", shiftKey: true }))).toBe("Shift+1"));
+  it("keeps ASCII symbols on a French keyboard, where the comma key is the physical M key", () => {
+    expect(comboFromEvent(ev({ key: ",", code: "KeyM" }))).toBe(",");
+    expect(comboFromEvent(ev({ key: "?", code: "KeyM", shiftKey: true }))).toBe("?");
+    expect(comboFromEvent(ev({ key: "m", code: "Semicolon" }))).toBe("M");
+  });
   it("leaves Shift out of a typed symbol", () => expect(comboFromEvent(ev({ key: "?", code: "Slash", shiftKey: true }))).toBe("?"));
   it("names Space and the arrows", () => {
     expect(comboFromEvent(ev({ key: " ", code: "Space" }))).toBe("Space");
@@ -196,6 +201,14 @@ describe("assign and reset", () => {
     const r = resolveKeymap(s);
     expect(r.bindings["tool:rect"]).toBe("L");
     expect(r.bindings["tool:line"]).toBe("R");
+  });
+  it("a swap never hands Space to a command that may not have it", () => {
+    // Select takes L from Line; Line would get Space, which only Select may have: it is left without one
+    const s = assign(DEFAULT_STATE, r0, "tool:select", "L", "swap");
+    const r = resolveKeymap(s);
+    expect(r.bindings["tool:select"]).toBe("L");
+    expect(r.bindings["tool:line"]).toBe("");
+    expect(readKeymap(JSON.parse(JSON.stringify(s)))).toEqual(s);
   });
   it("a swap with a command that has no key leaves the other without one", () => {
     const s = assign(DEFAULT_STATE, r0, "tool:walk", "L", "swap");

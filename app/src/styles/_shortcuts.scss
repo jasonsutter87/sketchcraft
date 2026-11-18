@@ -54,8 +54,9 @@
   gap: 4px;
   font-size: $font-l;
 
-  &.bad b {
-    color: var(--danger);
+  &.bad {
+    padding-left: 8px;
+    border-left: 3px solid var(--danger);
   }
 
   ul {
@@ -124,7 +125,7 @@
   }
 
   &.none {
-    color: var(--faint);
+    color: var(--muted);
   }
 
   &.rec {
