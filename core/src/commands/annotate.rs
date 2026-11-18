@@ -16,7 +16,7 @@ impl Engine {
             Command::Dimension { from, to, offset } => {
                 let id = m.new_id();
                 let (a, b) = (v3(from), v3(to));
-                m.annotations.push(crate::model::Annotation::Dimension { id, a, b, offset: v3(offset) });
+                m.annotations.push(crate::model::Annotation::dimension(id, a, b, v3(offset)));
                 json!({"dimension": id, "length": round(a.distance(b))})
             }
             Command::Text { at, text, leader } => {

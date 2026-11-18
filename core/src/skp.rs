@@ -111,8 +111,8 @@ enum Obj {
     Curve,
     Instance { def: Slot, m: [f64; 13] },
     Font,
-    /// a text label: found, not imported
-    Text,
+    /// a text label: found and read, not placed (`screen`: fixed to the window, not to the model)
+    Text { screen: bool, text: String },
     /// a linear dimension: where each end is, the text typed over the measured one (usually empty), and the
     /// direction and distance it is drawn offset from the measured points (inches)
     Dim { ends: [DimEnd; 2], text: String, dir: DVec3, dist: f64 },
@@ -510,10 +510,13 @@ impl<'a> Reader<'a> {
         })
     }
 
-    /// CText (worked out from one SketchUp 2016 file): entity header, 10 bytes, the font (an object or a
-    /// reference), 16 bytes, an end like a dimension's (u32 2, u32 4, a point, a vertex reference,
-    /// 10 bytes), a point and a direction (6 doubles), a short fixed stretch of counts and flags, the text (a
-    /// string) and a few zero bytes. Only read to the end so the entity list carries on.
+    /// CText (worked out from a SketchUp 2016 file and SketchUp 6's `screentext.skp` from testup-2): entity
+    /// header, 10 bytes, the font (an object or a reference), two doubles (where a screen text sits on the screen,
+    /// as fractions of the window; zero otherwise), an end like a dimension's (u32 kind, u32 4, a point, a vertex
+    /// reference, 10 bytes), six doubles, a short stretch of counts and flags, the text (a string) and a few zero
+    /// bytes. Kind 0 is screen text (fixed to the window: no point in the model, the end and the first three
+    /// doubles are zero); 1, 2 and 5 are seen on labels with a leader. Labels are read, not placed: no sample file
+    /// of ours shows which of the points is the leader's tip and which the text's (see #59).
     fn text_label(&mut self) -> R<Obj> {
         self.head()?;
         self.skip(10)?;
@@ -522,9 +525,9 @@ impl<'a> Reader<'a> {
             Slot::Null => {}
             _ => return Err(Fail),
         }
-        self.skip(16)?;
-        // the first count is a kind (1, 2 and 5 are seen); the second is 4
-        if self.u32()? > 16 || self.u32()? != 4 {
+        let (sx, sy) = (self.f64()?, self.f64()?);
+        let kind = self.u32()?;
+        if kind > 16 || self.u32()? != 4 {
             return Err(Fail);
         }
         self.skip(24)?;
@@ -537,7 +540,12 @@ impl<'a> Reader<'a> {
         let end = (self.p + 40).min(self.d.len());
         let at = (self.p..end).find(|&i| self.d.get(i..i + 3) == Some(b"\xff\xfe\xff")).ok_or(Fail)?;
         self.p = at;
-        self.cstring()?;
+        let mut text = self.cstring()?;
+        if text.chars().count() > 2000 {
+            text = text.chars().take(2000).collect();
+        }
+        // a screen text is placed by its spot on the screen
+        let screen = kind == 0 && sx.is_finite() && sy.is_finite();
         // the closing zero bytes
         for _ in 0..5 {
             if self.d.get(self.p) != Some(&0) {
@@ -545,7 +553,7 @@ impl<'a> Reader<'a> {
             }
             self.p += 1;
         }
-        Ok(Obj::Text)
+        Ok(Obj::Text { screen, text })
     }
 
     /// A plain reference: a u16, or 0x7FFF and a u32 once there are 32767+ objects.
@@ -675,6 +683,16 @@ pub struct Entities {
     pub dims: Vec<SkpDim>,
     /// dimension records the file had that couldn't be placed (an end on a vertex that isn't in this list)
     pub dims_skipped: usize,
+    /// text labels the file had (read, not placed; at most `MAX_DIMS`)
+    pub texts: Vec<SkpText>,
+}
+
+/// A text label as the file has it. Not placed in the model (see `Reader::text_label`).
+#[derive(Debug, Clone)]
+pub struct SkpText {
+    /// screen text: fixed to the window, with no point in the model
+    pub screen: bool,
+    pub text: String,
 }
 
 /// A linear dimension as the file has it: the two points it measures, and where its line is drawn.
@@ -747,7 +765,11 @@ fn resolve(r: &Reader, items: &[Slot]) -> Entities {
                     out.faces.push(SkpFace { outer, holes: rings, material: *material });
                 }
             }
-            Some(Obj::Text) => out.dims_skipped += 1,
+            Some(Obj::Text { screen, text }) => {
+                if out.texts.len() < MAX_DIMS {
+                    out.texts.push(SkpText { screen: *screen, text: text.clone() });
+                }
+            }
             Some(Obj::Dim { ends, text, dir, dist }) => {
                 let at = |e: &DimEnd| match e {
                     DimEnd::Free(p) => Some(*p),
@@ -1314,6 +1336,7 @@ pub fn import(m: &mut Model, d: &[u8], at: DVec3, name: &str) -> Result<ImportSu
     let base = DMat4::from_translation(at);
     let mut placed = 0;
     let mut root_faces = 0;
+    let mut attach_budget = ATTACH_WORK;
     for root in &file.roots {
         let mut tmp = Model::default();
         let n = fill(&mut tmp, root, &file);
@@ -1321,14 +1344,37 @@ pub fn import(m: &mut Model, d: &[u8], at: DVec3, name: &str) -> Result<ImportSu
         summary.faces += n;
         merge_into(m, &tmp, gid, base);
         let to_world = |p: DVec3| at + p * INCH;
-        summary.skipped_annotations += root.dims_skipped;
+        summary.skipped_annotations += root.dims_skipped + root.texts.len();
+        for t in &root.texts {
+            summary.screen_texts += t.screen as usize;
+            if summary.skipped_labels.len() < MAX_LISTED_LABELS {
+                summary.skipped_labels.push(t.text.chars().take(200).collect());
+            }
+        }
+        // what one attempt to attach an end costs (a walk over the vertices, then the edges)
+        let cost = 2 * geometry_size(m) + 1;
         for dim in &root.dims {
             let (a, b, off) = (to_world(dim.a), to_world(dim.b), dim.offset * INCH);
             if !(a.is_finite() && b.is_finite() && off.is_finite()) {
                 continue;
             }
+            // each end attaches to the geometry it sits on (a vertex, else a point along an edge), so the
+            // dimension follows edits; an end with nothing there, or past the work budget, keeps its point
+            let mut attach = |p: DVec3| -> Option<crate::drafting::Anchor> {
+                if attach_budget < cost {
+                    return None;
+                }
+                attach_budget -= cost;
+                m.anchor_near(p, ATTACH_TOL)
+            };
+            let anchors = [attach(a), attach(b)];
+            if anchors.iter().all(Option::is_some) {
+                summary.dimensions_attached += 1;
+            } else {
+                summary.dimensions_unattached += 1;
+            }
             let id = m.new_id();
-            m.annotations.push(Annotation::Dimension { id, a, b, offset: off });
+            m.annotations.push(Annotation::Dimension { id, a, b, offset: off, anchors });
             summary.dimensions += 1;
             if !dim.text.is_empty() {
                 let id = m.new_id();
@@ -1372,8 +1418,30 @@ pub struct ImportSummary {
     /// dimensions and text labels made from the file's annotations
     pub dimensions: usize,
     pub labels: usize,
-    /// annotation records found but not imported (not attached to anything we read)
+    /// annotation records found but not imported (not attached to anything we read; text labels)
     pub skipped_annotations: usize,
+    /// imported dimensions with both ends attached to the imported geometry, and the rest (an end on nothing within
+    /// `ATTACH_TOL`, or past the work budget), which keep fixed points
+    pub dimensions_attached: usize,
+    pub dimensions_unattached: usize,
+    /// of the skipped annotations, screen texts (fixed to the window, so with no place in the model)
+    pub screen_texts: usize,
+    /// the words of the text labels left out (the first `MAX_LISTED_LABELS`), so they can be added by hand
+    pub skipped_labels: Vec<String>,
+}
+
+/// How near (metres) a dimension's end must be to a vertex or an edge to attach to it: SketchUp's own tolerance,
+/// a thousandth of an inch.
+pub const ATTACH_TOL: f64 = 0.001 * INCH;
+/// The most work (vertices and edges looked at) attaching one file's dimensions may take; the ends past it stay free.
+const ATTACH_WORK: usize = 50_000_000;
+/// Skipped labels listed by their words in the summary.
+const MAX_LISTED_LABELS: usize = 50;
+
+/// About how many vertices and edges `Model::anchor_near` looks at: the model's own and each placed definition's.
+fn geometry_size(m: &Model) -> usize {
+    let own = m.vertices.len() + m.edges.len();
+    m.instances.values().fold(own, |n, i| n.saturating_add(m.definitions.get(&i.def).map_or(0, |d| d.model.vertices.len() + d.model.edges.len())))
 }
 
 /// Add faces and loose lines (inches -> meters) to a model, in bulk.

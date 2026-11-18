@@ -143,17 +143,43 @@ pub struct Guide {
 
 /// A note on the model: a dimension between two points (drawn `offset`
 /// away from them), or a text label (with an optional leader to a point).
+///
+/// A dimension may be attached to geometry: `anchors[0]` holds `a` and `anchors[1]` holds `b` (#59). An attached end
+/// follows the geometry (`Model::settle_anchors` moves `a`/`b` after every edit, in the same undo step), so moving a
+/// wall moves the dimension and its value; a free end (None) keeps its point. Files without `anchors` (every file
+/// before 0.3.8) read as two free ends, and a dimension with none is written exactly as before.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Annotation {
-    Dimension { id: Id, a: DVec3, b: DVec3, offset: DVec3 },
+    Dimension {
+        id: Id,
+        a: DVec3,
+        b: DVec3,
+        offset: DVec3,
+        #[serde(default, skip_serializing_if = "both_free")]
+        anchors: [Option<crate::drafting::Anchor>; 2],
+    },
     Text { id: Id, at: DVec3, text: String, #[serde(default)] leader: Option<DVec3> },
     /// A door's swing on plan: the leaf turns about `hinge` from closed
     /// (reaching `from`, across the opening) to open (reaching `to`).
     Swing { id: Id, hinge: DVec3, from: DVec3, to: DVec3 },
 }
 
+fn both_free(a: &[Option<crate::drafting::Anchor>; 2]) -> bool {
+    a.iter().all(Option::is_none)
+}
+
 impl Annotation {
+    /// A dimension between two fixed points (no anchors).
+    pub fn dimension(id: Id, a: DVec3, b: DVec3, offset: DVec3) -> Annotation {
+        Annotation::Dimension { id, a, b, offset, anchors: [None, None] }
+    }
+
+    /// Is this a dimension with at least one end attached to geometry?
+    pub fn is_attached(&self) -> bool {
+        matches!(self, Annotation::Dimension { anchors, .. } if anchors.iter().any(Option::is_some))
+    }
+
     pub fn id(&self) -> Id {
         match self {
             Annotation::Dimension { id, .. } | Annotation::Text { id, .. } | Annotation::Swing { id, .. } => *id,

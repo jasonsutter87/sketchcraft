@@ -971,7 +971,7 @@ fn import_inner(m: &mut Model, text: &str, name: &str, units: Option<&str>, at: 
             }
             Shape::Dim(a, b, offset) => {
                 let id = m.new_id();
-                m.annotations.push(crate::model::Annotation::Dimension { id, a, b, offset });
+                m.annotations.push(crate::model::Annotation::dimension(id, a, b, offset));
                 dimensions += 1;
             }
             Shape::Measure { at, leader, value, text } => {

@@ -13,6 +13,8 @@
 //!   same undo step as the edit (`Model::settle_anchors`). Nothing else ever moves an anchor: geometry that is
 //!   deleted, or replaced with new ids by an operation that records no remap, leaves the anchor **broken**, and only
 //!   an explicit `sheet_reattach` (or the person) attaches it again (design decision 8).
+//! - **model dimensions** (#59): an `Annotation::Dimension` may carry an anchor per end (SketchUp import attaches
+//!   them). `settle_anchors` settles those the same way and moves the dimension's points to where they resolve.
 //! - **making** anchors for other code (`Model::anchor_near`, `Model::anchors_at`): the one way to attach something
 //!   to geometry from a point, used by `sheet_dim` and by importers (SketchUp dimensions, #59).
 //!
@@ -20,7 +22,7 @@
 //! stretch or copy a placement are not applied); `CurveCenter` fits a circle through three of the curve's vertices.
 
 use crate::drafting::{Anchor, AnchorAt, DimMode, Dimension, Extra, ItemKind, SheetItem, ViewKind, Viewport};
-use crate::model::{Id, Model};
+use crate::model::{Annotation, Id, Model};
 use glam::{DMat4, DVec3};
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -52,7 +54,7 @@ impl Model {
     /// Note a remap, if anything on paper could use it (a model with no sheet items has no anchors, and a component
     /// being edited never has sheets of its own: `force` records for that case, to be lifted to the root).
     pub(crate) fn note_remap(&mut self, force: bool, r: impl FnOnce() -> Remap) {
-        if (force || !self.sheet_items.is_empty()) && self.remaps.len() < MAX_REMAPS {
+        if (force || !self.sheet_items.is_empty() || self.has_attached_dims()) && self.remaps.len() < MAX_REMAPS {
             self.remaps.push(r());
         }
     }
@@ -203,47 +205,97 @@ impl Model {
     /// the command's own undo step. Returns how many anchors changed.
     pub fn settle_anchors(&mut self) -> usize {
         let remaps = std::mem::take(&mut self.remaps);
+        let mut changed = self.settle_model_dims(&remaps);
         if self.sheet_items.is_empty() {
-            return 0;
+            return changed;
         }
         let dims: Vec<(Id, Dimension)> = self
             .sheet_items
             .iter()
             .filter_map(|(id, i)| if let SheetItem::Known(ItemKind::Dimension(d)) = &**i { Some((*id, d.clone())) } else { None })
             .collect();
-        let mut changed = 0;
         for (id, mut d) in dims {
-            let mut touched = false;
-            // `group`: a dimension whose measured geometry all went into the group follows the group's copies, even
-            // though the original corners still resolve
-            if let Some(n) = self.group_follow(&d, &remaps) {
-                d.anchors = n;
+            if self.settle_list(&mut d.anchors, &remaps, true) {
+                changed += 1;
+                self.sheet_items.insert(id, Arc::new(SheetItem::Known(ItemKind::Dimension(d))));
+            }
+        }
+        changed
+    }
+
+    /// One dimension's anchors after an edit: the `group` rule (when `group` is set), then the remaps, then each
+    /// attached anchor's `last` point. True when anything changed.
+    fn settle_list(&self, anchors: &mut Vec<Anchor>, remaps: &[Remap], group: bool) -> bool {
+        let mut touched = false;
+        // `group`: a dimension whose measured geometry all went into the group follows the group's copies, even
+        // though the original corners still resolve
+        if group {
+            if let Some(n) = self.group_follow(anchors, remaps) {
+                *anchors = n;
                 touched = true;
             }
-            for a in &mut d.anchors {
-                // an anchor that resolves is attached: the remaps are for those that don't
-                if self.resolve_anchor(a).is_none() {
-                    if let Some(n) = self.remapped(a, &remaps) {
-                        *a = n;
-                        touched = true;
-                    }
-                } else {
-                    // a split that happened while it still resolves keeps a `Between` on the right sub-edge
-                    if let Some(n) = self.resplit(a, &remaps) {
-                        *a = n;
+        }
+        for a in anchors.iter_mut() {
+            // an anchor that resolves is attached: the remaps are for those that don't
+            if self.resolve_anchor(a).is_none() {
+                if let Some(n) = self.remapped(a, remaps) {
+                    *a = n;
+                    touched = true;
+                }
+            } else {
+                // a split that happened while it still resolves keeps a `Between` on the right sub-edge
+                if let Some(n) = self.resplit(a, remaps) {
+                    *a = n;
+                    touched = true;
+                }
+            }
+            if let Some(w) = self.resolve_anchor(a) {
+                if w.distance(DVec3::from(a.last)) > 1e-9 {
+                    a.last = w.to_array();
+                    touched = true;
+                }
+            }
+        }
+        touched
+    }
+
+    /// Does any model-space dimension have an end attached to geometry? (Then remaps are worth recording.)
+    pub fn has_attached_dims(&self) -> bool {
+        self.annotations.iter().any(Annotation::is_attached)
+    }
+
+    /// The model's own attached dimensions (#59) after an edit: their anchors settle exactly as a sheet dimension's
+    /// do (the `group` rule only when both ends are attached), and each attached end's point moves to where its
+    /// anchor resolves now, so the drawn dimension and its value follow the geometry. An end whose anchor is broken
+    /// keeps its last point. Returns how many dimensions changed.
+    fn settle_model_dims(&mut self, remaps: &[Remap]) -> usize {
+        if !self.has_attached_dims() {
+            return 0;
+        }
+        let mut changed = 0;
+        for i in 0..self.annotations.len() {
+            let Annotation::Dimension { anchors, .. } = &self.annotations[i] else { continue };
+            if anchors.iter().all(Option::is_none) {
+                continue;
+            }
+            let both = anchors.iter().all(Option::is_some);
+            let slots: Vec<usize> = (0..2).filter(|k| anchors[*k].is_some()).collect();
+            let mut list: Vec<Anchor> = anchors.iter().flatten().cloned().collect();
+            let mut touched = self.settle_list(&mut list, remaps, both);
+            let points: Vec<Option<DVec3>> = list.iter().map(|a| self.resolve_anchor(a)).collect();
+            let Annotation::Dimension { a, b, anchors, .. } = &mut self.annotations[i] else { continue };
+            for ((k, anchor), p) in slots.into_iter().zip(list).zip(points) {
+                if let Some(p) = p {
+                    let end = if k == 0 { &mut *a } else { &mut *b };
+                    if end.distance(p) > 1e-12 {
+                        *end = p;
                         touched = true;
                     }
                 }
-                if let Some(w) = self.resolve_anchor(a) {
-                    if w.distance(DVec3::from(a.last)) > 1e-9 {
-                        a.last = w.to_array();
-                        touched = true;
-                    }
-                }
+                anchors[k] = Some(anchor);
             }
             if touched {
                 changed += 1;
-                self.sheet_items.insert(id, Arc::new(SheetItem::Known(ItemKind::Dimension(d))));
             }
         }
         changed
@@ -255,8 +307,8 @@ impl Model {
     /// corner the group copied, or a point inside a placement or group moved into it. If any anchor stays outside
     /// (a corner with other geometry, a guide, a curve centre, a loose edge, a placement left out), the whole
     /// dimension stays on the original corners: what it measured is not in the group. All or none, per dimension.
-    fn group_follow(&self, d: &Dimension, remaps: &[Remap]) -> Option<Vec<Anchor>> {
-        let mut anchors = d.anchors.clone();
+    fn group_follow(&self, list: &[Anchor], remaps: &[Remap]) -> Option<Vec<Anchor>> {
+        let mut anchors = list.to_vec();
         let mut moved = false;
         for r in remaps {
             let Remap::Group { copies, inside, nested } = r else { continue };

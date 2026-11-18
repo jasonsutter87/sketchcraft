@@ -137,7 +137,7 @@ impl Engine {
                         .unwrap_or_else(|| "SketchUp model".into())
                 });
                 let r = crate::skp::import(m, &bytes, v3(at), &label)?;
-                json!({"group": r.group, "version": r.version, "faces": r.faces, "components": r.components, "placed": r.placed, "dimensions": r.dimensions, "labels": r.labels, "skipped_annotations": r.skipped_annotations})
+                json!({"group": r.group, "version": r.version, "faces": r.faces, "components": r.components, "placed": r.placed, "dimensions": r.dimensions, "labels": r.labels, "skipped_annotations": r.skipped_annotations, "dimensions_attached": r.dimensions_attached, "dimensions_unattached": r.dimensions_unattached, "screen_texts": r.screen_texts, "skipped_labels": r.skipped_labels})
             }
             Command::ImportCloud { path, units, max_points } => {
                 let scale = match units.as_deref().unwrap_or("m") {
