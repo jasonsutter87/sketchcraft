@@ -7,6 +7,11 @@ What changed in each SketchCraft release, newest first. The format follows
 ## [Unreleased]
 
 ### Added
+- **Dimensions come in from SketchUp files.** Importing a SketchUp 6 to 2020 file now brings its linear dimensions
+  along as dimensions on the model, measured between the same two points and drawn at the same offset; a dimension
+  whose text was typed over (not the measured length) also gets a text label. Radial dimensions, free text labels with
+  leaders, and the annotations in 2021 and later files still aren't imported (the import result says how many
+  dimension records it had to leave out).
 - **Line weight and line style per tag and per edge.** In the Outliner's Tags list, each tag has a weight menu
   (0.13 to 2 mm) and a style menu (solid, dashed, hidden, center). Select an edge and Entity Info has the same two
   menus for it; an edge's own setting beats its tag's, which beats the default. They show in the model view (with a

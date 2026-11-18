@@ -29,12 +29,14 @@
 //! near the start: name, type, RGBA.
 
 use crate::geom;
-use crate::model::{Definition, Edge, Face, Id, Instance, Model};
+use crate::model::{Annotation, Definition, Edge, Face, Id, Instance, Model};
 use anyhow::{bail, Result};
 use glam::{DMat4, DVec3, DVec4};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 const INCH: f64 = 0.0254;
+/// The most dimensions one list may give (a damaged file can't flood the model with annotations).
+const MAX_DIMS: usize = 10_000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum Kind {
@@ -52,6 +54,9 @@ enum Kind {
     AttrNamed,
     /// a textured face's mapping, also kept in the container
     AttrTexCoords,
+    /// a linear dimension (CDimensionLinear) and the font it names (CSkFont)
+    DimLinear,
+    Font,
     /// a class we don't decode (dimension, text...): the list parser skips it
     Unknown,
 }
@@ -70,6 +75,8 @@ fn kind_of(name: &str) -> Option<Kind> {
         "CAttributeContainer" => Kind::AttrContainer,
         "CAttributeNamed" => Kind::AttrNamed,
         "CFaceTextureCoords" => Kind::AttrTexCoords,
+        "CDimensionLinear" => Kind::DimLinear,
+        "CSkFont" => Kind::Font,
         _ => Kind::Unknown,
     })
 }
@@ -99,6 +106,17 @@ enum Obj {
     EdgeUse { edge: Slot, reversed: bool, loop_ref: u32 },
     Curve,
     Instance { def: Slot, m: [f64; 13] },
+    Font,
+    /// a linear dimension: where each end is, the text typed over the measured one (usually empty), and the
+    /// direction and distance it is drawn offset from the measured points (inches)
+    Dim { ends: [DimEnd; 2], text: String, dir: DVec3, dist: f64 },
+}
+
+/// One end of a dimension: a vertex of the model (by object index), or a free point.
+#[derive(Clone, Copy, Debug)]
+enum DimEnd {
+    Vertex(u32),
+    Free(DVec3),
 }
 
 #[derive(Debug)]
@@ -435,6 +453,21 @@ impl<'a> Reader<'a> {
                 self.skip(10 + 48 + 1)?;
                 Obj::Curve
             }
+            Kind::Font => {
+                self.head()?;
+                self.cstring()?;
+                // size and style: 15 bytes
+                self.skip(15)?;
+                Obj::Font
+            }
+            Kind::DimLinear => {
+                let start = self.p;
+                let r = self.dim_linear();
+                if r.is_err() && std::env::var_os("SKP_DEBUG").is_some() {
+                    eprintln!("  dimension at {start:#x} failed at {:#x}", self.p);
+                }
+                r?
+            }
             Kind::Unknown | Kind::AttrContainer | Kind::AttrNamed | Kind::AttrTexCoords => return Err(Fail),
             Kind::Instance => {
                 self.head()?;
@@ -452,6 +485,66 @@ impl<'a> Reader<'a> {
                 Obj::Instance { def, m }
             }
         })
+    }
+
+    /// A finite coordinate of a sane size (inches).
+    fn coord(&mut self) -> R<f64> {
+        let v = self.f64()?;
+        if v.is_finite() && v.abs() < 1e7 { Ok(v) } else { Err(Fail) }
+    }
+
+    /// CDimensionLinear (worked out from SketchUp 7 files):
+    ///   entity header, 10 bytes, the typed text (a string; empty = show the measured length), the font (an object
+    ///   or a reference), a zero byte, u32 3,
+    ///   two ends of 44 bytes each [u32 2, u32 4, a point (3 doubles, zero when attached), u32 vertex reference, 8 bytes],
+    ///   six doubles (the offset direction, then the plane's), u32 2, the offset distance (a double),
+    ///   a few zero bytes, u32 3.
+    fn dim_linear(&mut self) -> R<Obj> {
+        self.head()?;
+        self.skip(10)?;
+        let mut text = self.cstring()?;
+        if text.len() > 2000 {
+            text = text.chars().take(2000).collect();
+        }
+        match self.obj()? {
+            Slot::New(i) | Slot::Ref(i) if i == 0 || matches!(self.objects.get(&i), Some(Obj::Font) | None) => {}
+            Slot::Null => {}
+            _ => return Err(Fail),
+        }
+        self.skip(1)?;
+        if self.u32()? != 3 {
+            return Err(Fail);
+        }
+        let mut ends = [DimEnd::Free(DVec3::ZERO); 2];
+        for e in &mut ends {
+            if self.u32()? != 2 {
+                return Err(Fail);
+            }
+            self.u32()?;
+            let p = DVec3::new(self.coord()?, self.coord()?, self.coord()?);
+            let v = self.u32()?;
+            self.skip(8)?;
+            *e = if v == 0 { DimEnd::Free(p) } else { DimEnd::Vertex(v) };
+        }
+        let mut f = [0.0; 6];
+        for v in &mut f {
+            *v = self.coord()?;
+        }
+        self.u32()?; // 1 or 2
+        let dist = self.coord()?;
+        // zero padding, then the closing 3
+        for _ in 0..16 {
+            if self.d.get(self.p) == Some(&3) {
+                break;
+            }
+            if self.u8()? != 0 {
+                return Err(Fail);
+            }
+        }
+        if self.u32()? != 3 {
+            return Err(Fail);
+        }
+        Ok(Obj::Dim { ends, text, dir: DVec3::new(f[0], f[1], f[2]), dist })
     }
 
     fn kind(&self, s: Slot) -> Option<&Obj> {
@@ -495,7 +588,7 @@ impl<'a> Reader<'a> {
                         }
                     }
                 }
-                Obj::Instance { .. } => items += 1,
+                Obj::Instance { .. } | Obj::Dim { .. } => items += 1,
                 _ => {}
             }
         }
@@ -509,6 +602,21 @@ pub struct Entities {
     pub faces: Vec<SkpFace>,
     pub lines: Vec<(DVec3, DVec3, bool)>,
     pub instances: Vec<(u32, DMat4)>,
+    /// dimensions (inches)
+    pub dims: Vec<SkpDim>,
+    /// dimension records the file had that couldn't be placed (an end on a vertex that isn't in this list)
+    pub dims_skipped: usize,
+}
+
+/// A linear dimension as the file has it: the two points it measures, and where its line is drawn.
+#[derive(Debug, Clone)]
+pub struct SkpDim {
+    pub a: DVec3,
+    pub b: DVec3,
+    /// the drawn line's offset from the points
+    pub offset: DVec3,
+    /// text typed over the measured length (empty: none)
+    pub text: String,
 }
 
 #[derive(Debug, Clone)]
@@ -568,6 +676,22 @@ fn resolve(r: &Reader, items: &[Slot]) -> Entities {
                         outer.reverse();
                     }
                     out.faces.push(SkpFace { outer, holes: rings, material: *material });
+                }
+            }
+            Some(Obj::Dim { ends, text, dir, dist }) => {
+                let at = |e: &DimEnd| match e {
+                    DimEnd::Free(p) => Some(*p),
+                    DimEnd::Vertex(v) => match r.objects.get(v) {
+                        Some(Obj::Vertex(p)) => Some(*p),
+                        _ => None,
+                    },
+                };
+                match (at(&ends[0]), at(&ends[1])) {
+                    (Some(a), Some(b)) if out.dims.len() < MAX_DIMS => {
+                        let d = if dir.length() > 1e-9 { dir.normalize() } else { DVec3::ZERO };
+                        out.dims.push(SkpDim { a, b, offset: d * *dist, text: text.clone() });
+                    }
+                    _ => out.dims_skipped += 1,
                 }
             }
             Some(Obj::Instance { def, m }) => {
@@ -1123,6 +1247,22 @@ pub fn import(m: &mut Model, d: &[u8], at: DVec3, name: &str) -> Result<ImportSu
         root_faces += n;
         summary.faces += n;
         merge_into(m, &tmp, gid, base);
+        let to_world = |p: DVec3| at + p * INCH;
+        summary.skipped_annotations += root.dims_skipped;
+        for dim in &root.dims {
+            let (a, b, off) = (to_world(dim.a), to_world(dim.b), dim.offset * INCH);
+            if !(a.is_finite() && b.is_finite() && off.is_finite()) {
+                continue;
+            }
+            let id = m.new_id();
+            m.annotations.push(Annotation::Dimension { id, a, b, offset: off });
+            summary.dimensions += 1;
+            if !dim.text.is_empty() {
+                let id = m.new_id();
+                m.annotations.push(Annotation::Text { id, at: (a + b) * 0.5 + off, text: dim.text.clone(), leader: None });
+                summary.labels += 1;
+            }
+        }
         for (child, t) in &root.instances {
             if let Some(&cid) = def_ids.get(child) {
                 let iid = m.new_id();
@@ -1156,6 +1296,11 @@ pub struct ImportSummary {
     pub components: usize,
     pub placed: usize,
     pub group: Id,
+    /// dimensions and text labels made from the file's annotations
+    pub dimensions: usize,
+    pub labels: usize,
+    /// annotation records found but not imported (not attached to anything we read)
+    pub skipped_annotations: usize,
 }
 
 /// Add faces and loose lines (inches -> meters) to a model, in bulk.
