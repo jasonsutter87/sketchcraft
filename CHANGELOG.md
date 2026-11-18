@@ -17,6 +17,13 @@ What changed in each SketchCraft release, newest first. The format follows
   (over 32,767 objects) are read correctly too. (part of #70)
 
 ### Added
+- **Cut intersection priority per tag: the wall wins where it runs into the slab.** When the cut surfaces of two tags
+  overlap in a plan or a section (a wall into a slab, insulation inside a wall), the tag with the higher priority
+  keeps the overlap and the other stops at its edge, with no seam. Cuts of one tag, or of tags with the same priority,
+  join into one shape. In the Outliner, under Tags, "Intersection priority" lists the tags with the winner on top:
+  drag to reorder, use the arrows (or Alt+Up and Alt+Down on a row), or type a number from 0 to 999. It shows on
+  screen and on sheets (PDF, SVG, DXF), and agents set it with `tag_style {cut: {priority}}`. With every priority at
+  0, which is the default, drawings look as they did. Suggested by a Reddit user. (part of #88)
 - **Ask an agent to draw the sheets: lay out a permit set, dimension the plans, hatch, check.** `layout_preset`
   makes a permit set of ordinary saved sheets in one Undo step: a cover with the sheet index and a 3D view, a plan
   per floor, the four elevations, a section through the stairs (when there are stairs) and the door and window

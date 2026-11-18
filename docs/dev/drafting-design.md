@@ -73,7 +73,7 @@ agent's undo on one dimension never clashes with the person dragging another on 
 
 `Drafting`:
 
-- `tag_styles: BTreeMap<String, TagStyle>`. A `TagStyle` is `{weight_mm, line, color, cut: CutStyle{fill: None|Solid|Hatch, outline_mm}, surface_hatch, beyond: {weight_mm, color}}`.
+- `tag_styles: BTreeMap<String, TagStyle>`. A `TagStyle` is `{weight_mm, line, color, cut: CutStyle{fill: None|Solid|Hatch, outline_mm, priority: 0..=999 (higher wins a cut overlap)}, surface_hatch, beyond: {weight_mm, color}}`.
 - `patterns`: parsed `.pat`, kept in the file so it's self-contained.
 - `line_types`, `dim_styles` (arrows, text, units, precision) and `text_styles`.
 - `HatchUse = {pattern, color, weight_mm, scale, angle, scale_mode: Paper|Model}`.
@@ -560,3 +560,20 @@ Tests: `core/tests/ai_drafting.rs`: every scope on a fixture house (counts, valu
 What later steps plug into: the editor (step 11/12) can show `viewport_points` as snaps and use `sheet_picture` for thumbnails; tables (step 14) can make the A-601 schedule a linked table (`Table.source`).
 
 Known limits: `exterior` is the overall width and depth only (an L-shaped building's jogs are not chained); interior strings are drawn outside the building (north and west) rather than through the rooms; the outline (and so the overall) includes door and window frames that stand proud of the wall; grids are column centres, not named grid lines with bubbles; columns inside a group inside another group are found only through root group parents; `dimension_auto` works on plan viewports only (no elevation heights yet); there is no `preview` (design §6) yet; `layout_preset` knows only "permit"; the picture fades each primitive rather than a viewport as one group, has no hinting, and caps at 4000 px (1600 through the MCP tool).
+
+**Step 8b, cut intersection priority per tag (#88).** Builds on step 8; suggested by a Reddit user (Archicad's building-material priority).
+
+| Where | What |
+|---|---|
+| `drafting.rs` | `CutStyle.priority: i32` (0 to 999, `PRIORITY_RANGE`; written only when not 0, so a file with no priorities is byte-for-byte what it was; format 2 already). `validate` rejects a loaded file with one out of range |
+| `section.rs` | `Model::section_styled(origin, normal, &Drafting)` (`section` calls it with the model's own styles; the `section` command passes the root's, because a component being edited has none) and `resolve_priorities`, run after the regions are chained, only when some tag has a priority other than 0. Claim order: higher priority first, equal priorities by tag name (byte order), untagged last. Per tag in that order: union of its regions (same tag merges, no internal outline), minus everything already claimed (`geo` `BooleanOps`; `geo` was already a dependency). Pieces under 0.01 mm2 and holes under it are dropped. A piece keeps its tag and takes the owner of the first (lowest id) source region that covers a point inside it. The tag's thin cut lines (`Cut.segments`) are clipped by the same claims, so no seam is drawn through a winner. A panic inside the booleans falls back to the unresolved regions |
+| `commands/tags.rs`, `command.rs` | `tag_style {cut: {priority}}` (a whole number 0 to 999; only the given fields change; checked before anything changes; MODEL policy; one undo step); help in `mcp.rs` |
+| `cutpriority.ts`, `cutpriorityeditor.tsx`, `outliner.tsx` | Outliner > Tags > "Intersection priority": the tags from the winner down, drag to reorder, up/down buttons, Alt+Up/Down on a row's grip, a number field per tag, `=` on tied tags, a hint and a tiny example. A reorder renumbers (bottom 0, 10 per step up) and sends only the tags whose number changes, inside `begin_batch`/`end_batch` so it is one undo step |
+
+Everything that draws a cut goes through `Model::section`, so plans, section viewports, saved sheets (PDF/SVG/DXF), the `section` command's answer and the on-screen cap all show the resolved regions with no further change. `viewport` draw caches (#8 / #90) key on the whole `TagStyle`, so the new field needs no cache change.
+
+Behaviour to know: with every priority 0, nothing is resolved (overlapping regions of different tags are drawn on top of each other, as before this step). As soon as one tag has a number, resolving applies to every tag, so same-tag regions also merge then. At equal priority the overlap goes to the tag that sorts first by name (one fill, never two on top of each other).
+
+Tests: `core/tests/cutpriority.rs` (higher wins and lower trimmed both ways, no seam in the cut lines, same tag merges into one L, equal priority, holes in winner and loser, touching edges and slivers, all-zero unchanged exactly, command checks, undo/redo, save/open and no 0 written, policy and help, sheets in SVG/PDF/DXF, the `section` answer and the cut file, a component being edited), `app/tests/cutpriority.test.ts` (order, move, renumber, parse), `tools/ui-tests/cut-priority.mjs` (reorder by arrows, drag, keyboard and typing flips the overlap's pixel colour and trims the cap; one undo step; saved file).
+
+Known limits: the `section` command's own SVG/DXF file has no styles but does use the trimmed regions; priority only decides cut overlaps (it does not change which faces are drawn beyond the cut); equal-priority tags with different fills cannot both show in an overlap.
