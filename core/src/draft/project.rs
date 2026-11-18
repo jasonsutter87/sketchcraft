@@ -51,19 +51,21 @@ pub(super) fn plan(cv: &mut Cv, m: &Model, bm: &Model, v: &ViewportSpec, z: f64,
     let to = |px: f64, py: f64| -> (f64, f64) { ((cx + (px - mx) * k) * PT, y(cy - (py - my) * k)) };
     let units = if m.units.is_empty() { "m" } else { m.units.as_str() };
     cv.clipped(v.x * PT, y(v.y + v.h), v.w * PT, v.h * PT, |cv| {
-        // cut walls: solid dark on paper; pale with white outlines on a blueprint; holes left open (even-odd)
-        let outline = pens.ink(pens.heavy);
-        for (_, outer, holes) in &cut.regions {
-            let mut segs = Vec::new();
-            for ring in std::iter::once(outer).chain(holes.iter()) {
-                for (i, p) in ring.iter().enumerate() {
-                    let (a, b) = to(p.x, p.y);
-                    let q = [a / PT, sh - b / PT];
-                    segs.push(if i == 0 { Seg::M(q) } else { Seg::L(q) });
-                }
-                segs.push(Seg::Z);
-            }
-            cv.push(Prim::Path(PathPrim { segs, pen: Some(outline.clone()), fill: Some(Fill { rgb: pens.cut_fill, even_odd: true }), prov: None }));
+        // cut walls: solid dark on paper; pale with white outlines on a blueprint; holes left open (even-odd);
+        // a tag with a hatch hatches its regions instead
+        for (owner, outer, holes) in &cut.regions {
+            let rings: Vec<Vec<[f64; 2]>> = std::iter::once(outer)
+                .chain(holes.iter())
+                .map(|ring| {
+                    ring.iter()
+                        .map(|p| {
+                            let (a, b) = to(p.x, p.y);
+                            [a / PT, sh - b / PT]
+                        })
+                        .collect()
+                })
+                .collect();
+            cut_region(cv, m, *owner, rings, sh, denom, pens);
         }
         // everything else the cut passes through (glass, frames): thin lines
         let thin = pens.ink(pens.thin);
@@ -142,6 +144,32 @@ pub(super) fn plan(cv: &mut Cv, m: &Model, bm: &Model, v: &ViewportSpec, z: f64,
         None => label,
     };
     Ok((label, Some(denom)))
+}
+
+/// One cut region (paper mm, y down; the outer ring, then its holes) of a plan or section at 1:`denom`: the solid
+/// poché, or, when the region's tag has a cut hatch (`TagStyle.cut`, design §3.3), the paper colour with the hatch
+/// over it. Either way with the heavy cut outline on top.
+///
+/// This is the hook for design step 8 (cut fill per tag, #5): that step regroups regions by the innermost tagged
+/// owner and adds `Solid`/`None` fills and `outline_mm`; it plugs in here.
+fn cut_region(cv: &mut Cv, m: &Model, owner: crate::model::Id, rings: Vec<Vec<[f64; 2]>>, sh: f64, denom: f64, pens: &Pens) {
+    let mut segs = Vec::new();
+    for ring in &rings {
+        for (i, q) in ring.iter().enumerate() {
+            segs.push(if i == 0 { Seg::M(*q) } else { Seg::L(*q) });
+        }
+        segs.push(Seg::Z);
+    }
+    let tag = m.owner_tag(owner);
+    let outline = pens.ink(pens.heavy);
+    match m.drafting.cut_hatch(tag.as_deref()) {
+        Some(u) => {
+            cv.push(Prim::Path(PathPrim { segs: segs.clone(), pen: None, fill: Some(Fill { rgb: pens.paper, even_odd: true }), prov: None }));
+            cv.push(Prim::Hatch(super::hatch::on_sheet(&m.drafting, u, rings, sh, denom, pens)));
+            cv.push(Prim::Path(PathPrim { segs, pen: Some(outline), fill: None, prov: None }));
+        }
+        None => cv.push(Prim::Path(PathPrim { segs, pen: Some(outline), fill: Some(Fill { rgb: pens.cut_fill, even_odd: true }), prov: None })),
+    }
 }
 
 /// Stairs: on the floor they start from, the treads up to the cut with UP; on the floor they arrive
@@ -382,15 +410,9 @@ pub(super) fn view(cv: &mut Cv, m: &Model, bm: &Model, v: &ViewportSpec, pens: &
             if let Ok(cut) = m.section(origin, look) {
                 // the cut is drawn in the same frame as the lines
                 let to = |p: DVec3| proj.xy(p);
-                for (_, outer, holes) in &cut.regions {
-                    let mut segs = Vec::new();
-                    for ring in std::iter::once(outer).chain(holes.iter()) {
-                        for (i, p) in ring.iter().enumerate() {
-                            segs.push(if i == 0 { Seg::M(to(*p)) } else { Seg::L(to(*p)) });
-                        }
-                        segs.push(Seg::Z);
-                    }
-                    cv.push(Prim::Path(PathPrim { segs, pen: Some(pens.ink(pens.heavy)), fill: Some(Fill { rgb: pens.cut_fill, even_odd: true }), prov: None }));
+                for (owner, outer, holes) in &cut.regions {
+                    let rings: Vec<Vec<[f64; 2]>> = std::iter::once(outer).chain(holes.iter()).map(|ring| ring.iter().map(|p| to(*p)).collect()).collect();
+                    cut_region(cv, m, *owner, rings, sh, d, pens);
                 }
                 let thin = pens.ink(pens.thin);
                 for (a, b) in &cut.segments {

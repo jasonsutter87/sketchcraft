@@ -65,8 +65,45 @@ impl W {
                     self.prims(&g.children);
                     self.s.push_str("</g>\n");
                 }
+                Prim::Hatch(h) => self.hatch(h),
             }
         }
+    }
+
+    /// A hatched region: its lines in a group clipped to the region (even-odd), or the tint when it has one.
+    fn hatch(&mut self, h: &HatchPrim) {
+        let mut ring = String::new();
+        for s in h.ring_segs() {
+            let _ = match s {
+                Seg::M(a) => write!(ring, "M{} {}", n(a[0]), n(a[1])),
+                Seg::L(a) => write!(ring, "L{} {}", n(a[0]), n(a[1])),
+                Seg::Z => write!(ring, "Z"),
+                Seg::C(..) => Ok(()),
+            };
+        }
+        if ring.is_empty() {
+            return;
+        }
+        let name = esc(&h.name);
+        if let Some(t) = h.tint {
+            let _ = writeln!(self.s, "<path data-hatch=\"{name}\" data-hatch-tint=\"1\" d=\"{ring}\" fill=\"{}\" fill-rule=\"evenodd\"/>", rgb(t));
+            return;
+        }
+        if h.lines.is_empty() {
+            return;
+        }
+        self.clips += 1;
+        let id = format!("sc-{}-c{}", self.uid, self.clips);
+        let mut d = String::with_capacity(h.lines.len() * 24);
+        for [a, b] in &h.lines {
+            let _ = write!(d, "M{} {}L{} {}", n(a[0]), n(a[1]), n(b[0]), n(b[1]));
+        }
+        let _ = writeln!(
+            self.s,
+            "<clipPath id=\"{id}\"><path d=\"{ring}\" clip-rule=\"evenodd\"/></clipPath>\n<g data-hatch=\"{name}\" clip-path=\"url(#{id})\"><path d=\"{d}\" fill=\"none\" stroke=\"{}\" stroke-width=\"{}\" stroke-linecap=\"round\"/></g>",
+            rgb(h.pen.rgb),
+            n(h.pen.w)
+        );
     }
 
     fn path(&mut self, p: &PathPrim) {

@@ -217,12 +217,48 @@ pub struct Group {
     pub children: Vec<Prim>,
 }
 
+/// A hatched region (design §3.3). PDF and SVG clip to `rings` and draw `lines`; DXF writes a native `HATCH`
+/// from `rings` and `families`, so it stays a hatch in CAD. When the pattern was too dense or missing, `lines` is
+/// empty and `tint` fills the region instead, with `note` saying why (the export lists it as a warning).
+#[derive(Clone, Debug, PartialEq)]
+pub struct HatchPrim {
+    /// the outer ring and its holes, paper mm, y down (even-odd)
+    pub rings: Vec<Vec<[f64; 2]>>,
+    /// the pattern's name
+    pub name: String,
+    /// the pattern placed, in paper mm with y up from the page's bottom left (the DXF's frame)
+    pub families: Vec<super::hatch::Placed>,
+    /// the angle and scale it was placed with (degrees; paper mm per pattern mm)
+    pub angle: f64,
+    pub scale: f64,
+    pub pen: Pen,
+    /// the lines, clipped to the region and dashed, paper mm, y down (a dot is a zero-length line)
+    pub lines: Vec<[[f64; 2]; 2]>,
+    pub tint: Option<Rgb>,
+    pub note: Option<String>,
+}
+
+impl HatchPrim {
+    /// The region's outline as a path (each ring closed).
+    pub fn ring_segs(&self) -> Vec<Seg> {
+        let mut segs = Vec::new();
+        for r in self.rings.iter().filter(|r| r.len() >= 3) {
+            for (i, p) in r.iter().enumerate() {
+                segs.push(if i == 0 { Seg::M(*p) } else { Seg::L(*p) });
+            }
+            segs.push(Seg::Z);
+        }
+        segs
+    }
+}
+
 #[derive(Clone, Debug)]
 pub enum Prim {
     Path(PathPrim),
     Text(TextPrim),
     Image(ImagePrim),
     Group(Group),
+    Hatch(HatchPrim),
 }
 
 impl PartialEq for Prim {
@@ -232,6 +268,7 @@ impl PartialEq for Prim {
             (Prim::Text(a), Prim::Text(b)) => a == b,
             (Prim::Image(a), Prim::Image(b)) => a.rect == b.rect && a.rgb.as_raw() == b.rgb.as_raw(),
             (Prim::Group(a), Prim::Group(b)) => a.clip == b.clip && a.alt == b.alt && a.opacity == b.opacity && a.children == b.children,
+            (Prim::Hatch(a), Prim::Hatch(b)) => a == b,
             _ => false,
         }
     }
@@ -411,6 +448,17 @@ pub fn cull(items: Vec<Prim>, rect: &[f64; 4]) -> Vec<Prim> {
                     }
                 }
                 Some(Prim::Path(pp))
+            }
+            Prim::Hatch(h) => {
+                let mut lo = [f64::MAX; 2];
+                let mut hi = [f64::MIN; 2];
+                for p in h.rings.iter().flatten() {
+                    for i in 0..2 {
+                        lo[i] = lo[i].min(p[i]);
+                        hi[i] = hi[i].max(p[i]);
+                    }
+                }
+                (lo[0] <= hi[0] && !(hi[0] < x0 || lo[0] > x1 || hi[1] < y0 || lo[1] > y1)).then_some(Prim::Hatch(h))
             }
             Prim::Text(t) => {
                 let reach = t.size * t.text.chars().count() as f64;

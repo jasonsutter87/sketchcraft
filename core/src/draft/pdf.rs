@@ -172,6 +172,55 @@ impl Writer<'_> {
         self.c.restore_state();
     }
 
+    /// A hatched region: clipped to the region (even-odd), its lines stroked with round caps (a dot is a
+    /// zero-length line); or the tint, filled, when it has one.
+    fn hatch(&mut self, h: &HatchPrim) {
+        let segs = h.ring_segs();
+        if segs.is_empty() || (h.tint.is_none() && h.lines.is_empty()) {
+            return;
+        }
+        self.c.save_state();
+        let ring = |w: &mut Self| {
+            for s in &segs {
+                match *s {
+                    Seg::M(a) => {
+                        let (x, y) = (w.x(a[0]), w.y(a[1]));
+                        w.c.move_to(x, y);
+                    }
+                    Seg::L(a) => {
+                        let (x, y) = (w.x(a[0]), w.y(a[1]));
+                        w.c.line_to(x, y);
+                    }
+                    Seg::Z => {
+                        w.c.close_path();
+                    }
+                    Seg::C(..) => {}
+                }
+            }
+        };
+        if let Some(t) = h.tint {
+            self.c.set_fill_rgb(t[0] as f32 / 255.0, t[1] as f32 / 255.0, t[2] as f32 / 255.0);
+            ring(self);
+            self.c.fill_even_odd();
+            self.c.restore_state();
+            return;
+        }
+        ring(self);
+        self.c.clip_even_odd();
+        self.c.end_path();
+        let p = &h.pen;
+        self.c.set_stroke_rgb(p.rgb[0] as f32 / 255.0, p.rgb[1] as f32 / 255.0, p.rgb[2] as f32 / 255.0);
+        self.c.set_line_width(f(p.w * PT));
+        self.c.set_line_cap(LineCapStyle::RoundCap).set_line_join(LineJoinStyle::RoundJoin);
+        for [a, b] in &h.lines {
+            let (ax, ay, bx, by) = (self.x(a[0]), self.y(a[1]), self.x(b[0]), self.y(b[1]));
+            self.c.move_to(ax, ay);
+            self.c.line_to(bx, by);
+        }
+        self.c.stroke();
+        self.c.restore_state();
+    }
+
     fn text(&mut self, t: &TextPrim) {
         let size_pt = t.size * PT;
         let snap = |v: f64| if v.abs() < 1e-9 { 0.0 } else { v };
@@ -319,6 +368,15 @@ impl Writer<'_> {
                     }
                     self.text(t);
                     self.c.end_marked_content();
+                }
+                Prim::Hatch(h) => {
+                    if self.in_figure {
+                        self.hatch(h);
+                    } else {
+                        self.c.begin_marked_content(Name(b"Artifact"));
+                        self.hatch(h);
+                        self.c.end_marked_content();
+                    }
                 }
                 Prim::Image(i) => {
                     if self.in_figure {

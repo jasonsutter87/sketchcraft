@@ -311,6 +311,12 @@ impl Drafting {
         }
     }
 
+    /// The hatch a tag's cut surfaces get (`cut.fill` is `Hatch` and a hatch is set), if any.
+    pub fn cut_hatch(&self, tag: Option<&str>) -> Option<&HatchUse> {
+        let t = self.tag_style(tag?)?;
+        (t.cut.fill == CutFill::Hatch).then_some(t.cut.hatch.as_ref()).flatten()
+    }
+
     /// The style of a tag, when it has one this build understands.
     pub fn tag_style(&self, tag: &str) -> Option<&TagStyle> {
         match self.tag_styles.get(tag) {

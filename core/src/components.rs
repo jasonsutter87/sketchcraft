@@ -165,6 +165,19 @@ impl Model {
         }
     }
 
+    /// The tag that styles a section region's owner (`Cut::regions`): a group's (or the nearest tagged group around
+    /// it), a component placement's own. A loose face has none. (Design step 8 regroups regions by the innermost
+    /// tagged owner; until then this is the region's owner as `section` groups it.)
+    pub fn owner_tag(&self, owner: Id) -> Option<String> {
+        if self.groups.contains_key(&owner) {
+            return self.group_tag(Some(owner));
+        }
+        if let Some(i) = self.instances.get(&owner) {
+            return i.tag.clone().or_else(|| self.group_tag(i.parent));
+        }
+        None
+    }
+
     /// The tag of a group, or of the nearest group around it that has one.
     fn group_tag(&self, mut g: Option<Id>) -> Option<String> {
         for _ in 0..crate::nesting::MAX_NEST {

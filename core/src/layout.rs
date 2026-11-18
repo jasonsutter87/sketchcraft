@@ -123,11 +123,31 @@ pub fn write_sheets_notes(m: &Model, path: &str, sheet: &str, project: &str, pag
 /// What a file of this kind leaves out of `doc`'s page (so the export can say so).
 pub fn export_warnings(doc: &Doc, path: &str, page: Option<usize>) -> Vec<String> {
     let ext = std::path::Path::new(path).extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
-    if ext != "dxf" {
-        return Vec::new();
+    // a PDF holds every page; an SVG or DXF holds one
+    let pages: Vec<&crate::draft::ir::Page> = if ext == "pdf" { doc.pages.iter().collect() } else { page.unwrap_or(1).checked_sub(1).and_then(|i| doc.pages.get(i)).into_iter().collect() };
+    let mut out = hatch_warnings(&pages);
+    if ext == "dxf" {
+        let n = pages.first().map_or(0, |p| crate::draft::dxf::dropped_opacity(p));
+        if n > 0 {
+            out.push(format!("DXF has no opacity: {n} viewport{} drawn at full strength (PDF and SVG keep it)", if n == 1 { " is" } else { "s are" }));
+        }
     }
-    let n = page.unwrap_or(1).checked_sub(1).and_then(|i| doc.pages.get(i)).map_or(0, crate::draft::dxf::dropped_opacity);
-    if n == 0 { Vec::new() } else { vec![format!("DXF has no opacity: {n} viewport{} drawn at full strength (PDF and SVG keep it)", if n == 1 { " is" } else { "s are" })] }
+    out
+}
+
+/// Hatches that were drawn as a plain tint (too dense, or a pattern the file lacks), each reason once with a count.
+pub fn hatch_warnings(pages: &[&crate::draft::ir::Page]) -> Vec<String> {
+    let mut why: std::collections::BTreeMap<(String, String), usize> = Default::default();
+    for p in pages {
+        p.walk(&mut |x| {
+            if let crate::draft::ir::Prim::Hatch(h) = x {
+                if let Some(n) = &h.note {
+                    *why.entry((h.name.clone(), n.clone())).or_default() += 1;
+                }
+            }
+        });
+    }
+    why.into_iter().map(|((name, n), c)| format!("hatch {name:?} drawn as a plain tint in {c} region{}: {n}", if c == 1 { "" } else { "s" })).collect()
 }
 
 /// The language tag for the PDF (screen readers pronounce by it): from the machine's locale (`de_DE.UTF-8` is
