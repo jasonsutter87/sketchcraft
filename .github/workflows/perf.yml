@@ -7,7 +7,7 @@ name: Perf
 # When it runs, and why not on every PR: a release build plus the benchmark is about 10 minutes, and timings on
 # shared runners vary by more than the 20% the check allows now and then, so it would make the develop PR checks
 # slow and flaky. It is not a required check. It runs on staging and main (the release candidates), nightly on
-# develop, by hand, and on a develop PR labelled `perf` (for work that touches drawing speed). The counter
+# develop, by hand, and on a develop PR labelled `performance` (for work that touches drawing speed). The counter
 # assertions (exactly which viewports a change redraws) are exact and also run in the normal `test` job, on the
 # small fixture, on every PR.
 on:
@@ -27,7 +27,7 @@ jobs:
     if: >-
       github.event_name != 'pull_request' ||
       github.base_ref == 'staging' || github.base_ref == 'main' ||
-      contains(github.event.pull_request.labels.*.name, 'perf')
+      contains(github.event.pull_request.labels.*.name, 'performance')
     runs-on: ubuntu-22.04
     timeout-minutes: 45
     steps:

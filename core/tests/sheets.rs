@@ -542,14 +542,19 @@ fn export_refuses_papers_the_writer_would_print_wrongly() {
 fn more_sheets_than_one_pdf_holds_say_how_to_export_them() {
     let dir = scratch("many");
     let mut e = Engine::new();
+    // one PDF holds as many pages as a model may have sheets (200, the person's limit; it was 50): 60 export whole
     ok(&mut e, json!({"cmd": "sheets", "pages": (0..60).map(|i| json!({"title": format!("S{i}"), "table": [["a"]]})).collect::<Vec<_>>()}));
     let p = dir.join("all.pdf");
-    let r = e.exec_json(&json!({"cmd": "export_sheets", "path": p}).to_string());
-    assert_eq!(r["ok"], false);
-    assert!(r["error"].as_str().unwrap().contains("pages: [sheet ids]"), "{r}");
+    let r = ok(&mut e, json!({"cmd": "export_sheets", "path": p}));
+    assert_eq!(r["pages"], 60, "{r}");
     let ids: Vec<u32> = e.model.sheets.keys().copied().take(50).collect();
     let r = e.exec_json(&json!({"cmd": "export_sheets", "path": p, "pages": ids}).to_string());
     assert_eq!(r["ok"], true, "{r}");
+    // past that, the set is refused, saying how to export it in parts
+    assert_eq!(sketchcraft::draft::sheet::MAX_PAGES, sketchcraft::policy::MAX_PAGES_UI);
+    let many: Vec<sketchcraft::layout::PageSpec> = (0..=sketchcraft::draft::sheet::MAX_PAGES).map(|i| sketchcraft::layout::PageSpec { title: format!("S{i}"), table: vec![vec!["a".into()]], ..Default::default() }).collect();
+    let err = sketchcraft::draft::sheet::build(&e.model, "a3", "P", many, false, &[], "today").unwrap_err().to_string();
+    assert!(err.contains("pages: [sheet ids]"), "{err}");
     std::fs::remove_dir_all(&dir).ok();
 }
 
