@@ -121,7 +121,13 @@ pub fn write_sheets_page(m: &Model, path: &str, sheet: &str, project: &str, page
 /// `write_sheets_page`, and what the format couldn't carry (a DXF has no opacity: the export says so).
 #[allow(clippy::too_many_arguments)]
 pub fn write_sheets_notes(m: &Model, path: &str, sheet: &str, project: &str, pages: Vec<PageSpec>, blueprint: bool, notes: &[String], fill: bool, page: Option<usize>) -> Result<(usize, Vec<String>)> {
-    let mut doc = crate::draft::sheet::build_with(m, sheet, project, pages, blueprint, notes, &today(), fill)?;
+    write_sheets_kept(m, path, sheet, project, pages, blueprint, notes, fill, page, None)
+}
+
+/// `write_sheets_notes`, taking drawings kept in `cache` (the engine's) and keeping the ones it draws.
+#[allow(clippy::too_many_arguments)]
+pub fn write_sheets_kept(m: &Model, path: &str, sheet: &str, project: &str, pages: Vec<PageSpec>, blueprint: bool, notes: &[String], fill: bool, page: Option<usize>, cache: Option<&crate::draft::cache::Drawings>) -> Result<(usize, Vec<String>)> {
+    let mut doc = crate::draft::sheet::build_opts(m, sheet, project, pages, blueprint, notes, &today(), fill, crate::draft::sheet::Opts { cache, ..Default::default() })?;
     doc.lang = locale_lang();
     write_doc(&doc, path, page)?;
     Ok((doc.pages.len(), export_warnings(&doc, path, page)))

@@ -34,6 +34,7 @@ mod annotate;
 mod build;
 mod command;
 mod draw;
+mod drawings;
 mod files;
 mod groups;
 mod library;
@@ -147,6 +148,7 @@ impl Command {
                 | Command::ViewportPoints { .. }
                 | Command::SheetRender { .. }
                 | Command::SheetIr { .. }
+                | Command::DraftingStatus
                 | Command::HatchPatterns { .. }
                 | Command::Blueprint { .. }
                 | Command::Levels
@@ -209,6 +211,8 @@ pub struct Engine {
     batch_origin: Option<String>,
     /// what the last batch that a plugin made changed: who, and how many things (read by `end_batch`'s reply)
     last_batch: Option<(String, usize)>,
+    /// drawings of sheet viewports and hatches kept between page views and exports (never saved; see `draft::cache`)
+    pub drawings: crate::draft::cache::Drawings,
 }
 
 /// Whose an open batch is. A batch groups ONE client's commands into one undo step; another client's commands never join it.
@@ -490,6 +494,7 @@ impl Engine {
             let next = self.model.next_id;
             self.model = m;
             self.model.next_id = self.model.next_id.max(next);
+            self.drawings.clear();
         }
     }
 
@@ -681,6 +686,8 @@ impl Engine {
         }
         // everything needed to put things back as they were
         let saved = mutates.then(|| (self.model.clone(), self.ctx, self.names.clone(), self.undo.len()));
+        // Undo and Redo replace the model too: what kept drawings it reaches is worked out from the model before
+        let pre_step = (matches!(cmd, Command::Undo | Command::Redo) && !self.drawings.is_empty()).then(|| self.model.clone());
         let count_before = self.model.entity_count();
         let bytes_before = if mutates { self.model.size_estimate() } else { 0 };
         let text_before = if mutates { self.model.text_bytes() } else { 0 };
@@ -766,6 +773,10 @@ impl Engine {
                         self.oversize = oversize_before;
                         return json!({"ok": false, "error": e.to_string()});
                     }
+                    // kept drawings this change reached are dropped (and the pages looked at last redrawn in the background)
+                    if let Some((before, ..)) = &saved {
+                        self.drawings_changed(before);
+                    }
                     if is_open {
                         self.undo.clear();
                     } else if push_undo && self.batch.is_none() && v.get("unchanged") != Some(&json!(true)) {
@@ -777,6 +788,9 @@ impl Engine {
                     }
                     self.redo.clear();
                     self.trim_undo();
+                }
+                if let Some(before) = &pre_step {
+                    self.drawings_changed(before);
                 }
                 v
             }
@@ -1005,6 +1019,7 @@ impl Engine {
             c @ (
                 Command::BeginBatch { .. } | Command::EndBatch { .. } | Command::Undo { .. } | Command::Redo { .. }
             ) => self.run_session(c),
+            Command::DraftingStatus => Ok(self.drafting_status()),
         }
     }
 }

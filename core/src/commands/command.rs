@@ -598,6 +598,9 @@ pub enum Command {
         #[serde(default)]
         px: Option<u32>,
     },
+    /// Read-only: how the kept drawings of sheet viewports stand (`revision` moves when a change drops some;
+    /// `drawing`: the background worker is redrawing), with counters.
+    DraftingStatus,
     /// A blueprint set in one go: every floor's plan and the four
     /// elevations, white on blue, at a true scale that fits the sheet.
     Blueprint {
