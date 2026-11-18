@@ -205,8 +205,32 @@ pub enum Command {
         line: Option<String>,
         #[serde(default)]
         color: Option<String>,
+        /// the hatch the tag's cut surfaces get in plans and sections: `{pattern, color?, weight_mm?, scale?, angle?,
+        /// scale_mode?: paper|model}`; only what is given changes; `{"pattern": ""}` removes it
+        #[serde(default)]
+        hatch: Option<HatchArgs>,
         #[serde(default)]
         clear: bool,
+    },
+    /// Keep a hatch pattern in the model (`.pat` text, AutoCAD format) under `name`, so tag hatches can use it.
+    /// `text` may hold several patterns: the one called `name` is taken (or the only one). `units` is what a file
+    /// that doesn't say means (`mm` or `inch`; AutoCAD's own set is in inches). `delete: true` removes it.
+    HatchPattern {
+        name: String,
+        #[serde(default)]
+        text: String,
+        #[serde(default)]
+        units: Option<String>,
+        #[serde(default)]
+        delete: bool,
+    },
+    /// Read-only: every hatch pattern a tag can use (built-in and in the model), with its lines; with `text`, the
+    /// patterns in that `.pat` text instead (nothing is kept), and what in it couldn't be read.
+    HatchPatterns {
+        #[serde(default)]
+        text: Option<String>,
+        #[serde(default)]
+        units: Option<String>,
     },
     /// The same for single edges (`ids`: edges, or faces for all their edges); an edge's own style beats its tag's.
     /// `clear: true` removes the edges' own style.
@@ -1344,4 +1368,21 @@ fn x_axis() -> [f64; 3] {
 
 fn z_axis() -> [f64; 3] {
     [0.0, 0.0, 1.0]
+}
+
+/// The hatch fields `tag_style` takes; each optional (only what is given changes).
+#[derive(Debug, Default, Deserialize)]
+pub struct HatchArgs {
+    #[serde(default)]
+    pub pattern: Option<String>,
+    #[serde(default)]
+    pub color: Option<String>,
+    #[serde(default)]
+    pub weight_mm: Option<f64>,
+    #[serde(default)]
+    pub scale: Option<f64>,
+    #[serde(default)]
+    pub angle: Option<f64>,
+    #[serde(default)]
+    pub scale_mode: Option<String>,
 }

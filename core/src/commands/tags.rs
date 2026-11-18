@@ -33,12 +33,161 @@ fn check_style(d: &crate::drafting::Drafting, weight_mm: Option<f64>, line: Opti
     Ok(StyleArgs { weight, line, color })
 }
 
+/// The scale range a hatch accepts (paper or model mm per pattern mm).
+pub const HATCH_SCALE: (f64, f64) = (0.01, 1000.0);
+
+fn units_of(u: Option<&str>) -> Result<crate::draft::pat::Units> {
+    use crate::draft::pat::Units;
+    Ok(match u.map(|s| s.trim().to_ascii_lowercase()).as_deref() {
+        None | Some("") | Some("mm") => Units::Mm,
+        Some("inch") | Some("in") | Some("inches") => Units::Inch,
+        Some(o) => bail!("units are \"mm\" or \"inch\", not {o:?}"),
+    })
+}
+
+/// A pattern as the app and agents see it: name, description, whether it's built in, and its line families (mm).
+fn pattern_json(p: &crate::draft::pat::Pattern, builtin: bool) -> Value {
+    json!({
+        "name": p.name,
+        "desc": p.desc,
+        "builtin": builtin,
+        "families": p.families.iter().map(|f| json!({"angle": f.angle, "origin": f.origin, "delta": f.delta, "dash": f.dash})).collect::<Vec<_>>(),
+    })
+}
+
+/// A tag's cut hatch with `a` applied over `old` (or the defaults); None: `a` removes it.
+fn apply_hatch(d: &crate::drafting::Drafting, old: Option<&crate::drafting::HatchUse>, a: super::command::HatchArgs) -> Result<Option<crate::drafting::HatchUse>> {
+    use crate::drafting::{HatchUse, ScaleMode};
+    let mut h = old.cloned().unwrap_or_default();
+    if let Some(p) = a.pattern.map(|p| p.trim().to_string()) {
+        if p.is_empty() {
+            return Ok(None);
+        }
+        let Some(found) = crate::draft::pat::lookup(d, &p) else {
+            let mut names: Vec<String> = crate::draft::pat::builtins().iter().map(|p| p.name.clone()).collect();
+            names.extend(d.patterns.keys().cloned());
+            bail!("no hatch pattern {p:?}; one of {}, or load one with hatch_pattern", names.join(", "));
+        };
+        h.pattern = found.name;
+    } else if old.is_none() {
+        // a new hatch needs to say which pattern
+        bail!("say which pattern the hatch uses (pattern: \"diagonal\", ...)");
+    }
+    if let Some(c) = a.color.map(|c| c.trim().to_string()) {
+        if c.is_empty() {
+            h.color = HatchUse::default().color;
+        } else if crate::draft::ir::parse_hex(&c).is_some() {
+            h.color = c.to_ascii_lowercase();
+        } else {
+            bail!("a hatch colour is \"#rrggbb\", not {c:?}");
+        }
+    }
+    if let Some(w) = a.weight_mm {
+        let (lo, hi) = crate::drafting::WEIGHT_RANGE;
+        if w == 0.0 {
+            h.weight_mm = HatchUse::default().weight_mm;
+        } else if w.is_finite() && (lo..=hi).contains(&w) {
+            h.weight_mm = w;
+        } else {
+            bail!("a hatch line weight is between {lo} and {hi} mm on the paper (or 0 for the default), not {w}");
+        }
+    }
+    if let Some(s) = a.scale {
+        let (lo, hi) = HATCH_SCALE;
+        if !(s.is_finite() && (lo..=hi).contains(&s)) {
+            bail!("a hatch scale is between {lo} and {hi}, not {s}");
+        }
+        h.scale = s;
+    }
+    if let Some(an) = a.angle {
+        if !an.is_finite() || an.abs() > 1.0e4 {
+            bail!("a hatch angle is in degrees, not {an}");
+        }
+        h.angle = an.rem_euclid(360.0);
+    }
+    if let Some(m) = a.scale_mode.map(|m| m.trim().to_ascii_lowercase()) {
+        h.scale_mode = match m.as_str() {
+            "paper" => ScaleMode::Paper,
+            "model" => ScaleMode::Model,
+            o => bail!("a hatch's scale_mode is \"paper\" (pattern sizes are paper mm) or \"model\" (model mm), not {o:?}"),
+        };
+    }
+    Ok(Some(h))
+}
+
 impl Engine {
+    /// `hatch_pattern` (keep a `.pat` pattern in the model) and `hatch_patterns` (list them; read-only).
+    fn run_hatch_patterns(&mut self, cmd: Command) -> Result<Value> {
+        use crate::draft::pat;
+        Ok(match cmd {
+            Command::HatchPatterns { text, units } => match text {
+                Some(t) => {
+                    let parsed = pat::parse(&t, units_of(units.as_deref())?);
+                    json!({"patterns": parsed.patterns.iter().map(|p| pattern_json(p, false)).collect::<Vec<_>>(), "warnings": parsed.warnings})
+                }
+                None => {
+                    let d = &self.model.drafting;
+                    let mut all: Vec<Value> = pat::builtins().iter().map(|p| pattern_json(p, true)).collect();
+                    for name in d.patterns.keys() {
+                        if let Some(p) = pat::lookup(d, name) {
+                            all.push(pattern_json(&p, false));
+                        }
+                    }
+                    json!({"patterns": all})
+                }
+            },
+            Command::HatchPattern { name, text, units, delete } => {
+                let name = name.trim().to_string();
+                let d = &mut self.model.drafting;
+                if delete {
+                    let key = d.patterns.keys().find(|k| k.eq_ignore_ascii_case(&name)).cloned();
+                    let Some(key) = key else { bail!("the model has no hatch pattern {name:?}") };
+                    let users: Vec<String> = d.tag_styles.iter().filter_map(|(t, s)| match s {
+                        crate::drafting::Keep::Known(s) if s.cut.hatch.iter().chain(s.surface_hatch.iter()).any(|h| h.pattern.eq_ignore_ascii_case(&key)) => Some(t.clone()),
+                        _ => None,
+                    }).collect();
+                    if !users.is_empty() {
+                        bail!("hatch pattern {key:?} is used by tag {}: give {} another hatch first", users.join(", "), if users.len() == 1 { "it" } else { "them" });
+                    }
+                    d.patterns.remove(&key);
+                    return Ok(json!({"deleted": key}));
+                }
+                if !pat::valid_name(&name) {
+                    bail!("a hatch pattern name is 1 to {} letters, digits, spaces, _ - or ., not {name:?}", pat::MAX_NAME);
+                }
+                if pat::is_builtin(&name) {
+                    bail!("{name:?} is a built-in pattern; give this one another name");
+                }
+                if text.len() > pat::MAX_TEXT {
+                    bail!("that .pat text is larger than {} KB", pat::MAX_TEXT / 1024);
+                }
+                let parsed = pat::parse(&text, units_of(units.as_deref())?);
+                let p = match parsed.patterns.iter().find(|p| p.name.eq_ignore_ascii_case(&name)) {
+                    Some(p) => p,
+                    None if parsed.patterns.len() == 1 => &parsed.patterns[0],
+                    None if parsed.patterns.is_empty() => bail!("no hatch pattern could be read from that text{}", if parsed.warnings.is_empty() { String::new() } else { format!(": {}", parsed.warnings.join("; ")) }),
+                    None => bail!("that text has {} patterns ({}): name the one to keep", parsed.patterns.len(), parsed.patterns.iter().map(|p| p.name.as_str()).collect::<Vec<_>>().join(", ")),
+                };
+                if d.patterns.len() >= 200 && !d.patterns.contains_key(&name) {
+                    bail!("the model keeps at most 200 hatch patterns");
+                }
+                // a renamed copy under any other case of the same name goes
+                if let Some(k) = d.patterns.keys().find(|k| k.eq_ignore_ascii_case(&name) && **k != name).cloned() {
+                    d.patterns.remove(&k);
+                }
+                let families = p.families.len();
+                d.patterns.insert(name.clone(), pat::to_text(p, &name));
+                json!({"pattern": name, "families": families, "warnings": parsed.warnings})
+            }
+            other => unreachable!("command routed to the wrong group: {other:?}"),
+        })
+    }
+
     /// `tag_style` and `edge_style`: the drafting line weight and style of a tag, and of single edges.
     fn run_line_styles(&mut self, cmd: Command) -> Result<Value> {
-        use crate::drafting::{EdgeDraft, Keep, TagStyle};
+        use crate::drafting::{CutFill, EdgeDraft, Keep, TagStyle};
         Ok(match cmd {
-            Command::TagStyle { tag, weight_mm, line, color, clear } => {
+            Command::TagStyle { tag, weight_mm, line, color, hatch, clear } => {
                 let tag = tag.trim().to_string();
                 if tag.is_empty() {
                     bail!("a tag needs a name");
@@ -49,6 +198,15 @@ impl Engine {
                     return Ok(json!({"tag": tag, "cleared": true}));
                 }
                 let a = check_style(d, weight_mm, line, color)?;
+                // the hatch is checked before anything changes
+                let old_hatch = d.cut_hatch(Some(&tag)).cloned();
+                let new_hatch = match hatch {
+                    Some(h) => Some(apply_hatch(d, old_hatch.as_ref(), h)?),
+                    None => None,
+                };
+                if matches!(d.tag_styles.get(&tag), Some(Keep::Raw(_))) && new_hatch.is_some() {
+                    bail!("the style of tag {tag:?} was made by a newer SketchCraft; clear it first");
+                }
                 let entry = d.tag_styles.entry(tag.clone()).or_insert_with(|| Keep::Known(TagStyle::default()));
                 let Keep::Known(ts) = entry else { bail!("the style of tag {tag:?} was made by a newer SketchCraft; clear it first") };
                 if let Some(w) = a.weight {
@@ -59,6 +217,19 @@ impl Engine {
                 }
                 if let Some(c) = a.color {
                     ts.color = c.unwrap_or_default();
+                }
+                match new_hatch {
+                    Some(Some(h)) => {
+                        ts.cut.fill = CutFill::Hatch;
+                        ts.cut.hatch = Some(h);
+                    }
+                    Some(None) => {
+                        if ts.cut.fill == CutFill::Hatch {
+                            ts.cut.fill = CutFill::None;
+                        }
+                        ts.cut.hatch = None;
+                    }
+                    None => {}
                 }
                 if *ts == TagStyle::default() {
                     d.tag_styles.remove(&tag);
@@ -156,6 +327,7 @@ impl Engine {
                 json!({"tag": to})
             }
             Command::TagStyle { .. } | Command::EdgeStyle { .. } => return self.run_line_styles(cmd),
+            Command::HatchPattern { .. } | Command::HatchPatterns { .. } => return self.run_hatch_patterns(cmd),
             Command::SetParent { ids, parent } => {
                 m.set_parent(&ids, parent)?;
                 json!({})

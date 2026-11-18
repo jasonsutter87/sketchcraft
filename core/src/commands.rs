@@ -143,6 +143,7 @@ impl Command {
                 | Command::ExportIfc { .. }
                 | Command::ExportSheets { .. }
                 | Command::SheetsInfo { .. }
+                | Command::HatchPatterns { .. }
                 | Command::Blueprint { .. }
                 | Command::Levels
                 | Command::Animate { .. }
@@ -867,7 +868,7 @@ impl Engine {
             c @ (
                 Command::Hide { .. } | Command::Unhide { .. } | Command::Tag { .. } | Command::TagVisible { .. } |
                 Command::TagColor { .. } | Command::RenameTag { .. } | Command::SetParent { .. } |
-                Command::TagStyle { .. } | Command::EdgeStyle { .. } |
+                Command::TagStyle { .. } | Command::EdgeStyle { .. } | Command::HatchPattern { .. } | Command::HatchPatterns { .. } |
                 Command::Lock { .. } | Command::Soften { .. } | Command::Rename { .. } | Command::Opacity { .. } |
                 Command::SetAttrs { .. } | Command::Classify { .. } | Command::Reveal { .. }
             ) => self.run_tags(c),
