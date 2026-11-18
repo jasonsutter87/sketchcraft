@@ -562,6 +562,38 @@ mod tests {
     }
 
     #[test]
+    fn sheet_commands_are_classified() {
+        let agent = Caller::Mcp(Workspace::anywhere());
+        // pure model edits and reads: plugins and agents
+        for c in ["sheets", "sheet_add", "sheet_edit", "sheet_delete", "viewport_add", "viewport_edit", "sheet_item_delete", "sheets_info"] {
+            assert!(permits(&Caller::Plugin, c) && permits(&agent, c) && permits(&Caller::Ui, c), "{c}");
+            assert!(!FILES.contains(&c), "{c} writes no file");
+        }
+        // the PDF writer is a file command, and an agent writes only .pdf
+        assert!(FILES.contains(&"export_sheets") && !MODEL.contains(&"export_sheets"));
+        assert!(WRITES.iter().any(|(c, k, e)| *c == "export_sheets" && *k == "path" && *e == ["pdf"]));
+        assert!(!WRITES.iter().any(|(c, ..)| *c == "sheets"), "`sheets` makes sheets; it writes no file");
+        // person-only: issuing a set, adding fonts
+        for c in ["sheet_issue", "font_add"] {
+            assert!(!permits(&agent, c) && !permits(&Caller::Plugin, c) && permits(&Caller::Ui, c), "{c}");
+        }
+    }
+
+    #[test]
+    fn sheet_limits_by_caller() {
+        let agent = Caller::Mcp(Workspace::anywhere());
+        let pages = |n: usize| json!({"cmd": "sheets", "pages": vec![json!({"title": "p"}); n]});
+        assert!(vet(&agent, &mut pages(MAX_PAGES_UNTRUSTED)).is_ok());
+        assert!(vet(&agent, &mut pages(MAX_PAGES_UNTRUSTED + 1)).is_err());
+        assert!(vet(&Caller::Ui, &mut pages(MAX_PAGES_UI)).is_ok());
+        assert!(vet(&Caller::Ui, &mut pages(MAX_PAGES_UI + 1)).is_err());
+        let ids = |n: usize| json!({"cmd": "sheet_item_delete", "ids": vec![1; n]});
+        assert!(vet(&agent, &mut ids(MAX_SHEET_ITEMS_UNTRUSTED)).is_ok());
+        assert!(vet(&agent, &mut ids(MAX_SHEET_ITEMS_UNTRUSTED + 1)).is_err());
+        assert!(vet(&Caller::Ui, &mut ids(MAX_SHEET_ITEMS_UNTRUSTED + 1)).is_ok());
+    }
+
+    #[test]
     fn numbers_and_strings_are_bounded() {
         let c = Caller::Ui;
         assert!(vet(&c, &mut json!({"cmd": "scale", "ids": [1], "center": [0, 0, 0], "factor": 1.7e308})).is_err());
