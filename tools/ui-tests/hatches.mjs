@@ -105,9 +105,13 @@ await p.waitForSelector('.viewport canvas');
 await wait(1500);
 const onScreen = () =>
   p.evaluate(() => {
-    const out = { hatch: 0, color: '', paper: 0, solid: 0 };
+    const out = { hatch: 0, shader: 0, color: '', px: 0, paper: 0, solid: 0 };
     window.__sketchcraftView.current.model.traverse((o) => {
-      if (o.userData?.sectionHatch === 'Walls') {
+      if (o.userData?.sectionHatch === 'Walls' && o.userData?.hatchShader) {
+        out.shader++;
+        out.color = o.material.userData.color;
+        out.px = o.material.userData.px;
+      } else if (o.userData?.sectionHatch === 'Walls') {
         out.hatch += o.geometry.getAttribute('position').count / 2;
         out.color = '#' + o.material.color.getHexString();
       }
@@ -117,9 +121,65 @@ const onScreen = () =>
     return out;
   });
 let sc = await onScreen();
-check(sc.hatch > 10 && sc.color === '#cc0000', `with a section plane the cut walls show the hatch's lines in its colour (${JSON.stringify(sc)})`);
-check(sc.paper > 0 && sc.solid === 0, 'under a paper-white fill instead of the dark one');
-await p.screenshot({ path: path.join(shots, 'hatches-section.png') });
+check(sc.shader === 1 && sc.hatch === 0 && sc.color === '#cc0000', `with a section plane the hatch shader draws the cut walls in the hatch's colour (${JSON.stringify(sc)})`);
+check(sc.paper > 0 && sc.solid === 0, 'over paper white instead of the dark fill');
+check(Math.abs(sc.px - 0.35 * 6) < 1e-6, `at the hatch's true weight: 0.35 mm is ${sc.px} px (6 px per paper mm)`);
+// the pixels: look down on the walls and count the hatch colour's pixels on the cap
+const lookDown = async () => {
+  await p.evaluate(() => {
+    const T = window.__sketchcraftView.current;
+    T.controls.target.set(2, 1.5, 0);
+    T.persp.position.set(2, 1.499, 9);
+    T.persp.up.set(0, 0, 1);
+    T.persp.lookAt(2, 1.5, 0);
+    T.controls.update();
+  });
+  await wait(800);
+};
+await lookDown();
+const inked = async (name) => {
+  const shot = await p.screenshot({ path: path.join(shots, name) });
+  return p.evaluate(async (b64) => {
+    const i = await new Promise((res, rej) => {
+      const im = new Image();
+      im.onload = () => res(im);
+      im.onerror = rej;
+      im.src = 'data:image/png;base64,' + b64;
+    });
+    const cv = document.createElement('canvas');
+    cv.width = i.width;
+    cv.height = i.height;
+    const g = cv.getContext('2d');
+    g.drawImage(i, 0, 0);
+    const d = g.getImageData(0, 0, i.width, i.height).data;
+    let red = 0;
+    let paper = 0;
+    for (let k = 0; k < d.length; k += 4) {
+      if (d[k] > 150 && d[k + 1] < 90 && d[k + 2] < 90) red++;
+      else if (Math.abs(d[k] - 0xf6) < 4 && Math.abs(d[k + 1] - 0xf5) < 4 && Math.abs(d[k + 2] - 0xf0) < 4) paper++;
+    }
+    return { red, paper };
+  }, shot.toString('base64'));
+};
+const thick = await inked('hatches-section.png');
+check(thick.red > 300 && thick.paper > 1000, `the cap shows red hatch lines on paper white (${JSON.stringify(thick)})`);
+// a thinner pen draws thinner lines on screen (true weight; the engine's lines were always 1 px)
+await pageExec(p, { cmd: 'tag_style', tag: 'Walls', hatch: { weight_mm: 0.13 } });
+await p.reload();
+await p.waitForSelector('.viewport canvas');
+await wait(1500);
+await lookDown();
+const thin = await inked('hatches-section-thin.png');
+check(thin.red > 50 && thick.red > thin.red * 1.4, `a 0.35 mm hatch inks more pixels than a 0.13 mm one (${thick.red} against ${thin.red})`);
+sc = await onScreen();
+check(Math.abs(sc.px - 1) < 1e-6, `0.13 mm is drawn 1 px wide, never thinner (${sc.px})`);
+// no cap on lines: a hatch far too dense for engine lines (it used to fall back to a tint) is still drawn
+await pageExec(p, { cmd: 'tag_style', tag: 'Walls', hatch: { scale: 0.05, scale_mode: 'paper' } });
+const dense = await pageExec(p, { cmd: 'section', origin: [0, 0, 1.2], normal: [0, 0, -1] });
+check(dense.hatches?.length === 1 && dense.hatches[0].families.length > 0 && dense.hatch.length === 0 && dense.fill.length === 0, `a very dense hatch still goes to the shader, not a tint (${dense.hatches?.length} shaded, ${dense.fill.length / 9} tinted triangles)`);
+await pageExec(p, { cmd: 'undo' });
+await pageExec(p, { cmd: 'undo' });
+await wait(1200);
 
 // ---- the file keeps it -------------------------------------------------------------------------------
 await wait(1500);

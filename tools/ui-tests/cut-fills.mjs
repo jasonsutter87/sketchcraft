@@ -124,12 +124,15 @@ await p.evaluate(() => {
 await wait(800);
 const onScreen = () =>
   p.evaluate(() => {
-    const out = { solid: {}, outline: {}, hatch: 0, paper: 0, plain: 0 };
+    const out = { solid: {}, outline: {}, hatch: 0, shader: 0, paper: 0, plain: 0 };
     window.__sketchcraftView.current.model.traverse((o) => {
       const u = o.userData ?? {};
       if (u.sectionSolid) out.solid[u.sectionSolid] = '#' + o.material.color.getHexString();
       else if (u.sectionOutline) out.outline[u.sectionOutline] = o.material.linewidth;
-      else if (u.sectionHatch) out.hatch += o.geometry.getAttribute('position').count / 2;
+      else if (u.hatchShader) {
+        out.shader++;
+        out.paper += o.geometry.getAttribute('position').count / 3;
+      } else if (u.sectionHatch) out.hatch += o.geometry.getAttribute('position').count / 2;
       else if (u.sectionHatchFill) out.paper += o.geometry.getAttribute('position').count / 3;
       else if (u.sectionFill) out.plain += o.geometry.getAttribute('position').count / 3;
     });
@@ -137,7 +140,7 @@ const onScreen = () =>
   });
 let sc = await onScreen();
 check(sc.solid.Slab === '#ff0000', `the slab's cut is its own red (${JSON.stringify(sc.solid)})`);
-check(sc.hatch > 5 && sc.paper > 0, `the walls are hatched over white (${sc.hatch} lines)`);
+check(sc.shader === 1 && sc.paper > 0 && sc.hatch === 0, `the walls are hatched over white by the hatch shader (${JSON.stringify(sc)})`);
 check(sc.plain === 0, 'nothing is left in the default dark fill');
 check(sc.outline.Slab >= 4 && sc.outline.Furniture >= 3 && sc.outline.Slab > sc.outline.Furniture, `outline weights show as thick lines, the 0.7 mm one wider (${JSON.stringify(sc.outline)})`);
 
