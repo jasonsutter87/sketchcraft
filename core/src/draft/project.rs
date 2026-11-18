@@ -169,7 +169,7 @@ fn cut_region(cv: &mut Cv, m: &Model, tag: Option<&str>, rings: Vec<Vec<[f64; 2]
     match (d.cut_fill(tag), d.cut_hatch(tag)) {
         (CutFill::Hatch, Some(u)) => {
             cv.push(Prim::Path(PathPrim { segs: segs.clone(), pen: None, fill: fill(pens.paper), prov: None }));
-            cv.push(Prim::Hatch(super::hatch::on_sheet(d, u, rings, sh, denom, pens)));
+            cv.push(Prim::Hatch(super::cache::hatch_on_sheet(d, u, rings, sh, denom, pens)));
             cv.push(Prim::Path(PathPrim { segs, pen: Some(outline), fill: None, prov: None }));
         }
         (CutFill::None, _) => cv.push(Prim::Path(PathPrim { segs, pen: Some(outline), fill: fill(pens.paper), prov: None })),
@@ -360,22 +360,51 @@ fn standard_look(name: &str) -> DVec3 {
     -eye.normalize()
 }
 
-pub(super) fn view(cv: &mut Cv, m: &Model, bm: &Model, v: &ViewportSpec, pens: &Pens) -> Result<(String, Option<f64>)> {
-    let sh = cv.h_mm;
-    let y = |mm: f64| (sh - mm) * PT;
-    let mut label = v.label.clone().unwrap_or_else(|| v.view.clone());
+/// A section viewport's plane: its origin and the way it looks (from the far side of the plane).
+pub(crate) fn section_of(v: &ViewportSpec) -> Option<(DVec3, DVec3)> {
+    v.section.map(|s| (DVec3::new(s[0], s[1], s[2]), DVec3::new(s[3], s[4], 0.0).normalize_or_zero()))
+}
+
+/// Where a true elevation (or a section) is seen from: the way from the model toward the viewer.
+pub(crate) fn elev_dir_of(v: &ViewportSpec) -> Option<DVec3> {
+    if let Some((_, look)) = section_of(v) {
+        return Some(-look);
+    }
     // a true elevation: looking dead level at the side, from the middle
-    let elev_dir = match v.view.as_str() {
+    match v.view.as_str() {
         "front" => Some(DVec3::new(0.0, -1.0, 0.0)),
         "back" => Some(DVec3::new(0.0, 1.0, 0.0)),
         "left" => Some(DVec3::new(-1.0, 0.0, 0.0)),
         "right" => Some(DVec3::new(1.0, 0.0, 0.0)),
         _ => None,
     }
-    .filter(|_| v.callouts && v.scale.is_some());
-    // a section looks along `look` from the far side of its plane
-    let sec = v.section.map(|s| (DVec3::new(s[0], s[1], s[2]), DVec3::new(s[3], s[4], 0.0).normalize_or_zero()));
-    let elev_dir = if let Some((_, look)) = sec { Some(-look) } else { elev_dir };
+    .filter(|_| v.callouts && v.scale.is_some())
+}
+
+/// The way a scaled view looks, the point it is pinned to when it has no anchor (`center`: the middle of the
+/// building), and whether a saved view looked up by name decides it (so a change to the saved views can move it).
+pub(crate) fn look_of(m: &Model, v: &ViewportSpec, center: DVec3) -> (DVec3, DVec3, bool) {
+    if let Some((_, look)) = section_of(v) {
+        return (look, center, false);
+    }
+    if let Some(c) = &v.camera {
+        // a saved sheet's viewport with a camera of its own
+        return (DVec3::from(c.target) - DVec3::from(c.eye), DVec3::from(c.target), false);
+    }
+    if let Some(s) = m.views.iter().find(|s| s.name == v.view) {
+        return (DVec3::from(s.target) - DVec3::from(s.eye), DVec3::from(s.target), true);
+    }
+    match elev_dir_of(v) {
+        Some(dir) => (-dir, center, true),
+        None => (standard_look(&v.view), center, true),
+    }
+}
+
+pub(super) fn view(cv: &mut Cv, m: &Model, bm: &Model, v: &ViewportSpec, pens: &Pens) -> Result<(String, Option<f64>)> {
+    let sh = cv.h_mm;
+    let y = |mm: f64| (sh - mm) * PT;
+    let mut label = v.label.clone().unwrap_or_else(|| v.view.clone());
+    let (sec, elev_dir) = (section_of(v), elev_dir_of(v));
     let bounds = bm.world_bounds();
     let denom = match &v.scale {
         Some(s) => Some(scale_of(s)?),
@@ -389,20 +418,8 @@ pub(super) fn view(cv: &mut Cv, m: &Model, bm: &Model, v: &ViewportSpec, pens: &
         raster(cv, m, v, pens, sec, bounds, elev_dir);
         return Ok((label, denom));
     };
-    let saved = m.views.iter().find(|s| s.name == v.view);
     let center = bounds.map(|(lo, hi)| (lo + hi) / 2.0).unwrap_or(DVec3::ZERO);
-    let (look, auto_anchor) = if let Some((_, look)) = sec {
-        (look, center)
-    } else if let Some(c) = &v.camera {
-        // a saved sheet's viewport with a camera of its own
-        (DVec3::from(c.target) - DVec3::from(c.eye), DVec3::from(c.target))
-    } else if let Some(s) = saved {
-        (DVec3::from(s.target) - DVec3::from(s.eye), DVec3::from(s.target))
-    } else if let Some(dir) = elev_dir {
-        (-dir, center)
-    } else {
-        (standard_look(&v.view), center)
-    };
+    let (look, auto_anchor, _) = look_of(m, v, center);
     if look.length_squared() < 1e-12 {
         bail!("the view \"{}\" looks at nothing", v.view);
     }

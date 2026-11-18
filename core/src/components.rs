@@ -115,6 +115,12 @@ impl Model {
         hi - lo
     }
 
+    /// Where a placement's copies sit (none when a Dynamic Component hides it): what bounds work from.
+    pub(crate) fn placement_transforms(root: &Model, inst: &crate::model::Instance, def: &crate::model::Definition) -> Vec<DMat4> {
+        let d = Self::placement(root, inst, def, &Default::default());
+        if d.hidden { Vec::new() } else { d.placements }
+    }
+
     /// How a placement draws (copies, stretch, fill, hidden), Dynamic
     /// Component attributes worked out.
     fn placement(root: &Model, inst: &crate::model::Instance, def: &crate::model::Definition, scope: &BTreeMap<String, f64>) -> crate::dynamic::Draw {

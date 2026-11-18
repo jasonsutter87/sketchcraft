@@ -60,14 +60,16 @@ pub struct Pens {
     /// the sheet border
     pub border: f64,
     pub blueprint: bool,
+    /// where generated hatches are kept between drawings (the engine's `Drawings`); None: worked out each time
+    pub hatches: Option<std::sync::Arc<super::cache::HatchCache>>,
 }
 
 impl Pens {
     pub fn new(blueprint: bool) -> Self {
         if blueprint {
-            Pens { ink: BP_INK, paper: BP_PAPER, cut_fill: BP_CUT, hair: 0.13, thin: 0.18, medium: 0.25, heavy: 0.35, border: 0.5, blueprint }
+            Pens { ink: BP_INK, paper: BP_PAPER, cut_fill: BP_CUT, hair: 0.13, thin: 0.18, medium: 0.25, heavy: 0.35, border: 0.5, blueprint, hatches: None }
         } else {
-            Pens { ink: BLACK, paper: WHITE, cut_fill: [41, 43, 51], hair: 0.13, thin: 0.18, medium: 0.25, heavy: 0.35, border: 0.5, blueprint }
+            Pens { ink: BLACK, paper: WHITE, cut_fill: [41, 43, 51], hair: 0.13, thin: 0.18, medium: 0.25, heavy: 0.35, border: 0.5, blueprint, hatches: None }
         }
     }
     /// a lighter ink for what lies below the cut
