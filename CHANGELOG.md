@@ -16,7 +16,6 @@ What changed in each SketchCraft release, newest first. The format follows
   checked on load, so a bad saved value falls back to the defaults. Esc, Enter, Tab in
   SubD, the arrows and the measurement digits can't be taken. The ? sheet, tool tips,
   the command search and the Learn lessons show your own keys. (#60)
-
 - **Drawing sheets are saved in the model file** (design step 1 of 0.3.8 "Drafting": the data only; drawing them
   and editing them come next). A model can hold sheets (page records: name, number, paper size, order), and
   viewports and other things on them as flat items, so Undo works one item at a time, even across another
