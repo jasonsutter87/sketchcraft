@@ -31,7 +31,7 @@ What changed in each SketchCraft release, newest first. The format follows
   views are now vector line work with hidden lines removed (they were pictures), and the PDFs
   embed their fonts, so accents and other non-ASCII text work. Line weights are pens in paper
   millimeters (ISO 0.13 to 0.5), not scaled with the drawing. Viewports can show what's
-  hidden behind other things, dashed. `sheets` writes one page as `.svg` or `.dxf` (AC1015,
+  hidden behind other things, dashed. `export_sheets` writes one page as `.svg` or `.dxf` (AC1015,
   with lineweights) as well as a PDF. (#62)
 - **More paper and imperial scales.** A1, A0, ARCH A to E and ANSI C to E sheets, and scales like
   `1/4"=1'-0"`, `1/8"=1'-0"` or `1"=20'`. (#62)
