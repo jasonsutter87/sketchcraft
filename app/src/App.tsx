@@ -986,6 +986,7 @@ export default function App() {
                   ["profiles", "Profiles"],
                   ["sketchy", "Sketchy edges"],
                   ["extensions", "Extensions"],
+                  ["lineWeights", "Line weights"],
                   ["ao", "Ambient occlusion"],
                 ] as [keyof Styles, string][]
               ).map(([k, label]) => (

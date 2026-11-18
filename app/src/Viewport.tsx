@@ -13,6 +13,9 @@ import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment
 import { Line2 } from "three/examples/jsm/lines/Line2.js";
 import { LineGeometry } from "three/examples/jsm/lines/LineGeometry.js";
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
+import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
+import { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeometry.js";
+import { edgePens } from "./viewport/linepens";
 import { exec, type Annotation, type Reply, type Scene, type Vec3 } from "./engine";
 import { CageEditor, type CageData, type CageUi } from "./cage";
 import { CageBar } from "./cagebar";
@@ -366,7 +369,7 @@ export default function Viewport(props: Props) {
     T.catcher.visible = styles.shadows;
     buildModel();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [styles.xray, styles.shadows, styles.edges, styles.parallel, styles.backEdges, styles.face, styles.profiles, styles.sketchy, styles.extensions, styles.background, styles.byTag, styles.notes, styles.hideRest]);
+  }, [styles.xray, styles.shadows, styles.edges, styles.parallel, styles.backEdges, styles.face, styles.profiles, styles.sketchy, styles.extensions, styles.background, styles.byTag, styles.notes, styles.hideRest, styles.lineWeights]);
 
   // ---------------------------------------------------------------- labels
   /** Keep one DOM label per spec; positions are updated every frame. */
@@ -798,8 +801,27 @@ export default function Viewport(props: Props) {
     if (sty.edges || faceStyle === "wireframe" || faceStyle === "hiddenline") {
       const eg = new THREE.BufferGeometry();
       const segs = sty.sketchy || sty.extensions ? styledEdges(edgeSegs, size, !!sty.extensions || !!sty.sketchy, !!sty.sketchy) : edgeSegs;
-      eg.setAttribute("position", new THREE.Float32BufferAttribute(segs, 3));
+      // line weights: segments with their own pen are drawn below, one thick line object per pen
+      const pens = sty.lineWeights !== false && shaping == null ? edgePens(s) : null;
+      const plain = pens ? pens.plain : segs;
+      eg.setAttribute("position", new THREE.Float32BufferAttribute(plain, 3));
       T.model.add(new THREE.LineSegments(eg, new THREE.LineBasicMaterial({ color: bg.line, clippingPlanes: clip, transparent: !!sty.sketchy, opacity: sty.sketchy ? 0.8 : 1 })));
+      if (pens) {
+        const el = T.renderer.domElement;
+        for (const b of pens.buckets) {
+          const lg = new LineSegmentsGeometry();
+          lg.setPositions(b.pos);
+          const [r, g, bl] = b.color;
+          const m = new LineMaterial({ color: new THREE.Color(r / 255, g / 255, bl / 255), linewidth: b.px, dashed: b.dash.length > 0, dashSize: b.dash[0] ?? 1, gapSize: b.dash[1] ?? 0, worldUnits: false });
+          m.clipping = true;
+          m.clippingPlanes = clip;
+          m.resolution.set(el.clientWidth, el.clientHeight);
+          const ls = new LineSegments2(lg, m);
+          if (b.dash.length > 0) ls.computeLineDistances();
+          ls.userData.pen = true;
+          T.model.add(ls);
+        }
+      }
     }
     // background and ground for the style (a matched photo overrides)
     if (!backdropOn.current) {

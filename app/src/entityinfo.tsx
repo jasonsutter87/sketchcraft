@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { exec, type Scene } from "./engine";
 import { selIds, type Sel } from "./selection";
 import { formatLength } from "./units";
+import { LineStyleControls } from "./linestyle";
 import { formatArea, formatVolume, type Run } from "./panelkit";
 
 export function EntityInfo({ scene, sel, run }: { scene: Scene; sel: Sel; run: Run }) {
@@ -65,6 +66,18 @@ export function EntityInfo({ scene, sel, run }: { scene: Scene; sel: Sel; run: R
           </>
         )}
       </div>
+      {edges.length > 0 && (
+        <div className="field">
+          <span>Line (on sheets)</span>
+          <LineStyleControls
+            label="selected edges"
+            none="From tag"
+            mixed={edges.some((e) => e.draft?.weight_mm !== edges[0].draft?.weight_mm || e.draft?.line !== edges[0].draft?.line)}
+            value={edges[0].draft ?? {}}
+            onChange={(c) => run({ cmd: "edge_style", ids: edges.map((e) => e.id), ...c })}
+          />
+        </div>
+      )}
       {taggable.length === 1 && selIds(sel).length === 1 && (
         <label className="field">
           <span>IFC type</span>

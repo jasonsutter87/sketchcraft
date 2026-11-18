@@ -59,6 +59,8 @@ export interface Styles {
   background?: Backdrop;
   /** hidden edges shown dashed (SketchUp's Back Edges, K) */
   backEdges: boolean;
+  /** draw tag and edge line weights and styles (default on) */
+  lineWeights?: boolean;
   shadows: boolean;
   edges: boolean;
   parallel: boolean;

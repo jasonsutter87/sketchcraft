@@ -28,6 +28,21 @@ export interface EdgeInfo {
   group: number | null;
   /** edges of one arc, circle or welded curve share this */
   curve?: number | null;
+  /** this edge's own line weight and style on sheets and in the model view (beats its tag's) */
+  draft?: EdgeDraft | null;
+}
+
+/** A line weight (paper mm), style (solid, dashed, hidden, center) and color ("#rrggbb"); each optional. */
+export interface EdgeDraft {
+  weight_mm?: number;
+  line?: string;
+  color?: string;
+}
+
+export interface TagStyleInfo {
+  weight_mm?: number;
+  line?: string;
+  color?: string;
 }
 
 export interface GroupInfo {
@@ -176,6 +191,10 @@ export interface Scene {
   timeline?: { clips: Clip[] };
   edges: number[];
   edgeIds: number[];
+  /** per segment of `edges`: 0 for the default line, else a 1-based index into `edgeStyles` */
+  edgeStyle?: number[];
+  /** the distinct pens: width in paper mm, dash pattern in paper mm, rgb */
+  edgeStyles?: { w: number; dash: number[]; color: [number, number, number] }[];
   softEdges: number[];
   groups: GroupInfo[];
   instances: InstanceInfo[];
@@ -192,6 +211,8 @@ export interface Scene {
   tags: Record<string, boolean>;
   /** a color per tag (Color by tag) */
   tagColors: Record<string, [number, number, number]>;
+  /** line weight and style per tag (drawing sheets and the model view) */
+  tagStyles?: Record<string, TagStyleInfo>;
   guides: GuideInfo[];
   views: SavedView[];
   annotations: Annotation[];

@@ -238,3 +238,21 @@
     font-size: $font-m;
   }
 }
+
+// line weight and style menus under a tag, and in Entity Info
+.linestyle {
+  display: inline-flex;
+  gap: 4px;
+
+  .units-select {
+    height: 22px;
+    font-size: $font-xs;
+    max-width: 92px;
+  }
+}
+
+.tag-line {
+  display: flex;
+  justify-content: flex-end;
+  padding: 2px 6px 4px;
+}

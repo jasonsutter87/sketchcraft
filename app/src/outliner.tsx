@@ -9,6 +9,7 @@ import { type Reply, type Scene } from "./engine";
 import { Icons } from "./icons";
 import { EMPTY, type Sel } from "./selection";
 import { autoTagColor } from "./Viewport";
+import { LineStyleControls } from "./linestyle";
 
 type Run = (cmd: Record<string, unknown>) => Promise<Reply>;
 
@@ -304,6 +305,9 @@ function Tags({ scene, sel, run, byTag, setByTag }: { scene: Scene; sel: Sel; ru
                 <button className={`rowbtn eye ${vis ? "" : "keep"}`} title={vis ? "Hide this tag" : "Show this tag"} aria-label={vis ? "Hide" : "Show"} onClick={() => run({ cmd: "tag_visible", tag: t, visible: !vis })}>
                   {vis ? <Icons.eye /> : <Icons.eyeOff />}
                 </button>
+              </div>
+              <div className="tag-line">
+                <LineStyleControls label={`tag ${t}`} none="Default" value={scene.tagStyles?.[t] ?? {}} onChange={(c) => run({ cmd: "tag_style", tag: t, ...c })} />
               </div>
             </li>
           );
