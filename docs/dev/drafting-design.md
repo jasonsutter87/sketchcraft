@@ -395,3 +395,24 @@ What the next steps plug into:
 - **#11 (the editor).** `Doc` is plain data; send it to the app as JSON now, as a binary `Float32Array` later. Every model-derived `Path` has `prov`, so snapping to projected geometry works from the list alone.
 
 Known limits: elevations and 3D views draw no face fills or model dimensions (the pictures did); curved surfaces draw only their hard edges (no silhouettes); a plan's automatic dimensions and tags are worked out from the whole building; DXF ignores clips and images; a viewport made without an anchor is pinned to the middle of the building (environment excluded) each time the sheet is built.
+
+**Step 5, anchors (#18).** `core/src/anchors.rs`, `core/src/draft/dims.rs`, and the `sheet_dim` / `sheet_reattach` arms in `commands/sheets.rs`.
+
+| What | Where |
+|---|---|
+| Resolve an anchor to a world point (composes instance transforms down `path`; `None` = broken) | `Model::resolve_anchor` |
+| Measure a dimension (model distance projected onto the viewport's drawing plane; chains, baseline sets) | `Model::measure`, `Model::measure_dimension`; `Dimension.viewport` (new, optional) picks the viewport, else the topmost on the sheet that frames the points |
+| Viewport to paper mapping (the same `Proj` the drawing uses; none for perspective views) | `anchors::viewport_proj` |
+| Remaps: `make_component` and `explode` record id moves, `split_edge` records splits, in the transient `Model::remaps`; `Engine::exec` calls `settle_anchors` after every mutating command, in the same undo step | `anchors::Remap`, `Model::settle_anchors`, `Engine::settle_anchors` |
+| Drawing: `PageSpec.dims` (filled by `page_of` on export) is drawn by `draft::dims::draw`; a broken anchor is magenta with a "!" badge and a "?" value | `draft/dims.rs` |
+
+**For #59 (SKP dimension import), the anchor API:**
+
+- `Model::anchor_near(world_point, tol) -> Option<Anchor>`: the nearest vertex within `tol` metres (searching inside component placements too), else a `Between` point along the nearest edge, else `None` (leave the dimension unattached or report it).
+- `Model::anchors_at(point, tol) -> Vec<Anchor>`: every vertex there, nearest first.
+- Then add the item: a `Dimension { sheet, anchors, mode, offset_mm, viewport, ..}` in `Model::sheet_items`, or run the `sheet_dim` command (`{"anchors": [{"point": [x,y,z]}, ...]}`, or exact ids: `{"vertex": id, "path": [instance ids]}`, `{"between": [a, b], "t": .5}`, `{"curve": id}`, `{"guide": id}`). `Anchor.last` must be the world point (the constructors above set it).
+- Never store the value; it is measured. Never put a world point in an anchor.
+
+Rules in force: nothing re-attaches by itself except the engine remaps above (decision 8); `sheets_info` lists each dimension's `measured.spans` and `measured.broken` (with `last` and `suggestions`, the vertices within 1 µm of where it was); `sheet_reattach {item, anchor, to}` picks one, `{all_exact: true}` attaches every broken anchor that has exactly one vertex within 1 µm and refuses if none, one undo step.
+
+Known limits: a component placement is resolved with its plain transform (Dynamic Component stretch and copies are not applied); viewport `rotation` is not applied to the paper mapping (the drawing ignores it as well); `CurveCenter` fits a circle through three of the curve's vertices; `group` copies shared corners and leaves an anchor on the original corner (it does not follow the group's copy); `csg`/`solid` operations and any other operation that rebuilds geometry with new ids record no remap, so their dimensions go broken and wait for `sheet_reattach`; a component being edited gets remaps for `explode` only; the editor (step 11) has no handles or badge UI yet, only the PDF/SVG/DXF drawing.

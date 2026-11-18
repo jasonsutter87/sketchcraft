@@ -58,7 +58,7 @@ fn vp(view: &str, scale: &str) -> ViewportSpec {
 }
 
 fn page(title: &str, vps: Vec<ViewportSpec>) -> PageSpec {
-    PageSpec { title: title.into(), viewports: vps, table: vec![] }
+    PageSpec { title: title.into(), viewports: vps, table: vec![], ..Default::default() }
 }
 
 fn doc(m: &Model, sheet: &str, pages: Vec<PageSpec>, blueprint: bool) -> Doc {

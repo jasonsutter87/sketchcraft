@@ -72,6 +72,9 @@ pub struct PageSpec {
     pub viewports: Vec<ViewportSpec>,
     /// a table on the page (first row is the header), e.g. a schedule
     pub table: Vec<Vec<String>>,
+    /// saved dimensions worked out against the live model (set when a saved sheet is exported; never in a command)
+    #[serde(skip)]
+    pub dims: Vec<crate::draft::dims::DimDraw>,
 }
 
 // the scale parser and the grid placer, where the saved-sheets commands (#61) look for them

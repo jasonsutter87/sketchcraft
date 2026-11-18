@@ -385,6 +385,49 @@ pub enum Command {
     },
     /// Delete things on sheets (viewports, dimensions, text, lines...) by id.
     SheetItemDelete { ids: Vec<Id> },
+    /// A dimension on a sheet, attached to the model: two anchors make one, more make a chain. Each anchor is
+    /// `{"point": [x, y, z]}` (the nearest vertex within `tol`, else a point along the nearest edge), or exactly:
+    /// `{"vertex": id}`, `{"between": [a, b], "t": 0.5}`, `{"curve": id}` or `{"guide": id}`, with an optional
+    /// `"path": [instance ids]` for geometry inside components. The value is never stored: it is measured from the
+    /// live model each time. Moving the model moves the dimension; deleting its geometry breaks it (see `sheets_info`).
+    SheetDim {
+        sheet: Id,
+        anchors: Vec<AnchorArg>,
+        /// aligned (default), horizontal, vertical or baseline (every segment from the first anchor)
+        #[serde(default)]
+        mode: Option<crate::drafting::DimMode>,
+        /// millimetres from the measured line on paper (default 8)
+        #[serde(default)]
+        offset_mm: Option<f64>,
+        /// the viewport whose drawing plane it is measured in (default: the topmost on the sheet that frames it)
+        #[serde(default)]
+        viewport: Option<Id>,
+        #[serde(default)]
+        style: Option<String>,
+        #[serde(default)]
+        text_override: Option<String>,
+        /// how close a `point` anchor must be to geometry, in metres (default 0.001)
+        #[serde(default)]
+        tol: Option<f64>,
+    },
+    /// Attach broken anchors again. `{"item": id, "anchor": 1, "to": {..an anchor..}}` attaches one where you say.
+    /// `{"all_exact": true}` (optionally with `item` or `sheet`) attaches every broken anchor that has exactly one
+    /// vertex within 1 micrometre of where it last was, and leaves the rest. Nothing reattaches by itself.
+    SheetReattach {
+        #[serde(default)]
+        item: Option<Id>,
+        #[serde(default)]
+        sheet: Option<Id>,
+        #[serde(default)]
+        anchor: Option<usize>,
+        #[serde(default)]
+        to: Option<AnchorArg>,
+        #[serde(default)]
+        all_exact: bool,
+        /// with `all_exact`: how far from where it last was a vertex may be, in metres (default 0.000001)
+        #[serde(default)]
+        tol: Option<f64>,
+    },
     /// Read-only: every sheet with what is on it (and the kinds of item this version doesn't know).
     SheetsInfo {
         #[serde(default)]
@@ -1096,6 +1139,21 @@ pub enum PaperArg {
 pub enum ScaleArg {
     N(f64),
     Text(String),
+}
+
+/// Where a dimension's anchor goes: a point to snap to geometry, or the ids themselves.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct AnchorArg {
+    /// a world point: attaches to the nearest vertex (else edge) within the tolerance
+    pub point: Option<[f64; 3]>,
+    pub vertex: Option<Id>,
+    pub between: Option<[Id; 2]>,
+    pub t: Option<f64>,
+    pub curve: Option<Id>,
+    pub guide: Option<Id>,
+    /// component placements from the root down, for geometry inside components
+    pub path: Vec<Id>,
 }
 
 /// What a viewport command may set. All optional: a new viewport gets sensible defaults (see `sheets.rs`).

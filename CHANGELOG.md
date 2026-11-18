@@ -26,6 +26,15 @@ What changed in each SketchCraft release, newest first. The format follows
   needs `sheets`, so SketchCraft 0.3.7 opens it read-only instead of dropping them; a model without sheets is still
   format 1. Kinds of paper item a newer version adds are kept as they are and written back. Agents and plugins may
   edit sheets (at most 120 sheets, and 5,000 items in one command); only the person may issue a set. (#61)
+- **Dimensions on sheets stay attached to the model.** A dimension on a sheet (`sheet_dim`) is attached to points of
+  your model, not to fixed numbers: move a wall, refresh the sheet, and every dimension on it follows and shows the new
+  length. A chain of dimensions follows every point in it; a baseline set measures each span from the first point.
+  Splitting an edge keeps a dimension on the right place, and turning geometry into a component (or exploding one)
+  carries its dimensions with it. Delete the geometry and the dimension shows **broken**: magenta, a "!" where it was,
+  and "?" for the length (`sheets_info` lists the broken ones and the points near where they were). It is never moved
+  or re-attached by itself; `sheet_reattach` attaches a broken one to a point you pick, or every broken one that has
+  exactly one point where it was. Undo restores all of it in one step. Viewports keep their crop and scale however the
+  model changes. (#18)
 - **Crisp vector drawings.** Drawing sheets and blueprints are built from one paper-space
   display list that feeds the PDF, SVG and DXF writers. Elevations, sections and parallel 3D
   views are now vector line work with hidden lines removed (they were pictures), and the PDFs

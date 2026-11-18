@@ -4,6 +4,7 @@
 //! [`commands::Engine`], so the desktop app, scripts, the CLI and AI agents
 //! all drive exactly the same thing.
 
+pub mod anchors;
 pub mod animate;
 pub mod backups;
 pub mod assets;

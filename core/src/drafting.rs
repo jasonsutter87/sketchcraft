@@ -417,6 +417,9 @@ pub struct Dimension {
     pub z: i32,
     pub anchors: Vec<Anchor>,
     pub mode: DimMode,
+    /// the viewport whose drawing plane the value is measured in (none: the topmost viewport on the sheet that holds it)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub viewport: Option<Id>,
     pub offset_mm: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub style: Option<String>,
@@ -706,7 +709,7 @@ impl SheetItem {
             at.max(a.path.iter().copied().max().unwrap_or(0))
         };
         match self {
-            SheetItem::Known(ItemKind::Dimension(d)) => d.sheet.max(d.anchors.iter().map(anchor_ids).max().unwrap_or(0)),
+            SheetItem::Known(ItemKind::Dimension(d)) => d.sheet.max(d.viewport.unwrap_or(0)).max(d.anchors.iter().map(anchor_ids).max().unwrap_or(0)),
             SheetItem::Known(ItemKind::TitleBlockRef(t)) => t.sheet.max(t.title_block),
             SheetItem::Known(k) => k.sheet(),
             SheetItem::Raw(_) => self.sheet().unwrap_or(0),

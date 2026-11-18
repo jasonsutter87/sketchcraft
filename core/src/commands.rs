@@ -626,6 +626,10 @@ impl Engine {
                 if is_new {
                     self.read_only = None;
                 }
+                // dimensions on sheets follow what the command did, in the same undo step (see `anchors`)
+                if mutates && !is_new && !is_open {
+                    self.settle_anchors();
+                }
                 v["ok"] = json!(true);
                 // pictures left out of a render, an import or a projection are said, never dropped silently
                 let skipped = crate::safety::take_skipped();
@@ -908,7 +912,7 @@ impl Engine {
             c @ (
                 Command::Sheets { .. } | Command::ExportSheets { .. } | Command::SheetAdd { .. } | Command::SheetEdit { .. } |
                 Command::SheetDelete { .. } | Command::ViewportAdd { .. } | Command::ViewportEdit { .. } |
-                Command::SheetItemDelete { .. } | Command::SheetsInfo { .. }
+                Command::SheetItemDelete { .. } | Command::SheetsInfo { .. } | Command::SheetDim { .. } | Command::SheetReattach { .. }
             ) => self.run_sheets(c),
             c @ (
                 Command::BeginBatch { .. } | Command::EndBatch { .. } | Command::Undo { .. } | Command::Redo { .. }

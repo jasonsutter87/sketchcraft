@@ -326,6 +326,9 @@ pub struct Model {
     /// checked inside the expensive loops (`over_deadline`), so the limit holds end to end.
     #[serde(skip)]
     pub deadline: Option<std::time::Instant>,
+    /// Ids an operation moved or split, for anchors on sheets to follow (never saved; `Engine::exec` settles and clears it)
+    #[serde(skip)]
+    pub remaps: Vec<crate::anchors::Remap>,
 }
 
 /// A named section plane: cuts away the side its normal points from.

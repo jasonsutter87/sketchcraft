@@ -76,6 +76,10 @@ pub fn build_with(m: &Model, sheet: &str, project: &str, mut pages: Vec<PageSpec
         for d in drawn {
             cv.out.extend(d?);
         }
+        // dimensions attached to the model, drawn over the viewports
+        for d in &page.dims {
+            super::dims::draw(&mut cv, &pens, d);
+        }
         table(&mut cv, &pens, page);
         notes_box(&mut cv, &pens, notes, sw, sh);
         doc.pages.push(Page { w: sw, h: sh, bg: blueprint.then_some(BP_PAPER), title: format!("{project}: {}", page.title), items: cv.out });

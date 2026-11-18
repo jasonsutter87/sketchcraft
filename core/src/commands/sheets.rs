@@ -13,6 +13,63 @@ use std::sync::Arc;
 /// The longest a sheet's name, number or label may be.
 const MAX_NAME: usize = 200;
 
+/// The most anchors one dimension (a chain) holds.
+const MAX_DIM_ANCHORS: usize = 200;
+
+impl Model {
+    /// An anchor from what a command gave (see `AnchorArg`), checked against the live model: what it names must be
+    /// there. `tol` is how far a `point` may be from geometry.
+    fn anchor_from(&self, a: &super::command::AnchorArg, tol: f64) -> Result<Anchor> {
+        let named = [a.point.is_some(), a.vertex.is_some(), a.between.is_some(), a.curve.is_some(), a.guide.is_some()].iter().filter(|x| **x).count();
+        if named != 1 {
+            bail!("an anchor is exactly one of point, vertex, between (with t), curve or guide");
+        }
+        if let Some(p) = a.point {
+            if !a.path.is_empty() {
+                bail!("a `point` anchor finds its own path; give `path` only with vertex, between, curve or guide");
+            }
+            return self.anchor_near(DVec3::from(p), tol).ok_or_else(|| anyhow::anyhow!("no vertex or edge within {tol} m of {p:?} to attach to"));
+        }
+        let at = if let Some(v) = a.vertex {
+            AnchorAt::Vertex(v)
+        } else if let Some([x, y]) = a.between {
+            let t = a.t.unwrap_or(0.5);
+            if !t.is_finite() || !(0.0..=1.0).contains(&t) {
+                bail!("t is between 0 and 1");
+            }
+            AnchorAt::Between { a: x, b: y, t, extra: Extra::new() }
+        } else if let Some(c) = a.curve {
+            AnchorAt::CurveCenter(c)
+        } else {
+            AnchorAt::Guide(a.guide.unwrap_or(0))
+        };
+        let mut n = Anchor { path: a.path.clone(), at, last: [0.0; 3], extra: Extra::new() };
+        match self.resolve_anchor(&n) {
+            Some(w) => n.last = w.to_array(),
+            None => bail!("there is nothing at that vertex, curve or guide (is the path right?)"),
+        }
+        Ok(n)
+    }
+}
+
+impl Engine {
+    /// After a command changed the model: anchors on sheets follow it (see `anchors`). Operations that ran inside a
+    /// component being edited noted their remaps on its definition; they are lifted to the root here.
+    pub(super) fn settle_anchors(&mut self) {
+        if let Some(d) = self.ctx {
+            if self.model.definitions.get(&d).is_some_and(|x| !x.model.remaps.is_empty()) {
+                let inner = Arc::make_mut(&mut self.model.definitions.get_mut(&d).unwrap().model);
+                for r in std::mem::take(&mut inner.remaps) {
+                    if let crate::anchors::Remap::Vertices { from_path, to_path, map, .. } = r {
+                        self.model.remaps.push(crate::anchors::Remap::Vertices { scope: Some(d), from_path, to_path, map });
+                    }
+                }
+            }
+        }
+        self.model.settle_anchors();
+    }
+}
+
 fn paper_of(a: &PaperArg) -> Result<Paper> {
     match a {
         PaperArg::Name(n) => Paper::named(n),
@@ -379,6 +436,96 @@ impl Engine {
                 }
                 json!({"deleted": ids.len()})
             }
+            Command::SheetDim { sheet, anchors, mode, offset_mm, viewport, style, text_override, tol } => {
+                if !self.model.sheets.contains_key(&sheet) {
+                    bail!("no sheet {sheet}");
+                }
+                if anchors.len() < 2 || anchors.len() > MAX_DIM_ANCHORS {
+                    bail!("a dimension has 2 to {MAX_DIM_ANCHORS} anchors (two make one, more make a chain)");
+                }
+                let tol = tol.unwrap_or(1e-3);
+                if !(tol.is_finite() && tol > 0.0 && tol <= 1.0) {
+                    bail!("tol is a distance in metres, above 0 and at most 1");
+                }
+                let offset = offset_mm.unwrap_or(8.0);
+                if !offset.is_finite() || offset.abs() > 1000.0 {
+                    bail!("offset_mm is between -1000 and 1000");
+                }
+                if let Some(v) = viewport {
+                    let on_sheet = matches!(self.model.sheet_items.get(&v).map(|i| &**i), Some(SheetItem::Known(ItemKind::Viewport(x))) if x.sheet == sheet);
+                    if !on_sheet {
+                        bail!("{v} is not a viewport on sheet {sheet}");
+                    }
+                }
+                if let Some(s) = &style {
+                    short("a style", s)?;
+                }
+                if let Some(s) = &text_override {
+                    short("the text", s)?;
+                }
+                let made: Vec<Anchor> = anchors.iter().enumerate().map(|(i, a)| self.model.anchor_from(a, tol).map_err(|e| anyhow::anyhow!("anchor {i}: {e}"))).collect::<Result<_>>()?;
+                let d = Dimension { sheet, anchors: made, mode: mode.unwrap_or_default(), viewport, offset_mm: offset, style, text_override, made_by: self.made_by(), ..Default::default() };
+                let measured = self.model.measure_dimension(&d);
+                let values: Vec<Option<f64>> = measured.segments.iter().map(|s| s.value).collect();
+                let id = self.model.new_id();
+                self.model.sheet_items.insert(id, Arc::new(SheetItem::Known(ItemKind::Dimension(d))));
+                json!({"dimension": id, "values_m": values})
+            }
+            Command::SheetReattach { item, sheet, anchor, to, all_exact, tol } => {
+                if let Some(i) = item.filter(|i| !matches!(self.model.sheet_items.get(i).map(|x| &**x), Some(SheetItem::Known(ItemKind::Dimension(_))))) {
+                    bail!("{i} is not a dimension");
+                }
+                if let Some(s) = sheet.filter(|s| !self.model.sheets.contains_key(s)) {
+                    bail!("no sheet {s}");
+                }
+                match (to, all_exact) {
+                    (Some(to), false) => {
+                        let (Some(id), Some(idx)) = (item, anchor) else { bail!("to reattach one anchor give the dimension's `item` and the `anchor` index to attach") };
+                        let new = self.model.anchor_from(&to, 1e-3)?;
+                        let Some(SheetItem::Known(ItemKind::Dimension(d))) = self.model.sheet_items.get(&id).map(|i| (**i).clone()) else { bail!("{id} is not a dimension") };
+                        let mut d = d;
+                        let Some(slot) = d.anchors.get_mut(idx) else { bail!("dimension {id} has {} anchors; no anchor {idx}", d.anchors.len()) };
+                        *slot = new;
+                        self.model.sheet_items.insert(id, Arc::new(SheetItem::Known(ItemKind::Dimension(d))));
+                        json!({"reattached": 1, "item": id, "anchor": idx})
+                    }
+                    (None, true) => {
+                        let tol = tol.unwrap_or(crate::anchors::REATTACH_TOL);
+                        if !(tol.is_finite() && tol > 0.0 && tol <= 0.01) {
+                            bail!("tol is a distance in metres, above 0 and at most 0.01");
+                        }
+                        let ids: Vec<Id> = self.model.sheet_items.iter().filter(|(k, i)| matches!(&***i, SheetItem::Known(ItemKind::Dimension(d)) if item.is_none_or(|x| x == **k) && sheet.is_none_or(|s| s == d.sheet))).map(|(k, _)| *k).collect();
+                        let (mut done, mut ambiguous, mut unmatched) = (vec![], vec![], vec![]);
+                        for id in ids {
+                            let Some(SheetItem::Known(ItemKind::Dimension(mut d))) = self.model.sheet_items.get(&id).map(|i| (**i).clone()) else { continue };
+                            let mut touched = false;
+                            for (idx, a) in d.anchors.iter_mut().enumerate() {
+                                if self.model.resolve_anchor(a).is_some() {
+                                    continue;
+                                }
+                                let mut near = self.model.anchors_at(DVec3::from(a.last), tol);
+                                match near.len() {
+                                    0 => unmatched.push(json!({"item": id, "anchor": idx})),
+                                    1 => {
+                                        *a = near.remove(0);
+                                        touched = true;
+                                        done.push(json!({"item": id, "anchor": idx}));
+                                    }
+                                    n => ambiguous.push(json!({"item": id, "anchor": idx, "vertices": n})),
+                                }
+                            }
+                            if touched {
+                                self.model.sheet_items.insert(id, Arc::new(SheetItem::Known(ItemKind::Dimension(d))));
+                            }
+                        }
+                        if done.is_empty() {
+                            bail!("nothing was reattached: {} broken anchors have no vertex where they were, {} have more than one (pick with `to`)", unmatched.len(), ambiguous.len());
+                        }
+                        json!({"reattached": done.len(), "anchors": done, "ambiguous": ambiguous, "unmatched": unmatched})
+                    }
+                    _ => bail!("give `to` (with `item` and `anchor`) to attach one anchor, or `all_exact: true` to attach every broken anchor that has exactly one vertex where it was"),
+                }
+            }
             Command::SheetsInfo { sheet } => {
                 let m = &self.model;
                 if let Some(s) = sheet.filter(|s| !m.sheets.contains_key(s)) {
@@ -386,10 +533,18 @@ impl Engine {
                 }
                 let mut order: Vec<(&Id, &Sheet)> = m.sheets.iter().filter(|(id, _)| sheet.is_none_or(|s| s == **id)).collect();
                 order.sort_by_key(|(id, s)| (s.order, **id));
+                let units = if m.units.is_empty() { "m" } else { m.units.as_str() };
                 let item_json = |id: &Id, i: &SheetItem| {
                     let mut v = serde_json::to_value(i).unwrap_or(Value::Null);
                     if let Some(o) = v.as_object_mut() {
                         o.insert("id".into(), json!(id));
+                        // a dimension says what it measures now, and which of its anchors are broken (with where they were)
+                        if let SheetItem::Known(ItemKind::Dimension(d)) = i {
+                            let me = m.measure_dimension(d);
+                            let spans: Vec<Value> = me.segments.iter().map(|s| json!({"from": s.from, "to": s.to, "value_m": s.value, "text": s.value.map_or("?".to_string(), |v| crate::units::format(v, units))})).collect();
+                            let broken: Vec<Value> = m.broken_anchors(d).into_iter().map(|a| json!({"anchor": a, "last": d.anchors[a].last, "suggestions": m.anchors_at(DVec3::from(d.anchors[a].last), crate::anchors::REATTACH_TOL).into_iter().take(5).collect::<Vec<_>>()})).collect();
+                            o.insert("measured".into(), json!({"spans": spans, "broken": broken, "attached": broken.is_empty()}));
+                        }
                     }
                     v
                 };
@@ -483,7 +638,11 @@ fn page_of(m: &Model, sheet: Id) -> PageSpec {
     let mut vps: Vec<(i32, Id, &Viewport)> = m.sheet_items.iter().filter_map(|(id, i)| if let SheetItem::Known(ItemKind::Viewport(v)) = &**i { (v.sheet == sheet).then_some((v.z, *id, v)) } else { None }).collect();
     vps.sort_by_key(|(z, id, _)| (*z, *id));
     let table = m.sheet_items.values().find_map(|i| if let SheetItem::Known(ItemKind::Table(t)) = &**i { (t.sheet == sheet).then(|| t.rows.clone()) } else { None }).unwrap_or_default();
-    PageSpec { title: s.name.clone(), viewports: vps.iter().map(|(_, _, v)| viewport_to_spec(v)).collect(), table }
+    // dimensions are worked out against the model as it is now: a moved wall has moved them
+    let mut dims: Vec<(i32, Id, &Dimension)> = m.sheet_items.iter().filter_map(|(id, i)| if let SheetItem::Known(ItemKind::Dimension(d)) = &**i { (d.sheet == sheet).then_some((d.z, *id, d)) } else { None }).collect();
+    dims.sort_by_key(|(z, id, _)| (*z, *id));
+    let dims = dims.iter().filter_map(|(_, _, d)| crate::draft::dims::prepare(m, d)).collect();
+    PageSpec { title: s.name.clone(), viewports: vps.iter().map(|(_, _, v)| viewport_to_spec(v)).collect(), table, dims }
 }
 
 /// The page description of an old-style viewport becomes a saved viewport. What the saved form has no field for

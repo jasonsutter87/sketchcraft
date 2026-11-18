@@ -2,6 +2,7 @@
 //! DXF writers; `sheet` turns pages and viewports into that list, with hidden-line removal
 //! (`hidden`) for elevations, sections and parallel views. See docs/dev/drafting-design.md.
 
+pub mod dims;
 pub mod dxf;
 pub mod font;
 pub mod hidden;

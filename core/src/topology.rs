@@ -41,6 +41,13 @@ impl Model {
             return v;
         }
         self.edges.remove(&eid);
+        // anchors on paper that sat along this edge follow it onto the pieces (only worked out when there are any)
+        if !self.sheet_items.is_empty() {
+            let (a, b) = (self.p(e.a), self.p(e.b));
+            let ab = b - a;
+            let t = if ab.length_squared() > 0.0 { (self.p(v) - a).dot(ab) / ab.length_squared() } else { 0.5 };
+            self.note_remap(false, || crate::anchors::Remap::Split { a: e.a, b: e.b, v, t });
+        }
         for (x, y) in [(e.a, v), (v, e.b)] {
             let id = self.edge(x, y);
             let ne = self.edges.get_mut(&id).unwrap();

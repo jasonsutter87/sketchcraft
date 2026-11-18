@@ -273,7 +273,10 @@ impl Model {
         self.gc();
         let did = self.new_id();
         self.definitions.insert(did, Definition { name: name.clone(), model: std::sync::Arc::new(def), attrs: Default::default(), source: None, cuts: false, face_me: false });
-        self.place(did, lo, 0.0, None)
+        let inst = self.place(did, lo, 0.0, None)?;
+        // the points that went into the component are the component's now: anchors follow them to the placement
+        self.note_remap(true, || crate::anchors::Remap::Vertices { scope: None, from_path: Vec::new(), to_path: vec![inst], map: map.iter().map(|(a, b)| (*a, *b)).collect() });
+        Ok(inst)
     }
 
     pub fn find_definition(&self, key: &str) -> Option<Id> {
@@ -307,6 +310,8 @@ impl Model {
             let id = self.edge(map[&e.a], map[&e.b]);
             self.edges.get_mut(&id).unwrap().soft = e.soft;
         }
+        // anchors that pointed into the component follow its points out into the new group
+        self.note_remap(true, || crate::anchors::Remap::Vertices { scope: None, from_path: vec![inst], to_path: Vec::new(), map: map.iter().map(|(a, b)| (*a, *b)).collect() });
         let mirror = i.transform.determinant() < 0.0;
         for f in def.faces.values() {
             let mut nf = Face {
