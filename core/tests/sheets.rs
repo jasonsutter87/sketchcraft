@@ -490,6 +490,31 @@ fn a_model_file_with_sheets_placed_as_a_part_brings_no_paper_along() {
 }
 
 #[test]
+fn export_refuses_papers_the_writer_would_print_wrongly() {
+    let dir = scratch("paper");
+    let mut e = with_sheets(); // an a3 sheet and a custom 600 x 400 one
+    let ids: Vec<u32> = e.model.sheets.keys().copied().collect();
+    // (the model is flat, so give the plan something the PDF can draw)
+    let plans: Vec<u32> = e.model.sheet_items.iter().filter(|(_, i)| serde_json::to_value(&***i).unwrap()["view"]["type"] == "plan").map(|(k, _)| *k).collect();
+    for v in plans {
+        ok(&mut e, json!({"cmd": "viewport_edit", "id": v, "from_view": "iso"}));
+    }
+    let p = dir.join("x.pdf");
+    // the custom one alone: named, and told how to go on
+    let r = e.exec_json(&json!({"cmd": "export_sheets", "path": p, "pages": [ids[1]]}).to_string());
+    assert_eq!(r["ok"], false);
+    assert!(r["error"].as_str().unwrap().contains(&format!("sheet {}", ids[1])) && r["error"].as_str().unwrap().contains("600"), "{r}");
+    // a mixed set: both named
+    let r = e.exec_json(&json!({"cmd": "export_sheets", "path": p, "pages": [ids[0], ids[1]]}).to_string());
+    assert_eq!(r["ok"], false);
+    assert!(r["error"].as_str().unwrap().contains("different papers"), "{r}");
+    // forcing a paper is allowed; the a3 sheet alone exports
+    ok(&mut e, json!({"cmd": "export_sheets", "path": p, "pages": [ids[0], ids[1]], "sheet": "a2"}));
+    ok(&mut e, json!({"cmd": "export_sheets", "path": dir.join("y.pdf"), "pages": [ids[0]]}));
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn more_sheets_than_one_pdf_holds_say_how_to_export_them() {
     let dir = scratch("many");
     let mut e = Engine::new();

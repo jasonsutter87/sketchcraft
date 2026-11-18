@@ -70,10 +70,15 @@ pub fn camera_for(model: &Model, opts: &RenderOpts) -> CameraSpec {
     if let Some(v) = model.views.iter().find(|v| v.name == opts.view) {
         return CameraSpec { eye: v.eye, target: v.target, fov: v.fov };
     }
-    let (lo, hi) = model.world_bounds().unwrap_or((DVec3::splat(-5.0), DVec3::splat(5.0)));
+    camera_in(model.world_bounds(), &opts.view)
+}
+
+/// The standard camera for `view` around a model whose bounds are `bounds` (already worked out: finding them walks the model).
+pub(crate) fn camera_in(bounds: Option<(DVec3, DVec3)>, view: &str) -> CameraSpec {
+    let (lo, hi) = bounds.unwrap_or((DVec3::splat(-5.0), DVec3::splat(5.0)));
     let center = (lo + hi) * 0.5;
     let radius = ((hi - lo).length() * 0.5).max(1.0);
-    let dir = match opts.view.as_str() {
+    let dir = match view {
         "front" => DVec3::new(0.0, -1.0, 0.12),
         "back" => DVec3::new(0.0, 1.0, 0.12),
         "left" => DVec3::new(-1.0, 0.0, 0.12),

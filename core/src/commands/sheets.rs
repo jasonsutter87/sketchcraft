@@ -55,25 +55,31 @@ fn scale_text(n: f64) -> String {
     if n.fract() == 0.0 { format!("1:{}", n as u64) } else { format!("1:{n}") }
 }
 
-fn bounds_center(m: &Model) -> DVec3 {
-    m.world_bounds().map(|(lo, hi)| (lo + hi) / 2.0).unwrap_or(DVec3::ZERO)
+/// The model's bounds, worked out once per command (finding them walks every face and edge).
+type Bounds = Option<(DVec3, DVec3)>;
+
+fn bounds_center(b: Bounds) -> DVec3 {
+    b.map(|(lo, hi)| (lo + hi) / 2.0).unwrap_or(DVec3::ZERO)
 }
 
 /// A 3D view from a saved view's name or a standard one (iso, top, front, back, left, right).
-fn view3d(m: &Model, name: &str, parallel: bool) -> ViewKind {
-    let cam = crate::render::camera_for(m, &crate::render::RenderOpts { view: name.to_string(), ..Default::default() });
+fn view3d(m: &Model, b: Bounds, name: &str, parallel: bool) -> ViewKind {
+    let cam = match m.views.iter().find(|v| v.name == name) {
+        Some(v) => crate::render::CameraSpec { eye: v.eye, target: v.target, fov: v.fov },
+        None => crate::render::camera_in(b, name),
+    };
     ViewKind::View3d { eye: cam.eye, target: cam.target, fov: cam.fov, parallel, extra: Extra::new() }
 }
 
 /// What a viewport shows when nobody said: a floor plan cut at 1.2 m if the model is cut by that height (else halfway
 /// up it), or a 3D view when the model has no height to cut (a flat site plan, nothing drawn yet). It always draws.
-fn default_view(m: &Model, parallel: bool) -> ViewKind {
-    match m.world_bounds() {
+fn default_view(m: &Model, b: Bounds, parallel: bool) -> ViewKind {
+    match b {
         Some((lo, hi)) if hi.z - lo.z >= 0.05 => {
             let cut = if lo.z + 0.01 < 1.2 && 1.2 < hi.z - 0.01 { 1.2 } else { (lo.z + hi.z) / 2.0 };
             ViewKind::Plan { cut_z: cut, floor_z: cut - 1.2192, depth: 0.0, extra: Extra::new() }
         }
-        _ => view3d(m, "iso", parallel),
+        _ => view3d(m, b, "iso", parallel),
     }
 }
 
@@ -101,17 +107,17 @@ impl Engine {
     }
 
     /// A new viewport from what a command gave, with defaults for the rest (and the anchor fixed here, once).
-    fn viewport_from(&self, a: &ViewportArgs, fallback_sheet: Option<Id>) -> Result<Viewport> {
+    fn viewport_from(&self, a: &ViewportArgs, fallback_sheet: Option<Id>, b: Bounds) -> Result<Viewport> {
         let m = &self.model;
         let sheet = a.sheet.or(fallback_sheet).ok_or_else(|| anyhow::anyhow!("a viewport needs a sheet (the id `sheet_add` or `sheets` gave)"))?;
         let Some(s) = m.sheets.get(&sheet) else { bail!("no sheet {sheet}") };
         let scale = a.scale.as_ref().map(scale_n).transpose()?;
         let view = match (&a.view, &a.from_view) {
             (Some(v), _) => v.clone(),
-            (None, Some(name)) => view3d(m, name, scale.is_some()),
-            (None, None) => default_view(m, scale.is_some()),
+            (None, Some(name)) => view3d(m, b, name, scale.is_some()),
+            (None, None) => default_view(m, b, scale.is_some()),
         };
-        let c = bounds_center(m);
+        let c = bounds_center(b);
         let anchor = a.anchor.unwrap_or(match &view {
             ViewKind::View3d { target, .. } => *target,
             ViewKind::Plan { cut_z, .. } => [c.x, c.y, *cut_z],
@@ -141,7 +147,7 @@ impl Engine {
     }
 
     /// One page of a `sheets` description becomes a sheet with its viewports and table.
-    fn sheet_from_page(&mut self, page: &PageSpec, paper: &Paper, order: i32, fields: &BTreeMap<String, String>) -> Result<Id> {
+    fn sheet_from_page(&mut self, page: &PageSpec, paper: &Paper, order: i32, fields: &BTreeMap<String, String>, b: Bounds) -> Result<Id> {
         short("a page title", &page.title)?;
         let id = self.model.new_id();
         self.model.sheets.insert(id, Sheet { name: page.title.clone(), paper: paper.clone(), order, fields: fields.clone(), ..Default::default() });
@@ -149,7 +155,7 @@ impl Engine {
         crate::layout::place(&mut vps, paper.w_mm, paper.h_mm);
         let who = self.made_by();
         for (i, spec) in vps.iter().enumerate() {
-            let mut v = spec_to_viewport(&self.model, spec)?;
+            let mut v = spec_to_viewport(&self.model, b, spec)?;
             v.sheet = id;
             v.z = i as i32;
             v.made_by = who.clone();
@@ -203,9 +209,10 @@ impl Engine {
                     fields.insert("blueprint".to_string(), "true".to_string());
                 }
                 let first = self.model.sheets.values().map(|s| s.order).max().map_or(0, |o| o.saturating_add(1));
+                let bounds = self.model.world_bounds();
                 let mut ids = vec![];
                 for (i, page) in pages.iter().enumerate() {
-                    ids.push(self.sheet_from_page(page, &paper, first.saturating_add(i as i32), &fields)?);
+                    ids.push(self.sheet_from_page(page, &paper, first.saturating_add(i as i32), &fields, bounds)?);
                 }
                 json!({"sheets": ids, "sheet": ids.first()})
             }
@@ -286,7 +293,8 @@ impl Engine {
                 let mut made = vec![];
                 let list: Vec<&ViewportArgs> = if viewports.is_empty() { vec![&args] } else { viewports.iter().collect() };
                 // check all of them before adding any (a bad one in the list adds nothing)
-                let built: Vec<Viewport> = list.iter().map(|a| self.viewport_from(a, fallback)).collect::<Result<_>>()?;
+                let bounds = self.model.world_bounds();
+                let built: Vec<Viewport> = list.iter().map(|a| self.viewport_from(a, fallback, bounds)).collect::<Result<_>>()?;
                 for v in built {
                     let id = self.model.new_id();
                     self.model.sheet_items.insert(id, Arc::new(SheetItem::Known(ItemKind::Viewport(v))));
@@ -335,7 +343,7 @@ impl Engine {
                     v.view = view.clone();
                     drop_legacy(&mut v, "view");
                 } else if let Some(name) = &args.from_view {
-                    v.view = view3d(&self.model, name, scale.is_some() || was_parallel);
+                    v.view = view3d(&self.model, self.model.world_bounds(), name, scale.is_some() || was_parallel);
                     // it follows the saved view it names, and nothing if it names a standard one
                     v.scene = self.model.views.iter().any(|x| &x.name == name).then(|| name.clone());
                     drop_legacy(&mut v, "view");
@@ -430,7 +438,22 @@ impl Engine {
                 }
                 chosen.dedup();
                 let first = &m.sheets[&chosen[0]];
-                let paper = sheet.unwrap_or_else(|| if crate::layout::sheet_mm(&first.paper.name).is_ok() { first.paper.name.clone() } else { "a3".into() });
+                // the writer prints every page on one standard paper: refuse a set it would print wrongly, naming the sheets
+                let paper = match sheet {
+                    Some(p) => p,
+                    None => {
+                        let same = |a: &Paper, b: &Paper| (a.w_mm - b.w_mm).abs() < 0.5 && (a.h_mm - b.h_mm).abs() < 0.5;
+                        let known = crate::layout::sheet_mm(&first.paper.name).ok().filter(|(w, h)| (w - first.paper.w_mm).abs() < 0.5 && (h - first.paper.h_mm).abs() < 0.5);
+                        if known.is_none() {
+                            bail!("sheet {} is {} x {} mm ({}), a size the PDF writer can't print yet (it prints a4, a3, a2, letter or tabloid); give `sheet` to print it on one of those", chosen[0], first.paper.w_mm, first.paper.h_mm, if first.paper.name.is_empty() { "custom" } else { &first.paper.name });
+                        }
+                        if let Some(odd) = chosen.iter().find(|id| !same(&m.sheets[*id].paper, &first.paper)) {
+                            let o = &m.sheets[odd];
+                            bail!("sheets {} and {} are different papers ({} x {} and {} x {} mm) and one PDF prints one size: export them separately with pages: [sheet ids], or give `sheet` to force one", chosen[0], odd, first.paper.w_mm, first.paper.h_mm, o.paper.w_mm, o.paper.h_mm);
+                        }
+                        first.paper.name.clone()
+                    }
+                };
                 let project = project.or_else(|| first.fields.get("project").cloned()).unwrap_or_else(stem);
                 let notes = notes.unwrap_or_else(|| first.fields.get("notes").map(|n| n.lines().map(str::to_string).collect()).unwrap_or_default());
                 let blueprint = blueprint.unwrap_or_else(|| first.fields.get("blueprint").is_some_and(|b| b == "true"));
@@ -462,9 +485,9 @@ fn page_of(m: &Model, sheet: Id) -> PageSpec {
 
 /// The page description of an old-style viewport becomes a saved viewport. What the saved form has no field for
 /// (callouts, plan marks, datum levels, the section mark, "fit the picture") is kept under `extra["legacy"]`.
-fn spec_to_viewport(m: &Model, spec: &ViewportSpec) -> Result<Viewport> {
+fn spec_to_viewport(m: &Model, b: Bounds, spec: &ViewportSpec) -> Result<Viewport> {
     let scale = spec.scale.as_deref().map(crate::layout::scale_of).transpose()?;
-    let c = bounds_center(m);
+    let c = bounds_center(b);
     let standard_dir = match spec.view.as_str() {
         "front" => Some([0.0, -1.0, 0.0]),
         "back" => Some([0.0, 1.0, 0.0]),
@@ -478,21 +501,21 @@ fn spec_to_viewport(m: &Model, spec: &ViewportSpec) -> Result<Viewport> {
         (ViewKind::Section { origin: [s[0], s[1], s[2]], normal: [s[3], s[4], 0.0], depth: 0.0, extra: Extra::new() }, c.to_array())
     } else if let (Some(dir), true, true) = (standard_dir, spec.callouts, scale.is_some()) {
         if m.views.iter().any(|v| v.name == spec.view) {
-            let v = view3d(m, &spec.view, true);
+            let v = view3d(m, b, &spec.view, true);
             let t = if let ViewKind::View3d { target, .. } = &v { *target } else { c.to_array() };
             (v, t)
         } else {
             (ViewKind::Elevation { dir, depth: 0.0, extra: Extra::new() }, c.to_array())
         }
     } else {
-        let v = view3d(m, &spec.view, scale.is_some());
+        let v = view3d(m, b, &spec.view, scale.is_some());
         let t = if let ViewKind::View3d { target, .. } = &v { *target } else { c.to_array() };
         (v, t)
     };
     let fit = scale.is_none();
     let scale = scale.unwrap_or_else(|| {
         // not given: the model fitted to the picture once, at a round scale (saved, never re-fitted afterwards)
-        let extent = m.world_bounds().map_or(10.0, |(lo, hi)| (hi - lo).length().max(1.0));
+        let extent = b.map_or(10.0, |(lo, hi)| (hi - lo).length().max(1.0));
         nice_scale(extent * 1000.0 / (0.9 * spec.w.min(spec.h).max(1.0)))
     });
     let scene = m.views.iter().find(|v| v.name == spec.view).map(|v| v.name.clone());
