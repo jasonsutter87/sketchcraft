@@ -324,9 +324,9 @@ fn span(cov: &mut [f32], x0: f64, x1: f64, amount: f32) {
 }
 
 fn blend(px: &mut image::Rgb<u8>, rgb: Rgb, a: f32) {
-    for i in 0..3 {
-        let d = px.0[i] as f32;
-        px.0[i] = (d + (rgb[i] as f32 - d) * a.clamp(0.0, 1.0)).round() as u8;
+    for (d, s) in px.0.iter_mut().zip(rgb) {
+        let f = *d as f32;
+        *d = (f + (s as f32 - f) * a.clamp(0.0, 1.0)).round() as u8;
     }
 }
 

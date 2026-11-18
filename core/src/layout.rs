@@ -397,9 +397,12 @@ pub(crate) struct SetOpts {
     pub scale: Option<String>,
 }
 
+/// A set's pages, each with its sheet number, and its notes.
+pub(crate) type SetPages = (Vec<(String, PageSpec)>, Vec<String>);
+
 /// The pages of a drawing set worked out from the building (what `blueprint` and `layout_preset` make), each with its
 /// sheet number (empty for a blueprint's), and the notes (areas).
-pub(crate) fn set_specs(m: &Model, sheet: &str, extra_notes: &[String], o: &SetOpts) -> Result<(Vec<(String, PageSpec)>, Vec<String>)> {
+pub(crate) fn set_specs(m: &Model, sheet: &str, extra_notes: &[String], o: &SetOpts) -> Result<SetPages> {
     let (sw, sh) = sheet_mm(sheet)?;
     if let Some(s) = &o.scale {
         crate::draft::paper::scale_of(s)?;

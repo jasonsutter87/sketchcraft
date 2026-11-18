@@ -50,8 +50,8 @@ fn near(a: [f64; 2], b: [f64; 2]) -> bool {
     (a[0] - b[0]).abs() < 1e-6 && (a[1] - b[1]).abs() < 1e-6
 }
 
-/// A wall (x .. x + 0.2, y 0 to 3, 2.5 high) as a group, and an A3 sheet with a 1:50 plan viewport. A plan is centred
-/// on the building, so the wall's left face is at paper x = 203 and its right at 207, running from y = 145 up to
+/// A wall (x .. x + 0.2, y 0 to 3, 2.5 high) as a group, and an A3 sheet with a 1:50 plan viewport. The plan is pinned
+/// to its anchor, the middle of the wall at x = 0 (a saved viewport is drawn at its anchor), so the wall's left face is at paper x = 203 and its right at 207, running from y = 145 up to
 /// y = 85 (20 paper mm per model metre). The viewport's frame is [15, 15, 380, 200].
 fn site(wall_x: f64) -> (Engine, u64) {
     let mut e = Engine::new();
@@ -60,7 +60,7 @@ fn site(wall_x: f64) -> (Engine, u64) {
     let faces: Vec<u32> = e.model.faces.keys().copied().collect();
     ok(&mut e, json!({"cmd": "group", "ids": faces}));
     let s = ok(&mut e, json!({"cmd": "sheet_add", "name": "Plan", "paper": "a3"}))["sheet"].as_u64().unwrap();
-    ok(&mut e, json!({"cmd": "viewport_add", "sheet": s, "view": {"type": "plan", "cut_z": 1.2, "floor_z": 0.0}, "scale": "1:50", "anchor": [4.0, 1.5, 1.2], "rect_mm": [15, 15, 380, 200]}));
+    ok(&mut e, json!({"cmd": "viewport_add", "sheet": s, "view": {"type": "plan", "cut_z": 1.2, "floor_z": 0.0}, "scale": "1:50", "anchor": [0.1, 1.5, 1.2], "rect_mm": [15, 15, 380, 200]}));
     (e, s)
 }
 
