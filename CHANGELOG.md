@@ -17,6 +17,17 @@ What changed in each SketchCraft release, newest first. The format follows
   (over 32,767 objects) are read correctly too. (part of #70)
 
 ### Added
+- **A Layout workspace for drawing sheets.** A fifth workspace, Layout, beside Model, Arch, Design and Previz. Pages
+  are on the left: add, duplicate, rename (double-click or F2) and delete them, and drag them into order (or the
+  arrows, or Alt+Up and Alt+Down). Each is one Undo step. The page you pick is in the middle, drawn on paper exactly
+  as the PDF draws it: scroll to zoom, drag to pan, Fit to see the whole page. Click a view on the page to change it on
+  the right: its caption, what it shows, its scale (1:50, or imperial like 1/4"=1'-0"), and an **opacity slider**
+  from 0 to 100%, for tracing one view over another (#6). With no view picked, the right side has the page: its name,
+  number, paper size, the title block's project and notes, and "Add view" to put a plan, an elevation or a 3D view
+  on it. Your 3D model stays open underneath while you're there, so switching back is instant and the camera,
+  selection and tool are as you left them. File > Open in Layout, the Arch strip's Layout button and the Drawing
+  sheets dialog take you there. Agents get `sheet_ir` (a page's drawing as data), `sheet_duplicate` and
+  `sheet_order`. (part of #63)
 - **Cut intersection priority per tag: the wall wins where it runs into the slab.** When the cut surfaces of two tags
   overlap in a plan or a section (a wall into a slab, insulation inside a wall), the tag with the higher priority
   keeps the overlap and the other stops at its edge, with no seam. Cuts of one tag, or of tags with the same priority,
