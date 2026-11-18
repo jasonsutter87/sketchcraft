@@ -201,6 +201,7 @@ fn viewport(m: &Model, bm: &Model, v: &ViewportSpec, pens: &Pens, sh: f64) -> Re
                 alt.push_str("...");
             }
             g.alt = Some(alt);
+            g.opacity = v.opacity.map_or(1.0, |o| o.clamp(0.0, 1.0));
         }
     }
     if let Some(d) = denom {

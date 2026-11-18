@@ -54,12 +54,13 @@ impl W {
                     let _ = writeln!(self.s, "<image x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" preserveAspectRatio=\"none\" href=\"data:image/png;base64,{b64}\"/>", n(i.rect[0]), n(i.rect[1]), n(i.rect[2]), n(i.rect[3]));
                 }
                 Prim::Group(g) => {
+                    let op = if g.opacity < 1.0 { format!(" opacity=\"{}\"", n(g.opacity.max(0.0))) } else { String::new() };
                     if let Some([x, y, w, h]) = g.clip {
                         self.clips += 1;
                         let id = format!("sc-{}-c{}", self.uid, self.clips);
-                        let _ = writeln!(self.s, "<clipPath id=\"{id}\"><rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\"/></clipPath>\n<g clip-path=\"url(#{id})\">", n(x), n(y), n(w), n(h));
+                        let _ = writeln!(self.s, "<clipPath id=\"{id}\"><rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\"/></clipPath>\n<g clip-path=\"url(#{id})\"{op}>", n(x), n(y), n(w), n(h));
                     } else {
-                        self.s.push_str("<g>\n");
+                        let _ = writeln!(self.s, "<g{op}>");
                     }
                     self.prims(&g.children);
                     self.s.push_str("</g>\n");

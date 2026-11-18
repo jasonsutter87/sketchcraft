@@ -55,6 +55,8 @@ pub struct ViewportSpec {
     pub beyond: bool,
     /// draw a scaled view as a picture instead of vector line work
     pub raster: bool,
+    /// 0 to 1 (left out: 1). The whole viewport, lines and pictures together, shows through this much.
+    pub opacity: Option<f64>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -106,10 +108,26 @@ pub(crate) fn write_pages(m: &Model, path: &str, sheet: &str, project: &str, pag
 /// `page` counting from 1. Returns how many pages the set has.
 #[allow(clippy::too_many_arguments)]
 pub fn write_sheets_page(m: &Model, path: &str, sheet: &str, project: &str, pages: Vec<PageSpec>, blueprint: bool, notes: &[String], fill: bool, page: Option<usize>) -> Result<usize> {
+    Ok(write_sheets_notes(m, path, sheet, project, pages, blueprint, notes, fill, page)?.0)
+}
+
+/// `write_sheets_page`, and what the format couldn't carry (a DXF has no opacity: the export says so).
+#[allow(clippy::too_many_arguments)]
+pub fn write_sheets_notes(m: &Model, path: &str, sheet: &str, project: &str, pages: Vec<PageSpec>, blueprint: bool, notes: &[String], fill: bool, page: Option<usize>) -> Result<(usize, Vec<String>)> {
     let mut doc = crate::draft::sheet::build_with(m, sheet, project, pages, blueprint, notes, &today(), fill)?;
     doc.lang = locale_lang();
     write_doc(&doc, path, page)?;
-    Ok(doc.pages.len())
+    Ok((doc.pages.len(), export_warnings(&doc, path, page)))
+}
+
+/// What a file of this kind leaves out of `doc`'s page (so the export can say so).
+pub fn export_warnings(doc: &Doc, path: &str, page: Option<usize>) -> Vec<String> {
+    let ext = std::path::Path::new(path).extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+    if ext != "dxf" {
+        return Vec::new();
+    }
+    let n = page.unwrap_or(1).checked_sub(1).and_then(|i| doc.pages.get(i)).map_or(0, crate::draft::dxf::dropped_opacity);
+    if n == 0 { Vec::new() } else { vec![format!("DXF has no opacity: {n} viewport{} drawn at full strength (PDF and SVG keep it)", if n == 1 { " is" } else { "s are" })] }
 }
 
 /// The language tag for the PDF (screen readers pronounce by it): from the machine's locale (`de_DE.UTF-8` is

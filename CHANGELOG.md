@@ -17,6 +17,11 @@ What changed in each SketchCraft release, newest first. The format follows
   (over 32,767 objects) are read correctly too. (part of #70)
 
 ### Added
+- **A viewport on a sheet can be faded.** Give a viewport an opacity from 0 to 1 (`viewport_edit` with `opacity`, or when
+  you add it) and, in the PDF, it prints as one see-through drawing: lines that cross inside it don't darken each
+  other, and viewports stacked on one another blend in the order they are stacked. SVG keeps the fade too. DXF has no
+  opacity, so those viewports are drawn at full strength and the export result says so in `warnings`. A faded 3D
+  view over a vector plan ("hybrid") isn't drawn yet. (part of #6)
 - **Dimensions come in from SketchUp files.** Importing a SketchUp 6 to 2020 file now brings its linear dimensions
   along as dimensions on the model, measured between the same two points and drawn at the same offset; a dimension
   whose text was typed over (not the measured length) also gets a text label. Radial dimensions, free text labels with

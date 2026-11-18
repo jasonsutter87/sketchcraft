@@ -6,6 +6,7 @@ use super::font;
 use super::ir::*;
 use anyhow::{bail, Result};
 use pdf_writer::types::{CidFontType, FontFlags, LineCapStyle, LineJoinStyle, StructRole, SystemInfo, TabOrder, UnicodeCmap};
+use pdf_writer::writers::Resources;
 use pdf_writer::{Content, Filter, Finish, Name, Pdf, Rect, Ref, Str, TextStr};
 use std::collections::BTreeMap;
 use subsetter::GlyphRemapper;
@@ -21,6 +22,7 @@ struct Face {
 
 struct Ctx {
     faces: Vec<Option<Face>>,
+    font_refs: Vec<Ref>,
     next: i32,
 }
 
@@ -55,6 +57,9 @@ struct PageOut {
     content: Vec<u8>,
     fonts: Vec<usize>,
     images: Vec<(usize, Ref)>,
+    /// transparency groups drawn on the page: Fm names, and the ExtGState (Gs names) that fades each
+    forms: Vec<(usize, Ref)>,
+    gstates: Vec<(usize, Ref)>,
     /// the structure each marked-content id (0..n) belongs to: role, and a figure's description
     tags: Vec<Tag>,
 }
@@ -65,8 +70,36 @@ struct Writer<'a> {
     page_h: f64,
     fonts: Vec<usize>,
     images: Vec<(usize, Ref)>,
+    forms: Vec<(usize, Ref)>,
+    gstates: Vec<(usize, Ref)>,
     tags: Vec<Tag>,
     in_figure: bool,
+    page_w: f64,
+}
+
+/// The fonts, pictures and transparency groups a content stream (a page or a form) draws, as its resources.
+fn resources(res: &mut Resources, font_refs: &[Ref], fonts: &[usize], images: &[(usize, Ref)], forms: &[(usize, Ref)], gstates: &[(usize, Ref)]) {
+    if !fonts.is_empty() {
+        let mut fd = res.fonts();
+        for i in fonts {
+            fd.pair(Name(format!("F{i}").as_bytes()), font_refs[*i]);
+        }
+    }
+    if !images.is_empty() || !forms.is_empty() {
+        let mut xd = res.x_objects();
+        for (n, r) in images {
+            xd.pair(Name(format!("Im{n}").as_bytes()), *r);
+        }
+        for (n, r) in forms {
+            xd.pair(Name(format!("Fm{n}").as_bytes()), *r);
+        }
+    }
+    if !gstates.is_empty() {
+        let mut gd = res.ext_g_states();
+        for (n, r) in gstates {
+            gd.pair(Name(format!("Gs{n}").as_bytes()), *r);
+        }
+    }
 }
 
 impl Writer<'_> {
@@ -192,6 +225,58 @@ impl Writer<'_> {
         Ok(())
     }
 
+    /// A group that shows through: drawn into a Form XObject with an isolated transparency group (so what
+    /// overlaps inside it doesn't darken), placed through an ExtGState with the stroke and fill alpha.
+    /// It sits in the page's stream where it comes, so stacked groups blend in z order.
+    fn faded(&mut self, g: &Group, pdf: &mut Pdf) -> Result<()> {
+        let outer = (
+            std::mem::replace(&mut self.c, Content::new()),
+            std::mem::take(&mut self.fonts),
+            std::mem::take(&mut self.images),
+            std::mem::take(&mut self.forms),
+            std::mem::take(&mut self.gstates),
+        );
+        // the form's content is part of the figure around it (tagged content doesn't go inside a form)
+        let was_figure = std::mem::replace(&mut self.in_figure, true);
+        if let Some([x, y, w, h]) = g.clip {
+            self.c.rect(self.x(x), self.y(y + h), f(w * PT), f(h * PT));
+            self.c.clip_nonzero();
+            self.c.end_path();
+        }
+        let r = self.prims(&g.children, pdf);
+        self.in_figure = was_figure;
+        let inner = std::mem::replace(&mut self.c, outer.0);
+        let fonts = std::mem::replace(&mut self.fonts, outer.1);
+        let images = std::mem::replace(&mut self.images, outer.2);
+        let forms = std::mem::replace(&mut self.forms, outer.3);
+        let gstates = std::mem::replace(&mut self.gstates, outer.4);
+        r?;
+        let (form, gs) = (self.cx.alloc(), self.cx.alloc());
+        let data = zlib(&inner.finish())?;
+        let mut x = pdf.form_xobject(form, &data);
+        x.bbox(Rect::new(0.0, 0.0, f(self.page_w * PT), f(self.page_h * PT)));
+        x.filter(Filter::FlateDecode);
+        x.group().transparency().isolated(true).knockout(false).color_space().device_rgb();
+        resources(&mut x.resources(), &self.cx.font_refs, &fonts, &images, &forms, &gstates);
+        x.finish();
+        let a = f(g.opacity.max(0.0));
+        pdf.ext_graphics(gs).stroking_alpha(a).non_stroking_alpha(a);
+        let n = self.forms.len() + 1;
+        self.forms.push((n, form));
+        self.gstates.push((n, gs));
+        // a form's fonts are the page's fonts too (the list says which faces the page needs)
+        for i in fonts {
+            if !self.fonts.contains(&i) {
+                self.fonts.push(i);
+            }
+        }
+        self.c.save_state();
+        self.c.set_parameters(Name(format!("Gs{n}").as_bytes()));
+        self.c.x_object(Name(format!("Fm{n}").as_bytes()));
+        self.c.restore_state();
+        Ok(())
+    }
+
     fn prims(&mut self, items: &[Prim], pdf: &mut Pdf) -> Result<()> {
         for p in items {
             match p {
@@ -253,14 +338,18 @@ impl Writer<'_> {
                         self.c.begin_marked_content_with_properties(Name(b"Figure")).properties().identify(mcid);
                         self.in_figure = true;
                     }
-                    self.c.save_state();
-                    if let Some([x, y, w, h]) = g.clip {
-                        self.c.rect(self.x(x), self.y(y + h), f(w * PT), f(h * PT));
-                        self.c.clip_nonzero();
-                        self.c.end_path();
+                    if g.opacity < 1.0 {
+                        self.faded(g, pdf)?;
+                    } else {
+                        self.c.save_state();
+                        if let Some([x, y, w, h]) = g.clip {
+                            self.c.rect(self.x(x), self.y(y + h), f(w * PT), f(h * PT));
+                            self.c.clip_nonzero();
+                            self.c.end_path();
+                        }
+                        self.prims(&g.children, pdf)?;
+                        self.c.restore_state();
                     }
-                    self.prims(&g.children, pdf)?;
-                    self.c.restore_state();
                     if figure {
                         self.c.end_marked_content();
                         self.in_figure = false;
@@ -283,19 +372,20 @@ pub fn write(doc: &Doc) -> Result<Vec<u8>> {
     let mut pdf = Pdf::new();
     let catalog = Ref::new(1);
     let tree = Ref::new(2);
-    let mut cx = Ctx { faces: (0..4).map(|_| None).collect(), next: 3 };
+    let mut cx = Ctx { faces: (0..4).map(|_| None).collect(), font_refs: Vec::new(), next: 3 };
     let font_refs: Vec<Ref> = (0..4).map(|_| cx.alloc()).collect();
+    cx.font_refs = font_refs.clone();
     let mut kids = Vec::new();
     let mut outs: Vec<(Ref, Ref, PageOut, [f64; 2])> = Vec::new();
     for page in &doc.pages {
-        let mut w = Writer { c: Content::new(), cx: &mut cx, page_h: page.h, fonts: Vec::new(), images: Vec::new(), tags: Vec::new(), in_figure: false };
+        let mut w = Writer { c: Content::new(), cx: &mut cx, page_h: page.h, fonts: Vec::new(), images: Vec::new(), forms: Vec::new(), gstates: Vec::new(), tags: Vec::new(), in_figure: false, page_w: page.w };
         if let Some(bg) = page.bg {
             w.c.set_fill_rgb(bg[0] as f32 / 255.0, bg[1] as f32 / 255.0, bg[2] as f32 / 255.0);
             w.c.rect(0.0, 0.0, f(page.w * PT), f(page.h * PT));
             w.c.fill_nonzero();
         }
         w.prims(&page.items, &mut pdf)?;
-        let out = PageOut { content: w.c.finish().to_vec(), fonts: w.fonts, images: w.images, tags: w.tags };
+        let out = PageOut { content: w.c.finish().to_vec(), fonts: w.fonts, images: w.images, forms: w.forms, gstates: w.gstates, tags: w.tags };
         let (pid, cid) = (cx.alloc(), cx.alloc());
         kids.push(pid);
         outs.push((pid, cid, out, [page.w, page.h]));
@@ -307,18 +397,7 @@ pub fn write(doc: &Doc) -> Result<Vec<u8>> {
         p.parent(tree).media_box(Rect::new(0.0, 0.0, f(w * PT), f(h * PT))).contents(*cid);
         p.struct_parents(page_no as i32).tab_order(TabOrder::StructureOrder);
         let mut res = p.resources();
-        if !out.fonts.is_empty() {
-            let mut fd = res.fonts();
-            for i in &out.fonts {
-                fd.pair(Name(format!("F{i}").as_bytes()), font_refs[*i]);
-            }
-        }
-        if !out.images.is_empty() {
-            let mut xd = res.x_objects();
-            for (n, r) in &out.images {
-                xd.pair(Name(format!("Im{n}").as_bytes()), *r);
-            }
-        }
+        resources(&mut res, &font_refs, &out.fonts, &out.images, &out.forms, &out.gstates);
         res.finish();
         p.finish();
     }

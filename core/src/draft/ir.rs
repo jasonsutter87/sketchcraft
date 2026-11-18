@@ -211,6 +211,9 @@ pub struct Group {
     pub clip: Option<[f64; 4]>,
     /// a drawing or picture (a viewport) with its description, as a figure in a tagged PDF; None: decoration
     pub alt: Option<String>,
+    /// 0 to 1, how much of the group shows (1: all of it). Drawn as one transparency group, so lines
+    /// overlapping inside it don't darken each other.
+    pub opacity: f64,
     pub children: Vec<Prim>,
 }
 
@@ -228,7 +231,7 @@ impl PartialEq for Prim {
             (Prim::Path(a), Prim::Path(b)) => a == b,
             (Prim::Text(a), Prim::Text(b)) => a == b,
             (Prim::Image(a), Prim::Image(b)) => a.rect == b.rect && a.rgb.as_raw() == b.rgb.as_raw(),
-            (Prim::Group(a), Prim::Group(b)) => a.clip == b.clip && a.alt == b.alt && a.children == b.children,
+            (Prim::Group(a), Prim::Group(b)) => a.clip == b.clip && a.alt == b.alt && a.opacity == b.opacity && a.children == b.children,
             _ => false,
         }
     }
@@ -361,7 +364,7 @@ impl Cv {
         f(&mut inner);
         let rect = [top_left[0], top_left[1], w / PT, h / PT];
         let children = cull(inner.out, &rect);
-        self.out.push(Prim::Group(Group { clip: Some(rect), alt: None, children }));
+        self.out.push(Prim::Group(Group { clip: Some(rect), alt: None, opacity: 1.0, children }));
     }
 }
 

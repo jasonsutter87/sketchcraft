@@ -269,6 +269,17 @@ impl W {
     }
 }
 
+/// How many drawings on the page are faded: a DXF has no opacity, so it draws them at full strength.
+pub fn dropped_opacity(p: &Page) -> usize {
+    let mut n = 0;
+    p.walk(&mut |x| {
+        if matches!(x, Prim::Group(g) if g.opacity < 1.0) {
+            n += 1;
+        }
+    });
+    n
+}
+
 /// One page as a DXF (AC1015) file's text.
 pub fn page(p: &Page) -> String {
     let mut body = W { s: String::new(), h: 0xFFF, page_h: p.h, ltypes: BTreeMap::new() };

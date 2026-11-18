@@ -580,8 +580,8 @@ impl Engine {
                 if !specs.is_empty() || (m.sheets.is_empty() && saved.is_empty()) {
                     // the one-shot set: nothing saved
                     let paper = sheet.unwrap_or_else(|| "a3".into());
-                    let n = crate::layout::write_sheets_page(m, &path, &paper, &project.unwrap_or_else(stem), specs.into_iter().cloned().collect(), blueprint.unwrap_or(false), &notes.unwrap_or_default(), true, page)?;
-                    return Ok(json!({"path": path, "pages": n}));
+                    let (n, warnings) = crate::layout::write_sheets_notes(m, &path, &paper, &project.unwrap_or_else(stem), specs.into_iter().cloned().collect(), blueprint.unwrap_or(false), &notes.unwrap_or_default(), true, page)?;
+                    return Ok(json!({"path": path, "pages": n, "warnings": warnings}));
                 }
                 // from the saved sheets, in their order (or the ids given, in the order given)
                 let mut chosen: Vec<Id> = if saved.is_empty() {
@@ -617,8 +617,8 @@ impl Engine {
                 let blueprint = blueprint.unwrap_or_else(|| first.fields.get("blueprint").is_some_and(|b| b == "true"));
                 let pages: Vec<PageSpec> = chosen.iter().map(|id| page_of(m, *id)).collect();
                 // saved sheets are drawn as they are: an empty one stays empty
-                let n = crate::layout::write_sheets_page(m, &path, &paper, &project, pages, blueprint, &notes, false, page)?;
-                json!({"path": path, "pages": n, "paper": paper})
+                let (n, warnings) = crate::layout::write_sheets_notes(m, &path, &paper, &project, pages, blueprint, &notes, false, page)?;
+                json!({"path": path, "pages": n, "paper": paper, "warnings": warnings})
             }
             other => unreachable!("command routed to the wrong group: {other:?}"),
         })
@@ -710,7 +710,7 @@ fn viewport_to_spec(v: &Viewport) -> ViewportSpec {
     // a perspective view has no scale to draw at (the PDF takes a scale to mean parallel and to scale): fitted
     let perspective = matches!(v.view, ViewKind::View3d { parallel: false, .. });
     let fit = l("fit") == json!(true);
-    let mut s = ViewportSpec { x: v.rect_mm[0], y: v.rect_mm[1], w: v.rect_mm[2], h: v.rect_mm[3], label: (!v.label.is_empty()).then(|| v.label.clone()), scale: (!fit && !perspective).then(|| scale_text(v.scale)), callouts: l("callouts") == json!(true), ..Default::default() };
+    let mut s = ViewportSpec { x: v.rect_mm[0], y: v.rect_mm[1], w: v.rect_mm[2], h: v.rect_mm[3], label: (!v.label.is_empty()).then(|| v.label.clone()), scale: (!fit && !perspective).then(|| scale_text(v.scale)), callouts: l("callouts") == json!(true), opacity: (v.opacity < 1.0).then_some(v.opacity), ..Default::default() };
     s.marks = serde_json::from_value(l("marks")).unwrap_or_default();
     s.levels = serde_json::from_value(l("levels")).unwrap_or_default();
     s.section_mark = serde_json::from_value::<Value>(l("section_mark")).ok().filter(|v| v.is_object()).and_then(|sm| {

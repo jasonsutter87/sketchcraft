@@ -456,5 +456,5 @@ fn raster(cv: &mut Cv, m: &Model, v: &ViewportSpec, pens: &Pens, sec: Option<(DV
         }
     }
     let img = render::render(m, &o);
-    cv.push(Prim::Group(Group { clip: Some([v.x, v.y, v.w, v.h]), alt: None, children: vec![Prim::Image(ImagePrim { rgb: std::sync::Arc::new(img), rect: [v.x, v.y, v.w, v.h] })] }));
+    cv.push(Prim::Group(Group { clip: Some([v.x, v.y, v.w, v.h]), alt: None, opacity: 1.0, children: vec![Prim::Image(ImagePrim { rgb: std::sync::Arc::new(img), rect: [v.x, v.y, v.w, v.h] })] }));
 }
