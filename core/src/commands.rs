@@ -44,6 +44,7 @@ mod sections;
 mod session;
 mod shape;
 mod sheets;
+mod autodraft;
 mod tags;
 
 pub use command::{Command, Factor};
@@ -143,6 +144,8 @@ impl Command {
                 | Command::ExportIfc { .. }
                 | Command::ExportSheets { .. }
                 | Command::SheetsInfo { .. }
+                | Command::ViewportPoints { .. }
+                | Command::SheetRender { .. }
                 | Command::HatchPatterns { .. }
                 | Command::Blueprint { .. }
                 | Command::Levels
@@ -687,7 +690,9 @@ impl Engine {
                     }
                     if is_open {
                         self.undo.clear();
-                    } else if push_undo && self.batch.is_none() {
+                    } else if push_undo && self.batch.is_none() && v.get("unchanged") != Some(&json!(true)) {
+                        // (a command that says it changed nothing, such as a `dimension_auto` with everything already
+                        // there, takes no undo step)
                         if let Some((before, ..)) = saved {
                             self.undo.push(Step::Snap(Box::new(before)));
                         }
@@ -917,6 +922,7 @@ impl Engine {
                 Command::SheetItemDelete { .. } | Command::SheetsInfo { .. } | Command::SheetDim { .. } | Command::SheetReattach { .. } |
                 Command::SheetLine { .. } | Command::SheetTrim { .. } | Command::SheetExtend { .. } | Command::SheetOffset { .. }
             ) => self.run_sheets(c),
+            c @ (Command::ViewportPoints { .. } | Command::DimensionAuto { .. } | Command::LayoutPreset { .. } | Command::SheetRender { .. }) => self.run_autodraft(c),
             c @ (
                 Command::BeginBatch { .. } | Command::EndBatch { .. } | Command::Undo { .. } | Command::Redo { .. }
             ) => self.run_session(c),

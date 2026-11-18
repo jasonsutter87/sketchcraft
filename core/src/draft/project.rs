@@ -20,7 +20,11 @@ fn plan_points(bm: &Model, v: &ViewportSpec, z: f64) -> Result<(Vec<(f64, f64)>,
     // dimension strings on this floor count toward the plan's size
     let floor = v.floor.unwrap_or(z - 1.22);
     pts.extend(dims_on_floor(bm, floor));
-    let extras = if v.callouts { plan_extras(bm, floor, z, !v.marks.is_empty()) } else { PlanExtras::default() };
+    let mut extras = if v.callouts { plan_extras(bm, floor, z, !v.marks.is_empty()) } else { PlanExtras::default() };
+    if v.no_auto_dims {
+        // the sheet has attached dimensions (`dimension_auto`) in their place
+        extras.dims.clear();
+    }
     pts.extend(extras.reach.iter().copied());
     Ok((pts, extras, floor))
 }

@@ -57,6 +57,10 @@ pub struct ViewportSpec {
     pub raster: bool,
     /// 0 to 1 (left out: 1). The whole viewport, lines and pictures together, shows through this much.
     pub opacity: Option<f64>,
+    /// plans with callouts: leave out the worked-out exterior dimension strings (the sheet has saved, attached ones
+    /// from `dimension_auto` instead). Tags, markers and the north arrow stay.
+    #[serde(skip)]
+    pub no_auto_dims: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -253,7 +257,8 @@ pub(crate) fn plan_extras(m: &Model, floor: f64, cut_z: f64, marks: bool) -> Pla
 /// Where a building section goes: along the stair run through its middle
 /// (so the stair shows in profile), else down the building's middle;
 /// looking toward the larger part of the building.
-fn section_through(m: &Model) -> Option<(DVec3, DVec3)> {
+/// Also says whether it goes through a stair (false: down the building's middle, there is none).
+pub(crate) fn section_place(m: &Model) -> Option<(DVec3, DVec3, bool)> {
     let (lo, hi) = m.world_bounds()?;
     let center = (lo + hi) / 2.0;
     let mut stair: Option<(DVec3, DVec3)> = None;
@@ -271,6 +276,7 @@ fn section_through(m: &Model) -> Option<(DVec3, DVec3)> {
             }
         }
     }
+    let through_stairs = stair.is_some();
     let (origin, look) = match stair {
         Some((a, b)) => {
             let c = (a + b) / 2.0;
@@ -286,7 +292,7 @@ fn section_through(m: &Model) -> Option<(DVec3, DVec3)> {
             (DVec3::new(center.x, center.y, 0.0), look)
         }
     };
-    Some((origin, look))
+    Some((origin, look, through_stairs))
 }
 
 /// Points along a door's swing, from closed to open, around the hinge.
@@ -318,7 +324,7 @@ pub(crate) fn dims_on_floor(m: &Model, floor: f64) -> Vec<(f64, f64)> {
     out
 }
 
-fn today() -> String {
+pub(crate) fn today() -> String {
     let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0);
     // civil date from days since 1970-01-01 (Howard Hinnant's algorithm)
     let z = secs.div_euclid(86_400) + 719_468;
@@ -376,7 +382,28 @@ pub fn blueprint(m: &Model, path: &str, sheet: &str, project: &str, extra_notes:
 
 /// The pages and notes of a blueprint set (what `blueprint` writes), before they're drawn.
 pub fn blueprint_specs(m: &Model, sheet: &str, extra_notes: &[String]) -> Result<(Vec<PageSpec>, Vec<String>)> {
+    let (pages, notes) = set_specs(m, sheet, extra_notes, &SetOpts::default())?;
+    Ok((pages.into_iter().map(|(_, p)| p).collect(), notes))
+}
+
+/// How `set_specs` lays a set out: the blueprint's way (all plans on one page, a section always, pages numbered 1, 2,
+/// 3...) by default; a permit set's way with `per_floor`.
+#[derive(Default)]
+pub(crate) struct SetOpts {
+    /// one plan per page (filling it), sheets numbered A-101 (plans), A-201 (elevations), A-301 (section), A-601
+    /// (schedule); a section only when there are stairs to cut through
+    pub per_floor: bool,
+    /// one scale for every drawing ("1:50"); none: the largest that fits each page
+    pub scale: Option<String>,
+}
+
+/// The pages of a drawing set worked out from the building (what `blueprint` and `layout_preset` make), each with its
+/// sheet number (empty for a blueprint's), and the notes (areas).
+pub(crate) fn set_specs(m: &Model, sheet: &str, extra_notes: &[String], o: &SetOpts) -> Result<(Vec<(String, PageSpec)>, Vec<String>)> {
     let (sw, sh) = sheet_mm(sheet)?;
+    if let Some(s) = &o.scale {
+        crate::draft::paper::scale_of(s)?;
+    }
     // scales and the section's place come from the building, not the lawn and trees around it
     let building = crate::environment::without(m);
     let m = &*building;
@@ -387,6 +414,9 @@ pub fn blueprint_specs(m: &Model, sheet: &str, extra_notes: &[String]) -> Result
         bail!("no floors found to draw plans of (draw walls standing on a floor or the ground)");
     }
     let fit = |w_m: f64, h_m: f64, w_mm: f64, h_mm: f64| -> String {
+        if let Some(s) = &o.scale {
+            return s.clone();
+        }
         let d = [50.0, 75.0, 100.0, 150.0, 200.0, 250.0, 500.0, 1000.0].into_iter().find(|d| w_m * 1000.0 / d <= w_mm * 0.92 && h_m * 1000.0 / d <= h_mm * 0.92).unwrap_or(2000.0);
         format!("1:{d}")
     };
@@ -395,8 +425,9 @@ pub fn blueprint_specs(m: &Model, sheet: &str, extra_notes: &[String]) -> Result
     let usable_h = sh - top - bottom;
     // plans side by side (wrap to two rows past three floors)
     let n = levels.len();
-    let cols = n.min(3);
-    let rows = n.div_ceil(cols);
+    // a permit set gives each plan a page of its own
+    let cols = if o.per_floor { 1 } else { n.min(3) };
+    let rows = if o.per_floor { 1 } else { n.div_ceil(cols) };
     let (cw, ch) = (usable_w / cols as f64, usable_h / rows as f64);
     let ordinal = |i: usize| match i {
         0 => "Main floor".to_string(),
@@ -418,6 +449,7 @@ pub fn blueprint_specs(m: &Model, sheet: &str, extra_notes: &[String]) -> Result
         }
     }
     let plan_scale = fit(px.max(1.0), py.max(1.0), cw - 8.0, ch - 14.0);
+    let (elev_sheet, sec_sheet) = if o.per_floor { ("A-201", "A-301") } else { ("2", "3") };
     let plans: Vec<ViewportSpec> = levels
         .iter()
         .enumerate()
@@ -429,9 +461,9 @@ pub fn blueprint_specs(m: &Model, sheet: &str, extra_notes: &[String]) -> Result
             label: Some(format!("{}  {} plan", i + 1, ordinal(i))),
             callouts: true,
             // markers for the four elevations (drawings n+1.. on sheet 2), on the main floor
-            marks: if i == 0 { (0..4).map(|k| format!("{}/2", n + k + 1)).collect() } else { vec![] },
-            x: left + (i % cols) as f64 * cw + 4.0,
-            y: top + (i / cols) as f64 * ch + 4.0,
+            marks: if i == 0 { (0..4).map(|k| format!("{}/{elev_sheet}", n + k + 1)).collect() } else { vec![] },
+            x: left + if o.per_floor { 0.0 } else { (i % cols) as f64 * cw } + 4.0,
+            y: top + if o.per_floor { 0.0 } else { (i / cols) as f64 * ch } + 4.0,
             w: cw - 8.0,
             h: ch - 14.0,
             ..Default::default()
@@ -481,15 +513,21 @@ pub fn blueprint_specs(m: &Model, sheet: &str, extra_notes: &[String]) -> Result
         notes.push(format!("# TOTAL   {}", fmt_area(total)));
     }
     notes.extend(extra_notes.iter().cloned());
-    let mut pages = vec![PageSpec { title: "Floor plans".into(), viewports: plans, ..Default::default() }, PageSpec { title: "Elevations".into(), viewports: elev, ..Default::default() }];
+    let mut pages: Vec<(String, PageSpec)> = if o.per_floor {
+        plans.into_iter().enumerate().map(|(i, v)| (format!("A-{}", 101 + i), PageSpec { title: format!("{} plan", ordinal(i)), viewports: vec![v], ..Default::default() })).collect()
+    } else {
+        vec![(String::new(), PageSpec { title: "Floor plans".into(), viewports: plans, ..Default::default() })]
+    };
+    let plan_pages = pages.len();
+    pages.push((if o.per_floor { elev_sheet.into() } else { String::new() }, PageSpec { title: "Elevations".into(), viewports: elev, ..Default::default() }));
     // a building section: through the stairs if there are any, looking at
-    // the bigger part of the building; marked on every plan
-    if let Some((origin, look)) = section_through(m) {
+    // the bigger part of the building; marked on every plan (a permit set has one only through stairs)
+    if let Some((origin, look, _)) = section_place(m).filter(|s| s.2 || !o.per_floor) {
         let k = n + 5;
         let (sw_, sh_) = (usable_w - 8.0, usable_h - 14.0);
         let reach = (hi - lo).dot(DVec3::Z.cross(look).abs()).abs().max(1.0);
         let sec_scale = fit(reach, size.z, sw_, sh_);
-        pages.push(PageSpec {
+        pages.push((if o.per_floor { sec_sheet.into() } else { String::new() }, PageSpec {
             title: "Building section".into(),
             viewports: vec![ViewportSpec {
                 view: "section".into(),
@@ -505,15 +543,17 @@ pub fn blueprint_specs(m: &Model, sheet: &str, extra_notes: &[String]) -> Result
                 ..Default::default()
             }],
             ..Default::default()
-        });
-        for p in pages[0].viewports.iter_mut() {
-            p.section_mark = Some(SectionMark { origin: origin.to_array(), look: look.to_array(), label: "A/3".into() });
+        }));
+        for (_, page) in pages.iter_mut().take(plan_pages) {
+            for p in page.viewports.iter_mut() {
+                p.section_mark = Some(SectionMark { origin: origin.to_array(), look: look.to_array(), label: format!("A/{sec_sheet}") });
+            }
         }
     }
     // doors and windows: tagged on the plans, listed here
     let ops = crate::callouts::openings(m);
     if !ops.is_empty() {
-        pages.push(PageSpec { title: "Door and window schedule".into(), table: crate::callouts::schedule(&ops, units, &levels), ..Default::default() });
+        pages.push((if o.per_floor { "A-601".into() } else { String::new() }, PageSpec { title: "Door and window schedule".into(), table: crate::callouts::schedule(&ops, units, &levels), ..Default::default() }));
     }
     Ok((pages, notes))
 }

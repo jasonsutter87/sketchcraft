@@ -149,12 +149,48 @@ impl Side {
     }
 }
 
+/// What one automatic dimension string measures.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ChainKind {
+    /// across the face, through both sides of every door and window in it
+    Openings,
+    /// the overall width (south) or depth (east)
+    Overall,
+}
+
+/// One automatic dimension string: its stops (world points on the face, in order along it), which side of the
+/// building it is on, and how far out it goes (`offset`, a world vector out from the face).
+#[derive(Clone, Debug)]
+pub struct AutoChain {
+    pub side: Side,
+    pub kind: ChainKind,
+    pub stops: Vec<DVec3>,
+    pub offset: DVec3,
+}
+
 /// Automatic dimension strings around a floor: a chain through every
 /// opening on each side, and (if the floor has no hand-placed dimensions)
 /// the overall width and depth. `outline` is the floor's outside box
 /// (x0, y0, x1, y1). Returns (a, b, offset) like dimension annotations,
 /// placed beyond any hand-placed ones.
 pub fn auto_dims(m: &Model, ops: &[Opening], floor: f64, outline: (f64, f64, f64, f64)) -> Vec<(DVec3, DVec3, DVec3)> {
+    let mut out = Vec::new();
+    let (chains, any_manual) = auto_chains(m, ops, floor, outline);
+    for c in chains {
+        match c.kind {
+            ChainKind::Openings => out.extend(c.stops.windows(2).map(|w| (w[0], w[1], c.offset))),
+            // the overall ones only when nothing on the floor is dimensioned by hand
+            ChainKind::Overall if !any_manual => out.push((c.stops[0], c.stops[c.stops.len() - 1], c.offset)),
+            ChainKind::Overall => {}
+        }
+    }
+    out
+}
+
+/// The dimension strings `auto_dims` draws, as whole chains (the openings chain of each side that has openings, the
+/// overall width on the south and depth on the east), and whether the floor has hand-placed dimensions (then
+/// `auto_dims` leaves the overall ones out). `dimension_auto` makes saved, attached dimensions from these.
+pub fn auto_chains(m: &Model, ops: &[Opening], floor: f64, outline: (f64, f64, f64, f64)) -> (Vec<AutoChain>, bool) {
     let (x0, y0, x1, y1) = outline;
     let z = floor + 0.05;
     // how far out the hand-placed dimensions already reach, per side
@@ -201,17 +237,15 @@ pub fn auto_dims(m: &Model, ops: &[Opening], floor: f64, outline: (f64, f64, f64
         let n = side.out();
         let at = |s: f64| if horizontal { DVec3::new(s, face, z) } else { DVec3::new(face, s, z) };
         if found {
-            for w in stops.windows(2) {
-                out.push((at(w[0]), at(w[1]), n * base));
-            }
+            out.push(AutoChain { side, kind: ChainKind::Openings, stops: stops.iter().map(|s| at(*s)).collect(), offset: n * base });
         }
-        // overall width (south) and depth (east), when nothing's dimensioned
-        if !any_manual && matches!(side, Side::South | Side::East) {
+        // overall width (south) and depth (east)
+        if matches!(side, Side::South | Side::East) {
             let last = stops.len() - 1;
-            out.push((at(stops[0]), at(stops[last]), n * (base + if found { 0.6 } else { 0.0 })));
+            out.push(AutoChain { side, kind: ChainKind::Overall, stops: vec![at(stops[0]), at(stops[last])], offset: n * (base + if found { 0.6 } else { 0.0 }) });
         }
     }
-    out
+    (out, any_manual)
 }
 
 /// The outside box of the main building on a floor plan cut.

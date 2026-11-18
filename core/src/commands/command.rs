@@ -536,6 +536,51 @@ pub enum Command {
         #[serde(default)]
         sheet: Option<Id>,
     },
+    /// Read-only: the points of a viewport's drawing a dimension can attach to, where each is on the paper (mm from the
+    /// sheet's top left) and the anchor to give `sheet_dim` for it. `kinds`: `vertex` (default: the model's corners
+    /// the drawing shows), `midpoint` (the middle of each edge), `opening` (the sides of doors and windows, plans
+    /// only). `limit` (default 500, at most 5,000) caps the list; `total` says how many there were.
+    ViewportPoints {
+        viewport: Id,
+        #[serde(default)]
+        kinds: Vec<String>,
+        #[serde(default)]
+        limit: Option<usize>,
+    },
+    /// Attached dimension strings worked out from a plan viewport's floor (`callouts::auto_dims`): `exterior` (the
+    /// overall width on the south and depth on the east), `openings` (a chain through both sides of every door and
+    /// window on each face), `interior` (every wall face along the building, drawn on the north and the west), `grids`
+    /// (column centres and guide points). `scope` is one of these or a list (default exterior and openings). Adds
+    /// only: dimensions it made before (marked `source: "auto"`) are skipped, never doubled, and nobody else's is
+    /// touched; `refresh: true` replaces its own for those scopes. One undo step.
+    DimensionAuto {
+        viewport: Id,
+        #[serde(default)]
+        scope: Option<ScopeArg>,
+        #[serde(default)]
+        refresh: bool,
+    },
+    /// Lay out a set of saved, editable sheets from the building in one undo step. `preset: "permit"`: a cover with
+    /// the sheet index, a plan per floor, the four elevations, a section through the stairs (when there are stairs)
+    /// and the door and window schedule. `paper` (default a3), `scale` (one scale for every drawing; default the
+    /// largest that fits), `project`.
+    LayoutPreset {
+        #[serde(default = "preset_permit")]
+        preset: String,
+        #[serde(default)]
+        paper: Option<String>,
+        #[serde(default)]
+        scale: Option<ScaleArg>,
+        #[serde(default)]
+        project: Option<String>,
+    },
+    /// A saved sheet as a PNG picture (`path`), `px` wide (default 1600, 200 to 4000), to look at and check.
+    SheetRender {
+        sheet: Id,
+        path: String,
+        #[serde(default)]
+        px: Option<u32>,
+    },
     /// A blueprint set in one go: every floor's plan and the four
     /// elevations, white on blue, at a true scale that fits the sheet.
     Blueprint {
@@ -1221,6 +1266,18 @@ fn loc_cells() -> usize {
 
 fn sheet_a3() -> String {
     "a3".into()
+}
+
+fn preset_permit() -> String {
+    "permit".into()
+}
+
+/// `dimension_auto`'s scope: one name or a list of them.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum ScopeArg {
+    One(String),
+    Many(Vec<String>),
 }
 
 /// A paper size as a command gives it: a name, or millimetres.

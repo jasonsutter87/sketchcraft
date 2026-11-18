@@ -114,7 +114,7 @@ fn scale_text(n: f64) -> String {
 }
 
 /// The model's bounds, worked out once per command (finding them walks every face and edge).
-type Bounds = Option<(DVec3, DVec3)>;
+pub(super) type Bounds = Option<(DVec3, DVec3)>;
 
 fn bounds_center(b: Bounds) -> DVec3 {
     b.map(|(lo, hi)| (lo + hi) / 2.0).unwrap_or(DVec3::ZERO)
@@ -156,11 +156,11 @@ fn validate(v: &Viewport) -> Result<()> {
 }
 
 impl Engine {
-    fn sheet_limit(&self) -> usize {
+    pub(super) fn sheet_limit(&self) -> usize {
         if self.untrusted { MAX_PAGES_UNTRUSTED } else { MAX_PAGES_UI }
     }
 
-    fn made_by(&self) -> String {
+    pub(super) fn made_by(&self) -> String {
         if self.untrusted { "agent".into() } else { String::new() }
     }
 
@@ -205,7 +205,7 @@ impl Engine {
     }
 
     /// One page of a `sheets` description becomes a sheet with its viewports and table.
-    fn sheet_from_page(&mut self, page: &PageSpec, paper: &Paper, order: i32, fields: &BTreeMap<String, String>, b: Bounds) -> Result<Id> {
+    pub(super) fn sheet_from_page(&mut self, page: &PageSpec, paper: &Paper, order: i32, fields: &BTreeMap<String, String>, b: Bounds) -> Result<Id> {
         short("a page title", &page.title)?;
         let id = self.model.new_id();
         self.model.sheets.insert(id, Sheet { name: page.title.clone(), paper: paper.clone(), order, fields: fields.clone(), ..Default::default() });
@@ -733,7 +733,7 @@ fn drop_legacy(v: &mut Viewport, key: &str) {
 }
 
 /// A saved sheet as the page description the PDF writer takes: its viewports in stacking order, and its first table.
-fn page_of(m: &Model, sheet: Id) -> PageSpec {
+pub(super) fn page_of(m: &Model, sheet: Id) -> PageSpec {
     let s = &m.sheets[&sheet];
     let mut vps: Vec<(i32, Id, &Viewport)> = m.sheet_items.iter().filter_map(|(id, i)| if let SheetItem::Known(ItemKind::Viewport(v)) = &**i { (v.sheet == sheet).then_some((v.z, *id, v)) } else { None }).collect();
     vps.sort_by_key(|(z, id, _)| (*z, *id));
@@ -807,13 +807,15 @@ fn spec_to_viewport(m: &Model, b: Bounds, spec: &ViewportSpec) -> Result<Viewpor
 }
 
 /// A saved viewport as the old-style description the PDF writer draws from (the reverse of `spec_to_viewport`).
-fn viewport_to_spec(v: &Viewport) -> ViewportSpec {
+pub(super) fn viewport_to_spec(v: &Viewport) -> ViewportSpec {
     let legacy = v.extra.get("legacy").cloned().unwrap_or(Value::Null);
     let l = |k: &str| legacy.get(k).cloned().unwrap_or(Value::Null);
     // a perspective view has no scale to draw at (the PDF takes a scale to mean parallel and to scale): fitted
     let perspective = matches!(v.view, ViewKind::View3d { parallel: false, .. });
     let fit = l("fit") == json!(true);
     let mut s = ViewportSpec { x: v.rect_mm[0], y: v.rect_mm[1], w: v.rect_mm[2], h: v.rect_mm[3], label: (!v.label.is_empty()).then(|| v.label.clone()), scale: (!fit && !perspective).then(|| scale_text(v.scale)), callouts: l("callouts") == json!(true), opacity: (v.opacity < 1.0).then_some(v.opacity), ..Default::default() };
+    // `dimension_auto` put attached dimensions where the worked-out ones were
+    s.no_auto_dims = l("auto_dims") == json!(false);
     s.marks = serde_json::from_value(l("marks")).unwrap_or_default();
     s.levels = serde_json::from_value(l("levels")).unwrap_or_default();
     s.section_mark = serde_json::from_value::<Value>(l("section_mark")).ok().filter(|v| v.is_object()).and_then(|sm| {

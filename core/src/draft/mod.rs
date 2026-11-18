@@ -13,5 +13,6 @@ pub mod paper;
 pub mod pat;
 pub mod pdf;
 pub mod project;
+pub mod raster;
 pub mod sheet;
 pub mod svg;

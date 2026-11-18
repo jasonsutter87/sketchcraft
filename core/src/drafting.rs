@@ -517,6 +517,14 @@ pub struct Dimension {
     pub text_override: Option<String>,
     #[serde(skip_serializing_if = "String::is_empty")]
     pub made_by: String,
+    /// what made it, when a command worked it out: "auto" for `dimension_auto` (empty: placed by hand). Re-running
+    /// `dimension_auto` only ever looks at, skips or replaces dimensions marked "auto", never anyone else's
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub source: String,
+    /// with `source`: which of its dimension strings this is ("openings/south", "exterior/east"...), so a re-run
+    /// knows it is already there
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub part: String,
     #[serde(flatten)]
     pub extra: Extra,
 }
@@ -718,7 +726,7 @@ impl ItemKind {
         let extra = |e: &Extra| e.iter().map(|(k, v)| k.len() + v.to_string().len()).sum::<usize>();
         match self {
             ItemKind::Viewport(v) => v.scene.as_ref().map_or(0, String::len) + v.label.len() + v.made_by.len() + v.tags.keys().map(|k| k.len() + 16).sum::<usize>() + extra(&v.extra),
-            ItemKind::Dimension(d) => d.text_override.as_ref().map_or(0, String::len) + d.style.as_ref().map_or(0, String::len) + d.made_by.len() + extra(&d.extra),
+            ItemKind::Dimension(d) => d.text_override.as_ref().map_or(0, String::len) + d.style.as_ref().map_or(0, String::len) + d.made_by.len() + d.source.len() + d.part.len() + extra(&d.extra),
             ItemKind::Text(t) => t.paragraphs.iter().map(String::len).sum::<usize>() + t.style.as_ref().map_or(0, String::len) + t.made_by.len() + extra(&t.extra),
             ItemKind::Line(s) | ItemKind::Polyline(s) | ItemKind::Arc(s) | ItemKind::Rect(s) => s.pen.color.len() + s.made_by.len() + extra(&s.extra),
             ItemKind::Hatch(h) => h.hatch.pattern.len() + h.made_by.len() + extra(&h.extra),
