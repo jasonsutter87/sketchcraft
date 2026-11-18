@@ -15,7 +15,7 @@ import { LineGeometry } from "three/examples/jsm/lines/LineGeometry.js";
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
 import { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeometry.js";
-import { edgePens } from "./viewport/linepens";
+import { edgePens, PX_PER_MM } from "./viewport/linepens";
 import { exec, type Annotation, type Reply, type Scene, type Vec3 } from "./engine";
 import { CageEditor, type CageData, type CageUi } from "./cage";
 import { CageBar } from "./cagebar";
@@ -858,6 +858,30 @@ export default function Viewport(props: Props) {
           m.userData.sectionFill = true;
           m.userData.sectionHatchFill = true;
           T2.model.add(m);
+        }
+        // a tag's own solid colour (a tag whose cut fill is none sends nothing: the cut stays open, outlined)
+        for (const sf of (r.solid as { tag: string; color: string; fill: number[] }[] | undefined) ?? []) {
+          if (!sf.fill.length) continue;
+          const g = new THREE.BufferGeometry();
+          g.setAttribute("position", new THREE.Float32BufferAttribute(shift(sf.fill), 3));
+          const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: new THREE.Color(sf.color), side: THREE.DoubleSide }));
+          m.userData.sectionFill = true;
+          m.userData.sectionSolid = sf.tag;
+          T2.model.add(m);
+        }
+        // a tag's own cut outline: its weight as a thick line (paper mm to px, as the edges' pens)
+        const el = T2.renderer.domElement;
+        for (const ol of (r.outlines as { tag: string; weight_mm: number; color: string; lines: number[] }[] | undefined) ?? []) {
+          if (!ol.lines.length) continue;
+          const lift3 = plane.normal.clone().multiplyScalar(0.004);
+          const lg = new LineSegmentsGeometry();
+          lg.setPositions(ol.lines.map((v, i) => v + [lift3.x, lift3.y, lift3.z][i % 3]));
+          const lm = new LineMaterial({ color: new THREE.Color(ol.color), linewidth: Math.max(1, ol.weight_mm * PX_PER_MM), worldUnits: false });
+          lm.resolution.set(el.clientWidth, el.clientHeight);
+          const ls = new LineSegments2(lg, lm);
+          ls.userData.sectionOutline = ol.tag;
+          ls.userData.pen = true;
+          T2.model.add(ls);
         }
         const lift2 = plane.normal.clone().multiplyScalar(0.003);
         for (const h of (r.hatch as { tag: string; color: string; lines: number[] }[] | undefined) ?? []) {

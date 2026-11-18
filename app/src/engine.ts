@@ -44,8 +44,9 @@ export interface TagStyleInfo {
   weight_mm?: number;
   line?: string;
   color?: string;
-  /** how the tag's cut walls are filled in plans and sections (a hatch when `fill` is "hatch") */
-  cut?: { fill?: "none" | "solid" | "hatch"; outline_mm?: number; hatch?: HatchUseInfo };
+  /** how the tag's cut walls are filled in plans and sections: the drawing's own poché ("auto", also when unset), a
+   * solid `color`, the hatch, or nothing ("none"); `outline_mm` is the cut outline's pen (0: the heavy default) */
+  cut?: { fill?: "auto" | "none" | "solid" | "hatch"; outline_mm?: number; color?: string; hatch?: HatchUseInfo };
 }
 
 export interface GroupInfo {

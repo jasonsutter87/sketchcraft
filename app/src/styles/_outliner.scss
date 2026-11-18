@@ -260,6 +260,34 @@
   padding: 2px 6px 4px;
 }
 
+// a tag's cut fill: a swatch button (solid, hatch, none), and its editor below the row (the hatch editor's look)
+.cutstyle {
+  display: contents;
+}
+
+.cut-btn {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 3px;
+}
+
+.cut-swatch {
+  display: block;
+  flex: none;
+}
+
+.cut-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+
+  &.on {
+    outline: 2px solid currentColor;
+    outline-offset: -1px;
+  }
+}
+
 // a tag's hatch: a swatch button, and its editor below the row
 .hatchstyle {
   display: contents;
