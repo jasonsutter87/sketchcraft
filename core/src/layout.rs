@@ -84,6 +84,17 @@ pub struct PageSpec {
     /// paper line work saved on the sheet, in stacking order (set when a saved sheet is exported)
     #[serde(skip)]
     pub lines: Vec<crate::draft::linework::ShapeDraw>,
+    /// paper text saved on the sheet, in stacking order (set when a saved sheet is exported)
+    #[serde(skip)]
+    pub texts: Vec<TextDraw>,
+}
+
+/// One paper text, ready to draw: its first line's baseline starts at `at_mm` (paper mm from the top left).
+#[derive(Clone, Debug, Default)]
+pub struct TextDraw {
+    pub at_mm: [f64; 2],
+    pub lines: Vec<String>,
+    pub height_mm: f64,
 }
 
 // the scale parser and the grid placer, where the saved-sheets commands (#61) look for them

@@ -278,6 +278,12 @@ pub const LINE_STYLES: [&str; 4] = ["solid", "dashed", "hidden", "center"];
 /// The narrowest and widest pen a command accepts, in paper millimetres (ISO 128 runs 0.13 to 2.0).
 pub const WEIGHT_RANGE: (f64, f64) = (0.05, 2.0);
 
+/// Paper text (`Text` items): the default letter height and the range a command may set, paper mm.
+pub const TEXT_HEIGHT: f64 = 3.5;
+pub const TEXT_HEIGHT_RANGE: (f64, f64) = (1.0, 50.0);
+/// The most characters one paper text holds (a note, not a document: text blocks are #7).
+pub const MAX_TEXT_CHARS: usize = 4000;
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct LineType {
@@ -550,6 +556,9 @@ pub struct Text {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub box_mm: Option<[f64; 2]>,
     pub paragraphs: Vec<String>,
+    /// the letters' height in paper mm (none: `TEXT_HEIGHT`)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub height_mm: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub style: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -724,7 +733,7 @@ impl ItemKind {
                     }
             }
             ItemKind::Dimension(d) => sane(d.offset_mm) && d.anchors.iter().all(anchors_ok),
-            ItemKind::Text(t) => p2(&t.at_mm) && t.box_mm.as_ref().is_none_or(p2) && t.leader.as_ref().is_none_or(p2),
+            ItemKind::Text(t) => p2(&t.at_mm) && t.box_mm.as_ref().is_none_or(p2) && t.leader.as_ref().is_none_or(p2) && t.height_mm.is_none_or(sane),
             ItemKind::Line(s) | ItemKind::Polyline(s) | ItemKind::Arc(s) | ItemKind::Rect(s) => s.pts_mm.iter().all(p2) && sane(s.pen.w_mm) && s.pen.dash_mm.iter().all(|&x| sane(x)),
             ItemKind::Hatch(h) => h.ring_mm.iter().all(p2) && h.holes.iter().flatten().all(p2) && sane(h.hatch.weight_mm) && sane(h.hatch.scale) && sane(h.hatch.angle),
             ItemKind::Table(t) => p2(&t.at_mm) && t.cols_mm.iter().all(|&x| sane(x)),

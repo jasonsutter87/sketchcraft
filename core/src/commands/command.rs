@@ -477,6 +477,23 @@ pub enum Command {
         #[serde(default)]
         lines: Vec<LineArgs>,
     },
+    /// Paper text on a sheet: `text` (lines split on newlines) with its first line's baseline starting at `at_mm`
+    /// (paper mm from the sheet's top left), `height_mm` tall (1 to 50, default 3.5). With `id`, changes that text
+    /// instead (only what is given). Delete with `sheet_item_delete`.
+    SheetText {
+        #[serde(default)]
+        id: Option<Id>,
+        #[serde(default)]
+        sheet: Option<Id>,
+        #[serde(default)]
+        at_mm: Option<[f64; 2]>,
+        #[serde(default)]
+        text: Option<String>,
+        #[serde(default)]
+        height_mm: Option<f64>,
+        #[serde(default)]
+        z: Option<i32>,
+    },
     /// Trim paper line work: cut away the span of `item` that holds `at_mm` (the point you pick on it), between the
     /// nearest places other things cross it. Boundaries are the other paper line work on the sheet, the lines the
     /// sheet's viewports draw of the model (never trimmed themselves), and viewport frames. A span in the middle
@@ -489,6 +506,9 @@ pub enum Command {
         pick_tol_mm: Option<f64>,
         #[serde(default)]
         use_model: Option<bool>,
+        /// work out what it would do (the reply's `cut` / `to`) and change nothing: a hover preview, read-only
+        #[serde(default)]
+        preview: bool,
     },
     /// Extend paper line work: the end of `item` nearest `at_mm` runs on, along its own direction (an arc along its
     /// circle), to the nearest boundary ahead of it: other line work, a model line a viewport draws, or a viewport
@@ -500,6 +520,9 @@ pub enum Command {
         pick_tol_mm: Option<f64>,
         #[serde(default)]
         use_model: Option<bool>,
+        /// work out what it would do (the reply's `cut` / `to`) and change nothing: a hover preview, read-only
+        #[serde(default)]
+        preview: bool,
     },
     /// Offset paper line work: a parallel copy `distance_mm` away (a new item with the same pen). Say which side
     /// with `at_mm` (the side that point is on), or `side`: `left` or `right` of the way the line runs from its first

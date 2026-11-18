@@ -605,11 +605,70 @@ impl Engine {
                 }
                 json!({"item": made.first(), "items": made})
             }
-            Command::SheetTrim { item, at_mm, pick_tol_mm, use_model } => {
+            Command::SheetText { id, sheet, at_mm, text, height_mm, z } => {
+                let mut t = match id {
+                    Some(id) => {
+                        let Some(item) = self.model.sheet_items.get(&id) else { bail!("no sheet item {id}") };
+                        let SheetItem::Known(ItemKind::Text(t)) = &**item else { bail!("sheet item {id} is a {}, not text", item.kind_name()) };
+                        if sheet.is_some_and(|s| s != t.sheet) {
+                            bail!("a text stays on its sheet (leave `sheet` out when changing one)");
+                        }
+                        t.clone()
+                    }
+                    None => {
+                        let Some(s) = sheet else { bail!("say which sheet the text goes on (`sheet`), or which text to change (`id`)") };
+                        if !self.model.sheets.contains_key(&s) {
+                            bail!("no sheet {s}");
+                        }
+                        if at_mm.is_none() || text.is_none() {
+                            bail!("new text needs `at_mm` (where its first line starts) and `text`");
+                        }
+                        Text { sheet: s, made_by: self.made_by(), ..Default::default() }
+                    }
+                };
+                if let Some(p) = at_mm {
+                    if !p.iter().all(|x| x.is_finite() && x.abs() <= linework::MAX_COORD) {
+                        bail!("at_mm is a point on the sheet, in millimetres");
+                    }
+                    t.at_mm = p;
+                }
+                if let Some(words) = &text {
+                    let n = words.chars().count();
+                    if n > MAX_TEXT_CHARS {
+                        bail!("a paper text holds at most {MAX_TEXT_CHARS} characters (this has {n})");
+                    }
+                    if words.chars().any(|c| c.is_control() && c != '\n' && c != '\t') {
+                        bail!("the text has control characters in it");
+                    }
+                    let lines: Vec<String> = words.replace('\t', "    ").split('\n').map(|l| l.trim_end().to_string()).collect();
+                    if lines.iter().all(|l| l.trim().is_empty()) {
+                        bail!("the text is empty: delete it with sheet_item_delete instead");
+                    }
+                    t.paragraphs = lines;
+                }
+                if let Some(h) = height_mm {
+                    if !(h.is_finite() && (TEXT_HEIGHT_RANGE.0..=TEXT_HEIGHT_RANGE.1).contains(&h)) {
+                        bail!("height_mm is between {} and {} mm", TEXT_HEIGHT_RANGE.0, TEXT_HEIGHT_RANGE.1);
+                    }
+                    t.height_mm = (h != TEXT_HEIGHT).then_some(h);
+                }
+                if let Some(z) = z {
+                    t.z = z;
+                }
+                let id = id.unwrap_or_else(|| self.model.new_id());
+                self.model.sheet_items.insert(id, Arc::new(SheetItem::Known(ItemKind::Text(t))));
+                json!({"item": id, "text": id})
+            }
+            Command::SheetTrim { item, at_mm, pick_tol_mm, use_model, preview } => {
                 let (kind, chain, g, sheet) = self.pick_line_work(item, at_mm, pick_tol_mm)?;
                 let b = self.boundaries(sheet, item, use_model.unwrap_or(true));
                 let hits = chain.crossings(&b.curves);
                 let t = linework::trim(&chain, g, &hits)?;
+                if preview {
+                    // what would go, for the editor's hover preview; nothing changes
+                    let whole = t.kept.is_empty();
+                    return Ok(json!({"item": item, "preview": true, "unchanged": true, "cut": {"from": t.cut[0], "to": t.cut[1]}, "pieces": t.kept.len(), "whole": whole}));
+                }
                 let mut pieces: Vec<ItemKind> = Vec::new();
                 for run in &t.kept {
                     match linework::item_of(&kind, run) {
@@ -635,11 +694,15 @@ impl Engine {
                 }
                 json!({"item": item, "kept": ids, "created": created, "cut": {"from": t.cut[0], "to": t.cut[1]}, "boundaries": b.json()})
             }
-            Command::SheetExtend { item, at_mm, pick_tol_mm, use_model } => {
+            Command::SheetExtend { item, at_mm, pick_tol_mm, use_model, preview } => {
                 let (kind, chain, _, sheet) = self.pick_line_work(item, at_mm, pick_tol_mm)?;
                 let b = self.boundaries(sheet, item, use_model.unwrap_or(true));
                 let (w, h) = self.model.sheets.get(&sheet).map_or((0.0, 0.0), |s| (s.paper.w_mm, s.paper.h_mm));
                 let (grown, end) = linework::extend(&chain, at_mm, &b.curves, 2.0 * w.hypot(h).max(1.0))?;
+                if preview {
+                    let from = if end { chain.end() } else { chain.start() };
+                    return Ok(json!({"item": item, "preview": true, "unchanged": true, "end": if end { "end" } else { "start" }, "from": from, "to": if end { grown.end() } else { grown.start() }}));
+                }
                 let Some(k) = linework::item_of(&kind, &grown.curves) else { bail!("this line work can't be extended") };
                 self.model.sheet_items.insert(item, Arc::new(SheetItem::Known(k)));
                 json!({"item": item, "end": if end { "end" } else { "start" }, "to": if end { grown.end() } else { grown.start() }, "boundaries": b.json()})
@@ -704,6 +767,11 @@ impl Engine {
                             let spans: Vec<Value> = me.segments.iter().map(|s| json!({"from": s.from, "to": s.to, "value_m": s.value, "text": s.value.map_or("?".to_string(), |v| crate::units::format(v, units))})).collect();
                             let broken: Vec<Value> = m.broken_anchors(d).into_iter().map(|a| json!({"anchor": a, "last": d.anchors[a].last, "suggestions": m.anchors_at(DVec3::from(d.anchors[a].last), crate::anchors::REATTACH_TOL).into_iter().take(5).collect::<Vec<_>>()})).collect();
                             o.insert("measured".into(), json!({"spans": spans, "broken": broken, "attached": broken.is_empty()}));
+                            // where its anchors are on the paper now (a broken one: where it last was), for the editor
+                            if let Some(dd) = crate::draft::dims::prepare(m, d) {
+                                let pts: Vec<[f64; 2]> = dd.pts.iter().zip(&dd.last).map(|(p, l)| p.unwrap_or(*l)).collect();
+                                o.insert("paper_mm".into(), json!(pts));
+                            }
                         }
                     }
                     v
@@ -805,7 +873,10 @@ pub(super) fn page_of(m: &Model, sheet: Id) -> PageSpec {
     let mut shapes: Vec<(i32, Id, &ItemKind)> = m.sheet_items.iter().filter_map(|(id, i)| if let SheetItem::Known(k @ (ItemKind::Line(_) | ItemKind::Polyline(_) | ItemKind::Arc(_) | ItemKind::Rect(_))) = &**i { (k.sheet() == sheet).then(|| (shape_z(k), *id, k)) } else { None }).collect();
     shapes.sort_by_key(|(z, id, _)| (*z, *id));
     let lines = shapes.iter().filter_map(|(_, _, k)| crate::draft::linework::draw(k)).collect();
-    PageSpec { title: s.name.clone(), viewports: vps.iter().map(|(_, _, v)| viewport_to_spec(v)).collect(), table, dims, lines }
+    let mut texts: Vec<(i32, Id, &Text)> = m.sheet_items.iter().filter_map(|(id, i)| if let SheetItem::Known(ItemKind::Text(t)) = &**i { (t.sheet == sheet).then_some((t.z, *id, t)) } else { None }).collect();
+    texts.sort_by_key(|(z, id, _)| (*z, *id));
+    let texts = texts.iter().map(|(_, _, t)| crate::layout::TextDraw { at_mm: t.at_mm, lines: t.paragraphs.clone(), height_mm: t.height_mm.unwrap_or(TEXT_HEIGHT) }).collect();
+    PageSpec { title: s.name.clone(), viewports: vps.iter().map(|(_, _, v)| viewport_to_spec(v)).collect(), table, dims, lines, texts }
 }
 
 /// The page description of an old-style viewport becomes a saved viewport. What the saved form has no field for

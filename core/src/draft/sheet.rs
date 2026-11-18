@@ -93,6 +93,10 @@ pub fn build_opts(m: &Model, sheet: &str, project: &str, mut pages: Vec<PageSpec
             let pen = Pen { w: l.w, rgb: l.rgb.unwrap_or(pens.ink), dash: l.dash.clone() };
             cv.push(Prim::Path(PathPrim { segs: l.segs.clone(), pen: Some(pen), fill: None, prov: None }));
         }
+        // paper text, over the line work
+        for t in &page.texts {
+            text_item(&mut cv, &pens, t);
+        }
         // dimensions attached to the model, drawn over the viewports
         for d in &page.dims {
             super::dims::draw(&mut cv, &pens, d);
@@ -133,6 +137,21 @@ pub fn draw_viewports(m: &Model, bm: &Model, vps: &[ViewportSpec], pens: &Pens, 
         }
     }
     out.into_iter().map(|r| r.unwrap_or_else(|| Err(anyhow::anyhow!("a viewport was not drawn")))).collect()
+}
+
+/// Line spacing of paper text, in font sizes.
+pub const TEXT_LEADING: f64 = 1.25;
+/// A letter height in mm is this many times the font size in mm (Inter's cap height is about 0.73 of its size).
+pub const CAP_OF_SIZE: f64 = 0.73;
+
+/// A paper text: each line down from the first line's baseline at `at_mm`; `height_mm` is the capital letters' height.
+fn text_item(cv: &mut Cv, pens: &Pens, t: &crate::layout::TextDraw) {
+    let size_pt = t.height_mm / CAP_OF_SIZE * PT;
+    let sh = cv.h_mm;
+    for (i, line) in t.lines.iter().enumerate() {
+        let y = t.at_mm[1] + i as f64 * t.height_mm / CAP_OF_SIZE * TEXT_LEADING;
+        cv.text(t.at_mm[0] * PT, (sh - y) * PT, line, size_pt, false, pens.ink, 0.0);
+    }
 }
 
 /// A table (schedule) at the top left.

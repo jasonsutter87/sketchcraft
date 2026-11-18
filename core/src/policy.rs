@@ -161,7 +161,7 @@ const LIBRARY: [&str; 3] = ["library", "save_to_library", "library_add"];
 
 /// Commands that only change or inspect the model: safe for plugins.
 const MODEL: &[&str] = &[
-    "rect", "polygon", "line", "circle", "arc", "offset", "follow_me", "pushpull", "push_pull", "move", "rotate", "scale", "duplicate", "array", "delete", "reverse", "paint", "texture", "begin_group", "end_group", "group", "faces", "pick", "copy", "info", "parts", "make_component", "place", "component_cuts", "component_face_me", "edit", "close", "explode", "components", "hide", "unhide", "tag", "tag_visible", "tag_color", "tag_style", "edge_style", "hatch_pattern", "hatch_patterns", "rename_tag", "set_parent", "ungroup", "lock", "soften", "rename", "guide", "clear_guides", "units", "dimension", "text", "save_view", "show_view", "delete_view", "sheets", "sheet_add", "sheet_edit", "sheet_delete", "viewport_add", "viewport_edit", "sheet_item_delete", "sheet_dim", "sheet_reattach", "sheet_line", "sheet_trim", "sheet_extend", "sheet_offset", "sheets_info", "drafting_status", "sheet_ir", "sheet_duplicate", "sheet_order", "viewport_points", "dimension_auto", "layout_preset", "render", "door_swing", "levels", "solid", "intersect", "flip", "section", "terrain_from_contours", "terrain_grid", "smoove", "stamp", "drape", "flip_edge", "match_photo", "set_attrs", "cloud_data", "cloud", "connected", "same_as", "resize", "section_plane", "section_edit", "section_off", "set_axes", "finish", "options", "report", "classify", "bevel", "divide", "slice", "material", "subd", "cage_edit", "subdivide", "timeline", "timeline_frames", "weld", "explode_curve", "make_unique", "orient_faces", "text_3d", "text3d", "opacity", "environment", "sun", "volume", "wall", "stairs", "roof", "column", "insert", "assets", "raise_walls", "project_photo", "photo_solve", "purge",
+    "rect", "polygon", "line", "circle", "arc", "offset", "follow_me", "pushpull", "push_pull", "move", "rotate", "scale", "duplicate", "array", "delete", "reverse", "paint", "texture", "begin_group", "end_group", "group", "faces", "pick", "copy", "info", "parts", "make_component", "place", "component_cuts", "component_face_me", "edit", "close", "explode", "components", "hide", "unhide", "tag", "tag_visible", "tag_color", "tag_style", "edge_style", "hatch_pattern", "hatch_patterns", "rename_tag", "set_parent", "ungroup", "lock", "soften", "rename", "guide", "clear_guides", "units", "dimension", "text", "save_view", "show_view", "delete_view", "sheets", "sheet_add", "sheet_edit", "sheet_delete", "viewport_add", "viewport_edit", "sheet_item_delete", "sheet_dim", "sheet_reattach", "sheet_line", "sheet_text", "sheet_trim", "sheet_extend", "sheet_offset", "sheets_info", "drafting_status", "sheet_ir", "sheet_duplicate", "sheet_order", "viewport_points", "dimension_auto", "layout_preset", "render", "door_swing", "levels", "solid", "intersect", "flip", "section", "terrain_from_contours", "terrain_grid", "smoove", "stamp", "drape", "flip_edge", "match_photo", "set_attrs", "cloud_data", "cloud", "connected", "same_as", "resize", "section_plane", "section_edit", "section_off", "set_axes", "finish", "options", "report", "classify", "bevel", "divide", "slice", "material", "subd", "cage_edit", "subdivide", "timeline", "timeline_frames", "weld", "explode_curve", "make_unique", "orient_faces", "text_3d", "text3d", "opacity", "environment", "sun", "volume", "wall", "stairs", "roof", "column", "insert", "assets", "raise_walls", "project_photo", "photo_solve", "purge",
 ];
 
 /// Commands that read or write files (or run converters on them): agents get
@@ -401,7 +401,7 @@ fn reject_side_name(p: &Path) -> Result<(), String> {
 /// The sheet commands' own limits: pages (a model's sheets, and the pages one command describes) and the items one
 /// command from a plugin or an agent carries. `walk` has already bounded every list; these are the tighter, named ones.
 fn sheet_limits(caller: &Caller, name: &str, cmd: &Value) -> Result<(), String> {
-    if !matches!(name, "sheets" | "export_sheets" | "viewport_add" | "sheet_item_delete" | "sheet_line") {
+    if !matches!(name, "sheets" | "export_sheets" | "viewport_add" | "sheet_item_delete" | "sheet_line" | "sheet_text") {
         return Ok(());
     }
     let len = |v: Option<&Value>| v.and_then(Value::as_array).map_or(0, Vec::len);
@@ -568,7 +568,7 @@ mod tests {
     fn sheet_commands_are_classified() {
         let agent = Caller::Mcp(Workspace::anywhere());
         // pure model edits and reads: plugins and agents
-        for c in ["sheets", "sheet_add", "sheet_edit", "sheet_delete", "viewport_add", "viewport_edit", "sheet_item_delete", "sheet_dim", "sheet_reattach", "sheet_line", "sheet_trim", "sheet_extend", "sheet_offset", "sheets_info", "sheet_ir", "sheet_duplicate", "sheet_order"] {
+        for c in ["sheets", "sheet_add", "sheet_edit", "sheet_delete", "viewport_add", "viewport_edit", "sheet_item_delete", "sheet_dim", "sheet_reattach", "sheet_line", "sheet_text", "sheet_trim", "sheet_extend", "sheet_offset", "sheets_info", "sheet_ir", "sheet_duplicate", "sheet_order"] {
             assert!(permits(&Caller::Plugin, c) && permits(&agent, c) && permits(&Caller::Ui, c), "{c}");
             assert!(!FILES.contains(&c), "{c} writes no file");
         }
