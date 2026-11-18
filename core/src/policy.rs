@@ -45,6 +45,11 @@ const MAX_VALUES_UNTRUSTED: usize = 400_000;
 const DRAWING: [&str; 6] = ["line", "polygon", "wall", "text_3d", "text3d", "follow_me"];
 /// Keys whose arrays are point lists.
 const POINT_KEYS: [&str; 3] = ["points", "rings", "ring"];
+/// Most sheets a model holds (and most pages one `sheets` command describes), by who is asking.
+pub const MAX_PAGES_UI: usize = 200;
+pub const MAX_PAGES_UNTRUSTED: usize = 120;
+/// Most things one sheet command from a plugin or an agent may carry or touch (viewports, ids to delete, page viewports).
+pub const MAX_SHEET_ITEMS_UNTRUSTED: usize = 5_000;
 const DATA_KEYS: [&str; 7] = ["data", "photo", "text", "skin", "background", "style", "rings"];
 
 #[derive(Clone, Debug)]
@@ -144,7 +149,7 @@ const WRITES: &[(&str, &str, &[&str])] = &[
     ("render", "out", &["png", "jpg", "jpeg"]),
     ("photoreal", "out", &["png", "jpg", "jpeg"]),
     ("animate", "path", &["mp4", "mov", "gif"]),
-    ("sheets", "path", &["pdf"]),
+    ("export_sheets", "path", &["pdf"]),
     ("blueprint", "path", &["pdf"]),
     ("report", "path", &["csv"]),
     ("section", "path", &["svg", "dxf"]),
@@ -155,7 +160,7 @@ const LIBRARY: [&str; 3] = ["library", "save_to_library", "library_add"];
 
 /// Commands that only change or inspect the model: safe for plugins.
 const MODEL: &[&str] = &[
-    "rect", "polygon", "line", "circle", "arc", "offset", "follow_me", "pushpull", "push_pull", "move", "rotate", "scale", "duplicate", "array", "delete", "reverse", "paint", "texture", "begin_group", "end_group", "group", "faces", "pick", "copy", "info", "parts", "make_component", "place", "component_cuts", "component_face_me", "edit", "close", "explode", "components", "hide", "unhide", "tag", "tag_visible", "tag_color", "rename_tag", "set_parent", "ungroup", "lock", "soften", "rename", "guide", "clear_guides", "units", "dimension", "text", "save_view", "show_view", "delete_view", "render", "door_swing", "levels", "solid", "intersect", "flip", "section", "terrain_from_contours", "terrain_grid", "smoove", "stamp", "drape", "flip_edge", "match_photo", "set_attrs", "cloud_data", "cloud", "connected", "same_as", "resize", "section_plane", "section_edit", "section_off", "set_axes", "finish", "options", "report", "classify", "bevel", "divide", "slice", "material", "subd", "cage_edit", "subdivide", "timeline", "timeline_frames", "weld", "explode_curve", "make_unique", "orient_faces", "text_3d", "text3d", "opacity", "environment", "sun", "volume", "wall", "stairs", "roof", "column", "insert", "assets", "raise_walls", "project_photo", "photo_solve", "purge",
+    "rect", "polygon", "line", "circle", "arc", "offset", "follow_me", "pushpull", "push_pull", "move", "rotate", "scale", "duplicate", "array", "delete", "reverse", "paint", "texture", "begin_group", "end_group", "group", "faces", "pick", "copy", "info", "parts", "make_component", "place", "component_cuts", "component_face_me", "edit", "close", "explode", "components", "hide", "unhide", "tag", "tag_visible", "tag_color", "rename_tag", "set_parent", "ungroup", "lock", "soften", "rename", "guide", "clear_guides", "units", "dimension", "text", "save_view", "show_view", "delete_view", "sheets", "sheet_add", "sheet_edit", "sheet_delete", "viewport_add", "viewport_edit", "sheet_item_delete", "sheets_info", "render", "door_swing", "levels", "solid", "intersect", "flip", "section", "terrain_from_contours", "terrain_grid", "smoove", "stamp", "drape", "flip_edge", "match_photo", "set_attrs", "cloud_data", "cloud", "connected", "same_as", "resize", "section_plane", "section_edit", "section_off", "set_axes", "finish", "options", "report", "classify", "bevel", "divide", "slice", "material", "subd", "cage_edit", "subdivide", "timeline", "timeline_frames", "weld", "explode_curve", "make_unique", "orient_faces", "text_3d", "text3d", "opacity", "environment", "sun", "volume", "wall", "stairs", "roof", "column", "insert", "assets", "raise_walls", "project_photo", "photo_solve", "purge",
 ];
 
 /// Commands that read or write files (or run converters on them): agents get
@@ -165,7 +170,7 @@ const MODEL: &[&str] = &[
 /// other network-reaching commands are the person's alone. An agent that wants a real site asks the person to add the
 /// location (Model > Add location), or imports terrain it already has as a file (`import_obj`, `terrain_from_contours`).
 const FILES: &[&str] = &[
-    "save", "open", "new", "export_obj", "export_glb", "export_stl", "export_dae", "export_dxf", "export_pdf", "export_ifc", "import_obj", "import_skp", "import_cloud", "import_dxf", "import_fbx", "sheets", "blueprint", "photoreal", "thumbnail", "insert_file", "save_to_library", "library_add", "library", "save_image",
+    "save", "open", "new", "export_obj", "export_glb", "export_stl", "export_dae", "export_dxf", "export_pdf", "export_ifc", "import_obj", "import_skp", "import_cloud", "import_dxf", "import_fbx", "export_sheets", "blueprint", "photoreal", "thumbnail", "insert_file", "save_to_library", "library_add", "library", "save_image",
 ];
 
 /// Commands only an agent may add to `MODEL`. `undo`/`redo` are not a plugin's: a plugin run is already one undo step
@@ -390,6 +395,29 @@ fn reject_side_name(p: &Path) -> Result<(), String> {
     }
 }
 
+/// The sheet commands' own limits: pages (a model's sheets, and the pages one command describes) and the items one
+/// command from a plugin or an agent carries. `walk` has already bounded every list; these are the tighter, named ones.
+fn sheet_limits(caller: &Caller, name: &str, cmd: &Value) -> Result<(), String> {
+    if !matches!(name, "sheets" | "export_sheets" | "viewport_add" | "sheet_item_delete") {
+        return Ok(());
+    }
+    let len = |v: Option<&Value>| v.and_then(Value::as_array).map_or(0, Vec::len);
+    let pages = cmd.get("pages").and_then(Value::as_array);
+    let page_cap = if matches!(caller, Caller::Ui) { MAX_PAGES_UI } else { MAX_PAGES_UNTRUSTED };
+    if name == "sheets" && pages.map_or(0, Vec::len) > page_cap {
+        return Err(format!("\"pages\" has too many pages ({}, limit {page_cap})", pages.map_or(0, Vec::len)));
+    }
+    if matches!(caller, Caller::Ui) {
+        return Ok(());
+    }
+    // everything the command would create or touch: pages, the viewports on them, viewports added, ids deleted
+    let items = pages.map_or(0, Vec::len) + pages.map_or(0, |p| p.iter().map(|x| len(x.get("viewports"))).sum()) + len(cmd.get("viewports")) + len(cmd.get("ids"));
+    if items > MAX_SHEET_ITEMS_UNTRUSTED {
+        return Err(format!("\"{name}\" carries too many sheet items ({items}, limit {MAX_SHEET_ITEMS_UNTRUSTED} for an agent or a plugin)"));
+    }
+    Ok(())
+}
+
 /// The command that was vetted has finished (`ok`: it succeeded): files it wrote are now the agent's own.
 pub fn settle(caller: &Caller, ok: bool) {
     if let Caller::Mcp(ws) = caller {
@@ -411,6 +439,7 @@ pub fn vet(caller: &Caller, cmd: &mut Value) -> Result<(), String> {
     }
     let data_max = if matches!(caller, Caller::Ui) { MAX_DATA_UI } else { MAX_DATA_UNTRUSTED };
     walk(cmd, &name, &mut Walk { data_max, trusted: matches!(caller, Caller::Ui), values: 0 }, 0, "")?;
+    sheet_limits(caller, &name, cmd)?;
     if matches!(caller, Caller::Plugin) {
         if let Some(o) = cmd.as_object() {
             if let Some(k) = o.keys().find(|k| PATH_KEYS.contains(&k.as_str()) || *k == "paths") {

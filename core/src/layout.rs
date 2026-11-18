@@ -53,6 +53,8 @@ pub struct ViewportSpec {
     pub section: Option<[f64; 6]>,
     /// plans: where a section cuts, marked with a section line
     pub section_mark: Option<SectionMark>,
+    /// a camera of its own (a saved sheet's 3D viewport that follows no saved view)
+    pub camera: Option<CameraSpec>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -73,7 +75,7 @@ pub struct PageSpec {
 }
 
 /// "1:100" -> 100
-fn scale_of(s: &str) -> Result<f64> {
+pub(crate) fn scale_of(s: &str) -> Result<f64> {
     let d = s.trim().split(':').nth(1).unwrap_or(s).trim().parse::<f64>().context("scale looks like 1:100")?;
     if d <= 0.0 {
         bail!("scale must be positive");
@@ -89,7 +91,7 @@ struct Page {
 const PT: f64 = 72.0 / 25.4;
 
 /// Lay viewports out in a grid where they have no size of their own.
-fn place(vps: &mut [ViewportSpec], sw: f64, sh: f64) {
+pub(crate) fn place(vps: &mut [ViewportSpec], sw: f64, sh: f64) {
     let n = vps.len().max(1);
     let cols = if n == 1 { 1 } else { 2 };
     let rows = n.div_ceil(cols);
@@ -110,13 +112,18 @@ fn esc(s: &str) -> String {
     s.chars().filter(|c| c.is_ascii() && !c.is_ascii_control()).map(|c| if matches!(c, '(' | ')' | '\\') { format!("\\{c}") } else { c.to_string() }).collect()
 }
 
+/// Saved views in a grid, or the four standard views: what a page with nothing on it shows.
+pub(crate) fn default_specs(m: &Model) -> Vec<ViewportSpec> {
+    if m.views.is_empty() { ["iso", "top", "front", "right"].iter().map(|s| s.to_string()).collect::<Vec<_>>() } else { m.views.iter().take(4).map(|v| v.name.clone()).collect() }
+        .into_iter()
+        .map(|view| ViewportSpec { view, ..Default::default() })
+        .collect()
+}
+
 pub fn write_sheets(m: &Model, path: &str, sheet: &str, project: &str, mut pages: Vec<PageSpec>, blueprint: bool, notes: &[String]) -> Result<usize> {
     let (sw, sh) = sheet_mm(sheet)?;
     // saved views in a grid, or the four standard views
-    let defaults: Vec<ViewportSpec> = if m.views.is_empty() { ["iso", "top", "front", "right"].iter().map(|s| s.to_string()).collect::<Vec<_>>() } else { m.views.iter().take(4).map(|v| v.name.clone()).collect() }
-        .into_iter()
-        .map(|view| ViewportSpec { view, ..Default::default() })
-        .collect();
+    let defaults = default_specs(m);
     if pages.is_empty() {
         pages.push(PageSpec { title: "Views".into(), ..Default::default() });
     }
@@ -172,6 +179,8 @@ pub fn write_sheets(m: &Model, path: &str, sheet: &str, project: &str, mut pages
                 let eye = center - look * ((hi - lo).length() + 10.0);
                 o.camera = Some(CameraSpec { eye: eye.to_array(), target: center.to_array(), fov: 40.0 });
                 o.clip = Some([origin.x, origin.y, origin.z, look.x, look.y, look.z]);
+            } else if let Some(cam) = &v.camera {
+                o.camera = Some(cam.clone());
             } else if let Some(saved) = m.views.iter().find(|s| s.name == v.view) {
                 o.camera = Some(CameraSpec { eye: saved.eye, target: saved.target, fov: saved.fov });
             } else if let (Some(d), Some((lo, hi))) = (elev_dir, bounds) {
@@ -897,6 +906,7 @@ pub fn blueprint(m: &Model, path: &str, sheet: &str, project: &str, extra_notes:
             levels: vec![],
             section: None,
             section_mark: None,
+            camera: None,
             x: left + (i % cols) as f64 * cw + 4.0,
             y: top + (i / cols) as f64 * ch + 4.0,
             w: cw - 8.0,

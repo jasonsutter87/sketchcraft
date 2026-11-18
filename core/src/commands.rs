@@ -43,6 +43,7 @@ mod rendering;
 mod sections;
 mod session;
 mod shape;
+mod sheets;
 mod tags;
 
 pub use command::{Command, Factor};
@@ -140,7 +141,8 @@ impl Command {
                 | Command::ExportStl { .. }
                 | Command::ExportDae { .. }
                 | Command::ExportIfc { .. }
-                | Command::Sheets { .. }
+                | Command::ExportSheets { .. }
+                | Command::SheetsInfo { .. }
                 | Command::Blueprint { .. }
                 | Command::Levels
                 | Command::Animate { .. }
@@ -339,7 +341,7 @@ impl Engine {
         };
         crate::policy::settle(caller, r["ok"] == true);
         if let (Some(n), true) = (name, r["ok"] == true) {
-            if let Some(id) = ["face", "group", "instance", "guide", "dimension", "text"]
+            if let Some(id) = ["face", "group", "instance", "guide", "dimension", "text", "sheet", "viewport"]
                 .iter()
                 .find_map(|k| r[*k].as_u64())
                 .or_else(|| r["ids"][0].as_u64())
@@ -901,8 +903,13 @@ impl Engine {
             c @ (
                 Command::Animate { .. } | Command::Blueprint { .. } | Command::Levels { .. } |
                 Command::Timeline { .. } | Command::TimelineFrames { .. } | Command::VideoFrame { .. } |
-                Command::VideoFinish { .. } | Command::Sheets { .. }
+                Command::VideoFinish { .. }
             ) => self.run_media(c),
+            c @ (
+                Command::Sheets { .. } | Command::ExportSheets { .. } | Command::SheetAdd { .. } | Command::SheetEdit { .. } |
+                Command::SheetDelete { .. } | Command::ViewportAdd { .. } | Command::ViewportEdit { .. } |
+                Command::SheetItemDelete { .. } | Command::SheetsInfo { .. }
+            ) => self.run_sheets(c),
             c @ (
                 Command::BeginBatch { .. } | Command::EndBatch { .. } | Command::Undo { .. } | Command::Redo { .. }
             ) => self.run_session(c),

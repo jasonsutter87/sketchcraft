@@ -35,11 +35,12 @@ await X({ cmd: 'rect', from: [0, 0, 0], to: [4, 4, 0] });
 await wait(1500);
 check((await p.locator('[data-testid=read-only-notice]').count()) === 0, 'a normal model shows no read-only bar');
 
-// a newer SketchCraft saves the model with something this version doesn't know
+// a newer SketchCraft saves the model with something this version doesn't know (0.3.8 reads format 2 and sheets, so this
+// stands in for whatever comes after it)
 const v = JSON.parse(fs.readFileSync(doc, 'utf8'));
-v.format = 2;
-v.needs = ['sheets'];
-v.sheets = { 1: { name: 'A101' } };
+v.format = 3;
+v.needs = ['holograms'];
+v.holograms = { 1: { name: 'H101' } };
 await wait(1100);
 const bytes = Buffer.from(JSON.stringify(v));
 fs.writeFileSync(doc, bytes);

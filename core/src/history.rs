@@ -172,7 +172,7 @@ impl Patch {
             .iter()
             .map(|(name, c)| match c {
                 Change::Whole(..) => 1,
-                Change::Keys(k) if matches!(name.as_str(), "faces" | "edges" | "groups" | "instances" | "definitions" | "clouds") => k.len(),
+                Change::Keys(k) if matches!(name.as_str(), "faces" | "edges" | "groups" | "instances" | "definitions" | "clouds" | "sheets" | "sheet_items") => k.len(),
                 Change::Keys(k) => usize::from(!k.is_empty()),
             })
             .sum()
@@ -236,6 +236,8 @@ impl Patch {
         model.definitions = current.definitions.clone();
         model.instances = current.instances.clone();
         model.clouds = current.clouds.clone();
+        model.sheets = current.sheets.clone();
+        model.sheet_items = current.sheet_items.clone();
         for (name, change) in &self.parts {
             let Change::Keys(keys) = change else { continue };
             match name.as_str() {
@@ -247,6 +249,8 @@ impl Patch {
                 "definitions" => apply_map(&mut model.definitions, name, keys, forward, &mut conflicts),
                 "instances" => apply_map(&mut model.instances, name, keys, forward, &mut conflicts),
                 "clouds" => apply_map(&mut model.clouds, name, keys, forward, &mut conflicts),
+                "sheets" => apply_map(&mut model.sheets, name, keys, forward, &mut conflicts),
+                "sheet_items" => apply_map(&mut model.sheet_items, name, keys, forward, &mut conflicts),
                 _ => {}
             }
         }
@@ -273,12 +277,12 @@ impl Patch {
 
 /// The parts of a model that are big maps by id or name, compared and changed entry by entry on the typed model
 /// (not through JSON of the whole model, which on a million-entity model takes seconds).
-const TYPED: [&str; 8] = ["vertices", "edges", "faces", "groups", "materials", "definitions", "instances", "clouds"];
+const TYPED: [&str; 10] = ["vertices", "edges", "faces", "groups", "materials", "definitions", "instances", "clouds", "sheets", "sheet_items"];
 
 /// The model with the big maps left empty (what is left is small, or at least rarely changes).
 fn skeleton(m: &Model) -> Model {
     // every field is named, so a field added to the model is a compile error here until it is placed
-    let Model { next_id, vertices: _, edges: _, faces: _, groups: _, materials: _, active_group, tags, environment, tag_colors, definitions: _, instances: _, guides, photo_points, cages, photo_edges, photo_guides, views, timeline, annotations, units, classes, location, clouds: _, sections, active_section, axes, deadline: _ } = m;
+    let Model { next_id, vertices: _, edges: _, faces: _, groups: _, materials: _, active_group, tags, environment, tag_colors, definitions: _, instances: _, guides, photo_points, cages, photo_edges, photo_guides, views, timeline, annotations, units, classes, location, clouds: _, sections, active_section, axes, drafting, sheets: _, sheet_items: _, title_blocks, deadline: _ } = m;
     Model {
         next_id: *next_id,
         vertices: Default::default(),
@@ -307,6 +311,11 @@ fn skeleton(m: &Model) -> Model {
         sections: sections.clone(),
         active_section: *active_section,
         axes: *axes,
+        drafting: drafting.clone(),
+        sheets: Default::default(),
+        sheet_items: Default::default(),
+        // a handful of small records: compared as part of the skeleton, entry by entry like any map by id
+        title_blocks: title_blocks.clone(),
         deadline: None,
     }
 }
@@ -502,5 +511,8 @@ pub fn patch_between(before: &Model, after: &Model) -> Patch {
     add("definitions", diff_map(&before.definitions, &after.definitions, |x, y| std::sync::Arc::ptr_eq(&x.model, &y.model) && x.name == y.name && x.attrs == y.attrs && x.source == y.source && x.cuts == y.cuts && x.face_me == y.face_me));
     add("instances", diff_map(&before.instances, &after.instances, |x, y| x == y));
     add("clouds", diff_map(&before.clouds, &after.clouds, |x, y| x == y));
+    add("sheets", diff_map(&before.sheets, &after.sheets, |x, y| x == y));
+    // a paper item is shared between steps unless it was edited: the same Arc is the same content
+    add("sheet_items", diff_map(&before.sheet_items, &after.sheet_items, |x, y| std::sync::Arc::ptr_eq(x, y) || x == y));
     p
 }

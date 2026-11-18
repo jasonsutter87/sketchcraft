@@ -311,6 +311,17 @@ pub struct Model {
     /// (blue is red × green). None: the model's own axes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub axes: Option<[[f64; 3]; 3]>,
+    /// Drafting styles (tag line weights, hatches, dimension and text styles): see `drafting`
+    #[serde(default, skip_serializing_if = "crate::drafting::Drafting::is_empty")]
+    pub drafting: crate::drafting::Drafting,
+    /// Drawing sheets (page records), by id. What is on them is in `sheet_items`.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub sheets: BTreeMap<Id, crate::drafting::Sheet>,
+    /// Everything on paper, flat and keyed by its own id so undo works per item. `Arc`: a step's copy of the model shares them.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub sheet_items: BTreeMap<Id, std::sync::Arc<crate::drafting::SheetItem>>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub title_blocks: BTreeMap<Id, std::sync::Arc<crate::drafting::TitleBlock>>,
     /// A time limit for the work in progress (never saved): set by a command that can be slow on a big model,
     /// checked inside the expensive loops (`over_deadline`), so the limit holds end to end.
     #[serde(skip)]
@@ -1483,6 +1494,9 @@ impl Model {
         if !self.cages.values().all(|c| c.points.iter().flatten().all(|&x| sane(x))) {
             return bad("a cage");
         }
+        if !self.sheets.values().all(|s| s.sane()) || !self.sheet_items.values().all(|i| i.sane()) || !self.title_blocks.values().all(|t| t.sane()) || !self.drafting.sane() {
+            return bad("a number on a drawing sheet");
+        }
         for c in self.clouds.values() {
             if !c.points.iter().all(|&x| sane(x as f64)) {
                 return bad("a point cloud");
@@ -1587,6 +1601,10 @@ impl Model {
             + self.timeline.clips.iter().map(|c| c.name.as_ref().map_or(0, String::len)).sum::<usize>()
             + self.environment.as_ref().map_or(0, String::len)
             + self.units.len()
+            + self.sheets.values().map(|s| s.text_bytes()).sum::<usize>()
+            + self.sheet_items.values().map(|i| i.text_bytes()).sum::<usize>()
+            + self.title_blocks.values().map(|t| t.text_bytes()).sum::<usize>()
+            + self.drafting.text_bytes()
             + self.photo_points.iter().map(|p| p.name.len() + p.marks.keys().map(|k| k.len() + 8).sum::<usize>()).sum::<usize>()
             + notes
             + views
@@ -1618,6 +1636,10 @@ impl Model {
             + self.sections.iter().map(|s| 280 + jl(&s.name)).sum::<usize>()
             + self.environment.as_ref().map_or(0, |e| jl(e) + 20)
             + jl(&self.units)
+            + self.sheets.values().map(|s| 400 + 2 * s.text_bytes()).sum::<usize>()
+            + self.sheet_items.values().map(|i| i.size_estimate()).sum::<usize>()
+            + self.title_blocks.values().map(|t| 300 + 2 * t.text_bytes() + 60 * t.lines_mm.len() + 80 * t.fields.len()).sum::<usize>()
+            + if self.drafting.is_empty() { 0 } else { 2 * self.drafting.text_bytes() + 400 * (self.drafting.tag_styles.len() + self.drafting.dim_styles.len() + self.drafting.text_styles.len() + self.drafting.line_types.len()) + 64 }
     }
 
     /// Things in the model that refer to something that isn't there, as short phrases ("edge 7", "material #ff0000"),
@@ -1700,6 +1722,20 @@ impl Model {
                     add(format!("subdivision cage {id}"));
                 }
             }
+            for (id, s) in &self.sheets {
+                if s.title_block.is_some_and(|t| !self.title_blocks.contains_key(&t)) {
+                    add(format!("sheet {id} (title block)"));
+                }
+            }
+            for (id, i) in &self.sheet_items {
+                match i.sheet() {
+                    Some(s) if self.sheets.contains_key(&s) => {}
+                    _ => add(format!("sheet item {id}")),
+                }
+                if i.title_block().is_some_and(|t| !self.title_blocks.contains_key(&t)) {
+                    add(format!("sheet item {id} (title block)"));
+                }
+            }
             for id in self.classes.keys() {
                 if !self.groups.contains_key(id) && !self.instances.contains_key(id) {
                     add(format!("class of {id}"));
@@ -1724,7 +1760,8 @@ impl Model {
     /// The highest id used anywhere in this model (not inside components: each has its own counter).
     fn max_own_id(&self) -> Id {
         let top = |m: Option<&Id>| m.copied().unwrap_or(0);
-        let mut hi = top(self.vertices.keys().next_back()).max(top(self.edges.keys().next_back())).max(top(self.faces.keys().next_back())).max(top(self.groups.keys().next_back())).max(top(self.instances.keys().next_back())).max(top(self.definitions.keys().next_back())).max(top(self.clouds.keys().next_back())).max(top(self.cages.keys().next_back())).max(top(self.classes.keys().next_back()));
+        let mut hi = top(self.vertices.keys().next_back()).max(top(self.edges.keys().next_back())).max(top(self.faces.keys().next_back())).max(top(self.groups.keys().next_back())).max(top(self.instances.keys().next_back())).max(top(self.definitions.keys().next_back())).max(top(self.clouds.keys().next_back())).max(top(self.cages.keys().next_back())).max(top(self.classes.keys().next_back())).max(top(self.sheets.keys().next_back())).max(top(self.sheet_items.keys().next_back())).max(top(self.title_blocks.keys().next_back()));
+        hi = hi.max(self.sheets.values().filter_map(|s| s.title_block).max().unwrap_or(0)).max(self.sheet_items.values().map(|i| i.max_id()).max().unwrap_or(0));
         hi = hi.max(self.guides.iter().map(|g| g.id).max().unwrap_or(0)).max(self.annotations.iter().map(Annotation::id).max().unwrap_or(0)).max(self.sections.iter().map(|s| s.id).max().unwrap_or(0)).max(self.photo_guides.iter().copied().max().unwrap_or(0));
         hi = hi.max(self.edges.values().filter_map(|e| e.curve).max().unwrap_or(0)).max(self.active_group.unwrap_or(0)).max(self.active_section.unwrap_or(0));
         hi
@@ -1791,7 +1828,7 @@ impl Model {
 
     /// Nothing drawn yet (a fresh model): not worth a backup.
     pub fn is_blank(&self) -> bool {
-        self.vertices.is_empty() && self.edges.is_empty() && self.faces.is_empty() && self.groups.is_empty() && self.instances.is_empty() && self.definitions.is_empty() && self.clouds.is_empty() && self.annotations.is_empty() && self.guides.is_empty() && self.views.is_empty() && self.materials.is_empty()
+        self.vertices.is_empty() && self.edges.is_empty() && self.faces.is_empty() && self.groups.is_empty() && self.instances.is_empty() && self.definitions.is_empty() && self.clouds.is_empty() && self.annotations.is_empty() && self.guides.is_empty() && self.views.is_empty() && self.materials.is_empty() && self.sheets.is_empty()
     }
 
     /// A rough size in bytes, for budgeting undo history (not exact; shared
@@ -1801,6 +1838,6 @@ impl Model {
         let faces: usize = self.faces.values().map(|f| 96 + 4 * (f.outer.len() + f.holes.iter().map(Vec::len).sum::<usize>())).sum();
         let photos: usize = self.views.iter().map(|v| 160 + v.photo.as_ref().map_or(0, String::len)).sum();
         let clouds: usize = self.clouds.values().map(|c| 64 + 4 * c.points.len() + c.colors.len()).sum();
-        self.text_bytes() + clouds + self.vertices.len() * 64 + self.edges.len() * 72 + faces + self.groups.len() * 96 + self.instances.len() * 200 + self.definitions.len() * 128 + tex + photos + self.annotations.len() * 120 + self.guides.len() * 80
+        self.text_bytes() + clouds + self.vertices.len() * 64 + self.edges.len() * 72 + faces + self.groups.len() * 96 + self.instances.len() * 200 + self.definitions.len() * 128 + tex + photos + self.annotations.len() * 120 + self.guides.len() * 80 + self.sheets.len() * 160 + self.sheet_items.len() * 160
     }
 }

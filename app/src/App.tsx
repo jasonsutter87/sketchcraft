@@ -908,7 +908,7 @@ export default function App() {
               if (!path) return;
               setShowSheets(false);
               say("Drawing the sheets…");
-              const r = await run({ cmd: "sheets", path, ...spec });
+              const r = await run({ cmd: "export_sheets", path, ...spec });
               if (r.ok) say(`Made ${r.pages} sheet${r.pages === 1 ? "" : "s"}: ${path.split("/").pop()}`);
             }}
           />

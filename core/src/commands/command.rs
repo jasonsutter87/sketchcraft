@@ -290,11 +290,13 @@ pub enum Command {
         #[serde(flatten)]
         opts: RenderOpts,
     },
-    /// Drawing sheets as a PDF: pages of viewports (saved views or iso / top /
-    /// front / ..., optionally at a scale like "1:100"), labels, scale bars
-    /// and a title block. No pages: your saved views on one sheet.
+    /// CREATE saved drawing sheets from a description of pages: each page becomes a sheet in the model
+    /// (undoable, kept in the file) with its viewports (saved views or iso / top / front / ..., optionally at a
+    /// scale like "1:100") and table. No pages: one sheet of your saved views. To write a PDF, use `export_sheets`.
     Sheets {
-        path: String,
+        /// no longer accepted here (it used to write a PDF): `export_sheets` does that
+        #[serde(default)]
+        path: Option<String>,
         #[serde(default = "sheet_a3")]
         sheet: String,
         #[serde(default)]
@@ -307,6 +309,83 @@ pub enum Command {
         /// lines in a box above the title block ("# " makes a heading)
         #[serde(default)]
         notes: Vec<String>,
+    },
+    /// Write drawing sheets as a PDF. With `pages` as numbers (sheet ids), or none: the saved sheets (all, or those).
+    /// With `pages` as descriptions (what `sheets` takes): a one-shot set that saves nothing. No saved sheets and no
+    /// pages: your saved views on one sheet.
+    ExportSheets {
+        path: String,
+        #[serde(default)]
+        format: Option<String>,
+        #[serde(default)]
+        sheet: Option<String>,
+        #[serde(default)]
+        project: Option<String>,
+        #[serde(default)]
+        pages: Vec<ExportPage>,
+        #[serde(default)]
+        blueprint: Option<bool>,
+        #[serde(default)]
+        notes: Option<Vec<String>>,
+    },
+    /// A new empty drawing sheet in the model.
+    SheetAdd {
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        number: Option<String>,
+        /// "a4", "a3", "a2", "letter" or "tabloid", or {w_mm, h_mm, name?} (default a3)
+        #[serde(default)]
+        paper: Option<PaperArg>,
+        /// position in the set (default: last)
+        #[serde(default)]
+        order: Option<i32>,
+        #[serde(default)]
+        fields: std::collections::BTreeMap<String, String>,
+        #[serde(default)]
+        title_block: Option<Id>,
+    },
+    /// Change a sheet's name, number, paper, order, title block (0 clears it) or fields (null removes one).
+    SheetEdit {
+        sheet: Id,
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        number: Option<String>,
+        #[serde(default)]
+        paper: Option<PaperArg>,
+        #[serde(default)]
+        order: Option<i32>,
+        #[serde(default)]
+        fields: std::collections::BTreeMap<String, Option<String>>,
+        #[serde(default)]
+        title_block: Option<Id>,
+    },
+    /// Delete a sheet and everything on it.
+    SheetDelete { sheet: Id },
+    /// Put a viewport (a window on the model, with its own scale, anchor and crop) on a sheet. `viewports` adds
+    /// several at once (one undo step).
+    ViewportAdd {
+        #[serde(flatten)]
+        args: ViewportArgs,
+        #[serde(default)]
+        viewports: Vec<ViewportArgs>,
+    },
+    /// Change a viewport. Only what is given changes: its anchor, scale and crop are never re-fitted.
+    ViewportEdit {
+        id: Id,
+        #[serde(flatten)]
+        args: ViewportArgs,
+        /// remove the crop
+        #[serde(default)]
+        clear_crop: bool,
+    },
+    /// Delete things on sheets (viewports, dimensions, text, lines...) by id.
+    SheetItemDelete { ids: Vec<Id> },
+    /// Read-only: every sheet with what is on it (and the kinds of item this version doesn't know).
+    SheetsInfo {
+        #[serde(default)]
+        sheet: Option<Id>,
     },
     /// A blueprint set in one go: every floor's plan and the four
     /// elevations, white on blue, at a true scale that fits the sheet.
@@ -993,6 +1072,62 @@ fn loc_cells() -> usize {
 
 fn sheet_a3() -> String {
     "a3".into()
+}
+
+/// A paper size as a command gives it: a name, or millimetres.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum PaperArg {
+    Name(String),
+    Custom {
+        w_mm: f64,
+        h_mm: f64,
+        #[serde(default)]
+        name: String,
+    },
+}
+
+/// A scale as a command gives it: 100 or "1:100".
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum ScaleArg {
+    N(f64),
+    Text(String),
+}
+
+/// What a viewport command may set. All optional: a new viewport gets sensible defaults (see `sheets.rs`).
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct ViewportArgs {
+    pub sheet: Option<Id>,
+    /// x, y, width, height on the sheet, millimetres from its top left
+    pub rect_mm: Option<[f64; 4]>,
+    /// the N of 1:N, or "1:N"
+    pub scale: Option<ScaleArg>,
+    /// the model point pinned to the middle of the rect (default: the middle of the model, once; never re-fitted)
+    pub anchor: Option<[f64; 3]>,
+    /// degrees
+    pub rotation: Option<f64>,
+    /// an outline in paper mm from the rect's top left
+    pub crop: Option<Vec<[f64; 2]>>,
+    /// {"type":"plan","cut_z":1.2,"floor_z":0}, {"type":"elevation","dir":[0,-1,0]}, {"type":"section","origin":[..],"normal":[..]} or {"type":"view3d","eye":[..],"target":[..],"fov":40}
+    pub view: Option<crate::drafting::ViewKind>,
+    /// a saved view's name, or iso / top / front / back / left / right: a 3D view from there (parallel, when a scale is given)
+    pub from_view: Option<String>,
+    pub z: Option<i32>,
+    pub opacity: Option<f64>,
+    pub render: Option<crate::drafting::RenderMode>,
+    pub scene: Option<String>,
+    pub label: Option<String>,
+    pub tags: Option<std::collections::BTreeMap<String, crate::drafting::TagOverride>>,
+}
+
+/// One entry of `export_sheets`' `pages`: a saved sheet's id, or a page description.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum ExportPage {
+    Saved(Id),
+    Spec(crate::layout::PageSpec),
 }
 
 fn photo_distance() -> f64 {

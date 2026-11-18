@@ -13,6 +13,7 @@ pub mod cloud;
 pub mod commands;
 pub mod components;
 pub mod csg;
+pub mod drafting;
 pub mod dynamic;
 pub mod dwg;
 pub mod dxf;

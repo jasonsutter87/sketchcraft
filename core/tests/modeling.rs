@@ -938,7 +938,7 @@ fn drawing_sheets_pdf() {
     run(&mut e, json!({"cmd":"save_view","name":"Corner","eye":[10,-10,8],"target":[0,0,0]}));
     let dir = std::env::temp_dir().join(format!("sketchcraft-sheets-{}", std::process::id()));
     let path = dir.join("set.pdf").to_string_lossy().to_string();
-    let r = run(&mut e, json!({"cmd":"sheets","path":path,"sheet":"a4","project":"Box","pages":[
+    let r = run(&mut e, json!({"cmd":"export_sheets","path":path,"sheet":"a4","project":"Box","pages":[
         {"title":"Plan","viewports":[{"view":"top","scale":"1:50"}]},
         {"title":"Views"}
     ]}));
@@ -948,7 +948,7 @@ fn drawing_sheets_pdf() {
     assert!(text.contains("/Count 2"));
     assert!(text.contains("Sheet 1 of 2") && text.contains("1:50"));
     // a bad scale is an error, not a broken file
-    let bad = e.exec_json(&json!({"cmd":"sheets","path":path,"pages":[{"title":"x","viewports":[{"view":"top","scale":"one to fifty"}]}]}).to_string());
+    let bad = e.exec_json(&json!({"cmd":"export_sheets","path":path,"pages":[{"title":"x","viewports":[{"view":"top","scale":"one to fifty"}]}]}).to_string());
     assert_eq!(bad["ok"], false);
     std::fs::remove_dir_all(dir).ok();
 }

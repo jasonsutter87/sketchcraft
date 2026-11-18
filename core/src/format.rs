@@ -5,8 +5,8 @@
 //! it doesn't know. The guard looks at the file's top level BEFORE the model is read; a file this build can't fully
 //! understand opens read-only (see `Engine::read_only`): nothing is ever written back over it.
 //!
-//! - `format`: this build writes `FORMAT` (1). Files from before the guard have none, which means 1. A file with a higher
-//!   number is from a newer SketchCraft.
+//! - `format`: 1, or 2 when the model holds drawing sheets (`format_of`). Files from before the guard have none, which
+//!   means 1. A file with a higher number than `FORMAT` is from a newer SketchCraft.
 //! - `needs`: an optional list of features a reader must understand. Anything not in `KNOWN_NEEDS` is unknown.
 //! - top-level keys: any key that isn't in `KNOWN_KEYS` is data this build would lose.
 
@@ -15,11 +15,13 @@ use serde::de::{IgnoredAny, MapAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
-/// The format number this build writes, and the highest it reads for editing.
-pub const FORMAT: u64 = 1;
+/// The highest format number this build reads for editing. A model with sheets is written as format 2 (see
+/// `format_of`); one without stays format 1, so an older SketchCraft (0.3.7 and later read-only, earlier ones as is)
+/// can still open it wherever that is possible.
+pub const FORMAT: u64 = 2;
 
-/// Features (the `needs` list) this build understands. None yet; 0.3.8 adds "sheets".
-pub const KNOWN_NEEDS: &[&str] = &[];
+/// Features (the `needs` list) this build understands. "sheets": drawing sheets in the model (0.3.8).
+pub const KNOWN_NEEDS: &[&str] = &["sheets"];
 
 /// Every top-level key this build knows: the serialized fields of `Model` (kept in step by the test
 /// `known_keys_match_the_model_struct`, which reads model.rs) and the two the guard adds.
@@ -28,6 +30,7 @@ pub const KNOWN_KEYS: &[&str] = &[
     "next_id", "vertices", "edges", "faces", "groups", "materials", "active_group", "tags", "environment", "tag_colors", "definitions",
     "instances", "guides", "photo_points", "cages", "photo_edges", "photo_guides", "views", "timeline", "annotations", "units", "classes",
     "location", "clouds", "sections", "active_section", "axes",
+    "drafting", "sheets", "sheet_items", "title_blocks",
 ];
 
 /// What the person is told, as it appears in the app.
@@ -115,20 +118,32 @@ fn reasons(s: &Skim) -> Vec<String> {
     why
 }
 
-/// A model as a file: the model's own fields with `format` first.
+/// Does the model hold anything only a build that knows about sheets can keep? Then the file says so.
+fn has_sheets(m: &crate::model::Model) -> bool {
+    !m.sheets.is_empty() || !m.sheet_items.is_empty() || !m.title_blocks.is_empty() || !m.drafting.is_empty()
+}
+
+/// The format number a file of this model is written with: 2 when it holds sheets, 1 otherwise.
+pub fn format_of(m: &crate::model::Model) -> u64 {
+    if has_sheets(m) { 2 } else { 1 }
+}
+
+/// A model as a file: the model's own fields with `format` first (and `needs`, when it holds sheets).
 #[derive(Serialize)]
 struct Stamped<'a> {
     format: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    needs: Option<[&'static str; 1]>,
     #[serde(flatten)]
     model: &'a crate::model::Model,
 }
 
 pub fn to_vec(m: &crate::model::Model) -> Result<Vec<u8>> {
-    Ok(serde_json::to_vec(&Stamped { format: FORMAT, model: m })?)
+    Ok(serde_json::to_vec(&Stamped { format: format_of(m), needs: has_sheets(m).then_some(["sheets"]), model: m })?)
 }
 
 pub fn to_string(m: &crate::model::Model) -> Result<String> {
-    Ok(serde_json::to_string(&Stamped { format: FORMAT, model: m })?)
+    Ok(serde_json::to_string(&Stamped { format: format_of(m), needs: has_sheets(m).then_some(["sheets"]), model: m })?)
 }
 
 #[cfg(test)]
@@ -173,18 +188,20 @@ mod tests {
     fn plain_and_old_files_are_fine() {
         assert!(check(br#"{"next_id":1}"#).is_none());
         assert!(check(br#"{"format":1,"next_id":1,"needs":[]}"#).is_none());
+        // what this build writes when it holds sheets, it reads
+        assert!(check(br#"{"format":2,"needs":["sheets"],"next_id":1,"sheets":{},"sheet_items":{},"drafting":{},"title_blocks":{}}"#).is_none());
         assert!(check(b"not json").is_none());
         assert!(check(b"[1,2]").is_none());
     }
 
     #[test]
     fn newer_files_are_read_only_with_reasons() {
-        let r = check(br#"{"format":2,"next_id":1}"#).unwrap();
-        assert!(r.reasons[0].contains("format is 2"), "{r:?}");
-        let r = check(br#"{"needs":["sheets"]}"#).unwrap();
-        assert!(r.reasons[0].contains("sheets"), "{r:?}");
-        let r = check(br#"{"sheets":{},"next_id":1}"#).unwrap();
-        assert!(r.reasons[0].contains("\"sheets\""), "{r:?}");
+        let r = check(br#"{"format":3,"next_id":1}"#).unwrap();
+        assert!(r.reasons[0].contains("format is 3"), "{r:?}");
+        let r = check(br#"{"needs":["holograms"]}"#).unwrap();
+        assert!(r.reasons[0].contains("holograms"), "{r:?}");
+        let r = check(br#"{"holograms":{},"next_id":1}"#).unwrap();
+        assert!(r.reasons[0].contains("\"holograms\""), "{r:?}");
         assert!(check(br#"{"format":"two"}"#).is_some());
         assert!(check(br#"{"format":-1}"#).is_some());
         assert!(check(br#"{"format":1.5}"#).is_some());

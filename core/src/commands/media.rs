@@ -72,10 +72,6 @@ impl Engine {
                     Err(_) => bail!("making a video needs ffmpeg installed (brew install ffmpeg)"),
                 }
             }
-            Command::Sheets { path, sheet, project, pages, blueprint, notes } => {
-                let project = project.unwrap_or_else(|| std::path::Path::new(&path).file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "Project".into()));
-                json!({"path": path, "pages": crate::layout::write_sheets(&self.model, &path, &sheet, &project, pages, blueprint, &notes)?})
-            }
             other => unreachable!("command routed to the wrong group: {other:?}"),
         })
     }

@@ -55,7 +55,8 @@ fn full_model() -> Engine {
     e
 }
 
-/// A file from a newer SketchCraft: today's model with a `sheets` table and a higher format.
+/// A file from a newer SketchCraft: today's model with a table this build has never heard of and a higher format.
+/// (`sheets` is not it any more: 0.3.8 reads those, format 2. See sheets.rs.)
 fn newer_file(dir: &std::path::Path, name: &str, tweak: impl Fn(&mut Value)) -> (PathBuf, Vec<u8>) {
     let mut e = full_model();
     let p = dir.join("src.sketchcraft");
@@ -69,19 +70,19 @@ fn newer_file(dir: &std::path::Path, name: &str, tweak: impl Fn(&mut Value)) -> 
 }
 
 fn format_two(v: &mut Value) {
-    v["format"] = json!(2);
-    v["needs"] = json!(["sheets"]);
-    v["sheets"] = json!({"1": {"name": "A101", "size": "ARCH D"}});
+    v["format"] = json!(3);
+    v["needs"] = json!(["holograms"]);
+    v["holograms"] = json!({"1": {"name": "H101", "size": "ARCH D"}});
 }
 fn unknown_key(v: &mut Value) {
-    v["sheets"] = json!({"1": {"name": "A101"}});
+    v["holograms"] = json!({"1": {"name": "H101"}});
 }
 fn needs_only(v: &mut Value) {
-    v["needs"] = json!(["sheets"]);
+    v["needs"] = json!(["holograms"]);
 }
 
 type Tweak = fn(&mut Value);
-const KINDS: [(&str, Tweak); 3] = [("format 2", format_two), ("unknown key", unknown_key), ("needs", needs_only)];
+const KINDS: [(&str, Tweak); 3] = [("format 3", format_two), ("unknown key", unknown_key), ("needs", needs_only)];
 
 fn agent(dir: &std::path::Path) -> Caller {
     Caller::Mcp(Workspace::at(dir))
@@ -96,8 +97,9 @@ fn a_model_with_every_field_survives_save_open_save() {
     let (a, b) = (dir.join("a.sketchcraft"), dir.join("b.sketchcraft"));
     ok(&mut e, json!({"cmd": "save", "path": a}));
     let first: Value = serde_json::from_slice(&std::fs::read(&a).unwrap()).unwrap();
-    // every key the guard knows is in the file (the full model has something in each field), and it says format 1
-    for k in sketchcraft::format::KNOWN_KEYS.iter().filter(|k| **k != "needs") {
+    // every key the guard knows is in the file (the full model has something in each field), and it says format 1.
+    // (the drawing-sheet keys are written only by a model that has sheets, which is format 2: see sheets.rs)
+    for k in sketchcraft::format::KNOWN_KEYS.iter().filter(|k| !["needs", "drafting", "sheets", "sheet_items", "title_blocks"].contains(k)) {
         assert!(first.get(*k).is_some(), "the full model has nothing in \"{k}\" (add it to full_model): {:?}", first.as_object().unwrap().keys().collect::<Vec<_>>());
     }
     assert_eq!(first["format"], 1);
@@ -335,7 +337,7 @@ fn an_agent_is_told_why() {
         let why = r["error"].as_str().unwrap();
         assert!(why.starts_with("This model was saved by a newer SketchCraft"), "{why}");
         assert!(why.contains("read-only") && why.contains("Update SketchCraft"), "{why}");
-        assert!(why.contains("sheets") || why.contains("format is 2"), "{why}");
+        assert!(why.contains("holograms") || why.contains("format is 3"), "{why}");
         // reading is fine, and says so
         let i = live.exec_as(&ws, &json!({"cmd": "info"}));
         assert_eq!(i["ok"], true);

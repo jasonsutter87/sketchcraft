@@ -1,0 +1,531 @@
+//! Drawing sheets saved in the model: create, change and delete sheets and what is on them, and read them back.
+//! Arms of `Engine::run`. Sheets always live in the root model (never inside a component being edited), and every
+//! command here is an ordinary model change: one undo step, or part of a batch.
+
+use super::*;
+use crate::drafting::*;
+use crate::layout::{PageSpec, ViewportSpec};
+use crate::policy::{MAX_PAGES_UI, MAX_PAGES_UNTRUSTED};
+use super::command::{ExportPage, PaperArg, ScaleArg, ViewportArgs};
+use std::collections::BTreeMap;
+use std::sync::Arc;
+
+/// The longest a sheet's name, number or label may be.
+const MAX_NAME: usize = 200;
+
+fn paper_of(a: &PaperArg) -> Result<Paper> {
+    match a {
+        PaperArg::Name(n) => Paper::named(n),
+        PaperArg::Custom { w_mm, h_mm, name } => {
+            if !(w_mm.is_finite() && h_mm.is_finite()) || *w_mm < 20.0 || *h_mm < 20.0 || *w_mm > 5000.0 || *h_mm > 5000.0 {
+                bail!("a sheet is between 20 and 5000 mm on each side");
+            }
+            Ok(Paper { w_mm: *w_mm, h_mm: *h_mm, name: name.clone(), extra: Default::default() })
+        }
+    }
+}
+
+fn scale_n(a: &ScaleArg) -> Result<f64> {
+    let n = match a {
+        ScaleArg::N(n) => *n,
+        ScaleArg::Text(t) => crate::layout::scale_of(t)?,
+    };
+    if !n.is_finite() || n <= 0.0 || n > 1e7 {
+        bail!("scale is a positive number: 100 or \"1:100\"");
+    }
+    Ok(n)
+}
+
+fn short(what: &str, s: &str) -> Result<()> {
+    if s.len() > MAX_NAME {
+        bail!("{what} is too long ({} bytes, limit {MAX_NAME})", s.len());
+    }
+    Ok(())
+}
+
+/// The next 1-2-5 scale at or above `n` (a fitted viewport's scale is rounded up to one).
+fn nice_scale(n: f64) -> f64 {
+    let n = n.max(1.0);
+    let p = 10f64.powf(n.log10().floor());
+    [1.0, 2.0, 5.0, 10.0].iter().map(|k| k * p).find(|c| *c >= n * 0.9999).unwrap_or(10.0 * p)
+}
+
+/// "1:100" for 100 (and "1:12.5" for 12.5): the scale text the PDF export takes.
+fn scale_text(n: f64) -> String {
+    if n.fract() == 0.0 { format!("1:{}", n as u64) } else { format!("1:{n}") }
+}
+
+fn bounds_center(m: &Model) -> DVec3 {
+    m.world_bounds().map(|(lo, hi)| (lo + hi) / 2.0).unwrap_or(DVec3::ZERO)
+}
+
+/// A 3D view from a saved view's name or a standard one (iso, top, front, back, left, right).
+fn view3d(m: &Model, name: &str, parallel: bool) -> ViewKind {
+    let cam = crate::render::camera_for(m, &crate::render::RenderOpts { view: name.to_string(), ..Default::default() });
+    ViewKind::View3d { eye: cam.eye, target: cam.target, fov: cam.fov, parallel }
+}
+
+fn validate(v: &Viewport) -> Result<()> {
+    if v.rect_mm[2] <= 0.0 || v.rect_mm[3] <= 0.0 {
+        bail!("a viewport needs a width and a height above 0 (rect_mm is x, y, width, height in millimetres)");
+    }
+    if !(0.0..=1.0).contains(&v.opacity) {
+        bail!("opacity is between 0 and 1");
+    }
+    if v.crop.as_ref().is_some_and(|c| c.len() < 3) {
+        bail!("a crop is an outline of at least 3 points");
+    }
+    short("a label", &v.label)?;
+    Ok(())
+}
+
+impl Engine {
+    fn sheet_limit(&self) -> usize {
+        if self.untrusted { MAX_PAGES_UNTRUSTED } else { MAX_PAGES_UI }
+    }
+
+    fn made_by(&self) -> String {
+        if self.untrusted { "agent".into() } else { String::new() }
+    }
+
+    /// A new viewport from what a command gave, with defaults for the rest (and the anchor fixed here, once).
+    fn viewport_from(&self, a: &ViewportArgs, fallback_sheet: Option<Id>) -> Result<Viewport> {
+        let m = &self.model;
+        let sheet = a.sheet.or(fallback_sheet).ok_or_else(|| anyhow::anyhow!("a viewport needs a sheet (the id `sheet_add` or `sheets` gave)"))?;
+        let Some(s) = m.sheets.get(&sheet) else { bail!("no sheet {sheet}") };
+        let scale = a.scale.as_ref().map(scale_n).transpose()?;
+        let view = match (&a.view, &a.from_view) {
+            (Some(v), _) => v.clone(),
+            (None, Some(name)) => view3d(m, name, scale.is_some()),
+            (None, None) => ViewKind::Plan { cut_z: 1.2, floor_z: 1.2 - 1.2192, depth: 0.0 },
+        };
+        let c = bounds_center(m);
+        let anchor = a.anchor.unwrap_or(match &view {
+            ViewKind::View3d { target, .. } => *target,
+            ViewKind::Plan { cut_z, .. } => [c.x, c.y, *cut_z],
+            _ => c.to_array(),
+        });
+        let (w, h) = (s.paper.w_mm, s.paper.h_mm);
+        let scene = a.scene.clone().or_else(|| a.from_view.clone().filter(|n| m.views.iter().any(|v| &v.name == n)));
+        let v = Viewport {
+            sheet,
+            z: a.z.unwrap_or(0),
+            rect_mm: a.rect_mm.unwrap_or([15.0, 15.0, (w - 30.0).max(1.0), (h - 67.0).max(1.0)]),
+            crop: a.crop.clone(),
+            anchor,
+            rotation: a.rotation.unwrap_or(0.0),
+            scale: scale.unwrap_or(100.0),
+            view,
+            tags: a.tags.clone().unwrap_or_default(),
+            opacity: a.opacity.unwrap_or(1.0),
+            render: a.render.unwrap_or_default(),
+            scene,
+            label: a.label.clone().unwrap_or_default(),
+            made_by: self.made_by(),
+            ..Default::default()
+        };
+        validate(&v)?;
+        Ok(v)
+    }
+
+    /// One page of a `sheets` description becomes a sheet with its viewports and table.
+    fn sheet_from_page(&mut self, page: &PageSpec, paper: &Paper, order: i32, fields: &BTreeMap<String, String>) -> Result<Id> {
+        short("a page title", &page.title)?;
+        let id = self.model.new_id();
+        self.model.sheets.insert(id, Sheet { name: page.title.clone(), paper: paper.clone(), order, fields: fields.clone(), ..Default::default() });
+        let mut vps = page.viewports.clone();
+        crate::layout::place(&mut vps, paper.w_mm, paper.h_mm);
+        let who = self.made_by();
+        for (i, spec) in vps.iter().enumerate() {
+            let mut v = spec_to_viewport(&self.model, spec)?;
+            v.sheet = id;
+            v.z = i as i32;
+            v.made_by = who.clone();
+            validate(&v)?;
+            let vid = self.model.new_id();
+            self.model.sheet_items.insert(vid, Arc::new(SheetItem::Known(ItemKind::Viewport(v))));
+        }
+        if !page.table.is_empty() {
+            let cols = page.table.iter().map(|r| r.len()).max().unwrap_or(0);
+            let cols_mm: Vec<f64> = (0..cols).map(|c| page.table.iter().map(|r| r.get(c).map_or(0, |s| s.chars().count())).max().unwrap_or(0) as f64 * 1.6 + 6.0).collect();
+            let t = Table { sheet: id, at_mm: [20.0, 24.0], cols_mm, rows: page.table.clone(), made_by: who, ..Default::default() };
+            let tid = self.model.new_id();
+            self.model.sheet_items.insert(tid, Arc::new(SheetItem::Known(ItemKind::Table(t))));
+        }
+        Ok(id)
+    }
+
+    pub(super) fn run_sheets(&mut self, cmd: Command) -> Result<Value> {
+        // sheets are the root model's, whatever component is open for editing
+        if !matches!(cmd, Command::SheetsInfo { .. } | Command::ExportSheets { .. }) && self.ctx.is_some() {
+            bail!("close the component you're editing first: sheets belong to the whole model");
+        }
+        Ok(match cmd {
+            Command::Sheets { path, sheet, project, pages, blueprint, notes } => {
+                if path.is_some() {
+                    bail!("\"sheets\" now creates saved sheets in the model and writes no file; use \"export_sheets\" (same arguments) to write the PDF");
+                }
+                let paper = Paper::named(&sheet)?;
+                let mut pages = pages;
+                if pages.is_empty() {
+                    pages.push(PageSpec { title: "Views".into(), ..Default::default() });
+                }
+                let defaults = crate::layout::default_specs(&self.model);
+                for p in &mut pages {
+                    if p.viewports.is_empty() && p.table.is_empty() {
+                        p.viewports = defaults.clone();
+                    }
+                }
+                if self.model.sheets.len() + pages.len() > self.sheet_limit() {
+                    bail!("that would make {} sheets; the limit is {}", self.model.sheets.len() + pages.len(), self.sheet_limit());
+                }
+                let mut fields = BTreeMap::new();
+                if let Some(p) = project.as_ref().filter(|p| !p.is_empty()) {
+                    short("the project name", p)?;
+                    fields.insert("project".to_string(), p.clone());
+                }
+                if !notes.is_empty() {
+                    fields.insert("notes".to_string(), notes.join("\n"));
+                }
+                if blueprint {
+                    fields.insert("blueprint".to_string(), "true".to_string());
+                }
+                let first = self.model.sheets.values().map(|s| s.order).max().map_or(0, |o| o.saturating_add(1));
+                let mut ids = vec![];
+                for (i, page) in pages.iter().enumerate() {
+                    ids.push(self.sheet_from_page(page, &paper, first.saturating_add(i as i32), &fields)?);
+                }
+                json!({"sheets": ids, "sheet": ids.first()})
+            }
+            Command::SheetAdd { name, number, paper, order, fields, title_block } => {
+                if self.model.sheets.len() >= self.sheet_limit() {
+                    bail!("a model holds at most {} sheets", self.sheet_limit());
+                }
+                let paper = match &paper {
+                    Some(p) => paper_of(p)?,
+                    None => Paper::default(),
+                };
+                if let Some(t) = title_block.filter(|t| !self.model.title_blocks.contains_key(t)) {
+                    bail!("no title block {t}");
+                }
+                let n = self.model.sheets.len() + 1;
+                let name = name.unwrap_or_else(|| format!("Sheet {n}"));
+                let number = number.unwrap_or_default();
+                short("the name", &name)?;
+                short("the number", &number)?;
+                for (k, v) in &fields {
+                    short("a field name", k)?;
+                    short("a field", v)?;
+                }
+                let order = order.unwrap_or_else(|| self.model.sheets.values().map(|s| s.order).max().map_or(0, |o| o.saturating_add(1)));
+                let id = self.model.new_id();
+                self.model.sheets.insert(id, Sheet { name, number, paper, order, title_block, fields, ..Default::default() });
+                json!({"sheet": id})
+            }
+            Command::SheetEdit { sheet, name, number, paper, order, fields, title_block } => {
+                let paper = paper.as_ref().map(paper_of).transpose()?;
+                if let Some(t) = title_block.filter(|t| *t != 0 && !self.model.title_blocks.contains_key(t)) {
+                    bail!("no title block {t}");
+                }
+                let Some(s) = self.model.sheets.get_mut(&sheet) else { bail!("no sheet {sheet}") };
+                if let Some(n) = name {
+                    short("the name", &n)?;
+                    s.name = n;
+                }
+                if let Some(n) = number {
+                    short("the number", &n)?;
+                    s.number = n;
+                }
+                if let Some(p) = paper {
+                    s.paper = p;
+                }
+                if let Some(o) = order {
+                    s.order = o;
+                }
+                if let Some(t) = title_block {
+                    s.title_block = (t != 0).then_some(t);
+                }
+                for (k, v) in fields {
+                    short("a field name", &k)?;
+                    match v {
+                        Some(v) => {
+                            short("a field", &v)?;
+                            s.fields.insert(k, v);
+                        }
+                        None => {
+                            s.fields.remove(&k);
+                        }
+                    }
+                }
+                json!({"sheet": sheet})
+            }
+            Command::SheetDelete { sheet } => {
+                if self.model.sheets.remove(&sheet).is_none() {
+                    bail!("no sheet {sheet}");
+                }
+                let gone: Vec<Id> = self.model.sheet_items.iter().filter(|(_, i)| i.sheet() == Some(sheet)).map(|(k, _)| *k).collect();
+                for k in &gone {
+                    self.model.sheet_items.remove(k);
+                }
+                json!({"deleted": gone.len()})
+            }
+            Command::ViewportAdd { args, viewports } => {
+                let fallback = args.sheet;
+                let mut made = vec![];
+                let list: Vec<&ViewportArgs> = if viewports.is_empty() { vec![&args] } else { viewports.iter().collect() };
+                // check all of them before adding any (a bad one in the list adds nothing)
+                let built: Vec<Viewport> = list.iter().map(|a| self.viewport_from(a, fallback)).collect::<Result<_>>()?;
+                for v in built {
+                    let id = self.model.new_id();
+                    self.model.sheet_items.insert(id, Arc::new(SheetItem::Known(ItemKind::Viewport(v))));
+                    made.push(id);
+                }
+                json!({"viewport": made.first(), "viewports": made})
+            }
+            Command::ViewportEdit { id, args, clear_crop } => {
+                let Some(item) = self.model.sheet_items.get(&id).cloned() else { bail!("no sheet item {id}") };
+                let SheetItem::Known(ItemKind::Viewport(old)) = &*item else { bail!("sheet item {id} is a {}, not a viewport", item.kind_name()) };
+                let mut v = old.clone();
+                // the target sheet, if it is moving
+                if let Some(s) = args.sheet {
+                    if !self.model.sheets.contains_key(&s) {
+                        bail!("no sheet {s}");
+                    }
+                    v.sheet = s;
+                }
+                let scale = args.scale.as_ref().map(scale_n).transpose()?;
+                if let Some(r) = args.rect_mm {
+                    v.rect_mm = r;
+                }
+                if let Some(s) = scale {
+                    v.scale = s;
+                }
+                if let Some(a) = args.anchor {
+                    v.anchor = a;
+                }
+                if let Some(r) = args.rotation {
+                    v.rotation = r;
+                }
+                if let Some(c) = &args.crop {
+                    v.crop = Some(c.clone());
+                }
+                if clear_crop {
+                    v.crop = None;
+                }
+                if let Some(view) = &args.view {
+                    v.view = view.clone();
+                } else if let Some(name) = &args.from_view {
+                    v.view = view3d(&self.model, name, scale.is_some() || v.scale != 100.0);
+                    if self.model.views.iter().any(|x| &x.name == name) {
+                        v.scene = Some(name.clone());
+                    }
+                }
+                if let Some(z) = args.z {
+                    v.z = z;
+                }
+                if let Some(o) = args.opacity {
+                    v.opacity = o;
+                }
+                if let Some(r) = args.render {
+                    v.render = r;
+                }
+                if let Some(s) = &args.scene {
+                    v.scene = Some(s.clone());
+                }
+                if let Some(l) = &args.label {
+                    v.label = l.clone();
+                }
+                if let Some(t) = &args.tags {
+                    v.tags = t.clone();
+                }
+                validate(&v)?;
+                self.model.sheet_items.insert(id, Arc::new(SheetItem::Known(ItemKind::Viewport(v))));
+                json!({"viewport": id})
+            }
+            Command::SheetItemDelete { ids } => {
+                if let Some(bad) = ids.iter().find(|i| !self.model.sheet_items.contains_key(i)) {
+                    bail!("no sheet item {bad}");
+                }
+                for i in &ids {
+                    self.model.sheet_items.remove(i);
+                }
+                json!({"deleted": ids.len()})
+            }
+            Command::SheetsInfo { sheet } => {
+                let m = &self.model;
+                if let Some(s) = sheet.filter(|s| !m.sheets.contains_key(s)) {
+                    bail!("no sheet {s}");
+                }
+                let mut order: Vec<(&Id, &Sheet)> = m.sheets.iter().filter(|(id, _)| sheet.is_none_or(|s| s == **id)).collect();
+                order.sort_by_key(|(id, s)| (s.order, **id));
+                let item_json = |id: &Id, i: &SheetItem| {
+                    let mut v = serde_json::to_value(i).unwrap_or(Value::Null);
+                    if let Some(o) = v.as_object_mut() {
+                        o.insert("id".into(), json!(id));
+                    }
+                    v
+                };
+                let sheets: Vec<Value> = order
+                    .iter()
+                    .map(|(id, s)| {
+                        let items: Vec<Value> = m.sheet_items.iter().filter(|(_, i)| i.sheet() == Some(**id)).map(|(k, i)| item_json(k, i)).collect();
+                        json!({"id": id, "name": s.name, "number": s.number, "paper": {"w_mm": s.paper.w_mm, "h_mm": s.paper.h_mm, "name": s.paper.name}, "order": s.order, "title_block": s.title_block, "fields": s.fields, "issued": s.issued.len(), "items": items})
+                    })
+                    .collect();
+                let unsupported: Vec<Value> = m.sheet_items.iter().filter(|(_, i)| i.is_raw()).map(|(k, i)| json!({"id": k, "kind": i.kind_name(), "sheet": i.sheet()})).collect();
+                let orphans: Vec<&Id> = m.sheet_items.iter().filter(|(_, i)| i.sheet().is_none_or(|s| !m.sheets.contains_key(&s))).map(|(k, _)| k).collect();
+                json!({"sheets": sheets, "items": m.sheet_items.len(), "unsupported": unsupported, "orphans": orphans})
+            }
+            Command::ExportSheets { path, format, sheet, project, pages, blueprint, notes } => {
+                if let Some(f) = format.as_deref().filter(|f| !f.eq_ignore_ascii_case("pdf")) {
+                    bail!("export_sheets writes pdf for now (got {f:?})");
+                }
+                let ext_ok = std::path::Path::new(&path).extension().is_some_and(|e| e.eq_ignore_ascii_case("pdf"));
+                if !ext_ok {
+                    bail!("export_sheets writes a .pdf file");
+                }
+                let specs: Vec<&PageSpec> = pages.iter().filter_map(|p| if let ExportPage::Spec(s) = p { Some(s) } else { None }).collect();
+                let saved: Vec<Id> = pages.iter().filter_map(|p| if let ExportPage::Saved(i) = p { Some(*i) } else { None }).collect();
+                if !specs.is_empty() && !saved.is_empty() {
+                    bail!("pages is either sheet ids (saved sheets) or page descriptions, not both");
+                }
+                let m = &self.model;
+                let stem = || std::path::Path::new(&path).file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "Project".into());
+                if !specs.is_empty() || (m.sheets.is_empty() && saved.is_empty()) {
+                    // the one-shot set: nothing saved
+                    let paper = sheet.unwrap_or_else(|| "a3".into());
+                    let n = crate::layout::write_sheets(m, &path, &paper, &project.unwrap_or_else(stem), specs.into_iter().cloned().collect(), blueprint.unwrap_or(false), &notes.unwrap_or_default())?;
+                    return Ok(json!({"path": path, "pages": n}));
+                }
+                // from the saved sheets, in their order (or the ids given, in the order given)
+                let mut chosen: Vec<Id> = if saved.is_empty() {
+                    let mut all: Vec<(&Id, &Sheet)> = m.sheets.iter().collect();
+                    all.sort_by_key(|(id, s)| (s.order, **id));
+                    all.into_iter().map(|(id, _)| *id).collect()
+                } else {
+                    saved
+                };
+                if let Some(bad) = chosen.iter().find(|i| !m.sheets.contains_key(i)) {
+                    bail!("no sheet {bad}");
+                }
+                chosen.dedup();
+                let first = &m.sheets[&chosen[0]];
+                let paper = sheet.unwrap_or_else(|| if crate::layout::sheet_mm(&first.paper.name).is_ok() { first.paper.name.clone() } else { "a3".into() });
+                let project = project.or_else(|| first.fields.get("project").cloned()).unwrap_or_else(stem);
+                let notes = notes.unwrap_or_else(|| first.fields.get("notes").map(|n| n.lines().map(str::to_string).collect()).unwrap_or_default());
+                let blueprint = blueprint.unwrap_or_else(|| first.fields.get("blueprint").is_some_and(|b| b == "true"));
+                let pages: Vec<PageSpec> = chosen.iter().map(|id| page_of(m, *id)).collect();
+                let n = crate::layout::write_sheets(m, &path, &paper, &project, pages, blueprint, &notes)?;
+                json!({"path": path, "pages": n, "paper": paper})
+            }
+            other => unreachable!("command routed to the wrong group: {other:?}"),
+        })
+    }
+}
+
+/// A saved sheet as the page description the PDF writer takes: its viewports in stacking order, and its first table.
+fn page_of(m: &Model, sheet: Id) -> PageSpec {
+    let s = &m.sheets[&sheet];
+    let mut vps: Vec<(i32, Id, &Viewport)> = m.sheet_items.iter().filter_map(|(id, i)| if let SheetItem::Known(ItemKind::Viewport(v)) = &**i { (v.sheet == sheet).then_some((v.z, *id, v)) } else { None }).collect();
+    vps.sort_by_key(|(z, id, _)| (*z, *id));
+    let table = m.sheet_items.values().find_map(|i| if let SheetItem::Known(ItemKind::Table(t)) = &**i { (t.sheet == sheet).then(|| t.rows.clone()) } else { None }).unwrap_or_default();
+    PageSpec { title: s.name.clone(), viewports: vps.iter().map(|(_, _, v)| viewport_to_spec(v)).collect(), table }
+}
+
+/// The page description of an old-style viewport becomes a saved viewport. What the saved form has no field for
+/// (callouts, plan marks, datum levels, the section mark, "fit the picture") is kept under `extra["legacy"]`.
+fn spec_to_viewport(m: &Model, spec: &ViewportSpec) -> Result<Viewport> {
+    let scale = spec.scale.as_deref().map(crate::layout::scale_of).transpose()?;
+    let c = bounds_center(m);
+    let standard_dir = match spec.view.as_str() {
+        "front" => Some([0.0, -1.0, 0.0]),
+        "back" => Some([0.0, 1.0, 0.0]),
+        "left" => Some([-1.0, 0.0, 0.0]),
+        "right" => Some([1.0, 0.0, 0.0]),
+        _ => None,
+    };
+    let (view, anchor) = if let Some(z) = spec.cut {
+        (ViewKind::Plan { cut_z: z, floor_z: spec.floor.unwrap_or(z - 1.2192), depth: 0.0 }, [c.x, c.y, z])
+    } else if let Some(s) = spec.section {
+        (ViewKind::Section { origin: [s[0], s[1], s[2]], normal: [s[3], s[4], 0.0], depth: 0.0 }, c.to_array())
+    } else if let (Some(dir), true, true) = (standard_dir, spec.callouts, scale.is_some()) {
+        if m.views.iter().any(|v| v.name == spec.view) {
+            let v = view3d(m, &spec.view, true);
+            let t = if let ViewKind::View3d { target, .. } = &v { *target } else { c.to_array() };
+            (v, t)
+        } else {
+            (ViewKind::Elevation { dir, depth: 0.0 }, c.to_array())
+        }
+    } else {
+        let v = view3d(m, &spec.view, scale.is_some());
+        let t = if let ViewKind::View3d { target, .. } = &v { *target } else { c.to_array() };
+        (v, t)
+    };
+    let fit = scale.is_none();
+    let scale = scale.unwrap_or_else(|| {
+        // not given: the model fitted to the picture once, at a round scale (saved, never re-fitted afterwards)
+        let extent = m.world_bounds().map_or(10.0, |(lo, hi)| (hi - lo).length().max(1.0));
+        nice_scale(extent * 1000.0 / (0.9 * spec.w.min(spec.h).max(1.0)))
+    });
+    let scene = m.views.iter().find(|v| v.name == spec.view).map(|v| v.name.clone());
+    let mut extra = Extra::new();
+    let mut legacy = serde_json::Map::new();
+    legacy.insert("view".into(), json!(spec.view));
+    if spec.callouts {
+        legacy.insert("callouts".into(), json!(true));
+    }
+    if fit {
+        legacy.insert("fit".into(), json!(true));
+    }
+    if !spec.marks.is_empty() {
+        legacy.insert("marks".into(), json!(spec.marks));
+    }
+    if !spec.levels.is_empty() {
+        legacy.insert("levels".into(), json!(spec.levels));
+    }
+    if let Some(sm) = &spec.section_mark {
+        legacy.insert("section_mark".into(), json!({"origin": sm.origin, "look": sm.look, "label": sm.label}));
+    }
+    extra.insert("legacy".into(), Value::Object(legacy));
+    Ok(Viewport { rect_mm: [spec.x, spec.y, spec.w, spec.h], anchor, scale, view, scene, label: spec.label.clone().unwrap_or_else(|| spec.view.clone()), extra, ..Default::default() })
+}
+
+/// A saved viewport as the old-style description the PDF writer draws from (the reverse of `spec_to_viewport`).
+fn viewport_to_spec(v: &Viewport) -> ViewportSpec {
+    let legacy = v.extra.get("legacy").cloned().unwrap_or(Value::Null);
+    let l = |k: &str| legacy.get(k).cloned().unwrap_or(Value::Null);
+    let fit = l("fit") == json!(true);
+    let mut s = ViewportSpec { x: v.rect_mm[0], y: v.rect_mm[1], w: v.rect_mm[2], h: v.rect_mm[3], label: (!v.label.is_empty()).then(|| v.label.clone()), scale: (!fit).then(|| scale_text(v.scale)), callouts: l("callouts") == json!(true), ..Default::default() };
+    s.marks = serde_json::from_value(l("marks")).unwrap_or_default();
+    s.levels = serde_json::from_value(l("levels")).unwrap_or_default();
+    s.section_mark = serde_json::from_value::<Value>(l("section_mark")).ok().filter(|v| v.is_object()).and_then(|sm| {
+        Some(crate::layout::SectionMark { origin: serde_json::from_value(sm.get("origin")?.clone()).ok()?, look: serde_json::from_value(sm.get("look")?.clone()).ok()?, label: sm.get("label")?.as_str()?.to_string() })
+    });
+    let named = legacy.get("view").and_then(Value::as_str).map(str::to_string);
+    match &v.view {
+        ViewKind::Plan { cut_z, floor_z, .. } => {
+            s.cut = Some(*cut_z);
+            s.floor = Some(*floor_z);
+            s.view = named.unwrap_or_else(|| "top".into());
+        }
+        ViewKind::Elevation { dir, .. } => {
+            s.view = match (dir[0].abs() > dir[1].abs(), dir[0] > 0.0, dir[1] > 0.0) {
+                (true, true, _) => "right",
+                (true, false, _) => "left",
+                (false, _, true) => "back",
+                (false, _, false) => "front",
+            }
+            .into();
+            s.callouts = true;
+        }
+        ViewKind::Section { origin, normal, .. } => {
+            s.section = Some([origin[0], origin[1], origin[2], normal[0], normal[1], normal[2]]);
+            s.view = named.unwrap_or_else(|| "front".into());
+        }
+        ViewKind::View3d { eye, target, fov, .. } => {
+            s.camera = Some(crate::render::CameraSpec { eye: *eye, target: *target, fov: *fov });
+            s.view = v.scene.clone().or(named).unwrap_or_else(|| "iso".into());
+        }
+    }
+    s
+}
