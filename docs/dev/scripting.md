@@ -55,7 +55,7 @@ townhouse, a row of houses, a retail center and the asset lineup.
 | Photos and scans | `match_photo`, `photo_solve`, `project_photo`, `import_cloud`, `cloud`, `cloud_data` |
 | Inspect | `info`, `faces`, `pick`, `parts`, `volume`, `report`, `classify`, `units` |
 | Pictures and video | `render`, `photoreal`, `animate`, `timeline`, `timeline_frames`, `export_sheets` (a PDF of the saved sheets), `blueprint` |
-| Drawing sheets (saved in the model) | `sheets` (makes sheets from a page description), `sheet_add`, `sheet_edit`, `sheet_delete`, `viewport_add`, `viewport_edit`, `sheet_item_delete`, `sheets_info` |
+| Drawing sheets (saved in the model) | `sheets` (makes sheets from a page description), `sheet_add`, `sheet_edit`, `sheet_delete`, `viewport_add`, `viewport_edit`, `sheet_item_delete`, `sheet_dim` (two anchors, or more for a chain), `sheet_reattach`, `sheet_line`, `sheet_trim`, `sheet_extend`, `sheet_offset`, `sheets_info` |
 | Files | `new` (optionally with a `figure`), `save`, `open`, `import_skp`, `import_dxf`, `import_dwg`, `import_ifc`, `import_fbx`, `import_obj`, `export_glb`, `export_obj`, `export_stl`, `export_dae`, `export_dxf`, `export_dwg`, `export_ifc`, `export_pdf`, `raise_walls` |
 | Plugins | `plugins`, `plugin_enable`, `install_plugin` (`preview: true` describes a plugin without installing it; replacing an installed one needs `replace: true`), `remove_plugin` |
 

@@ -76,6 +76,11 @@ pub fn build_with(m: &Model, sheet: &str, project: &str, mut pages: Vec<PageSpec
         for d in drawn {
             cv.out.extend(d?);
         }
+        // paper line work, over the viewports and under the dimensions
+        for l in &page.lines {
+            let pen = Pen { w: l.w, rgb: l.rgb.unwrap_or(pens.ink), dash: l.dash.clone() };
+            cv.push(Prim::Path(PathPrim { segs: l.segs.clone(), pen: Some(pen), fill: None, prov: None }));
+        }
         // dimensions attached to the model, drawn over the viewports
         for d in &page.dims {
             super::dims::draw(&mut cv, &pens, d);
@@ -160,7 +165,7 @@ fn title_block(cv: &mut Cv, pens: &Pens, project: &str, title: &str, date: &str,
 }
 
 /// One viewport: its content clipped to its frame, the frame, caption and scale bar.
-fn viewport(m: &Model, bm: &Model, v: &ViewportSpec, pens: &Pens, sh: f64) -> Result<Vec<Prim>> {
+pub(crate) fn viewport(m: &Model, bm: &Model, v: &ViewportSpec, pens: &Pens, sh: f64) -> Result<Vec<Prim>> {
     let mut cv = Cv::new(sh);
     let y = |mm: f64| (sh - mm) * PT;
     let (label, denom) = if let Some(z) = v.cut {

@@ -466,6 +466,53 @@ pub enum Command {
         #[serde(default)]
         tol: Option<f64>,
     },
+    /// Paper line work on a sheet (drawn in the PDF, SVG and DXF). `kind` is `line` (2 points), `polyline` (2 or more),
+    /// `arc` (3 points: start, a point on it, end) or `rect` (2 opposite corners); default: a line for 2 points, else a
+    /// polyline. Points are paper millimetres from the sheet's top left. `w_mm` (0.05 to 2, default 0.25), `color`
+    /// ("#rrggbb"; default the sheet's ink) and `dash_mm` (on, off, ...) make the pen. `lines: [..]` adds several as
+    /// one step. With `id`, changes that item instead (only what is given; its kind stays). Delete with `sheet_item_delete`.
+    SheetLine {
+        #[serde(flatten)]
+        args: LineArgs,
+        #[serde(default)]
+        lines: Vec<LineArgs>,
+    },
+    /// Trim paper line work: cut away the span of `item` that holds `at_mm` (the point you pick on it), between the
+    /// nearest places other things cross it. Boundaries are the other paper line work on the sheet, the lines the
+    /// sheet's viewports draw of the model (never trimmed themselves), and viewport frames. A span in the middle
+    /// leaves two pieces (the second is a new item); one at the end leaves one. With no crossing the command refuses.
+    /// `pick_tol_mm` (default 2) is how far `at_mm` may be from the line work. `use_model: false` ignores the model's lines.
+    SheetTrim {
+        item: Id,
+        at_mm: [f64; 2],
+        #[serde(default)]
+        pick_tol_mm: Option<f64>,
+        #[serde(default)]
+        use_model: Option<bool>,
+    },
+    /// Extend paper line work: the end of `item` nearest `at_mm` runs on, along its own direction (an arc along its
+    /// circle), to the nearest boundary ahead of it: other line work, a model line a viewport draws, or a viewport
+    /// frame. Refuses when nothing lies ahead, and for closed shapes.
+    SheetExtend {
+        item: Id,
+        at_mm: [f64; 2],
+        #[serde(default)]
+        pick_tol_mm: Option<f64>,
+        #[serde(default)]
+        use_model: Option<bool>,
+    },
+    /// Offset paper line work: a parallel copy `distance_mm` away (a new item with the same pen). Say which side
+    /// with `at_mm` (the side that point is on), or `side`: `left` or `right` of the way the line runs from its first
+    /// point (as the sheet looks), or `inside` / `outside` for a rect or a closed polyline. Lines move over,
+    /// polylines get mitred corners, arcs get a bigger or smaller radius, rects grow or shrink.
+    SheetOffset {
+        item: Id,
+        distance_mm: f64,
+        #[serde(default)]
+        at_mm: Option<[f64; 2]>,
+        #[serde(default)]
+        side: Option<String>,
+    },
     /// Attach broken anchors again. `{"item": id, "anchor": 1, "to": {..an anchor..}}` attaches one where you say.
     /// `{"all_exact": true}` (optionally with `item` or `sheet`) attaches every broken anchor that has exactly one
     /// vertex within 1 micrometre of where it last was, and leaves the rest. Nothing reattaches by itself.
@@ -1210,6 +1257,22 @@ pub struct AnchorArg {
     pub guide: Option<Id>,
     /// component placements from the root down, for geometry inside components
     pub path: Vec<Id>,
+}
+
+/// What a paper line work command may set. All optional on an edit; a new item needs `sheet` and `pts_mm`.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct LineArgs {
+    /// the item to change (leave out to add one)
+    pub id: Option<Id>,
+    pub sheet: Option<Id>,
+    /// line, polyline, arc or rect
+    pub kind: Option<String>,
+    pub pts_mm: Option<Vec<[f64; 2]>>,
+    pub w_mm: Option<f64>,
+    pub color: Option<String>,
+    pub dash_mm: Option<Vec<f64>>,
+    pub z: Option<i32>,
 }
 
 /// What a viewport command may set. All optional: a new viewport gets sensible defaults (see `sheets.rs`).

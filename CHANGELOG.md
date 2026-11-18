@@ -17,6 +17,19 @@ What changed in each SketchCraft release, newest first. The format follows
   (over 32,767 objects) are read correctly too. (part of #70)
 
 ### Added
+- **Line work on sheets: draw, trim, extend and offset.** A sheet can hold plain lines, polylines, arcs and
+  rectangles (`sheet_line`: a pen weight in paper millimetres, a colour, optional dashes), drawn in the PDF, SVG and
+  DXF. `sheet_trim` cuts away the span you pick between the nearest places other things cross it: the other line work
+  on the sheet, the lines a viewport draws of your model, and the edges of viewports. A span in the middle leaves two
+  pieces, one at the end leaves one, and a rectangle opens into a polyline. The model's own lines are only ever
+  boundaries, never cut. `sheet_extend` runs the end nearest your pick on, along the line (or round the circle for an
+  arc), to the next boundary. `sheet_offset` makes a parallel copy: lines move over, polylines get mitred corners,
+  arcs get a bigger or smaller radius, rectangles grow or shrink. When there is nothing to trim to or extend to, or a
+  distance would collapse the shape, the command says so and changes nothing. Each one is a single Undo step, and
+  agents and plugins can use them. There is no mouse editor for these yet (that is the sheet editor, #9); this is the
+  engine and the commands it will use. A chain of dimensions was already one command: `sheet_dim` with more than two
+  points measures every span in one go (or every span from the first point, as a baseline set), and is now written up
+  in the agent help. (part of #19)
 - **Cut fill per tag.** Where a plan or section cuts something, each tag now decides how its cut looks: the usual
   dark fill, a solid colour of your choice, its hatch, or nothing at all (just the outline), with its own outline
   thickness. A section through walls, a slab and furniture on different tags shows each its own way, on drawing sheets

@@ -77,6 +77,9 @@ pub struct PageSpec {
     /// saved dimensions worked out against the live model (set when a saved sheet is exported; never in a command)
     #[serde(skip)]
     pub dims: Vec<crate::draft::dims::DimDraw>,
+    /// paper line work saved on the sheet, in stacking order (set when a saved sheet is exported)
+    #[serde(skip)]
+    pub lines: Vec<crate::draft::linework::ShapeDraw>,
 }
 
 // the scale parser and the grid placer, where the saved-sheets commands (#61) look for them
