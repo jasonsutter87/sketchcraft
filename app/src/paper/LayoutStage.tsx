@@ -14,7 +14,7 @@ export function LayoutStage({ L }: { L: LayoutState }) {
         {L.ready && (
           <div className="layout-empty" role="region" aria-label="No pages yet">
             <svg width="120" height="86" viewBox="0 0 120 86" aria-hidden="true">
-              <rect x="6" y="6" width="108" height="74" rx="2" className="sheet" />
+              <rect x="4" y="4" width="112" height="78" rx="2" className="sheet" />
               <rect x="14" y="14" width="56" height="46" className="vp" />
               <rect x="76" y="14" width="30" height="22" className="vp" />
               <rect x="76" y="62" width="30" height="12" className="tb" />

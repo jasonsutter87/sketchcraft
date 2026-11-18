@@ -102,13 +102,15 @@
     pointer-events: none;
   }
 
+  /* on the paper (white in every theme): white type on the accent, like a chip */
   .vp-tag {
-    fill: var(--accent-ink);
+    fill: #fff;
     font-size: $font-s;
     font-weight: 600;
     paint-order: stroke;
-    stroke: var(--panel);
-    stroke-width: 3px;
+    stroke: var(--accent);
+    stroke-width: 5px;
+    stroke-linejoin: round;
     pointer-events: none;
   }
 }
@@ -322,9 +324,22 @@
     margin: 4px 0;
   }
 
+  /* the row's buttons sit over its right end when you point at it, pick it or tab to it, so the name has the room */
   .page-actions {
-    @include row(0);
-    flex: none;
+    position: absolute;
+    right: 2px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: none;
+    padding: 1px;
+    border-radius: $radius-sm;
+    background: var(--panel);
+    box-shadow: var(--shadow);
+  }
+
+  &:hover .page-actions,
+  &:focus-within .page-actions {
+    display: flex;
   }
 
   .rowbtn {
@@ -345,13 +360,11 @@
     }
 
     &:disabled {
-      opacity: 0 !important;
+      opacity: 0.3 !important;
     }
   }
 
-  &:hover .rowbtn,
-  &.on .rowbtn,
-  .rowbtn:focus-visible {
+  .page-actions .rowbtn {
     opacity: 1;
   }
 }

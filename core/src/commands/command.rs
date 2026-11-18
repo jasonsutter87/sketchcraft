@@ -582,6 +582,8 @@ pub enum Command {
         #[serde(default)]
         limit_kb: Option<usize>,
     },
+    /// Put the sheets in this order (every sheet's id once, first first): orders 0, 10, 20... One undo step.
+    SheetOrder { sheets: Vec<Id> },
     /// A copy of a sheet with everything on it (viewports, dimensions, line work, text), placed right after it in
     /// the set. One undo step.
     SheetDuplicate {

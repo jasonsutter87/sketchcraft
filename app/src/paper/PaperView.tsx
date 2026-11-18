@@ -9,7 +9,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { drawPage, IrCache, PAPER_FONT, type Ir } from "./draw";
 import { scaleText, viewName, type ViewportItem } from "./pages";
-import { fit, hitRect, panBy, tilesFor, toPaper, toScreen, zoomAt, zoomPercent, zoomStep, type PaperCam } from "./view";
+import { fit, hitRect, panBy, tilesFor, toPaper, toScreen, zoomAt, zoomPercent, zoomStepUp, type PaperCam } from "./view";
 
 const TILE = 512;
 const MAX_TILES = 40;
@@ -110,7 +110,7 @@ export function PaperView({ ir, paper, viewports, picked, onPick, drawing, error
       g.fillRect(x0, y0, pwPx, phPx);
       g.restore();
       if (!ir) return;
-      const kt = zoomStep(cam.k) * dpr;
+      const kt = zoomStepUp(cam.k) * dpr;
       const need = tilesFor(cam, kt, size.w, size.h, ir.w, ir.h, TILE);
       let made = 0;
       let missing = false;
@@ -142,9 +142,11 @@ export function PaperView({ ir, paper, viewports, picked, onPick, drawing, error
           tiles.current.delete(key);
           tiles.current.set(key, t);
         }
-        const s = cam.k / kt; // screen px per tile px
-        const [sx, sy] = toScreen(cam, [(tx * TILE) / kt, (ty * TILE) / kt]);
-        g.drawImage(t, sx, sy, TILE * s, TILE * s);
+        // each tile's edges on whole device pixels, shared with its neighbours: no seams between tiles
+        const [ax, ay] = toScreen(cam, [(tx * TILE) / kt, (ty * TILE) / kt]);
+        const [bx, by] = toScreen(cam, [((tx + 1) * TILE) / kt, ((ty + 1) * TILE) / kt]);
+        const snap = (v: number) => Math.round(v * dpr) / dpr;
+        g.drawImage(t, snap(ax), snap(ay), snap(bx) - snap(ax), snap(by) - snap(ay));
       }
       if (missing) frame.current = requestAnimationFrame(draw);
     };

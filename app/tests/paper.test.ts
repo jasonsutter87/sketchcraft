@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { inOrder, moveIn, newPageName, opacityOf, paperId, parseScale, percentOf, reorderCommands, scaleText, viewName, viewportsOf, type SheetInfo, type ViewportItem } from "../src/paper/pages";
-import { clampK, fit, hitRect, MAX_K, MIN_K, panBy, tilesFor, toPaper, toScreen, zoomAt, zoomPercent, zoomStep } from "../src/paper/view";
+import { inOrder, moveIn, newPageName, opacityOf, paperId, parseScale, percentOf, reorderCommand, scaleText, viewArgs, viewName, viewportsOf, type SheetInfo, type ViewportItem } from "../src/paper/pages";
+import { clampK, fit, hitRect, MAX_K, MIN_K, panBy, tilesFor, toPaper, toScreen, zoomAt, zoomPercent, zoomStep, zoomStepUp } from "../src/paper/view";
 import { cleanEdits, leftTabs, toolAfterSwitch, WORKSPACES, withEdits } from "../src/workspace";
 
 const sheet = (id: number, order: number, name = `P${id}`, items: SheetInfo["items"] = []): SheetInfo => ({ id, name, number: "", paper: { w_mm: 420, h_mm: 297, name: "a3" }, order, fields: {}, issued: 0, items });
@@ -18,20 +18,16 @@ describe("page order", () => {
     expect(moveIn(same, 5, 0)).toBe(same);
     expect(moveIn(same, 1, 1)).toBe(same);
   });
-  it("sends only the sheets whose number changes, 0, 10, 20...", () => {
-    const s = [sheet(1, 0), sheet(2, 10), sheet(3, 20)];
-    expect(reorderCommands([1, 2, 3], s)).toEqual([]);
-    expect(reorderCommands([3, 1, 2], s)).toEqual([
-      { cmd: "sheet_edit", sheet: 3, order: 0 },
-      { cmd: "sheet_edit", sheet: 1, order: 10 },
-      { cmd: "sheet_edit", sheet: 2, order: 20 },
-    ]);
-    // sheets made by sheet_add (0, 1, 2) are renumbered once; a swap of the last two touches only what differs
-    const fresh = [sheet(1, 0), sheet(2, 1), sheet(3, 2)];
-    expect(reorderCommands([1, 3, 2], fresh)).toEqual([
-      { cmd: "sheet_edit", sheet: 3, order: 10 },
-      { cmd: "sheet_edit", sheet: 2, order: 20 },
-    ]);
+  it("reorders with one command (one undo step), only when the order changes", () => {
+    const s = [sheet(1, 0), sheet(2, 1), sheet(3, 2)];
+    expect(reorderCommand([1, 2, 3], s)).toBeNull();
+    expect(reorderCommand([3, 1, 2], s)).toEqual({ cmd: "sheet_order", sheets: [3, 1, 2] });
+    // the engine's order counts, not the list's: sheets listed out of order are sorted first
+    expect(reorderCommand([1, 2, 3], [sheet(3, 2), sheet(1, 0), sheet(2, 1)])).toBeNull();
+    // never a list the engine would refuse
+    expect(reorderCommand([3, 1], s)).toBeNull();
+    expect(reorderCommand([3, 1, 1], s)).toBeNull();
+    expect(reorderCommand([3, 1, 9], s)).toBeNull();
   });
   it("names a new page with a number nobody has", () => {
     expect(newPageName([])).toBe("Page 1");
@@ -69,6 +65,13 @@ describe("viewports and their fields", () => {
     expect(opacityOf(33.4)).toBe(0.33);
     expect(percentOf(vp(1, [0, 0, 1, 1]) as ViewportItem)).toBe(100);
     expect(percentOf(vp(1, [0, 0, 1, 1], { opacity: 0.4 }) as ViewportItem)).toBe(40);
+  });
+  it("asks for true elevations for the sides, a plan, or a 3D view from a named view", () => {
+    expect(viewArgs("front")).toEqual({ view: { type: "elevation", dir: [0, -1, 0] } });
+    expect(viewArgs("left")).toEqual({ view: { type: "elevation", dir: [-1, 0, 0] } });
+    expect(viewArgs("plan")).toEqual({ view: { type: "plan", cut_z: 1.2, floor_z: 0 } });
+    expect(viewArgs("iso")).toEqual({ from_view: "iso" });
+    expect(viewArgs("Porch")).toEqual({ from_view: "Porch" });
   });
   it("says what a viewport shows", () => {
     expect(viewName(vp(1, [0, 0, 1, 1], { view: { type: "plan" } }) as ViewportItem)).toBe("Plan");
@@ -117,6 +120,13 @@ describe("the paper view's camera", () => {
     expect(zoomStep(1.45)).toBeCloseTo(Math.SQRT2);
     expect(zoomStep(2.1)).toBe(2);
     expect(zoomStep(3)).toBeCloseTo(2 * Math.SQRT2);
+    // drawn at the step above, the tiles are only ever shrunk on screen, by at most √2
+    expect(zoomStepUp(1)).toBe(1);
+    expect(zoomStepUp(1.3)).toBeCloseTo(Math.SQRT2);
+    for (const k of [0.07, 0.5, 1.93, 7, 60]) {
+      expect(zoomStepUp(k)).toBeGreaterThanOrEqual(k - 1e-9);
+      expect(zoomStepUp(k) / k).toBeLessThanOrEqual(Math.SQRT2 + 1e-9);
+    }
   });
   it("lists the tiles that cover the screen, inside the page", () => {
     // the page 420 mm wide at 2 px/mm is 840 px: two 512 px tiles across, one down for 297 mm (594 px: two)

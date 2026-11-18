@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { exec, type Reply, type Scene } from "../engine";
 import type { Ir } from "./draw";
-import { inOrder, newPageName, reorderCommands, type SheetInfo } from "./pages";
+import { inOrder, newPageName, reorderCommand, type SheetInfo } from "./pages";
 
 type Run = (cmd: Record<string, unknown>) => Promise<Reply>;
 
@@ -26,7 +26,7 @@ export interface LayoutState {
   duplicate: (id: number) => Promise<void>;
   remove: (id: number) => Promise<void>;
   rename: (id: number, name: string) => Promise<void>;
-  /** put the sheets in this order (ids, first first): one batch, one undo step */
+  /** put the sheets in this order (ids, first first): one command, one undo step */
   reorder: (ids: number[]) => Promise<void>;
 }
 
@@ -115,20 +115,12 @@ export function useLayout({ active, scene, run, say }: { active: boolean; scene:
     await run({ cmd: "sheet_edit", sheet: id, name: n });
   };
   const reorder = async (ids: number[]) => {
-    const cmds = reorderCommands(ids, ordered);
-    if (!cmds.length) return;
+    const c = reorderCommand(ids, ordered);
+    if (!c) return;
     // show the new order at once; the engine's answer follows
     const by = new Map(ordered.map((s) => [s.id, s]));
-    setSheets(ids.map((id, i) => ({ ...by.get(id)!, order: i * 10 })).filter((s) => s.id != null));
-    const b = cmds.length > 1 ? await run({ cmd: "begin_batch" }) : null;
-    try {
-      for (const c of cmds) {
-        const r = await run(c);
-        if (!r.ok) break;
-      }
-    } finally {
-      if (b) await run(typeof b.batch === "number" ? { cmd: "end_batch", id: b.batch } : { cmd: "end_batch" });
-    }
+    setSheets(ids.map((id, i) => ({ ...by.get(id)!, order: i * 10 })));
+    await run(c);
   };
 
   return { sheets: ordered, ready, page, setPage, viewport: vpOk ? viewport : null, setViewport, ir: ir && ir.sheet === pid ? ir : null, drawing, irError, add, duplicate, remove, rename, reorder };

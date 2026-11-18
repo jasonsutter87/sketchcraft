@@ -200,6 +200,37 @@ const dialogs = [
   }],
 ];
 for (const [name, run] of dialogs) shots.push({ name: `classic-light-${name}`, layout: 'classic', skin: 'classic', run });
+// the Layout workspace (#63): three pages, the first with two views, one of them picked (frame, handles, the
+// inspector's opacity slider); in each theme. The date in the title block is fixed by run.mjs (SOURCE_DATE_EPOCH).
+const layoutShot = (pick) => async (p) => {
+  const ids = [];
+  for (const [name, number] of [['Plans', 'A-101'], ['Elevations', 'A-201'], ['Views', 'A-301']]) ids.push((await pageExec(p, { cmd: 'sheet_add', name, number, paper: 'a3', fields: { project: 'Visual test' } })).sheet);
+  await pageExec(p, { cmd: 'viewport_add', sheet: ids[0], view: { type: 'plan', cut_z: 1.2, floor_z: 0 }, scale: 100, rect_mm: [20, 20, 180, 150], label: 'Plan' });
+  const front = (await pageExec(p, { cmd: 'viewport_add', sheet: ids[0], view: { type: 'elevation', dir: [0, -1, 0] }, scale: 100, rect_mm: [215, 20, 180, 150], label: 'Front', opacity: 0.6 })).viewport;
+  await p.getByRole('tab', { name: 'Layout', exact: true }).click();
+  await p.waitForSelector('.paper-view');
+  await p.locator('.page-row').first().locator('.page-main').click({ position: { x: 24, y: 12 } });
+  // drawn: no "Drawing the page" left, and the tiles have had their frames
+  for (let i = 0; i < 80 && (await p.locator('.paper-status').count()); i++) await wait(150);
+  await wait(800);
+  if (pick) {
+    const r = await p.locator(`.vp[data-viewport="${front}"] .vp-frame`).boundingBox();
+    await p.mouse.click(r.x + r.width / 2, r.y + r.height / 2);
+    await p.waitForSelector('.layout-inspector[aria-label="Viewport"]');
+  }
+  await p.mouse.move(2, 2);
+};
+for (const [skin, label] of SKINS) shots.push({ name: `layout-${label}`, layout: 'classic', skin, run: layoutShot(true) });
+shots.push({ name: 'layout-page-light', layout: 'floating', skin: 'classic', run: layoutShot(false) });
+shots.push({
+  name: 'layout-empty-light',
+  layout: 'classic',
+  skin: 'classic',
+  run: async (p) => {
+    await p.getByRole('tab', { name: 'Layout', exact: true }).click();
+    await p.waitForSelector('.layout-empty');
+  },
+});
 for (const [name, run] of dialogs.filter(([n]) => ['file-menu', 'themes', 'command-palette', 'plugins', 'shortcuts-editor'].includes(n))) shots.push({ name: `floating-dark-${name}`, layout: 'floating', skin: 'midnight', run });
 
 // ---- run them ------------------------------------------------------------------------------------------------------------

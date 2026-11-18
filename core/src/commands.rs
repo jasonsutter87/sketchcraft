@@ -922,7 +922,7 @@ impl Engine {
                 Command::SheetDelete { .. } | Command::ViewportAdd { .. } | Command::ViewportEdit { .. } |
                 Command::SheetItemDelete { .. } | Command::SheetsInfo { .. } | Command::SheetDim { .. } | Command::SheetReattach { .. } |
                 Command::SheetLine { .. } | Command::SheetTrim { .. } | Command::SheetExtend { .. } | Command::SheetOffset { .. } |
-                Command::SheetDuplicate { .. }
+                Command::SheetDuplicate { .. } | Command::SheetOrder { .. }
             ) => self.run_sheets(c),
             c @ (Command::ViewportPoints { .. } | Command::DimensionAuto { .. } | Command::LayoutPreset { .. } | Command::SheetRender { .. } | Command::SheetIr { .. }) => self.run_autodraft(c),
             c @ (

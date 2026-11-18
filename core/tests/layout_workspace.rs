@@ -1,6 +1,6 @@
 //! The engine side of the Layout workspace (#63, design step 11): `sheet_ir` (a saved sheet's display list as light
-//! JSON, what the app's paper view draws) and `sheet_duplicate` (the Pages panel's Duplicate), plus the page commands
-//! the Pages panel sends (reorder in one batch, rename, delete), each one undo step.
+//! JSON, what the app's paper view draws), `sheet_duplicate` (the Pages panel's Duplicate) and `sheet_order` (its
+//! reorder), plus the other page commands it sends (rename, delete), each one undo step.
 
 use serde_json::{json, Value};
 use sketchcraft::policy::{permits, vet, Caller, Workspace};
@@ -166,18 +166,17 @@ fn duplicate_keeps_the_sheet_limit() {
 }
 
 #[test]
-fn a_reorder_in_one_batch_is_one_undo_step() {
+fn a_reorder_is_one_undo_step() {
     let mut e = Engine::new();
     let ids: Vec<u64> = (0..3).map(|i| ok(&mut e, json!({"cmd": "sheet_add", "name": format!("P{}", i + 1)}))["sheet"].as_u64().unwrap()).collect();
     let names = |e: &mut Engine| -> Vec<String> { ok(e, json!({"cmd": "sheets_info"}))["sheets"].as_array().unwrap().iter().map(|s| s["name"].as_str().unwrap().to_string()).collect() };
     assert_eq!(names(&mut e), ["P1", "P2", "P3"]);
-    // what the Pages panel sends to move P3 to the top: the orders that change, in one batch
-    let b = ok(&mut e, json!({"cmd": "begin_batch"}))["batch"].clone();
-    ok(&mut e, json!({"cmd": "sheet_edit", "sheet": ids[2], "order": 0}));
-    ok(&mut e, json!({"cmd": "sheet_edit", "sheet": ids[0], "order": 10}));
-    ok(&mut e, json!({"cmd": "sheet_edit", "sheet": ids[1], "order": 20}));
-    ok(&mut e, json!({"cmd": "end_batch", "id": b}));
+    // what the Pages panel sends to move P3 to the top: the whole order, one command
+    let r = ok(&mut e, json!({"cmd": "sheet_order", "sheets": [ids[2], ids[0], ids[1]]}));
+    assert_eq!(r["renumbered"], 3);
     assert_eq!(names(&mut e), ["P3", "P1", "P2"]);
+    assert_eq!(e.model.sheets[&(ids[2] as u32)].order, 0);
+    assert_eq!(e.model.sheets[&(ids[1] as u32)].order, 20);
     ok(&mut e, json!({"cmd": "undo"}));
     assert_eq!(names(&mut e), ["P1", "P2", "P3"]);
     ok(&mut e, json!({"cmd": "redo"}));
@@ -190,13 +189,19 @@ fn a_reorder_in_one_batch_is_one_undo_step() {
     assert_eq!(names(&mut e), ["P3", "Ground floor", "P2"]);
     ok(&mut e, json!({"cmd": "undo"}));
     assert_eq!(names(&mut e), ["P3", "P1", "P2"]);
+    // the same order again changes nothing; a list that leaves one out, names one twice or names a stranger is refused
+    assert_eq!(ok(&mut e, json!({"cmd": "sheet_order", "sheets": [ids[2], ids[0], ids[1]]}))["renumbered"], 0);
+    assert!(bad(&mut e, json!({"cmd": "sheet_order", "sheets": [ids[2], ids[0]]})).contains("every sheet once"));
+    assert!(bad(&mut e, json!({"cmd": "sheet_order", "sheets": [ids[2], ids[0], ids[0]]})).contains("twice"));
+    assert!(bad(&mut e, json!({"cmd": "sheet_order", "sheets": [ids[2], ids[0], 999_999]})).contains("no sheet"));
+    assert_eq!(names(&mut e), ["P3", "P1", "P2"]);
 }
 
 #[test]
 fn the_new_commands_are_model_commands_for_everyone() {
     let agent = Caller::Mcp(Workspace::anywhere());
-    for c in ["sheet_ir", "sheet_duplicate"] {
+    for c in ["sheet_ir", "sheet_duplicate", "sheet_order"] {
         assert!(permits(&Caller::Ui, c) && permits(&Caller::Plugin, c) && permits(&agent, c), "{c}");
-        assert!(vet(&agent, &mut json!({"cmd": c, "sheet": 1})).is_ok(), "{c}");
+        assert!(vet(&agent, &mut json!({"cmd": c, "sheet": 1, "sheets": [1, 2]})).is_ok(), "{c}");
     }
 }

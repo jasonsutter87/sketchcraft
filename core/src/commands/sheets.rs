@@ -346,6 +346,31 @@ impl Engine {
                 }
                 json!({"deleted": gone.len()})
             }
+            Command::SheetOrder { sheets } => {
+                let m = &mut self.model;
+                let mut seen = std::collections::BTreeSet::new();
+                for id in &sheets {
+                    if !m.sheets.contains_key(id) {
+                        bail!("no sheet {id}");
+                    }
+                    if !seen.insert(*id) {
+                        bail!("sheet {id} is listed twice");
+                    }
+                }
+                if seen.len() != m.sheets.len() {
+                    bail!("list every sheet once ({} given, the model has {}): sheets_info lists them", seen.len(), m.sheets.len());
+                }
+                let mut moved = 0;
+                for (i, id) in sheets.iter().enumerate() {
+                    let want = i32::try_from(i).unwrap_or(i32::MAX / 10).saturating_mul(10);
+                    let s = m.sheets.get_mut(id).expect("checked above");
+                    if s.order != want {
+                        s.order = want;
+                        moved += 1;
+                    }
+                }
+                json!({"sheets": sheets, "renumbered": moved})
+            }
             Command::SheetDuplicate { sheet, name } => {
                 if self.model.sheets.len() >= self.sheet_limit() {
                     bail!("a model holds at most {} sheets", self.sheet_limit());

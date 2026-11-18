@@ -40,7 +40,13 @@ export const panBy = (c: PaperCam, dx: number, dy: number): PaperCam => ({ ...c,
  * so often (in between, the cached tiles are scaled), and every tile of one step lines up.
  */
 export function zoomStep(k: number): number {
-  const s = Math.floor(Math.log2(clampK(k)) * 2) / 2;
+  const s = Math.floor(Math.log2(clampK(k)) * 2 + 1e-9) / 2;
+  return 2 ** s;
+}
+
+/** The zoom step at or just above k: tiles drawn there are only ever shrunk on screen (by at most √2), so lines stay crisp. */
+export function zoomStepUp(k: number): number {
+  const s = Math.ceil(Math.log2(clampK(k)) * 2 - 1e-9) / 2;
   return 2 ** s;
 }
 

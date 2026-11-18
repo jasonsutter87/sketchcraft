@@ -9,12 +9,14 @@ import type { LayoutState } from "./uselayout";
 /** The page's outline and its viewports' frames, to scale: a thumbnail that costs nothing to draw. */
 function Thumb({ s }: { s: SheetInfo }) {
   const W = 44;
-  const k = W / Math.max(s.paper.w_mm, s.paper.h_mm);
+  const H = 33;
+  // a pixel clear all round, so the outline isn't cut
+  const k = Math.min((W - 2) / s.paper.w_mm, (H - 2) / s.paper.h_mm);
   const w = s.paper.w_mm * k;
   const h = s.paper.h_mm * k;
   const blue = s.fields?.blueprint === "true";
   return (
-    <svg className="page-thumb" width={W} height={W * 0.75} viewBox={`${-(W - w) / 2} ${-(W * 0.75 - h) / 2} ${W} ${W * 0.75}`} aria-hidden="true">
+    <svg className="page-thumb" width={W} height={H} viewBox={`${-(W - w) / 2} ${-(H - h) / 2} ${W} ${H}`} aria-hidden="true">
       <rect className={`sheet ${blue ? "blue" : ""}`} x={0} y={0} width={w} height={h} />
       {viewportsOf(s).map((v) => (
         <rect key={v.id} className="vp" x={v.rect_mm[0] * k} y={v.rect_mm[1] * k} width={v.rect_mm[2] * k} height={v.rect_mm[3] * k} opacity={v.opacity ?? 1} />

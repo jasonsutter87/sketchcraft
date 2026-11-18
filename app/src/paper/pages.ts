@@ -58,12 +58,14 @@ export function moveIn<T>(list: T[], from: number, to: number): T[] {
 }
 
 /**
- * The `sheet_edit` commands that put the sheets in `order` (ids, first first): order 0, 10, 20... Only sheets whose
- * number changes get a command; the panel sends them in one batch, so a reorder is one undo step.
+ * The command that puts the sheets in `order` (ids, first first): `sheet_order`, one command and one undo step (the
+ * engine numbers them 0, 10, 20...). Null when that is already their order, or the list isn't every sheet once.
  */
-export function reorderCommands(order: number[], sheets: SheetInfo[]): Record<string, unknown>[] {
-  const now = new Map(sheets.map((s) => [s.id, s.order]));
-  return order.flatMap((id, i) => (now.get(id) === i * 10 ? [] : [{ cmd: "sheet_edit", sheet: id, order: i * 10 }]));
+export function reorderCommand(order: number[], sheets: SheetInfo[]): Record<string, unknown> | null {
+  const now = inOrder(sheets).map((s) => s.id);
+  if (order.length !== now.length || new Set(order).size !== order.length || !order.every((id) => now.includes(id))) return null;
+  if (order.every((id, i) => now[i] === id)) return null;
+  return { cmd: "sheet_order", sheets: order };
 }
 
 /** A name for a new page that no page has yet ("Page 3"). */
@@ -115,6 +117,19 @@ export const percentOf = (v: ViewportItem | undefined) => Math.round((v?.opacity
 
 /** The standard views a viewport can show (`viewport_edit from_view`), plus the model's saved views. */
 export const STANDARD_VIEWS = ["iso", "top", "front", "back", "left", "right"];
+
+/** A side's elevation (`dir`: from the model toward the viewer, as the engine takes it). */
+export const ELEVATIONS: Record<string, [number, number, number]> = { front: [0, -1, 0], back: [0, 1, 0], left: [-1, 0, 0], right: [1, 0, 0] };
+
+/**
+ * What `viewport_add` / `viewport_edit` take to show `name`: "plan" (a floor plan cut 1.2 m up), a side (a true
+ * elevation, hidden lines removed), or a standard or saved view's name (a 3D view from there).
+ */
+export function viewArgs(name: string): Record<string, unknown> {
+  if (name === "plan") return { view: { type: "plan", cut_z: 1.2, floor_z: 0 } };
+  if (ELEVATIONS[name]) return { view: { type: "elevation", dir: ELEVATIONS[name] } };
+  return { from_view: name };
+}
 
 /** What a viewport shows, in words ("Plan", "Front elevation", "3D view"...). */
 export function viewName(v: ViewportItem): string {

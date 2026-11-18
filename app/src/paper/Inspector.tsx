@@ -4,7 +4,7 @@
 
 import { useEffect, useState } from "react";
 import type { Reply, Scene } from "../engine";
-import { opacityOf, paperId, PAPERS, parseScale, percentOf, scaleText, STANDARD_VIEWS, viewName, viewportsOf, type SheetInfo, type ViewportItem } from "./pages";
+import { opacityOf, paperId, PAPERS, parseScale, percentOf, scaleText, STANDARD_VIEWS, viewArgs, viewName, viewportsOf, type SheetInfo, type ViewportItem } from "./pages";
 
 type Run = (cmd: Record<string, unknown>) => Promise<Reply>;
 
@@ -49,8 +49,7 @@ function ViewportInspector({ v, scene, run, onDone }: { v: ViewportItem; scene: 
     if (opacityOf(p) !== (v.opacity ?? 1)) void run({ cmd: "viewport_edit", id: v.id, opacity: opacityOf(p) });
   };
   const fromView = (name: string) => {
-    if (name === "plan") void run({ cmd: "viewport_edit", id: v.id, view: { type: "plan", cut_z: 1.2, floor_z: 0 } });
-    else if (name) void run({ cmd: "viewport_edit", id: v.id, from_view: name });
+    if (name) void run({ cmd: "viewport_edit", id: v.id, ...viewArgs(name) });
   };
   return (
     <div className="section layout-inspector" aria-label="Viewport">
@@ -64,7 +63,7 @@ function ViewportInspector({ v, scene, run, onDone }: { v: ViewportItem; scene: 
           <option value="plan">Floor plan (cut 1.2 m up)</option>
           {STANDARD_VIEWS.map((s) => (
             <option key={s} value={s}>
-              {s[0].toUpperCase() + s.slice(1)}
+              {s === "iso" ? "3D view (iso)" : s === "top" ? "Top view" : `${s[0].toUpperCase()}${s.slice(1)} elevation`}
             </option>
           ))}
           {scene.views.map((sv) => (
@@ -140,8 +139,9 @@ function PageInspector({ s, scene, run }: { s: SheetInfo; scene: Scene; run: Run
   const fields = s.fields ?? {};
   const setField = (k: string, v: string) => void run({ cmd: "sheet_edit", sheet: s.id, fields: { [k]: v.trim() ? v : null } });
   const addView = async () => {
-    const view = adding === "plan" ? { view: { type: "plan", cut_z: 1.2, floor_z: 0 }, scale: 50, label: "Plan" } : { from_view: adding, ...(adding === "iso" ? {} : { scale: 50 }), label: adding[0].toUpperCase() + adding.slice(1) };
-    await run({ cmd: "viewport_add", sheet: s.id, ...view });
+    // a perspective 3D view has no scale; everything else is drawn to 1:50
+    const label = adding === "plan" ? "Plan" : adding === "iso" ? "3D view" : adding === "top" ? "Top" : STANDARD_VIEWS.includes(adding) ? `${adding[0].toUpperCase()}${adding.slice(1)} elevation` : adding;
+    await run({ cmd: "viewport_add", sheet: s.id, ...viewArgs(adding), ...(adding === "iso" || !STANDARD_VIEWS.includes(adding) && adding !== "plan" ? {} : { scale: 50 }), label });
   };
   const n = viewportsOf(s).length;
   return (
