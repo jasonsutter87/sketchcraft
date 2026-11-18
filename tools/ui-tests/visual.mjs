@@ -202,11 +202,12 @@ const dialogs = [
 for (const [name, run] of dialogs) shots.push({ name: `classic-light-${name}`, layout: 'classic', skin: 'classic', run });
 // the Layout workspace (#63): three pages, the first with two views, one of them picked (frame, handles, the
 // inspector's opacity slider); in each theme. The date in the title block is fixed by run.mjs (SOURCE_DATE_EPOCH).
-const layoutShot = (pick) => async (p) => {
+const layoutShot = (pick, before) => async (p) => {
   const ids = [];
   for (const [name, number] of [['Plans', 'A-101'], ['Elevations', 'A-201'], ['Views', 'A-301']]) ids.push((await pageExec(p, { cmd: 'sheet_add', name, number, paper: 'a3', fields: { project: 'Visual test' } })).sheet);
   await pageExec(p, { cmd: 'viewport_add', sheet: ids[0], view: { type: 'plan', cut_z: 1.2, floor_z: 0 }, scale: 100, rect_mm: [20, 20, 180, 150], label: 'Plan' });
   const front = (await pageExec(p, { cmd: 'viewport_add', sheet: ids[0], view: { type: 'elevation', dir: [0, -1, 0] }, scale: 100, rect_mm: [215, 20, 180, 150], label: 'Front', opacity: 0.6 })).viewport;
+  if (before) await before(p, ids[0]);
   await p.getByRole('tab', { name: 'Layout', exact: true }).click();
   await p.waitForSelector('.paper-view');
   await p.locator('.page-row').first().locator('.page-main').click({ position: { x: 24, y: 12 } });
@@ -221,6 +222,46 @@ const layoutShot = (pick) => async (p) => {
   await p.mouse.move(2, 2);
 };
 for (const [skin, label] of SKINS) shots.push({ name: `layout-${label}`, layout: 'classic', skin, run: layoutShot(true) });
+// the sheet editor (#9): the tool bar and options, paper text, line work and an attached chain dimension on the page,
+// and a dimension being drawn (the preview, a snap marker on a model corner, the step hint)
+const editorShot = async (p) => {
+  let s, pts, ys, bottom;
+  await layoutShot(false, async (p, sid) => {
+    s = (await pageExec(p, { cmd: 'sheets_info', sheet: sid })).sheets[0];
+    const plan = s.items.find((i) => i.kind === 'viewport' && i.view?.type === 'plan');
+    pts = (await pageExec(p, { cmd: 'viewport_points', viewport: plan.id })).points;
+    ys = [...new Set(pts.map((q) => q.mm[1]))].sort((a, b) => b - a);
+    bottom = pts.filter((q) => q.mm[1] === ys[0]).sort((a, b) => a.mm[0] - b.mm[0]);
+    await addItems(p, s, plan, bottom);
+  })(p);
+  await editorDraw(p, s, pts, ys, bottom);
+};
+const addItems = async (p, s, plan, bottom) => {
+  const made = [];
+  if (bottom.length >= 2) made.push(await pageExec(p, { cmd: 'sheet_dim', sheet: s.id, viewport: plan.id, mode: 'horizontal', offset_mm: -10, anchors: [bottom[0].anchor, bottom[bottom.length - 1].anchor] }));
+  made.push(await pageExec(p, { cmd: 'sheet_text', sheet: s.id, at_mm: [25, 200], text: 'GENERAL NOTES\n1. All sizes in metres.\n2. Check on site.' }));
+  made.push(await pageExec(p, { cmd: 'sheet_line', sheet: s.id, lines: [{ kind: 'rect', pts_mm: [[20, 185], [130, 230]] }, { pts_mm: [[140, 200], [260, 200]], w_mm: 0.5 }, { kind: 'arc', pts_mm: [[140, 230], [200, 210], [260, 230]], dash_mm: [3, 1.5] }] }));
+  for (const m of made) if (!m.ok) console.log('layout-editor: a command was refused:', m.error);
+};
+const editorDraw = async (p, s, pts, ys, bottom) => {
+  for (let i = 0; i < 80 && (await p.locator('.paper-overlay [data-item]').count()) < 5; i++) await wait(150);
+  await p.locator('.paper-tools').getByRole('button', { name: 'Dimension', exact: true }).click();
+  const e = await p.locator('.paper-overlay .paper-edge').boundingBox();
+  const k = e.width / s.paper.w_mm;
+  const at = (q) => [e.x + q[0] * k, e.y + q[1] * k];
+  const top = pts.filter((q) => q.mm[1] === ys[ys.length - 1]).sort((a, b) => a.mm[0] - b.mm[0]);
+  if (top.length >= 2) {
+    await p.mouse.click(...at(top[0].mm));
+    await wait(150);
+    await p.mouse.click(...at(top[top.length - 1].mm));
+    await wait(150);
+    // the mouse on a third corner: its snap marker, and the chain previewed to it
+    await p.mouse.move(...at([bottom[bottom.length - 1].mm[0] + 0.4, bottom[bottom.length - 1].mm[1] - 0.3]), { steps: 3 });
+  }
+  await wait(400);
+};
+shots.push({ name: 'layout-editor-light', layout: 'classic', skin: 'classic', run: editorShot });
+shots.push({ name: 'layout-editor-dark', layout: 'classic', skin: 'midnight', run: editorShot });
 shots.push({ name: 'layout-page-light', layout: 'floating', skin: 'classic', run: layoutShot(false) });
 shots.push({
   name: 'layout-empty-light',

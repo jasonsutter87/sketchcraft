@@ -239,8 +239,10 @@ export function useEditor(P: EditorProps) {
     // the other tools
     const at = drawPoint(raw, lastPt(stRef.current));
     const hit = tool === "trim" || tool === "extend" || tool === "offset" ? hitItem(raw, isShape) : tool === "erase" ? hitItem(raw) : null;
-    const typedDist = stRef.current.t === "offset" ? offsetDist(raw) : undefined;
-    feed({ type: "down", p: tool === "trim" || tool === "extend" || tool === "erase" || tool === "offset" ? raw : at.p, shift: ev.shiftKey, hit, anchor: at.anchor, dist: typedDist });
+    // an offset's side and distance come from the snapped point (so a copy lands on the grid); picking is by the mouse
+    const offsetting = stRef.current.t === "offset";
+    const typedDist = offsetting ? offsetDist(at.p) : undefined;
+    feed({ type: "down", p: tool === "trim" || tool === "extend" || tool === "erase" || (tool === "offset" && !offsetting) ? raw : at.p, shift: ev.shiftKey, hit, anchor: at.anchor, dist: typedDist });
     return true;
   };
 
@@ -297,7 +299,11 @@ export function useEditor(P: EditorProps) {
         pv.current++;
         setPreview(null);
       }
-      if (stRef.current.t === "offset") feed({ type: "move", p: raw, dist: offsetDist(raw) });
+      if (stRef.current.t === "offset") {
+        const at = drawPoint(raw);
+        setMarkers(at.marker ? [at.marker] : []);
+        feed({ type: "move", p: at.p, dist: offsetDist(at.p) });
+      }
       return true;
     }
     const at = drawPoint(raw, lastPt(stRef.current));

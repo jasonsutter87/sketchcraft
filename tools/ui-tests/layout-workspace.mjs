@@ -199,7 +199,7 @@ check(/select this viewport/i.test(await p.locator('.paper-hint').textContent())
 await p.mouse.click(frame.x + frame.width / 2, frame.y + frame.height / 2);
 await until(async () => (await p.locator('.layout-inspector[aria-label="Viewport"]').count()) === 1);
 check((await p.locator(`.vp.on[data-viewport="${v.id}"]`).count()) === 1, 'clicking it picks it: frame and handles');
-check((await p.locator('.vp.on .vp-handle').count()) === 8, 'eight handles');
+check((await p.locator('.paper-overlay .ed-handle').count()) === 8, 'eight handles (the editor ones, which take the mouse)');
 const slider = p.getByLabel('Viewport opacity');
 check((await slider.inputValue()) === '100', 'the opacity slider starts at 100%');
 await slider.fill('40');

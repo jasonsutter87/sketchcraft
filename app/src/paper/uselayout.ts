@@ -74,12 +74,16 @@ export function useLayout({ active, scene, run, say }: { active: boolean; scene:
   if (!page && ordered.length) page = ordered[Math.min(lastIndex.current, ordered.length - 1)];
   if (page) lastIndex.current = ordered.indexOf(page);
   const pid = page?.id ?? null;
-  // a viewport that isn't on this page any more is no longer picked
-  const vpOk = viewport == null || !!page?.items.some((i) => i.id === viewport);
+  // a viewport that isn't on this page any more is no longer picked (one just made may not be listed yet: it is
+  // dropped only once it has been seen and then goes)
+  const seen = useRef(new Set<number>());
+  for (const i of page?.items ?? []) seen.current.add(i.id);
+  const gone = (id: number | null) => id != null && !page?.items.some((i) => i.id === id) && (seen.current.has(id) || !page);
+  const vpOk = !gone(viewport);
   useEffect(() => {
     if (!vpOk) setViewport(null);
   }, [vpOk, setViewport]);
-  const itemOk = item == null || !!page?.items.some((i) => i.id === item);
+  const itemOk = !gone(item);
   useEffect(() => {
     if (!itemOk) setItem(null);
   }, [itemOk]);

@@ -13,6 +13,12 @@ import { fit, hitRect, panBy, tilesFor, toPaper, toScreen, zoomAt, zoomPercent, 
 import { focusNext, useEditor, type EditorProps } from "./editor";
 
 const TILE = 512;
+/** the sheet tools' bar down the left: a fitted page starts clear of it */
+const TOOLS_W = 56;
+const fitBeside = (w: number, h: number, bw: number, bh: number) => {
+  const c = fit(w, h, Math.max(1, bw - TOOLS_W), bh);
+  return { ...c, ox: c.ox + TOOLS_W };
+};
 const MAX_TILES = 40;
 /** most tiles drawn in one frame (the rest come on the next frames, so the view never stalls) */
 const TILES_PER_FRAME = 6;
@@ -74,7 +80,7 @@ export function PaperView({ ir, paper, viewports, picked, onPick, drawing, error
   const pw = paper.w;
   const ph = paper.h;
   useEffect(() => {
-    if (size.w > 0 && size.h > 0) setCam(fit(pw, ph, size.w, size.h));
+    if (size.w > 0 && size.h > 0) setCam(fitBeside(pw, ph, size.w, size.h));
     // only when the page's size or the box changes (not on every redraw)
   }, [pw, ph, size.w > 0 && size.h > 0]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -175,7 +181,7 @@ export function PaperView({ ir, paper, viewports, picked, onPick, drawing, error
   };
   const E = useEditor({ ...edit, cam, size, viewports, picked, onPick });
   const zoomBy = (f: number, at?: [number, number]) => setCam((c) => (c ? zoomAt(c, at ?? [size.w / 2, size.h / 2], f) : c));
-  const fitPage = () => size.w && setCam(fit(pw, ph, size.w, size.h));
+  const fitPage = () => size.w && setCam(fitBeside(pw, ph, size.w, size.h));
 
   useEffect(() => {
     const el = host.current;
@@ -209,7 +215,11 @@ export function PaperView({ ir, paper, viewports, picked, onPick, drawing, error
         host.current?.focus({ preventScroll: true });
         (e.target as Element).setPointerCapture?.(e.pointerId);
         // the editor's tools first (a left press, not panning with Space)
-        if (!space && E.down(e, local(e))) return;
+        if (!space && E.down(e, local(e))) {
+          // the paper keeps the keys (Enter, Escape, arrows), not the frame or item that was clicked
+          e.preventDefault();
+          return;
+        }
         drag.current = { ...{ x: e.clientX, y: e.clientY }, moved: false, button: e.button };
         if (e.button === 1 || space) setPanning(true);
       }}
