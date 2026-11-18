@@ -108,6 +108,7 @@ await btn('Furniture').click();
 await wait(300);
 
 // ---- on screen: three fills ----------------------------------------------------------------------------
+// the plane keeps what is below the cut, seen from above
 await pageExec(p, { cmd: 'section_plane', origin: [0, 0, 1.2], normal: [0, 0, -1] });
 await p.reload();
 await p.waitForSelector('.viewport canvas');
@@ -187,13 +188,21 @@ const ts = onDisk.drafting?.tag_styles ?? {};
 check(onDisk.format === 2 && ts.Slab?.cut?.fill === 'solid' && ts.Slab?.cut?.color === '#ff0000' && ts.Furniture?.cut?.fill === 'none' && ts.Walls?.cut?.fill === 'hatch', 'the saved file has all three, as format 2');
 
 // ---- undo and redo -----------------------------------------------------------------------------------
+// one more change through the panel (the section plane was the last undo step), then back and forth
+await btn('Furniture').click();
+await wait(400);
+await p.getByLabel('Cut outline weight of tag Furniture').selectOption('1');
+await wait(900);
+check((await cutOf('Furniture'))?.outline_mm === 1, 'a 1 mm outline for the desk');
+await btn('Furniture').click();
+await wait(300);
 await p.locator('.viewport canvas').click({ position: { x: 5, y: 5 } }).catch(() => {});
 await p.keyboard.press('Control+z');
 await wait(900);
-check((await cutOf('Furniture'))?.outline_mm !== 0.5 && (await cutOf('Furniture'))?.fill === 'none', `Ctrl+Z takes back the last change, the outline (${JSON.stringify(await cutOf('Furniture'))})`);
+check((await cutOf('Furniture'))?.outline_mm === 0.5 && (await cutOf('Furniture'))?.fill === 'none', `Ctrl+Z takes it back (${JSON.stringify(await cutOf('Furniture'))})`);
 await p.keyboard.press('Control+Shift+z');
 await wait(900);
-check((await cutOf('Furniture'))?.outline_mm === 0.5, 'Ctrl+Shift+Z puts it back');
+check((await cutOf('Furniture'))?.outline_mm === 1, 'Ctrl+Shift+Z puts it back');
 
 // ---- back to the default -----------------------------------------------------------------------------
 await btn('Slab').click();
