@@ -104,6 +104,8 @@ fn drafting_perf() {
     b.model = bare_model;
     ok(&mut b, json!({"cmd": "save", "path": bare}));
     drop(b);
+    // the engine that built the set is done with: the rest is measured on the opened file alone
+    drop(f);
     let (mut t_with, mut t_bare) = (Vec::new(), Vec::new());
     for _ in 0..3 {
         t_bare.push(open(&bare).1);
@@ -196,6 +198,14 @@ fn drafting_perf() {
         pages.dedup();
         pages
     };
+    // the model's world geometry (every placement expanded, triangulated) is worked out once after a change and shared by
+    // all the redrawn viewports: timed on its own, not charged to the first one
+    let t = Instant::now();
+    let w = e.drawings.world();
+    w.faces(&e.model);
+    w.edges(&e.model);
+    w.tris(&e.model);
+    got.insert("world_ms".into(), json!(ms(t)));
     let mut worst: f64 = 0.0;
     for s in stale {
         let n0 = e.drawings.stats().drawn;
@@ -246,6 +256,7 @@ fn report(got: &Map<String, Value>, full: bool) {
         }
     }
     table.push_str(&format!("| Faces / fixture build (ms) | {} / {} | | |\n", got["faces"], got["fixture_ms"]));
+    table.push_str(&format!("| After a change: the model's world geometry, once (ms) | {:.1} | | |\n", num("world_ms")));
     table.push_str(&format!("| Kept drawings (MB, viewports) / hatches made, reused | {:.0}, {} / {}, {} | | |\n", num("kept_mb"), got["kept_viewports"], got["hatches_made"], got["hatches_kept"]));
     table.push_str("| Pan and zoom an A1 page (fps) | not measured: the sheet editor (step 11) isn't built | 50 | |\n");
     println!("{}\n{table}", if full { "drafting_perf (full)" } else { "drafting_perf (small: no timing checks)" });
