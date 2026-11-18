@@ -168,21 +168,45 @@ impl Default for HatchUse {
     }
 }
 
+/// What fills a tag's cut surfaces in plans and sections (design §3.4).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CutFill {
+    /// not set: the drawing's own poché (dark solid on paper, pale on a blueprint), as before cut styles
     #[default]
+    Auto,
+    /// nothing: the cut is left blank (the paper colour, which hides what is beyond it), with its outline
     None,
+    /// a solid colour (`CutStyle::color`, or the drawing's poché colour when it has none)
     Solid,
+    /// the tag's cut hatch (`CutStyle::hatch`) over the paper colour
     Hatch,
 }
+
+impl CutFill {
+    pub fn name(self) -> &'static str {
+        match self {
+            CutFill::Auto => "auto",
+            CutFill::None => "none",
+            CutFill::Solid => "solid",
+            CutFill::Hatch => "hatch",
+        }
+    }
+}
+
+/// The colour of a tag's solid cut fill when it has none of its own (the drawing's poché on paper).
+pub const CUT_SOLID: &str = "#292b33";
 
 /// How a tag's cut surface (the poché of a plan or section) is drawn.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct CutStyle {
     pub fill: CutFill,
+    /// the cut outline's pen in paper mm (0: the drawing's heavy pen)
     pub outline_mm: f64,
+    /// a `Solid` fill's colour, "#rrggbb" ("": the drawing's poché colour)
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub color: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hatch: Option<HatchUse>,
     #[serde(flatten)]
@@ -315,6 +339,15 @@ impl Drafting {
     pub fn cut_hatch(&self, tag: Option<&str>) -> Option<&HatchUse> {
         let t = self.tag_style(tag?)?;
         (t.cut.fill == CutFill::Hatch).then_some(t.cut.hatch.as_ref()).flatten()
+    }
+
+    /// How a tag's cut surfaces are filled: `Auto` for no tag or no style, and `Auto` for a `Hatch` with no hatch set.
+    pub fn cut_fill(&self, tag: Option<&str>) -> CutFill {
+        match tag.and_then(|t| self.tag_style(t)) {
+            Some(t) if t.cut.fill == CutFill::Hatch && t.cut.hatch.is_none() => CutFill::Auto,
+            Some(t) => t.cut.fill,
+            None => CutFill::Auto,
+        }
     }
 
     /// The style of a tag, when it has one this build understands.

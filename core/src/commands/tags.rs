@@ -33,6 +33,41 @@ fn check_style(d: &crate::drafting::Drafting, weight_mm: Option<f64>, line: Opti
     Ok(StyleArgs { weight, line, color })
 }
 
+/// A cut style a command gave, checked: the fill, the solid colour and the outline weight (None inside: clear it).
+struct CutChange {
+    fill: Option<crate::drafting::CutFill>,
+    color: Option<Option<String>>,
+    outline: Option<Option<f64>>,
+}
+
+fn check_cut(c: super::command::CutArgs) -> Result<CutChange> {
+    use crate::drafting::CutFill;
+    let fill = match c.fill.map(|f| f.trim().to_ascii_lowercase()) {
+        None => None,
+        Some(f) => Some(match f.as_str() {
+            "auto" | "default" | "" => CutFill::Auto,
+            "solid" => CutFill::Solid,
+            "hatch" => CutFill::Hatch,
+            "none" | "empty" => CutFill::None,
+            o => bail!("a cut fill is \"solid\", \"hatch\", \"none\" or \"auto\" (the drawing's own), not {o:?}"),
+        }),
+    };
+    let color = match c.color.map(|c| c.trim().to_string()) {
+        None => None,
+        Some(c) if c.is_empty() => Some(None),
+        Some(c) if crate::draft::ir::parse_hex(&c).is_some() => Some(Some(c.to_ascii_lowercase())),
+        Some(c) => bail!("a cut fill colour is \"#rrggbb\", not {c:?}"),
+    };
+    let (lo, hi) = crate::drafting::WEIGHT_RANGE;
+    let outline = match c.outline_mm {
+        None => None,
+        Some(w) if w == 0.0 => Some(None),
+        Some(w) if w.is_finite() && (lo..=hi).contains(&w) => Some(Some(w)),
+        Some(w) => bail!("a cut outline weight is between {lo} and {hi} mm on the paper (or 0 for the default), not {w}"),
+    };
+    Ok(CutChange { fill, color, outline })
+}
+
 /// The scale range a hatch accepts (paper or model mm per pattern mm).
 pub const HATCH_SCALE: (f64, f64) = (0.01, 1000.0);
 
@@ -187,7 +222,7 @@ impl Engine {
     fn run_line_styles(&mut self, cmd: Command) -> Result<Value> {
         use crate::drafting::{CutFill, EdgeDraft, Keep, TagStyle};
         Ok(match cmd {
-            Command::TagStyle { tag, weight_mm, line, color, hatch, clear } => {
+            Command::TagStyle { tag, weight_mm, line, color, hatch, cut, clear } => {
                 let tag = tag.trim().to_string();
                 if tag.is_empty() {
                     bail!("a tag needs a name");
@@ -204,7 +239,20 @@ impl Engine {
                     Some(h) => Some(apply_hatch(d, old_hatch.as_ref(), h)?),
                     None => None,
                 };
-                if matches!(d.tag_styles.get(&tag), Some(Keep::Raw(_))) && new_hatch.is_some() {
+                let had_hatch = d.tag_style(&tag).is_some_and(|t| t.cut.hatch.is_some());
+                let new_cut = match cut {
+                    Some(c) => Some(check_cut(c)?),
+                    None => None,
+                };
+                // a hatch fill needs a hatch: one set before, or in this command
+                let hatch_after = match &new_hatch {
+                    Some(h) => h.is_some(),
+                    None => had_hatch,
+                };
+                if new_cut.as_ref().is_some_and(|c| c.fill == Some(CutFill::Hatch)) && !hatch_after {
+                    bail!("tag {tag:?} has no hatch to fill its cuts with: give one (hatch: {{pattern: \"diagonal\"}}) or pick solid or none");
+                }
+                if matches!(d.tag_styles.get(&tag), Some(Keep::Raw(_))) && (new_hatch.is_some() || new_cut.is_some()) {
                     bail!("the style of tag {tag:?} was made by a newer SketchCraft; clear it first");
                 }
                 let entry = d.tag_styles.entry(tag.clone()).or_insert_with(|| Keep::Known(TagStyle::default()));
@@ -225,11 +273,22 @@ impl Engine {
                     }
                     Some(None) => {
                         if ts.cut.fill == CutFill::Hatch {
-                            ts.cut.fill = CutFill::None;
+                            ts.cut.fill = CutFill::Auto;
                         }
                         ts.cut.hatch = None;
                     }
                     None => {}
+                }
+                if let Some(c) = new_cut {
+                    if let Some(f) = c.fill {
+                        ts.cut.fill = f;
+                    }
+                    if let Some(col) = c.color {
+                        ts.cut.color = col.unwrap_or_default();
+                    }
+                    if let Some(w) = c.outline {
+                        ts.cut.outline_mm = w.unwrap_or(0.0);
+                    }
                 }
                 if *ts == TagStyle::default() {
                     d.tag_styles.remove(&tag);

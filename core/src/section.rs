@@ -17,8 +17,20 @@ pub struct Cut {
     pub origin: DVec3,
     /// every cut segment
     pub segments: Vec<(DVec3, DVec3)>,
-    /// per owner (group / instance / loose face): outlines with holes
-    pub regions: Vec<(Id, Vec<DVec3>, Vec<Vec<DVec3>>)>,
+    /// the cut surfaces: outlines with holes, per innermost tagged owner (`WFace::cut`)
+    pub regions: Vec<Region>,
+}
+
+/// One cut surface: an outline with its holes, and what it belongs to.
+#[derive(Clone, Debug)]
+pub struct Region {
+    /// the innermost tagged owner (a group or placement in the root model, or the top-level placement a tagged thing
+    /// inside a component sits in); untagged: the face's own group, the top-level placement, or the loose face
+    pub owner: Id,
+    /// the tag whose cut style (`TagStyle.cut`) fills it; None: nothing around it is tagged
+    pub tag: Option<String>,
+    pub outer: Vec<DVec3>,
+    pub holes: Vec<Vec<DVec3>>,
 }
 
 fn key(p: DVec3) -> (i64, i64, i64) {
@@ -41,7 +53,7 @@ impl Model {
             (right, DVec3::Z)
         };
         let w = n.dot(origin);
-        let mut by_owner: HashMap<Id, Vec<(DVec3, DVec3)>> = HashMap::new();
+        let mut by_owner: HashMap<(Id, Option<std::sync::Arc<str>>), Vec<(DVec3, DVec3)>> = HashMap::new();
         let mut segments = Vec::new();
         for f in self.world_faces() {
             // the plane against each face: a line in the face, clipped to it
@@ -62,12 +74,12 @@ impl Model {
             }
             for seg in crate::intersect::plane_crossing(&f, n, w) {
                 segments.push(seg);
-                by_owner.entry(f.group.unwrap_or(f.owner)).or_default().push(seg);
+                by_owner.entry((f.cut, f.tag.clone())).or_default().push(seg);
             }
         }
         // chain each owner's segments into loops, then nest them
         let mut regions = Vec::new();
-        let mut owners: Vec<Id> = by_owner.keys().copied().collect();
+        let mut owners: Vec<(Id, Option<std::sync::Arc<str>>)> = by_owner.keys().cloned().collect();
         owners.sort_unstable();
         for owner in owners {
             let segs = &by_owner[&owner];
@@ -123,7 +135,7 @@ impl Model {
                     outs[k].2.push(h);
                 }
             }
-            regions.extend(outs.into_iter().map(|(_, o, h)| (owner, o, h)));
+            regions.extend(outs.into_iter().map(|(_, outer, holes)| Region { owner: owner.0, tag: owner.1.as_deref().map(str::to_string), outer, holes }));
         }
         Ok(Cut { u, v, n, origin, segments, regions })
     }
@@ -156,9 +168,9 @@ impl Cut {
             "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{w:.1}mm\" height=\"{h:.1}mm\" viewBox=\"0 0 {w:.2} {h:.2}\">\n<g fill=\"#3a3d4a\" fill-rule=\"evenodd\" stroke=\"#111\" stroke-width=\"{:.2}\">\n",
             (w.max(h) / 400.0).max(0.5)
         );
-        for (_, o, holes) in &self.regions {
+        for r in &self.regions {
             let ring = |l: &Vec<DVec3>| format!("M{}Z", l.iter().map(|p| tx(*p)).collect::<Vec<_>>().join("L"));
-            s += &format!("<path d=\"{}{}\"/>\n", ring(o), holes.iter().map(ring).collect::<String>());
+            s += &format!("<path d=\"{}{}\"/>\n", ring(&r.outer), r.holes.iter().map(ring).collect::<String>());
         }
         s += "</g>\n</svg>\n";
         s

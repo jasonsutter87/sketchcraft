@@ -467,7 +467,7 @@ pub fn blueprint_specs(m: &Model, sheet: &str, extra_notes: &[String]) -> Result
         // the outside walls make a closed ring (not broken by doorways)
         let area_at = |h: f64| {
             m.section(DVec3::new(0.0, 0.0, z + h), DVec3::new(0.0, 0.0, -1.0))
-                .map(|c| c.regions.iter().filter(|(_, _, holes)| !holes.is_empty()).map(|(_, o, _)| crate::geom::area(o)).fold(0.0, f64::max))
+                .map(|c| c.regions.iter().filter(|r| !r.holes.is_empty()).map(|r| crate::geom::area(&r.outer)).fold(0.0, f64::max))
                 .unwrap_or(0.0)
         };
         let a = [2.4, 2.3, 2.5, 1.22].iter().map(|h| area_at(*h)).find(|a| *a > 0.0).unwrap_or(0.0);

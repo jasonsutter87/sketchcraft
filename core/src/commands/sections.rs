@@ -32,7 +32,6 @@ impl Engine {
     pub(super) fn run_sections(&mut self, cmd: Command) -> Result<Value> {
         // tag styles are the whole model's, whatever component is open
         let drafting = self.model.drafting.clone();
-        let root_tags = self.ctx.is_none();
         let m: &mut Model = active_model!(self);
         Ok(match cmd {
             Command::Section { origin, normal, path } => {
@@ -41,30 +40,48 @@ impl Engine {
                     let text = if p.to_ascii_lowercase().ends_with(".dxf") { cut.dxf() } else { cut.svg() };
                     std::fs::write(p, text)?;
                 }
-                // fills as triangles, ready to draw: solid for most, paper under a tag's hatch, whose lines come
-                // per tag (world metres, on the plane)
+                // fills as triangles, ready to draw, by each region's tag cut style (design §3.4): the default
+                // poché in `fill`; a tag's own solid colour in `solid`; paper under a tag's hatch in `hatchFill`, whose
+                // lines come per tag (world metres, on the plane); nothing for a tag whose cut fill is none. A tag
+                // with its own outline (weight or colour) lists its regions' rings in `outlines`.
+                use crate::drafting::CutFill;
                 let mut fill: Vec<f64> = Vec::new();
                 let mut paper: Vec<f64> = Vec::new();
                 let mut owners: Vec<Id> = Vec::new();
                 let mut by_tag: std::collections::BTreeMap<String, (String, Vec<f64>, Vec<String>)> = Default::default();
+                let mut solid: std::collections::BTreeMap<String, (String, Vec<f64>)> = Default::default();
+                let mut outlines: std::collections::BTreeMap<String, (f64, String, Vec<f64>)> = Default::default();
+                let mut open: std::collections::BTreeSet<String> = Default::default();
                 let mut budget = SCREEN_HATCH_SEGMENTS;
-                for (owner, o, h) in &cut.regions {
-                    let tag = if root_tags { m.owner_tag(*owner) } else { None };
-                    let hatch = drafting.cut_hatch(tag.as_deref());
+                let tri_list = |tris: Vec<[DVec3; 3]>, to: &mut Vec<f64>| to.extend(tris.iter().flat_map(|t| t.iter().flat_map(|p| [p.x, p.y, p.z])));
+                for r in &cut.regions {
+                    let (o, h, tag) = (&r.outer, &r.holes, r.tag.as_deref());
+                    let style = tag.and_then(|t| drafting.tag_style(t));
                     let tris = crate::geom::triangulate(o, h, cut.n);
-                    match (hatch, tag) {
-                        (Some(u), Some(tag)) => {
+                    if let (Some(t), Some(st)) = (tag, style) {
+                        if st.cut.outline_mm > 0.0 || crate::draft::ir::parse_hex(&st.color).is_some() {
+                            let pen = crate::draft::ir::Pens::new(false).for_cut(&drafting, tag);
+                            let [cr, cg, cb] = pen.rgb;
+                            let e = outlines.entry(t.to_string()).or_insert_with(|| (pen.w, format!("#{cr:02x}{cg:02x}{cb:02x}"), Vec::new()));
+                            for ring in std::iter::once(o).chain(h.iter()) {
+                                for (i, a) in ring.iter().enumerate() {
+                                    let b = ring[(i + 1) % ring.len()];
+                                    e.2.extend([a.x, a.y, a.z, b.x, b.y, b.z]);
+                                }
+                            }
+                        }
+                    }
+                    match (drafting.cut_fill(tag), drafting.cut_hatch(tag), tag) {
+                        (CutFill::Hatch, Some(u), Some(tag)) => {
                             let got = screen_hatch(&drafting, u, &cut, o, h, budget);
-                            let e = by_tag.entry(tag).or_insert_with(|| (u.color.clone(), Vec::new(), Vec::new()));
+                            let e = by_tag.entry(tag.to_string()).or_insert_with(|| (u.color.clone(), Vec::new(), Vec::new()));
                             if let Some(why) = got.over {
                                 if !e.2.contains(&why) {
                                     e.2.push(why);
                                 }
                                 // too dense to draw here: the solid fill, as without a hatch
-                                for t in tris {
-                                    fill.extend(t.iter().flat_map(|p| [p.x, p.y, p.z]));
-                                    owners.push(*owner);
-                                }
+                                owners.extend(std::iter::repeat_n(r.owner, tris.len()));
+                                tri_list(tris, &mut fill);
                                 continue;
                             }
                             budget = budget.saturating_sub(got.lines.len());
@@ -73,21 +90,26 @@ impl Engine {
                                 let (a, b) = (to(*a), to(*b));
                                 e.1.extend([a.x, a.y, a.z, b.x, b.y, b.z]);
                             }
-                            for t in tris {
-                                paper.extend(t.iter().flat_map(|p| [p.x, p.y, p.z]));
-                            }
+                            tri_list(tris, &mut paper);
+                        }
+                        (CutFill::None, _, Some(tag)) => {
+                            open.insert(tag.to_string());
+                        }
+                        (CutFill::Solid, _, Some(tag)) if style.is_some_and(|s| crate::draft::ir::parse_hex(&s.cut.color).is_some()) => {
+                            let color = style.map(|s| s.cut.color.clone()).unwrap_or_default();
+                            tri_list(tris, &mut solid.entry(tag.to_string()).or_insert_with(|| (color, Vec::new())).1);
                         }
                         _ => {
-                            for t in tris {
-                                fill.extend(t.iter().flat_map(|p| [p.x, p.y, p.z]));
-                                owners.push(*owner);
-                            }
+                            owners.extend(std::iter::repeat_n(r.owner, tris.len()));
+                            tri_list(tris, &mut fill);
                         }
                     }
                 }
                 let hatch: Vec<Value> = by_tag.into_iter().map(|(tag, (color, lines, notes))| json!({"tag": tag, "color": color, "lines": lines, "notes": notes})).collect();
+                let solid: Vec<Value> = solid.into_iter().map(|(tag, (color, fill))| json!({"tag": tag, "color": color, "fill": fill})).collect();
+                let outlines: Vec<Value> = outlines.into_iter().map(|(tag, (w, color, lines))| json!({"tag": tag, "weight_mm": w, "color": color, "lines": lines})).collect();
                 let lines: Vec<f64> = cut.segments.iter().flat_map(|(a, b)| [a.x, a.y, a.z, b.x, b.y, b.z]).collect();
-                json!({"regions": cut.regions.len(), "fill": fill, "fillOwners": owners, "hatchFill": paper, "hatch": hatch, "lines": lines, "path": path})
+                json!({"regions": cut.regions.len(), "fill": fill, "fillOwners": owners, "hatchFill": paper, "hatch": hatch, "solid": solid, "open": open, "outlines": outlines, "lines": lines, "path": path})
             }
             Command::SectionPlane { name, origin, normal } => {
                 let n = DVec3::from(normal);

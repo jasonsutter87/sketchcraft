@@ -209,6 +209,11 @@ pub enum Command {
         /// scale_mode?: paper|model}`; only what is given changes; `{"pattern": ""}` removes it
         #[serde(default)]
         hatch: Option<HatchArgs>,
+        /// how the tag's cut surfaces are filled and outlined in plans and sections (sheets and the on-screen
+        /// section): `{fill?: auto|solid|hatch|none, color? ("#rrggbb" for solid; "" clears), outline_mm? (0.05 to 2;
+        /// 0 clears)}`; only what is given changes
+        #[serde(default)]
+        cut: Option<CutArgs>,
         #[serde(default)]
         clear: bool,
     },
@@ -1368,6 +1373,17 @@ fn x_axis() -> [f64; 3] {
 
 fn z_axis() -> [f64; 3] {
     [0.0, 0.0, 1.0]
+}
+
+/// The cut fields `tag_style` takes; each optional (only what is given changes).
+#[derive(Debug, Default, Deserialize)]
+pub struct CutArgs {
+    #[serde(default)]
+    pub fill: Option<String>,
+    #[serde(default)]
+    pub color: Option<String>,
+    #[serde(default)]
+    pub outline_mm: Option<f64>,
 }
 
 /// The hatch fields `tag_style` takes; each optional (only what is given changes).

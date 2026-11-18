@@ -116,6 +116,18 @@ impl Pens {
         }
         pen
     }
+
+    /// The pen of a cut outline (plans and sections) for a region on `tag`: the heavy pen, at the tag's
+    /// `cut.outline_mm` when it has one, in the tag's line colour when it has one. Continuous whatever the tag's line
+    /// style is (a cut is never dashed). Goes through `for_tag`, so the colour rules are the lines' own.
+    pub fn for_cut(&self, d: &crate::drafting::Drafting, tag: Option<&str>) -> Pen {
+        let base = self.ink(self.heavy);
+        let Some(t) = tag.and_then(|t| d.tag_style(t)) else { return base };
+        let mut pen = self.for_tag(d, tag, None, base.clone(), false);
+        pen.dash = base.dash;
+        pen.w = if t.cut.outline_mm > 0.0 && t.cut.outline_mm.is_finite() { t.cut.outline_mm } else { self.heavy };
+        pen
+    }
 }
 
 /// "#rrggbb" as a colour.

@@ -222,7 +222,7 @@ pub fn outline(m: &Model, cut_z: f64) -> Option<(f64, f64, f64, f64)> {
         return None;
     }
     let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
-    for p in c.regions.iter().flat_map(|(_, o, _)| o.iter()) {
+    for p in c.regions.iter().flat_map(|r| r.outer.iter()) {
         x0 = x0.min(p.x);
         y0 = y0.min(p.y);
         x1 = x1.max(p.x);
