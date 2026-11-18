@@ -17,6 +17,13 @@ export interface LayoutState {
   setPage: (id: number) => void;
   viewport: number | null;
   setViewport: (id: number | null) => void;
+  /** the line work, text or dimension picked on the page (the editor's selection besides viewports) */
+  item: number | null;
+  setItem: (id: number | null) => void;
+  /** runs an engine command as the person (one undo step), as the rest of the app does */
+  run: Run;
+  scene: Scene | null;
+  say: (t: string, bad?: boolean) => void;
   ir: Ir | null;
   /** drawing the page (the engine is building it) */
   drawing: boolean;
@@ -34,7 +41,13 @@ export function useLayout({ active, scene, run, say }: { active: boolean; scene:
   const [sheets, setSheets] = useState<SheetInfo[]>([]);
   const [ready, setReady] = useState(false);
   const [pageId, setPageId] = useState<number | null>(null);
-  const [viewport, setViewport] = useState<number | null>(null);
+  const [viewport, setViewportRaw] = useState<number | null>(null);
+  const [item, setItem] = useState<number | null>(null);
+  // one thing is picked at a time: a viewport or an item
+  const setViewport = useCallback((id: number | null) => {
+    setViewportRaw(id);
+    if (id != null) setItem(null);
+  }, []);
   const [ir, setIr] = useState<Ir | null>(null);
   const [drawing, setDrawing] = useState(false);
   const [irError, setIrError] = useState("");
@@ -65,7 +78,11 @@ export function useLayout({ active, scene, run, say }: { active: boolean; scene:
   const vpOk = viewport == null || !!page?.items.some((i) => i.id === viewport);
   useEffect(() => {
     if (!vpOk) setViewport(null);
-  }, [vpOk]);
+  }, [vpOk, setViewport]);
+  const itemOk = item == null || !!page?.items.some((i) => i.id === item);
+  useEffect(() => {
+    if (!itemOk) setItem(null);
+  }, [itemOk]);
 
   // the page's drawing: built by the engine after a short pause (a burst of edits draws once)
   useEffect(() => {
@@ -90,7 +107,8 @@ export function useLayout({ active, scene, run, say }: { active: boolean; scene:
   const setPage = useCallback((id: number) => {
     setPageId(id);
     setViewport(null);
-  }, []);
+    setItem(null);
+  }, [setViewport]);
 
   const add = async () => {
     const last = ordered[ordered.length - 1];
@@ -123,5 +141,5 @@ export function useLayout({ active, scene, run, say }: { active: boolean; scene:
     await run(c);
   };
 
-  return { sheets: ordered, ready, page, setPage, viewport: vpOk ? viewport : null, setViewport, ir: ir && ir.sheet === pid ? ir : null, drawing, irError, add, duplicate, remove, rename, reorder };
+  return { sheets: ordered, ready, page, setPage, viewport: vpOk ? viewport : null, setViewport, item: itemOk ? item : null, setItem, run, scene, say, ir: ir && ir.sheet === pid ? ir : null, drawing, irError, add, duplicate, remove, rename, reorder };
 }

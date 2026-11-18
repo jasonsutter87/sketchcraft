@@ -942,7 +942,7 @@ export default function App() {
       </main>
 
       <aside className="panel right">
-        {inLayout && scene && <LayoutInspector page={L.page} viewport={L.viewport} scene={scene} run={run} setViewport={L.setViewport} />}
+        {inLayout && scene && <LayoutInspector page={L.page} viewport={L.viewport} item={L.item} scene={scene} run={run} setViewport={L.setViewport} setItem={L.setItem} />}
         {!inLayout && (
         <>
         {scene && selCount > 0 && <EntityInfo scene={scene} sel={sel} run={run} />}

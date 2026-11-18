@@ -4,6 +4,7 @@
 
 import { useEffect, useState } from "react";
 import type { Reply, Scene } from "../engine";
+import { describe, isDim, isShape, isText, paperItems, type PaperItem } from "./items";
 import { opacityOf, paperId, PAPERS, parseScale, percentOf, scaleText, STANDARD_VIEWS, viewArgs, viewName, viewportsOf, type SheetInfo, type ViewportItem } from "./pages";
 
 type Run = (cmd: Record<string, unknown>) => Promise<Reply>;
@@ -134,6 +135,68 @@ function ViewportInspector({ v, scene, run, onDone }: { v: ViewportItem; scene: 
   );
 }
 
+const WEIGHTS: [number, string][] = [
+  [0.13, "Hair 0.13 mm"],
+  [0.18, "Thin 0.18 mm"],
+  [0.25, "Medium 0.25 mm"],
+  [0.35, "Heavy 0.35 mm"],
+  [0.5, "Border 0.5 mm"],
+  [0.7, "Bold 0.7 mm"],
+];
+
+/** A picked line, text or dimension: what it is, its few settings, and Delete. */
+function ItemInspector({ it, run, onDone }: { it: PaperItem; run: Run; onDone: () => void }) {
+  const title = isShape(it) ? (it.kind === "rect" ? "Rectangle" : it.kind === "arc" ? "Arc" : it.kind === "polyline" ? "Polyline" : "Line") : isText(it) ? "Text" : "Dimension";
+  return (
+    <div className="section layout-inspector" aria-label={title}>
+      <div className="section-title">{title}</div>
+      <p className="hint">{describe(it)}. Drag it on the paper to move it; arrow keys nudge it.</p>
+      <div className="kv">
+        {isShape(it) && (
+          <>
+            <span>Weight</span>
+            <select aria-label="Line weight" value={String(it.pen?.w_mm ?? 0.25)} onChange={(e) => void run({ cmd: "sheet_line", id: it.id, w_mm: Number(e.target.value) })} title="The pen's width on paper">
+              {!WEIGHTS.some(([w]) => w === (it.pen?.w_mm ?? 0.25)) && <option value={String(it.pen?.w_mm)}>{`${it.pen?.w_mm} mm`}</option>}
+              {WEIGHTS.map(([w, l]) => (
+                <option key={w} value={String(w)}>
+                  {l}
+                </option>
+              ))}
+            </select>
+            <span>Line</span>
+            <select aria-label="Line style" value={it.pen?.dash_mm?.length ? "dashed" : "solid"} onChange={(e) => void run({ cmd: "sheet_line", id: it.id, dash_mm: e.target.value === "dashed" ? [3, 1.5] : [] })}>
+              <option value="solid">Solid</option>
+              <option value="dashed">Dashed</option>
+            </select>
+          </>
+        )}
+        {isText(it) && (
+          <>
+            <Field label="Text" multiline value={it.paragraphs.join("\n")} hint="The words, one line per line" onCommit={(t) => t.trim() && void run({ cmd: "sheet_text", id: it.id, text: t })} />
+            <Field label="Height (mm)" value={String(it.height_mm ?? 3.5)} hint="Capital letters' height on paper, 1 to 50 mm" onCommit={(t) => Number(t) > 0 && void run({ cmd: "sheet_text", id: it.id, height_mm: Number(t) })} />
+          </>
+        )}
+        {isDim(it) && (
+          <>
+            <span>Measures</span>
+            <span>{(it.measured?.spans ?? []).map((x) => x.text).join(" + ") || "?"}</span>
+            <span>Mode</span>
+            <span>{it.mode ?? "aligned"}</span>
+          </>
+        )}
+      </div>
+      <div className="row gap">
+        <button className="btn small ghost" onClick={onDone} title="Back to the page (Esc)">
+          Done
+        </button>
+        <button className="btn small danger" title="Take it off the page (Undo brings it back)" onClick={() => void run({ cmd: "sheet_item_delete", ids: [it.id] }).then(onDone)}>
+          Delete
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function PageInspector({ s, scene, run }: { s: SheetInfo; scene: Scene; run: Run }) {
   const [adding, setAdding] = useState("plan");
   const fields = s.fields ?? {};
@@ -194,7 +257,7 @@ function PageInspector({ s, scene, run }: { s: SheetInfo; scene: Scene; run: Run
   );
 }
 
-export function LayoutInspector({ page, viewport, scene, run, setViewport }: { page: SheetInfo | undefined; viewport: number | null; scene: Scene; run: Run; setViewport: (id: number | null) => void }) {
+export function LayoutInspector({ page, viewport, item, scene, run, setViewport, setItem }: { page: SheetInfo | undefined; viewport: number | null; item?: number | null; scene: Scene; run: Run; setViewport: (id: number | null) => void; setItem?: (id: number | null) => void }) {
   if (!page)
     return (
       <div className="section hint">
@@ -202,5 +265,7 @@ export function LayoutInspector({ page, viewport, scene, run, setViewport }: { p
       </div>
     );
   const v = viewportsOf(page).find((x) => x.id === viewport);
+  const it = item != null ? paperItems(page).find((x) => x.id === item) : undefined;
+  if (!v && it) return <ItemInspector key={it.id} it={it} run={run} onDone={() => setItem?.(null)} />;
   return v ? <ViewportInspector key={v.id} v={v} scene={scene} run={run} onDone={() => setViewport(null)} /> : <PageInspector s={page} scene={scene} run={run} />;
 }

@@ -160,6 +160,300 @@
   }
 }
 
+/* ---- the sheet editor (#9): tools, options, and what the overlay shows while you work ---- */
+
+.paper-tools {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 4px;
+  border-radius: calc(var(--radius) + 2px);
+  background: var(--glass);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+  max-height: calc(100% - 24px);
+  overflow-y: auto;
+
+  .paper-tool-group {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+
+    & + .paper-tool-group {
+      padding-top: 6px;
+      border-top: 1px solid var(--line);
+    }
+  }
+
+  .paper-tool {
+    width: 32px;
+    height: 32px;
+    display: grid;
+    place-items: center;
+    border-radius: var(--radius);
+    color: var(--text);
+
+    &:hover {
+      background: var(--bg);
+    }
+
+    &.on {
+      background: var(--accent);
+      color: #fff;
+    }
+
+    svg {
+      pointer-events: none;
+    }
+  }
+}
+
+.paper-opts {
+  position: absolute;
+  top: 12px;
+  left: 56px;
+  @include row(6px);
+  padding: 4px 8px;
+  border-radius: calc(var(--radius) + 2px);
+  background: var(--glass);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+  font-size: $font-m;
+  max-width: calc(100% - 72px);
+  flex-wrap: wrap;
+
+  label.check {
+    @include row(4px);
+    cursor: pointer;
+  }
+
+  .grid-size {
+    width: 42px;
+    height: 22px;
+    padding: 0 4px;
+    text-align: right;
+  }
+
+  .unit {
+    color: var(--muted);
+  }
+
+  .dim-modes {
+    @include row(2px);
+    padding-left: 6px;
+    border-left: 1px solid var(--line);
+
+    button {
+      height: 22px;
+      padding: 0 8px;
+      border-radius: var(--radius);
+      color: var(--text);
+
+      &.on {
+        background: var(--accent);
+        color: #fff;
+      }
+    }
+  }
+}
+
+.paper-overlay {
+  .grid-dot {
+    fill: rgba(40, 60, 90, 0.28);
+  }
+
+  .paper-grid {
+    pointer-events: none;
+  }
+
+  /* line work, text and dimensions: invisible until hovered, focused or picked */
+  .pi {
+    fill: none;
+    stroke: transparent;
+    stroke-width: 2;
+    outline: none;
+    pointer-events: none;
+
+    &.hover,
+    &:focus-visible {
+      stroke: var(--accent);
+      stroke-dasharray: 4 3;
+    }
+
+    &.on {
+      stroke: var(--accent);
+      stroke-width: 3;
+      stroke-dasharray: none;
+      opacity: 0.85;
+    }
+
+    &.doomed {
+      stroke: var(--danger);
+      stroke-width: 4;
+      stroke-dasharray: none;
+    }
+  }
+
+  .ed-live {
+    fill: color-mix(in srgb, var(--accent) 8%, transparent);
+    stroke: var(--accent);
+    stroke-width: 2;
+    pointer-events: none;
+  }
+
+  .ed-handle {
+    fill: var(--panel);
+    stroke: var(--accent);
+    stroke-width: 1.5;
+  }
+
+  .ed-draw {
+    fill: none;
+    stroke: var(--accent);
+    stroke-width: 1.5;
+    stroke-dasharray: 6 3;
+    pointer-events: none;
+  }
+
+  .ed-cut {
+    fill: none;
+    stroke: var(--danger);
+    stroke-width: 4;
+    opacity: 0.8;
+    pointer-events: none;
+  }
+
+  .ed-ext {
+    fill: none;
+    stroke: var(--accent);
+    stroke-width: 2;
+    stroke-dasharray: 5 3;
+    pointer-events: none;
+  }
+
+  .ed-dim {
+    pointer-events: none;
+
+    circle {
+      fill: var(--accent);
+    }
+
+    path {
+      fill: none;
+      stroke: var(--accent);
+      stroke-width: 1.5;
+    }
+
+    path.ext {
+      stroke-dasharray: 3 3;
+      stroke-width: 1;
+    }
+  }
+
+  .ed-readout,
+  .snap-mark text {
+    fill: #fff;
+    font-size: $font-s;
+    font-weight: 600;
+    paint-order: stroke;
+    stroke: var(--accent);
+    stroke-width: 4px;
+    stroke-linejoin: round;
+    pointer-events: none;
+  }
+
+  .snap-guide {
+    stroke: #e0368c;
+    stroke-width: 1;
+    stroke-dasharray: 4 3;
+    pointer-events: none;
+  }
+
+  .snap-mark {
+    pointer-events: none;
+
+    rect,
+    path {
+      fill: none;
+      stroke: #e0368c;
+      stroke-width: 2;
+    }
+
+    text {
+      stroke: #e0368c;
+    }
+  }
+}
+
+.paper-textbox {
+  position: absolute;
+  min-width: 60px;
+  padding: 0 2px;
+  margin: 0;
+  border: 1px dashed var(--accent);
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #111;
+  font-family: "SketchCraft Paper", sans-serif;
+  resize: none;
+  overflow: hidden;
+  outline: none;
+  z-index: 3;
+}
+
+.paper-field {
+  position: absolute;
+  padding: 0 4px;
+  border: 1px solid var(--accent);
+  border-radius: 2px;
+  background: #fff;
+  color: #111;
+  font-family: "SketchCraft Paper", sans-serif;
+  z-index: 3;
+}
+
+.paper-chooser {
+  position: absolute;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  min-width: 170px;
+  padding: 4px;
+  border-radius: calc(var(--radius) + 2px);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+  font-size: $font-m;
+
+  .chooser-title {
+    padding: 4px 8px;
+    color: var(--muted);
+    font-weight: 600;
+  }
+
+  button {
+    text-align: left;
+    padding: 5px 8px;
+    border-radius: var(--radius);
+    color: var(--text);
+
+    &:hover,
+    &:focus-visible {
+      background: var(--accent);
+      color: #fff;
+      outline: none;
+    }
+
+    &.ghost {
+      color: var(--muted);
+    }
+  }
+}
+
 .paper-status {
   position: absolute;
   top: 14px;
