@@ -47,11 +47,20 @@ fn p95(mut v: Vec<f64>) -> f64 {
     v[((v.len() as f64 * 0.95).ceil() as usize).saturating_sub(1).min(v.len() - 1)]
 }
 
-fn peak_rss_mb() -> Option<f64> {
+fn status_mb(key: &str) -> Option<f64> {
     let s = std::fs::read_to_string("/proc/self/status").ok()?;
-    let line = s.lines().find(|l| l.starts_with("VmHWM:"))?;
+    let line = s.lines().find(|l| l.starts_with(key))?;
     let kb: f64 = line.split_whitespace().nth(1)?.parse().ok()?;
     Some(kb / 1024.0)
+}
+
+/// The peak memory of one phase (Linux only): the high-water mark since the last phase, then reset to what is held
+/// now (`/proc/self/clear_refs` 5), so each phase's peak is its own.
+fn phase(got: &mut Map<String, Value>, name: &str) {
+    if let Some(hwm) = status_mb("VmHWM:") {
+        got.insert(name.to_string(), json!(hwm.round()));
+        let _ = std::fs::write("/proc/self/clear_refs", "5");
+    }
 }
 
 fn scratch() -> std::path::PathBuf {
@@ -77,6 +86,7 @@ fn drafting_perf() {
     let t = Instant::now();
     let mut f = build(size);
     let build_ms = ms(t);
+    let mut phases = Map::new();
     let mut got = Map::new();
     // counter checks: all are reported with the timings, then fail the test (exact in both sizes)
     let mut wrong: Vec<String> = Vec::new();
@@ -106,12 +116,14 @@ fn drafting_perf() {
     drop(b);
     // the engine that built the set is done with: the rest is measured on the opened file alone
     drop(f);
+    phase(&mut phases, "fixture");
     let (mut t_with, mut t_bare) = (Vec::new(), Vec::new());
     for _ in 0..3 {
         t_bare.push(open(&bare).1);
         t_with.push(open(&with).1);
     }
     got.insert("open_added_ms".into(), json!((median(t_with) - median(t_bare)).max(0.0)));
+    phase(&mut phases, "open");
     let (mut e, _) = open(&with);
     expect(e.drawings.stats().drawn == 0, "nothing is drawn at open".into());
     let sheets: Vec<Id> = {
@@ -132,6 +144,7 @@ fn drafting_perf() {
         e.drawings.wait();
     }
     got.insert("first_page_cold_ms".into(), json!(cold.iter().cloned().fold(0.0, f64::max)));
+    phase(&mut phases, "first_pages");
 
     // export cold, then warm
     e.drawings.clear();
@@ -146,12 +159,14 @@ fn drafting_perf() {
     got.insert("kept_viewports".into(), json!(e.drawings.len()));
     got.insert("hatches_made".into(), json!(s.hatch_made));
     got.insert("hatches_kept".into(), json!(s.hatch_kept));
+    phase(&mut phases, "export_cold");
     let t = Instant::now();
     ok(&mut e, json!({"cmd": "export_sheets", "path": pdf}));
     got.insert("export_warm_ms".into(), json!(ms(t)));
     let s = e.drawings.stats();
     expect(s.drawn == 70, format!("a warm export draws nothing ({} drawn, {} let go for memory)", s.drawn - 70, s.evicted));
     got.insert("pdf_mb".into(), json!(std::fs::metadata(&pdf).unwrap().len() as f64 / 1048576.0));
+    phase(&mut phases, "export_warm");
 
     // switching between pages already drawn
     let mut sw = Vec::new();
@@ -207,19 +222,28 @@ fn drafting_perf() {
     w.tris(&e.model);
     got.insert("world_ms".into(), json!(ms(t)));
     let mut worst: f64 = 0.0;
+    let mut slowest = String::new();
     for s in stale {
         let n0 = e.drawings.stats().drawn;
         let t = Instant::now();
         e.sheet_page(s).unwrap();
         let n = (e.drawings.stats().drawn - n0).max(1);
-        worst = worst.max(ms(t) / n as f64);
+        let each = ms(t) / n as f64;
+        if each > worst {
+            worst = each;
+            slowest = format!("{} ({n} drawn)", e.model.sheets[&s].name);
+        }
     }
+    got.insert("wall_redraw_slowest".into(), json!(slowest));
     e.drawings.wait();
     got.insert("wall_redraw_max_ms".into(), json!(worst));
     expect(e.drawings.stats().drawn - after_move.drawn == 30, format!("and redraws them once each ({})", e.drawings.stats().drawn - after_move.drawn));
-    if let Some(r) = peak_rss_mb() {
+    phase(&mut phases, "wall_move");
+    // the whole run's peak is the largest phase's
+    if let Some(r) = phases.values().filter_map(Value::as_f64).reduce(f64::max) {
         got.insert("peak_rss_mb".into(), json!(r));
     }
+    got.insert("peaks_mb".into(), Value::Object(phases));
     std::fs::remove_dir_all(&dir).ok();
 
     for w in &wrong {
@@ -255,6 +279,8 @@ fn report(got: &Map<String, Value>, full: bool) {
             fails.push(format!("peak memory {r:.0} MB is over {RSS_BUDGET_MB} MB"));
         }
     }
+    table.push_str(&format!("| Peak memory by phase (MB) | {} | | |\n", got.get("peaks_mb").map_or("-".into(), |v| v.to_string())));
+    table.push_str(&format!("| Slowest viewport redrawn after the wall move | {} | | |\n", got.get("wall_redraw_slowest").map_or("-".into(), |v| v.to_string())));
     table.push_str(&format!("| Faces / fixture build (ms) | {} / {} | | |\n", got["faces"], got["fixture_ms"]));
     table.push_str(&format!("| After a change: the model's world geometry, once (ms) | {:.1} | | |\n", num("world_ms")));
     table.push_str(&format!("| Kept drawings (MB, viewports) / hatches made, reused | {:.0}, {} / {}, {} | | |\n", num("kept_mb"), got["kept_viewports"], got["hatches_made"], got["hatches_kept"]));

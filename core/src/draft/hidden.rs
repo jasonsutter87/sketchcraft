@@ -187,11 +187,16 @@ impl View<'_> {
     /// The drawing's line work: visible spans in the pen, and (when asked) the hidden spans dashed.
     pub fn lines(&self) -> anyhow::Result<Vec<Prim>> {
         let pr = &self.proj;
+        let trace = std::env::var("SKETCHCRAFT_PERF").is_ok_and(|v| v == "full");
+        let t_all = std::time::Instant::now();
         let (tris, far) = self.triangles();
+        let n_tris = tris.len();
+        let t_tris = t_all.elapsed().as_secs_f64() * 1000.0;
         // how far a ray must go to leave what's in the frame, and how close to its start it ignores
         // (worked out from the triangles in the frame alone: what's elsewhere can't change a drawing)
         let reach = far * 4.0 + 10.0;
         let occ = Occluder { bvh: Bvh::build(tris), origin: pr.anchor, toward: (-pr.look).as_vec3(), tmin: (reach * 2e-6).max(1e-4) as f32, tmax: (reach * 2.0) as f32 };
+        let t_bvh = t_all.elapsed().as_secs_f64() * 1000.0 - t_tris;
         let mut edges = Vec::new();
         self.pens.with_edges(self.m, |all| for e in all.iter().filter(|e| !e.soft) {
             let (mut ta, mut tb) = (0.0f64, 1.0f64);
@@ -248,9 +253,19 @@ impl View<'_> {
             }
             out
         };
+        let t_edges = t_all.elapsed().as_secs_f64() * 1000.0;
+        let samples: usize = edges.iter().map(|it| ((it.len / SAMPLE_SPACING).ceil() as usize).clamp(8, 4000) + 1).sum();
+        let short = edges.iter().filter(|it| it.len < 8.0 * SAMPLE_SPACING).count();
+        let report = |n: usize| {
+            if trace {
+                eprintln!("hidden: rect {:?} tris {n_tris} ({t_tris:.0} ms) bvh {t_bvh:.0} ms, edges {} ({short} short) by {t_edges:.0} ms, samples {samples}, {n} prims, total {:.0} ms", self.rect, edges.len(), t_all.elapsed().as_secs_f64() * 1000.0);
+            }
+        };
         let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).min(4);
         if threads < 2 || edges.len() < 2000 {
-            return Ok(work(&edges));
+            let out = work(&edges);
+            report(out.len());
+            return Ok(out);
         }
         let per = edges.len().div_ceil(threads);
         std::thread::scope(|s| {
@@ -265,6 +280,7 @@ impl View<'_> {
                 // a worker that stopped would leave a hole in the drawing: fail the whole drawing
                 out.extend(h.join().map_err(|_| anyhow::anyhow!("a hidden-line worker stopped unexpectedly, so the drawing would be incomplete"))?);
             }
+            report(out.len());
             Ok(out)
         })
     }
