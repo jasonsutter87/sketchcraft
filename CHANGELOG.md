@@ -6,6 +6,16 @@ What changed in each SketchCraft release, newest first. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- **SketchUp 2013 to 2020 files with curves, pictures or text labels import again.** A SketchUp 2016 model (the
+  "SpeedyBee" file from #1) was refused as damaged because SketchCraft stopped at the control points a Bézier curve
+  keeps in its attributes; it also could not read the model's pictures (now placed like components) or its text labels
+  (found and counted among the annotations left out, not placed). Parts that were turned (a quarter turn about an
+  axis, say) in these files also came in turned the wrong way, so they sat scattered; they now sit where SketchUp has
+  them, as the same fix already did for newer files. On that file the import now gives about 5,000 faces, 25,200 edges
+  and 377 placements, against 4,990, 25,140 and 377 in SketchUp 2026's re-save. Dimensions in large classic files
+  (over 32,767 objects) are read correctly too. (part of #70)
+
 ### Added
 - **Dimensions come in from SketchUp files.** Importing a SketchUp 6 to 2020 file now brings its linear dimensions
   along as dimensions on the model, measured between the same two points and drawn at the same offset; a dimension

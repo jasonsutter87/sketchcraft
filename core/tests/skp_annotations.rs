@@ -174,6 +174,22 @@ fn a_dimension_on_a_vertex_that_is_not_there_is_counted_not_guessed() {
     }
 }
 
+/// Past 32767 objects a reference is 0x7FFF and a u32 (6 bytes, not 4), and the 10 bytes after it are the same.
+#[test]
+fn a_dimension_end_on_a_vertex_past_32767_objects_is_read() {
+    let mut d = one();
+    let needle = (BASE + 3).to_le_bytes();
+    let at = d.windows(4).rposition(|w| w == needle).unwrap();
+    // [u32 ref][8 zeros] becomes [0x7FFF][u32 ref][10 zeros]
+    let mut big = vec![0xFF, 0x7F];
+    big.extend(needle);
+    big.extend([0u8; 10]);
+    d.splice(at..at + 12, big);
+    let (m, s) = import(&d, DVec3::ZERO).expect("imports");
+    assert_eq!((s.dimensions, s.skipped_annotations), (1, 0));
+    assert!(near(dims(&m)[0].0, DVec3::ZERO));
+}
+
 #[test]
 fn every_truncation_is_an_error_or_a_smaller_model_never_a_panic() {
     let d = skp_with(&[Dim { ends: [End::Vertex(0), End::Free([1.0, 2.0, 3.0])], text: "label", dir: [0.0, 1.0, 0.0], dist: 3.0 }]);

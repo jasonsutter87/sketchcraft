@@ -21,7 +21,7 @@
 //!   CLoop     4, then edge uses until a null
 //!   CEdgeUse  u16, edge, u8 reversed, u16 loop ref
 //!   CComponentInstance / CGroup  12-byte header, definition ref, 13 doubles
-//!             (x axis, y axis, z axis, origin, scale), name
+//!             (three basis rows, origin, scale), name
 //!
 //! Each component definition stores its entities as [u32 definition index + 1]
 //! [u16 0][u32 count][objects]; the model's own entities are a bare
@@ -56,6 +56,8 @@ enum Kind {
     AttrTexCoords,
     /// a linear dimension (CDimensionLinear) and the font it names (CSkFont)
     DimLinear,
+    /// a text label (CText): read so the list goes on, not placed
+    Text,
     Font,
     /// a class we don't decode (dimension, text...): the list parser skips it
     Unknown,
@@ -70,12 +72,14 @@ fn kind_of(name: &str) -> Option<Kind> {
         "CEdgeUse" => Kind::EdgeUse,
         "CCurve" => Kind::Curve,
         "CArcCurve" => Kind::ArcCurve,
-        "CComponentInstance" | "CGroup" => Kind::Instance,
+        // an Image is a placement of a definition that holds the picture's face, laid out like a component
+        "CComponentInstance" | "CGroup" | "CImage" => Kind::Instance,
         "CConstructionPoint" => Kind::ConstructionPoint,
         "CAttributeContainer" => Kind::AttrContainer,
         "CAttributeNamed" => Kind::AttrNamed,
         "CFaceTextureCoords" => Kind::AttrTexCoords,
         "CDimensionLinear" => Kind::DimLinear,
+        "CText" => Kind::Text,
         "CSkFont" => Kind::Font,
         _ => Kind::Unknown,
     })
@@ -107,6 +111,8 @@ enum Obj {
     Curve,
     Instance { def: Slot, m: [f64; 13] },
     Font,
+    /// a text label: found, not imported
+    Text,
     /// a linear dimension: where each end is, the text typed over the measured one (usually empty), and the
     /// direction and distance it is drawn offset from the measured points (inches)
     Dim { ends: [DimEnd; 2], text: String, dir: DVec3, dist: f64 },
@@ -273,6 +279,32 @@ impl<'a> Reader<'a> {
         Ok(Some(kind))
     }
 
+    /// One value of a named attribute set, its type byte already read: 4 a 32-bit integer, 6 a double,
+    /// 7 a flag byte, 10 a string, 11 an array (a u32 count, then that many values, each with its own type
+    /// byte; a Bezier curve's control points are stored this way) and 17 a point or vector (3 doubles).
+    fn attr_value(&mut self, t: u8, depth: usize) -> R<()> {
+        match t {
+            4 => self.skip(4),
+            6 => self.skip(8),
+            7 => self.skip(1),
+            10 => self.cstring().map(|_| ()),
+            17 => self.skip(24),
+            11 if depth < 4 => {
+                let n = self.u32()? as usize;
+                // every element is at least its type byte and a byte of value
+                if n > (self.d.len() - self.p) / 2 {
+                    return Err(Fail);
+                }
+                for _ in 0..n {
+                    let et = self.u8()?;
+                    self.attr_value(et, depth + 1)?;
+                }
+                Ok(())
+            }
+            _ => Err(Fail),
+        }
+    }
+
     fn attrs(&mut self) -> R<()> {
         if self.new_attr_object(&[Kind::AttrContainer])?.is_none() {
             return Ok(());
@@ -304,15 +336,8 @@ impl<'a> Reader<'a> {
                 if self.cstring()?.is_empty() {
                     break;
                 }
-                match self.u8()? {
-                    4 => self.skip(4)?,
-                    6 => self.skip(8)?,
-                    7 => self.skip(1)?,
-                    10 => {
-                        self.cstring()?;
-                    }
-                    _ => return Err(Fail),
-                }
+                let t = self.u8()?;
+                self.attr_value(t, 0)?;
             }
             self.skip(4)?;
         }
@@ -442,10 +467,7 @@ impl<'a> Reader<'a> {
                 let edge = self.obj()?;
                 let reversed = self.u8()? != 0;
                 // a plain reference: a u16, or 0x7FFF and a u32 once there are 32767+ objects
-                let loop_ref = match self.u16()? {
-                    0x7FFF => self.u32()? & 0x7FFF_FFFF,
-                    r => r as u32,
-                };
+                let loop_ref = self.plain_ref()?;
                 Obj::EdgeUse { edge, reversed, loop_ref }
             }
             Kind::ConstructionPoint => {
@@ -460,6 +482,7 @@ impl<'a> Reader<'a> {
                 self.skip(15)?;
                 Obj::Font
             }
+            Kind::Text => self.text_label()?,
             Kind::DimLinear => {
                 let start = self.p;
                 let r = self.dim_linear();
@@ -487,6 +510,52 @@ impl<'a> Reader<'a> {
         })
     }
 
+    /// CText (worked out from one SketchUp 2016 file): entity header, 10 bytes, the font (an object or a
+    /// reference), 16 bytes, an end like a dimension's (u32 2, u32 4, a point, a vertex reference,
+    /// 10 bytes), a point and a direction (6 doubles), a short fixed stretch of counts and flags, the text (a
+    /// string) and a few zero bytes. Only read to the end so the entity list carries on.
+    fn text_label(&mut self) -> R<Obj> {
+        self.head()?;
+        self.skip(10)?;
+        match self.obj()? {
+            Slot::New(i) | Slot::Ref(i) if i == 0 || matches!(self.objects.get(&i), Some(Obj::Font) | None) => {}
+            Slot::Null => {}
+            _ => return Err(Fail),
+        }
+        self.skip(16)?;
+        // the first count is a kind (1, 2 and 5 are seen); the second is 4
+        if self.u32()? > 16 || self.u32()? != 4 {
+            return Err(Fail);
+        }
+        self.skip(24)?;
+        self.plain_ref()?;
+        self.skip(10)?;
+        for _ in 0..6 {
+            self.coord()?;
+        }
+        // the counts and flags before the text vary; the text starts at the first string marker
+        let end = (self.p + 40).min(self.d.len());
+        let at = (self.p..end).find(|&i| self.d.get(i..i + 3) == Some(b"\xff\xfe\xff")).ok_or(Fail)?;
+        self.p = at;
+        self.cstring()?;
+        // the closing zero bytes
+        for _ in 0..5 {
+            if self.d.get(self.p) != Some(&0) {
+                break;
+            }
+            self.p += 1;
+        }
+        Ok(Obj::Text)
+    }
+
+    /// A plain reference: a u16, or 0x7FFF and a u32 once there are 32767+ objects.
+    fn plain_ref(&mut self) -> R<u32> {
+        Ok(match self.u16()? {
+            0x7FFF => self.u32()? & 0x7FFF_FFFF,
+            r => r as u32,
+        })
+    }
+
     /// A finite coordinate of a sane size (inches).
     fn coord(&mut self) -> R<f64> {
         let v = self.f64()?;
@@ -496,7 +565,7 @@ impl<'a> Reader<'a> {
     /// CDimensionLinear (worked out from SketchUp 7 files):
     ///   entity header, 10 bytes, the typed text (a string; empty = show the measured length), the font (an object
     ///   or a reference), a zero byte, u32 3,
-    ///   two ends of 44 bytes each [u32 2, u32 4, a point (3 doubles, zero when attached), u32 vertex reference, 8 bytes],
+    ///   two ends of 44 bytes each [u32 2, u32 4, a point (3 doubles, zero when attached), a vertex reference (u16, or 0x7FFF and a u32 in big files), 10 bytes],
     ///   six doubles (the offset direction, then the plane's), u32 2, the offset distance (a double),
     ///   a few zero bytes, u32 3.
     fn dim_linear(&mut self) -> R<Obj> {
@@ -522,8 +591,8 @@ impl<'a> Reader<'a> {
             }
             self.u32()?;
             let p = DVec3::new(self.coord()?, self.coord()?, self.coord()?);
-            let v = self.u32()?;
-            self.skip(8)?;
+            let v = self.plain_ref()?;
+            self.skip(10)?;
             *e = if v == 0 { DimEnd::Free(p) } else { DimEnd::Vertex(v) };
         }
         let mut f = [0.0; 6];
@@ -678,6 +747,7 @@ fn resolve(r: &Reader, items: &[Slot]) -> Entities {
                     out.faces.push(SkpFace { outer, holes: rings, material: *material });
                 }
             }
+            Some(Obj::Text) => out.dims_skipped += 1,
             Some(Obj::Dim { ends, text, dir, dist }) => {
                 let at = |e: &DimEnd| match e {
                     DimEnd::Free(p) => Some(*p),
@@ -696,10 +766,13 @@ fn resolve(r: &Reader, items: &[Slot]) -> Entities {
             }
             Some(Obj::Instance { def, m }) => {
                 if let Some(d) = def.index() {
+                    // The file stores the basis as three rows (checked on a 2016 file: read as columns, a
+                    // rotated part's corners touch its neighbours' 57 times in 4,538, as rows 1,066 times);
+                    // glam takes columns, the same fix #71 made in the modern reader.
                     let t = DMat4::from_cols(
-                        DVec4::new(m[0], m[1], m[2], 0.0),
-                        DVec4::new(m[3], m[4], m[5], 0.0),
-                        DVec4::new(m[6], m[7], m[8], 0.0),
+                        DVec4::new(m[0], m[3], m[6], 0.0),
+                        DVec4::new(m[1], m[4], m[7], 0.0),
+                        DVec4::new(m[2], m[5], m[8], 0.0),
                         DVec4::new(m[9], m[10], m[11], if m[12].abs() > 1e-12 { m[12] } else { 1.0 }),
                     );
                     out.instances.push((d, t));
@@ -954,7 +1027,7 @@ fn parse_items<'a>(mut r: Reader<'a>, n: usize, budget: usize, tries: &mut usize
                     let t = u16::from_le_bytes([d[q], d[q + 1]]);
                     if t == 0xFFFF {
                         let nl = d.get(q + 4..q + 6).map(|b| u16::from_le_bytes([b[0], b[1]]) as usize).unwrap_or(0);
-                        return d.get(q + 6..q + 6 + nl).map_or(false, |nm| matches!(nm, b"CEdge" | b"CFace" | b"CComponentInstance" | b"CGroup" | b"CConstructionPoint"));
+                        return d.get(q + 6..q + 6 + nl).map_or(false, |nm| matches!(nm, b"CEdge" | b"CFace" | b"CComponentInstance" | b"CGroup" | b"CImage" | b"CConstructionPoint"));
                     }
                     if t & 0x8000 != 0 {
                         return matches!(classes.get(&((t & 0x7FFF) as u32)), Some(Kind::Edge | Kind::Face | Kind::Instance | Kind::ConstructionPoint));
@@ -1039,7 +1112,7 @@ pub fn parse(d: &[u8]) -> Result<SkpFile> {
     let geometry_tag = |known: &HashMap<u32, Kind>, t: u16, i: usize| -> bool {
         if t == 0xFFFF {
             let n = d.get(i + 4..i + 6).map(|b| u16::from_le_bytes([b[0], b[1]]) as usize).unwrap_or(0);
-            return d.get(i + 6..i + 6 + n).map_or(false, |name| matches!(name, b"CEdge" | b"CFace" | b"CComponentInstance" | b"CGroup"));
+            return d.get(i + 6..i + 6 + n).map_or(false, |name| matches!(name, b"CEdge" | b"CFace" | b"CComponentInstance" | b"CGroup" | b"CImage"));
         }
         t & 0x8000 != 0 && matches!(known.get(&((t & 0x7FFF) as u32)), Some(Kind::Edge | Kind::Face | Kind::Instance))
     };
