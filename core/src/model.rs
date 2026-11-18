@@ -1767,6 +1767,26 @@ impl Model {
         hi
     }
 
+    /// Is there any paper (sheets, items, title blocks, drafting styles) in this model or the models of its components?
+    pub fn has_paper(&self) -> bool {
+        !(self.sheets.is_empty() && self.sheet_items.is_empty() && self.title_blocks.is_empty() && self.drafting.is_empty()) || self.definitions.values().any(|d| d.model.has_paper())
+    }
+
+    /// Drop the drawing sheets, what is on them, the title blocks and the drafting styles (this model, and the models of its
+    /// components): a model used as a part has no paper of its own.
+    pub fn clear_paper(&mut self) {
+        self.sheets.clear();
+        self.sheet_items.clear();
+        self.title_blocks.clear();
+        self.drafting = Default::default();
+        for d in self.definitions.values_mut() {
+            // look first: a shared component model is only copied if it has paper to drop
+            if d.model.has_paper() {
+                std::sync::Arc::make_mut(&mut d.model).clear_paper();
+            }
+        }
+    }
+
     /// Make every id counter in this model (and in every component) higher than any id in use, so that the next
     /// thing drawn can never take the id of something already there. A file written by another tool, edited by hand
     /// or damaged may carry a counter that is too low; the program's own files never do. Returns whether anything changed.

@@ -311,8 +311,12 @@ impl Engine {
                 }
                 if let Some(s) = scale {
                     v.scale = s;
-                    // a scale the person or agent set is the scale: the export no longer fits the picture
+                    // a scale the person or agent set is the scale: the export no longer fits the picture, and a
+                    // perspective 3D view becomes a parallel one (only a parallel view can be to scale)
                     drop_legacy(&mut v, "fit");
+                    if let ViewKind::View3d { parallel, .. } = &mut v.view {
+                        *parallel = true;
+                    }
                 }
                 if let Some(a) = args.anchor {
                     v.anchor = a;
@@ -518,8 +522,10 @@ fn spec_to_viewport(m: &Model, spec: &ViewportSpec) -> Result<Viewport> {
 fn viewport_to_spec(v: &Viewport) -> ViewportSpec {
     let legacy = v.extra.get("legacy").cloned().unwrap_or(Value::Null);
     let l = |k: &str| legacy.get(k).cloned().unwrap_or(Value::Null);
+    // a perspective view has no scale to draw at (the PDF takes a scale to mean parallel and to scale): fitted
+    let perspective = matches!(v.view, ViewKind::View3d { parallel: false, .. });
     let fit = l("fit") == json!(true);
-    let mut s = ViewportSpec { x: v.rect_mm[0], y: v.rect_mm[1], w: v.rect_mm[2], h: v.rect_mm[3], label: (!v.label.is_empty()).then(|| v.label.clone()), scale: (!fit).then(|| scale_text(v.scale)), callouts: l("callouts") == json!(true), ..Default::default() };
+    let mut s = ViewportSpec { x: v.rect_mm[0], y: v.rect_mm[1], w: v.rect_mm[2], h: v.rect_mm[3], label: (!v.label.is_empty()).then(|| v.label.clone()), scale: (!fit && !perspective).then(|| scale_text(v.scale)), callouts: l("callouts") == json!(true), ..Default::default() };
     s.marks = serde_json::from_value(l("marks")).unwrap_or_default();
     s.levels = serde_json::from_value(l("levels")).unwrap_or_default();
     s.section_mark = serde_json::from_value::<Value>(l("section_mark")).ok().filter(|v| v.is_object()).and_then(|sm| {

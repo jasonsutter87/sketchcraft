@@ -449,6 +449,47 @@ fn a_viewport_added_with_no_view_always_draws() {
 }
 
 #[test]
+fn an_unscaled_3d_viewport_is_exported_fitted_not_as_1_to_100() {
+    let dir = scratch("perspective");
+    let mut e = Engine::new();
+    let f = ok(&mut e, json!({"cmd": "rect", "from": [0, 0, 0], "to": [4, 3, 0]}))["face"].clone();
+    ok(&mut e, json!({"cmd": "pushpull", "face": f, "distance": 2.5}));
+    let s = ok(&mut e, json!({"cmd": "sheet_add"}))["sheet"].clone();
+    let vp = ok(&mut e, json!({"cmd": "viewport_add", "sheet": s, "from_view": "iso"}))["viewport"].clone();
+    let p = dir.join("persp.pdf");
+    ok(&mut e, json!({"cmd": "export_sheets", "path": p}));
+    assert!(!String::from_utf8_lossy(&std::fs::read(&p).unwrap()).contains("1:100"), "a perspective view has no scale");
+    // give it a scale and it is a parallel view to that scale
+    ok(&mut e, json!({"cmd": "viewport_edit", "id": vp, "scale": 100}));
+    let item = serde_json::to_value(&e.model.sheet_items[&(vp.as_u64().unwrap() as u32)]).unwrap();
+    assert_eq!(item["view"]["parallel"], true);
+    let q = dir.join("scaled.pdf");
+    ok(&mut e, json!({"cmd": "export_sheets", "path": q}));
+    assert!(String::from_utf8_lossy(&std::fs::read(&q).unwrap()).contains("1:100"));
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn a_model_file_with_sheets_placed_as_a_part_brings_no_paper_along() {
+    let dir = scratch("part");
+    let mut e = with_sheets();
+    let part = dir.join("part.sketchcraft");
+    ok(&mut e, json!({"cmd": "save", "path": part}));
+    assert_eq!(file(&part)["format"], 2);
+    let m = sketchcraft::library::load_file(part.to_str().unwrap()).unwrap();
+    assert!(!m.has_paper(), "the part has no sheets, items, title blocks or drafting styles");
+    let mut root = Engine::new();
+    sketchcraft::library::adopt(&mut root.model, m, "Part", None);
+    assert!(!root.model.has_paper());
+    let out = dir.join("out.sketchcraft");
+    ok(&mut root, json!({"cmd": "save", "path": out}));
+    let f = file(&out);
+    assert_eq!(f["format"], 1, "nothing in it needs sheets");
+    assert!(!f.to_string().contains("sheet_items"));
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn more_sheets_than_one_pdf_holds_say_how_to_export_them() {
     let dir = scratch("many");
     let mut e = Engine::new();

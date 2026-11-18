@@ -111,6 +111,8 @@ pub fn load_file(path: &str) -> Result<Model> {
     m.check_nesting(crate::nesting::MAX_EXPANDED).map_err(|why| anyhow::anyhow!("{name} can't be used: {why}"))?;
     m.views.clear();
     m.guides.clear();
+    // drawing sheets belong to a whole model: placed as a component they could never be seen or changed
+    m.clear_paper();
     m.active_group = None;
     Ok(m)
 }
