@@ -3,7 +3,8 @@ out/
 *.png
 !docs/*.png
 !brand/*.png
-node_modules/
+# also a node_modules symlink (a worktree sharing the main checkout's), which "node_modules/" would not match
+node_modules
 dist/
 app/src-tauri/gen/
 !app/src-tauri/icons/*.png
