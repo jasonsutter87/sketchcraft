@@ -991,7 +991,7 @@ export default function App() {
                 ] as [keyof Styles, string][]
               ).map(([k, label]) => (
                 <label key={k} className="field check">
-                  <input type="checkbox" checked={!!styles[k]} onChange={(e) => setStyles((s) => ({ ...s, [k]: e.target.checked }))} />
+                  <input type="checkbox" checked={k === "lineWeights" ? styles[k] !== false : !!styles[k]} onChange={(e) => setStyles((s) => ({ ...s, [k]: e.target.checked }))} />
                   <span>{label}</span>
                 </label>
               ))}
