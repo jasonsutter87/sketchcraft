@@ -120,16 +120,24 @@ pub(crate) fn default_specs(m: &Model) -> Vec<ViewportSpec> {
         .collect()
 }
 
-pub fn write_sheets(m: &Model, path: &str, sheet: &str, project: &str, mut pages: Vec<PageSpec>, blueprint: bool, notes: &[String]) -> Result<usize> {
+pub fn write_sheets(m: &Model, path: &str, sheet: &str, project: &str, pages: Vec<PageSpec>, blueprint: bool, notes: &[String]) -> Result<usize> {
+    write_pages(m, path, sheet, project, pages, blueprint, notes, true)
+}
+
+/// `write_sheets`; `fill` false: a page with nothing on it is drawn empty (a saved sheet the person hasn't filled), not given
+/// the model's views.
+pub(crate) fn write_pages(m: &Model, path: &str, sheet: &str, project: &str, mut pages: Vec<PageSpec>, blueprint: bool, notes: &[String], fill: bool) -> Result<usize> {
     let (sw, sh) = sheet_mm(sheet)?;
-    // saved views in a grid, or the four standard views
-    let defaults = default_specs(m);
-    if pages.is_empty() {
-        pages.push(PageSpec { title: "Views".into(), ..Default::default() });
-    }
-    for p in &mut pages {
-        if p.viewports.is_empty() && p.table.is_empty() {
-            p.viewports = defaults.clone();
+    if fill {
+        // saved views in a grid, or the four standard views
+        let defaults = default_specs(m);
+        if pages.is_empty() {
+            pages.push(PageSpec { title: "Views".into(), ..Default::default() });
+        }
+        for p in &mut pages {
+            if p.viewports.is_empty() && p.table.is_empty() {
+                p.viewports = defaults.clone();
+            }
         }
     }
     if pages.len() > 50 {

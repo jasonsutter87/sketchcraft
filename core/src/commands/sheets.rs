@@ -299,6 +299,8 @@ impl Engine {
                 }
                 if let Some(s) = scale {
                     v.scale = s;
+                    // a scale the person or agent set is the scale: the export no longer fits the picture
+                    drop_legacy(&mut v, "fit");
                 }
                 if let Some(a) = args.anchor {
                     v.anchor = a;
@@ -312,13 +314,15 @@ impl Engine {
                 if clear_crop {
                     v.crop = None;
                 }
+                let was_parallel = matches!(v.view, ViewKind::View3d { parallel: true, .. });
                 if let Some(view) = &args.view {
                     v.view = view.clone();
+                    drop_legacy(&mut v, "view");
                 } else if let Some(name) = &args.from_view {
-                    v.view = view3d(&self.model, name, scale.is_some() || v.scale != 100.0);
-                    if self.model.views.iter().any(|x| &x.name == name) {
-                        v.scene = Some(name.clone());
-                    }
+                    v.view = view3d(&self.model, name, scale.is_some() || was_parallel);
+                    // it follows the saved view it names, and nothing if it names a standard one
+                    v.scene = self.model.views.iter().any(|x| &x.name == name).then(|| name.clone());
+                    drop_legacy(&mut v, "view");
                 }
                 if let Some(z) = args.z {
                     v.z = z;
@@ -415,11 +419,19 @@ impl Engine {
                 let notes = notes.unwrap_or_else(|| first.fields.get("notes").map(|n| n.lines().map(str::to_string).collect()).unwrap_or_default());
                 let blueprint = blueprint.unwrap_or_else(|| first.fields.get("blueprint").is_some_and(|b| b == "true"));
                 let pages: Vec<PageSpec> = chosen.iter().map(|id| page_of(m, *id)).collect();
-                let n = crate::layout::write_sheets(m, &path, &paper, &project, pages, blueprint, &notes)?;
+                // saved sheets are drawn as they are: an empty one stays empty
+                let n = crate::layout::write_pages(m, &path, &paper, &project, pages, blueprint, &notes, false)?;
                 json!({"path": path, "pages": n, "paper": paper})
             }
             other => unreachable!("command routed to the wrong group: {other:?}"),
         })
+    }
+}
+
+/// Forget one of the old-style options kept under `extra["legacy"]` (an edit has made it untrue).
+fn drop_legacy(v: &mut Viewport, key: &str) {
+    if let Some(Value::Object(l)) = v.extra.get_mut("legacy") {
+        l.remove(key);
     }
 }
 

@@ -348,6 +348,45 @@ fn sheets_creates_saved_sheets_and_export_sheets_writes_the_pdf() {
 }
 
 #[test]
+fn edits_made_after_sheets_are_what_the_pdf_draws() {
+    // review findings: a scale set by viewport_edit wins over a fitted view; an empty saved sheet exports empty; a standard
+    // view clears the scene; the elevation dir is the viewer's side
+    let dir = scratch("edits");
+    let mut e = Engine::new();
+    let f = ok(&mut e, json!({"cmd": "rect", "from": [0, 0, 0], "to": [4, 3, 0]}))["face"].clone();
+    ok(&mut e, json!({"cmd": "pushpull", "face": f, "distance": 2.5}));
+    ok(&mut e, json!({"cmd": "save_view", "name": "Corner", "eye": [10, -10, 8], "target": [2, 1.5, 0]}));
+    let r = ok(&mut e, json!({"cmd": "sheets", "pages": [{"title": "A", "viewports": [{"view": "iso"}]}, {"title": "Front", "viewports": [{"view": "front", "scale": "1:50", "callouts": true}]}]}));
+    let (first, second) = (r["sheets"][0].as_u64().unwrap(), r["sheets"][1].as_u64().unwrap());
+    let vp = *e.model.sheet_items.iter().find(|(_, i)| i.sheet() == Some(first as u32)).unwrap().0;
+    // saved fitted: the PDF has no scale label; after the edit it says 1:50
+    let p1 = dir.join("fit.pdf");
+    ok(&mut e, json!({"cmd": "export_sheets", "path": p1, "pages": [first]}));
+    assert!(!String::from_utf8_lossy(&std::fs::read(&p1).unwrap()).contains("1:50"));
+    ok(&mut e, json!({"cmd": "viewport_edit", "id": vp, "scale": 50}));
+    let p2 = dir.join("edited.pdf");
+    ok(&mut e, json!({"cmd": "export_sheets", "path": p2, "pages": [first]}));
+    assert!(String::from_utf8_lossy(&std::fs::read(&p2).unwrap()).contains("1:50"), "the edited scale is drawn");
+    // a standard view clears the scene a saved one set
+    ok(&mut e, json!({"cmd": "viewport_edit", "id": vp, "from_view": "Corner"}));
+    assert_eq!(serde_json::to_value(&e.model.sheet_items[&(vp as u32)]).unwrap()["scene"], "Corner");
+    ok(&mut e, json!({"cmd": "viewport_edit", "id": vp, "from_view": "iso"}));
+    assert!(serde_json::to_value(&e.model.sheet_items[&(vp as u32)]).unwrap().get("scene").is_none());
+    // an elevation's dir is from the model toward the viewer: the front is [0,-1,0]
+    let el = e.model.sheet_items.iter().find(|(_, i)| i.sheet() == Some(second as u32)).map(|(_, i)| serde_json::to_value(&**i).unwrap()).unwrap();
+    assert_eq!(el["view"]["type"], "elevation");
+    assert_eq!(el["view"]["dir"], json!([0.0, -1.0, 0.0]));
+    // an empty saved sheet is drawn empty: no views nobody placed
+    let empty = ok(&mut e, json!({"cmd": "sheet_add", "name": "Empty"}))["sheet"].as_u64().unwrap();
+    let p3 = dir.join("empty.pdf");
+    ok(&mut e, json!({"cmd": "export_sheets", "path": p3, "pages": [empty]}));
+    let with = dir.join("one.pdf");
+    ok(&mut e, json!({"cmd": "export_sheets", "path": with, "pages": [first]}));
+    assert!(std::fs::metadata(&p3).unwrap().len() * 3 < std::fs::metadata(&with).unwrap().len(), "empty sheet should have no pictures in it");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn sheets_info_is_read_only() {
     let mut e = with_sheets();
     let (rev, depth) = (e.revision(), e.undo_depth());

@@ -317,9 +317,10 @@ pub struct TagOverride {
 pub enum ViewKind {
     /// a floor plan: the model cut at `cut_z`, with what is between `floor_z` and the cut in thin lines
     Plan { cut_z: f64, floor_z: f64, #[serde(default)] depth: f64 },
-    /// looking along `dir` (a horizontal direction), parallel
+    /// a side view, parallel: `dir` is the horizontal direction from the model toward the viewer (the side you
+    /// look at: a front elevation is [0, -1, 0], as the camera of the "front" standard view)
     Elevation { dir: [f64; 3], #[serde(default)] depth: f64 },
-    /// the model cut by the vertical plane through `origin` with `normal`, seen from the side `normal` points away from
+    /// the model cut by the vertical plane through `origin` with `normal`; `normal` is the direction looked along (the viewer is on the side it points away from)
     Section { origin: [f64; 3], normal: [f64; 3], #[serde(default)] depth: f64 },
     View3d { eye: [f64; 3], target: [f64; 3], fov: f64, #[serde(default)] parallel: bool },
 }
