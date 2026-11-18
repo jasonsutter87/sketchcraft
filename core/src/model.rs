@@ -157,7 +157,7 @@ pub enum Annotation {
         b: DVec3,
         offset: DVec3,
         #[serde(default, skip_serializing_if = "both_free")]
-        anchors: [Option<crate::drafting::Anchor>; 2],
+        anchors: Box<[Option<crate::drafting::Anchor>; 2]>,
     },
     Text { id: Id, at: DVec3, text: String, #[serde(default)] leader: Option<DVec3> },
     /// A door's swing on plan: the leaf turns about `hinge` from closed
@@ -172,7 +172,7 @@ fn both_free(a: &[Option<crate::drafting::Anchor>; 2]) -> bool {
 impl Annotation {
     /// A dimension between two fixed points (no anchors).
     pub fn dimension(id: Id, a: DVec3, b: DVec3, offset: DVec3) -> Annotation {
-        Annotation::Dimension { id, a, b, offset, anchors: [None, None] }
+        Annotation::Dimension { id, a, b, offset, anchors: Box::new([None, None]) }
     }
 
     /// Is this a dimension with at least one end attached to geometry?

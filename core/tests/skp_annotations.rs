@@ -243,7 +243,7 @@ use sketchcraft::drafting::{Anchor, AnchorAt};
 use sketchcraft::Engine;
 
 fn anchors_of(m: &Model) -> Vec<[Option<Anchor>; 2]> {
-    m.annotations.iter().filter_map(|a| if let Annotation::Dimension { anchors, .. } = a { Some(anchors.clone()) } else { None }).collect()
+    m.annotations.iter().filter_map(|a| if let Annotation::Dimension { anchors, .. } = a { Some((**anchors).clone()) } else { None }).collect()
 }
 
 #[test]

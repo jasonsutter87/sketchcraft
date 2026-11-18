@@ -1395,7 +1395,7 @@ pub fn import(m: &mut Model, d: &[u8], at: DVec3, name: &str) -> Result<ImportSu
                 summary.dimensions_unattached += 1;
             }
             let id = m.new_id();
-            m.annotations.push(Annotation::Dimension { id, a, b, offset: off, anchors });
+            m.annotations.push(Annotation::Dimension { id, a, b, offset: off, anchors: Box::new(anchors) });
             summary.dimensions += 1;
             if !dim.text.is_empty() {
                 let id = m.new_id();
