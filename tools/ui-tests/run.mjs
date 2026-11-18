@@ -26,6 +26,7 @@ const SUITES = [
   ['hatches', 'tools/ui-tests/hatches.mjs', 300],
   ['cut-fills', 'tools/ui-tests/cut-fills.mjs', 300],
   ['cut-priority', 'tools/ui-tests/cut-priority.mjs', 300],
+  ['layout-workspace', 'tools/ui-tests/layout-workspace.mjs', 300],
   ['subdivide', 'tools/ui-tests/subdivide.mjs', 300],
   ['shortcuts', 'tools/ui-tests/shortcuts.mjs', 300],
   ['tools', 'tools/ui-tests/tools.mjs', 900],
@@ -68,6 +69,8 @@ const env = {
   VITE_BRIDGE_PORT: bridgePort,
   SKETCHCRAFT_BRIDGE_TOKEN: [...crypto.getRandomValues(new Uint8Array(16))].map((x) => x.toString(16).padStart(2, '0')).join(''),
   SHOT_DIR: process.env.SHOT_DIR ?? path.join(scratch, 'shots'),
+  // the date sheets print in their title block (2026-01-01), so the Layout workspace's references don't change daily
+  SOURCE_DATE_EPOCH: process.env.SOURCE_DATE_EPOCH ?? '1767225600',
 };
 // Playwright found beside tools/demos/lib.mjs is fine; elsewhere, SKETCHCRAFT_PLAYWRIGHT names its folder
 const kids = [];

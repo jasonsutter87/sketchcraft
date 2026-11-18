@@ -23,6 +23,8 @@ interface Props {
   actions: {
     blueprint: () => void;
     sheets: () => void;
+    /** go to the Layout workspace */
+    layout: () => void;
     location: () => void;
     render: () => void;
     animation: () => void;
@@ -109,7 +111,10 @@ function ArchStrip({ scene, api, section, setSection, actions, run }: Props) {
       <button onClick={actions.blueprint} title="Every floor plan and four elevations, on blueprint sheets">
         Blueprint…
       </button>
-      <button onClick={actions.sheets} title="Lay out your own sheets: plans, elevations, views">
+      <button onClick={actions.layout} title="Open in Layout: saved pages of plans, elevations and views, to scale">
+        Layout
+      </button>
+      <button onClick={actions.sheets} title="A quick PDF of sheets: pick views, print">
         Sheets…
       </button>
       <button onClick={actions.location} title="Real terrain and map around the site; drives the real sun">

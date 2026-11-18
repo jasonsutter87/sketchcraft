@@ -1,7 +1,7 @@
 // Skin, layout and workspace customizations, remembered between launches.
 import { useEffect, useState } from "react";
 import { applySkin, readSkin, SKINS, store, type Skin } from "./skins";
-import { cleanEdits, WORKSPACES, withEdits, type Layout, type WorkspaceEdits, type WorkspaceId } from "./workspace";
+import { cleanEdits, toolAfterSwitch, WORKSPACES, withEdits, type Layout, type LeftTab, type WorkspaceEdits, type WorkspaceId } from "./workspace";
 import type { Styles, Tool } from "./Viewport";
 
 /** the skin you wore last time (a built-in by id, or a saved one by its data) */
@@ -26,7 +26,7 @@ function rememberedEdits(): Partial<Record<WorkspaceId, WorkspaceEdits>> {
   }
 }
 
-export type Tab = "outliner" | "library" | "views";
+export type Tab = LeftTab;
 
 export function useLook({ tool, chooseTool, setStyles, setTab }: {
   tool: Tool;
@@ -76,8 +76,9 @@ export function useLook({ tool, chooseTool, setStyles, setTab }: {
     store.set("sketchcraft.workspace", id);
     setTab(w.leftTab);
     if (w.styles) setStyles((s) => ({ ...s, ...w.styles }));
-    // a tool that isn't on this workspace's toolbar: back to Select
-    if (!w.tools.flat().includes(tool)) chooseTool("select");
+    // a tool that isn't on this workspace's toolbar: back to Select (Layout leaves the model's tool alone)
+    const next = toolAfterSwitch(w, tool);
+    if (next !== tool) chooseTool(next);
   };
   return { skin, setSkinState, wearSkin, wsId, setWsId, wsEdits, setWsEdits, layout, setLayoutState, setLayout, ws, editWs, switchWs };
 }

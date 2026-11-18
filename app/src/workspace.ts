@@ -4,12 +4,12 @@
 
 import type { Styles, Tool } from "./Viewport";
 
-export type WorkspaceId = "model" | "arch" | "design" | "previz";
+export type WorkspaceId = "model" | "arch" | "design" | "previz" | "layout";
 /** where the tool bar sits: floating along the bottom, down the left, or
  * "classic": docked edge to edge above the model, like SketchUp */
 export type Dock = "bottom" | "left" | "classic";
 export type Layout = "classic" | "floating" | "side";
-export type LeftTab = "outliner" | "library" | "views";
+export type LeftTab = "outliner" | "library" | "views" | "pages";
 
 export interface Workspace {
   id: WorkspaceId;
@@ -115,7 +115,32 @@ export const WORKSPACES: Workspace[] = [
     dock: "bottom",
     styles: { shadows: true },
   },
+  {
+    id: "layout",
+    name: "Layout",
+    blurb: "Drawing sheets: pages of plans, elevations and views, to scale, ready to print. Your 3D model stays open.",
+    // the paper has its own tools (#9); the model's tool bar is put away while you're here
+    tools: [["select"]],
+    leftTab: "pages",
+    showLeft: true,
+    showRight: true,
+    dock: "bottom",
+  },
 ];
+
+/** The left panel's tabs in a workspace: Layout leads with its pages (the model's Library isn't for paper). */
+export function leftTabs(id: WorkspaceId): LeftTab[] {
+  return id === "layout" ? ["pages", "outliner", "views"] : ["outliner", "library", "views"];
+}
+
+/**
+ * The tool to have after switching to `w`: the one you had if this workspace's tool bar has it, else Select. Layout
+ * keeps the model's tool as it is (its tool bar is put away, not changed), so going back finds it where you left it.
+ */
+export function toolAfterSwitch(w: Workspace, tool: Tool): Tool {
+  if (w.id === "layout") return tool;
+  return w.tools.flat().includes(tool) ? tool : "select";
+}
 
 /** your changes to a workspace (only what differs) */
 export type WorkspaceEdits = Partial<Pick<Workspace, "tools" | "showLeft" | "showRight" | "dock" | "leftTab">>;
@@ -133,7 +158,7 @@ export function cleanEdits(raw: unknown): Partial<Record<WorkspaceId, WorkspaceE
     if (typeof r.showLeft === "boolean") c.showLeft = r.showLeft;
     if (typeof r.showRight === "boolean") c.showRight = r.showRight;
     if (r.dock === "bottom" || r.dock === "left" || r.dock === "classic") c.dock = r.dock;
-    if (r.leftTab === "outliner" || r.leftTab === "library" || r.leftTab === "views") c.leftTab = r.leftTab;
+    if (r.leftTab === "outliner" || r.leftTab === "library" || r.leftTab === "views" || r.leftTab === "pages") c.leftTab = r.leftTab;
     if (Object.keys(c).length) out[w.id] = c;
   }
   return out;

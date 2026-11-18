@@ -337,8 +337,9 @@ export function WorkspaceDialog({ ws, onChange, onReset, onClose }: { ws: Worksp
         </select>
         <span>Navigation panel</span>
         <select className="units-select" value={ws.showLeft ? ws.leftTab : "off"} onChange={(e) => (e.target.value === "off" ? onChange({ showLeft: false }) : onChange({ showLeft: true, leftTab: e.target.value as Workspace["leftTab"] }))}>
+          {ws.id === "layout" && <option value="pages">Shown, on Pages</option>}
           <option value="outliner">Shown, on Outliner</option>
-          <option value="library">Shown, on Library</option>
+          {ws.id !== "layout" && <option value="library">Shown, on Library</option>}
           <option value="views">Shown, on Views</option>
           <option value="off">Hidden</option>
         </select>

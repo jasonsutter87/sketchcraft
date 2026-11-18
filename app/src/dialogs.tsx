@@ -4,7 +4,7 @@ import { exec, type Scene } from "./engine";
 import { Sheet, SheetHead } from "./sheet";
 
 /** LayOut-lite: pick views (and scales) for a PDF set of drawing sheets. */
-export function SheetsDialog({ scene, onMake, onClose }: { scene: Scene; onMake: (spec: { sheet: string; project: string; blueprint: boolean; pages: { title: string; viewports: { view: string; scale?: string; label?: string; cut?: number }[] }[] }) => void; onClose: () => void }) {
+export function SheetsDialog({ scene, onMake, onClose, onLayout }: { scene: Scene; onMake: (spec: { sheet: string; project: string; blueprint: boolean; pages: { title: string; viewports: { view: string; scale?: string; label?: string; cut?: number }[] }[] }) => void; onClose: () => void; /** go to the Layout workspace (saved, editable pages) */ onLayout?: () => void }) {
   const standard = ["iso", "top", "front", "right", "back", "left"];
   // floor plans, one per floor the engine finds
   const [levels, setLevels] = useState<number[]>([]);
@@ -85,6 +85,11 @@ export function SheetsDialog({ scene, onMake, onClose }: { scene: Scene; onMake:
         <button className="btn small ghost" onClick={onClose}>
           Cancel
         </button>
+        {onLayout && (
+          <button className="btn small ghost" onClick={onLayout} title="Saved pages you can come back to, reorder and change: the Layout workspace">
+            Open in Layout
+          </button>
+        )}
       </div>
     </Sheet>
   );

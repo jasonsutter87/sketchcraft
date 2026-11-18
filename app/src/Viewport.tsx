@@ -293,6 +293,11 @@ export default function Viewport(props: Props) {
 
     let raf = 0;
     const loop = () => {
+      // put away under the Layout workspace: nothing moves, nothing is drawn, until it shows again
+      if (live.current.paused) {
+        raf = requestAnimationFrame(loop);
+        return;
+      }
       controls.update();
       const cam = t.current!.camera;
       if (live.current.styles.ao) {
@@ -3226,6 +3231,7 @@ export default function Viewport(props: Props) {
     }
 
     const key = (e: KeyboardEvent) => {
+      if (live.current.paused) return;
       const typing = isTypingTarget(e.target);
       if (e.code === "Space" && !typing) {
         const isDown = e.type === "keydown";
