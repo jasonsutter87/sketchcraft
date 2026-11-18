@@ -171,6 +171,25 @@ const dialogs = [
     await p.locator('body').click({ position: { x: 5, y: 450 } }).catch(() => {});
     await p.keyboard.press('?');
   }],
+  ['shortcuts-editor', async (p) => {
+    await p.locator('body').click({ position: { x: 5, y: 450 } }).catch(() => {});
+    await p.keyboard.press('?');
+    await p.getByRole('button', { name: 'Customize…' }).click();
+    await p.waitForSelector('.key-editor');
+    // one key changed and a conflict shown: Rectangle takes L from Line
+    await p.locator('.key-row[data-cmd="tool:rect"] .key-btn').click();
+    await p.keyboard.press('l');
+    await p.waitForSelector('.key-notice');
+  }],
+  ['shortcuts-import', async (p) => {
+    await p.locator('body').click({ position: { x: 5, y: 450 } }).catch(() => {});
+    await p.keyboard.press('?');
+    await p.getByRole('button', { name: 'Customize…' }).click();
+    await p.getByRole('button', { name: 'Import / export' }).click();
+    await p.getByLabel('Shortcuts file text').fill('Tools/Push/Pull = X\nDraw/Line = J\nEdit/Undo = Ctrl+Z\nWindow/Model Info = Shift+I\nTools/Dimensions = Banana\n');
+    await p.getByRole('button', { name: 'Import', exact: true }).click();
+    await p.waitForSelector('.key-report');
+  }],
   ['library-tab', async (p) => p.locator('.tabs button', { hasText: 'Library' }).first().click()],
   ['views-tab', async (p) => p.locator('.tabs button', { hasText: 'Views' }).first().click()],
   ['more-tools', async (p) => {
@@ -181,7 +200,7 @@ const dialogs = [
   }],
 ];
 for (const [name, run] of dialogs) shots.push({ name: `classic-light-${name}`, layout: 'classic', skin: 'classic', run });
-for (const [name, run] of dialogs.filter(([n]) => ['file-menu', 'themes', 'command-palette', 'plugins'].includes(n))) shots.push({ name: `floating-dark-${name}`, layout: 'floating', skin: 'midnight', run });
+for (const [name, run] of dialogs.filter(([n]) => ['file-menu', 'themes', 'command-palette', 'plugins', 'shortcuts-editor'].includes(n))) shots.push({ name: `floating-dark-${name}`, layout: 'floating', skin: 'midnight', run });
 
 // ---- run them ------------------------------------------------------------------------------------------------------------
 const haveRefs = fs.existsSync(refDir) && fs.readdirSync(refDir).some((f) => f.endsWith('.png'));
