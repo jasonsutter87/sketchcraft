@@ -849,6 +849,25 @@ export default function Viewport(props: Props) {
           m.userData.sectionFill = true;
           T2.model.add(m);
         }
+        // a tag's hatch: its cut walls on paper-white, with the pattern's lines in the hatch colour
+        const paper = (r.hatchFill as number[] | undefined) ?? [];
+        if (paper.length) {
+          const g = new THREE.BufferGeometry();
+          g.setAttribute("position", new THREE.Float32BufferAttribute(shift(paper), 3));
+          const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: 0xf6f5f0, side: THREE.DoubleSide }));
+          m.userData.sectionFill = true;
+          m.userData.sectionHatchFill = true;
+          T2.model.add(m);
+        }
+        const lift2 = plane.normal.clone().multiplyScalar(0.003);
+        for (const h of (r.hatch as { tag: string; color: string; lines: number[] }[] | undefined) ?? []) {
+          if (!h.lines.length) continue;
+          const g = new THREE.BufferGeometry();
+          g.setAttribute("position", new THREE.Float32BufferAttribute(h.lines.map((v, i) => v + [lift2.x, lift2.y, lift2.z][i % 3]), 3));
+          const ls = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: new THREE.Color(h.color || "#1a1a1f") }));
+          ls.userData.sectionHatch = h.tag;
+          T2.model.add(ls);
+        }
         if (lines.length) {
           const g = new THREE.BufferGeometry();
           g.setAttribute("position", new THREE.Float32BufferAttribute(shift(lines), 3));

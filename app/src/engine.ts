@@ -4,6 +4,7 @@
 // Inside the desktop app this calls Tauri; in a plain browser it talks to
 // `sketchcraft bridge` on 127.0.0.1:5175.
 import { invoke } from "@tauri-apps/api/core";
+import type { HatchUseInfo } from "./hatchswatch";
 
 export type Vec3 = [number, number, number];
 
@@ -43,6 +44,8 @@ export interface TagStyleInfo {
   weight_mm?: number;
   line?: string;
   color?: string;
+  /** how the tag's cut walls are filled in plans and sections (a hatch when `fill` is "hatch") */
+  cut?: { fill?: "none" | "solid" | "hatch"; outline_mm?: number; hatch?: HatchUseInfo };
 }
 
 export interface GroupInfo {

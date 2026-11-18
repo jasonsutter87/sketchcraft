@@ -23,6 +23,7 @@ const SUITES = [
   ['gestures-and-escape', 'tools/ui-tests/gestures-and-escape.mjs', 240],
   ['overlay-layout', 'tools/ui-tests/overlay-layout.mjs', 300],
   ['line-styles', 'tools/ui-tests/line-styles.mjs', 300],
+  ['hatches', 'tools/ui-tests/hatches.mjs', 300],
   ['subdivide', 'tools/ui-tests/subdivide.mjs', 300],
   ['shortcuts', 'tools/ui-tests/shortcuts.mjs', 300],
   ['tools', 'tools/ui-tests/tools.mjs', 900],

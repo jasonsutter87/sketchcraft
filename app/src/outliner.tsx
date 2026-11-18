@@ -10,6 +10,7 @@ import { Icons } from "./icons";
 import { EMPTY, type Sel } from "./selection";
 import { autoTagColor } from "./Viewport";
 import { LineStyleControls } from "./linestyle";
+import { HatchControls } from "./hatchstyle";
 
 type Run = (cmd: Record<string, unknown>) => Promise<Reply>;
 
@@ -308,6 +309,7 @@ function Tags({ scene, sel, run, byTag, setByTag }: { scene: Scene; sel: Sel; ru
               </div>
               <div className="tag-line">
                 <LineStyleControls label={`tag ${t}`} none="Default" value={scene.tagStyles?.[t] ?? {}} onChange={(c) => run({ cmd: "tag_style", tag: t, ...c })} />
+                <HatchControls tag={t} value={scene.tagStyles?.[t]?.cut?.fill === "hatch" ? scene.tagStyles?.[t]?.cut?.hatch : null} run={run} />
               </div>
             </li>
           );

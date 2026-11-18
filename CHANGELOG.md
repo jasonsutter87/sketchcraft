@@ -17,6 +17,14 @@ What changed in each SketchCraft release, newest first. The format follows
   (over 32,767 objects) are read correctly too. (part of #70)
 
 ### Added
+- **Hatch patterns per tag.** In the Outliner's Tags list, each tag has a Hatch button: pick a pattern and its walls
+  are hatched wherever a plan or section cuts them, on drawing sheets (PDF, SVG and DXF) and on screen with a section
+  plane. Set the hatch's colour, line thickness, scale and angle, and whether its size is fixed on paper or real size
+  in the model. Eleven patterns come built in (diagonal, cross, steel, grid, dots, brick, concrete, earth,
+  insulation, wood, sand), drawn by us and free to use (CC0), and **Import .pat…** loads AutoCAD-format `.pat` files,
+  which are kept in the model so it opens the same anywhere. In a DXF the hatch stays a real hatch your CAD program can
+  edit. A pattern too fine for its region prints as a light tint, and the export says so. Agents and plugins can do
+  the same with `tag_style {hatch}`, `hatch_pattern` and `hatch_patterns`. (part of #4)
 - **A viewport on a sheet can be faded.** Give a viewport an opacity from 0 to 1 (`viewport_edit` with `opacity`, or when
   you add it) and, in the PDF, it prints as one see-through drawing: lines that cross inside it don't darken each
   other, and viewports stacked on one another blend in the order they are stacked. SVG keeps the fade too. DXF has no

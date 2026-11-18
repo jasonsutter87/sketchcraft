@@ -253,6 +253,68 @@
 
 .tag-line {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
+  align-items: center;
+  gap: 4px;
   padding: 2px 6px 4px;
+}
+
+// a tag's hatch: a swatch button, and its editor below the row
+.hatchstyle {
+  display: contents;
+}
+
+.hatch-btn {
+  display: inline-flex;
+  align-items: center;
+  min-width: 30px;
+  height: 20px;
+  padding: 0 3px;
+
+  .hatch-none {
+    font-size: 11px;
+    opacity: 0.75;
+  }
+}
+
+.hatch-swatch {
+  display: block;
+  flex: none;
+  border-radius: 2px;
+}
+
+.hatch-editor {
+  flex-basis: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+  padding: 6px;
+  border-radius: 6px;
+  background: rgba(127, 127, 140, 0.08);
+
+  .hint {
+    margin: 0;
+    font-size: 11px;
+    opacity: 0.8;
+    line-height: 1.35;
+  }
+}
+
+.hatch-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.hatch-num {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+
+  input {
+    width: 52px;
+  }
 }
