@@ -4,6 +4,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Icons } from "./icons";
 import { TOOL_INFO } from "./workspace";
+import { keyText, useKeymap } from "./keymapstore";
 import { skinIcon } from "./skins";
 import { verticalToolIcon } from "./vertical-tool-icons";
 
@@ -19,7 +20,7 @@ export interface ExtraButton {
 }
 let EXTRA = new Map<string, ExtraButton>();
 
-const info = (id: string) => (EXTRA.has(id) ? { name: `${EXTRA.get(id)!.name} (plugin)`, key: "" } : TOOL_INFO[id as ToolId]);
+const info = (id: string) => (EXTRA.has(id) ? { name: `${EXTRA.get(id)!.name} (plugin)`, key: keyText(id) } : { ...TOOL_INFO[id as ToolId], key: keyText(`tool:${id}`) });
 /** The tool's icon: the worn skin's own image if it has one, else the built-in. */
 const icon = (id: string, style: ToolIconStyle) => {
   const ex = EXTRA.get(id);
@@ -51,6 +52,7 @@ export function Toolbar({
   extra?: ExtraButton[];
   iconStyle?: ToolIconStyle;
 }) {
+  useKeymap();
   EXTRA = new Map(extra.map((b) => [b.id, b]));
   const groups = useMemo(() => (extra.length ? [...toolGroups, extra.map((b) => b.id)] : toolGroups), [toolGroups, extra]);
   // a plugin button runs its command; anything else picks the tool

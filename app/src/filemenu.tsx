@@ -1,6 +1,7 @@
 // The File menu in the top bar: files, exports, plugins, and the dialogs the rest of the app opens.
 import { useState, type RefObject } from "react";
 import { inTauri } from "./engine";
+import { keyText } from "./keymapstore";
 import { loadPlugins, type Plugin, type PluginList } from "./plugins";
 import { checkForUpdatesNow } from "./updater";
 import { useEscapeToClose } from "./sheet";
@@ -17,7 +18,7 @@ export function FileMenu({ file, section, plugins, livePlugins, setPlugins, runP
   reloadPlugins: () => void;
   fileRef: RefObject<HTMLInputElement | null>;
   /** the dialogs the menu opens, by what they are */
-  open: { restore: () => void; plugins: () => void; sheets: () => void; timeline: () => void; location: () => void; text3d: () => void; keys: () => void };
+  open: { restore: () => void; plugins: () => void; sheets: () => void; timeline: () => void; location: () => void; text3d: () => void; keys: () => void; keyEditor: () => void };
 }) {
   const [fileMenu, setFileMenu] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
@@ -108,8 +109,9 @@ export function FileMenu({ file, section, plugins, livePlugins, setPlugins, runP
           <button onClick={file.report}>Generate report (CSV)…</button>
           <hr />
           <button onClick={() => open.keys()}>
-            Keyboard shortcuts <kbd>?</kbd>
+            Keyboard shortcuts <kbd>{keyText("help.shortcuts")}</kbd>
           </button>
+          <button onClick={() => open.keyEditor()}>Customize shortcuts…</button>
           {inTauri && <button onClick={checkForUpdatesNow}>Check for updates…</button>}
           <div className="menu-version" title="The version of SketchCraft you're running">
             SketchCraft {__APP_VERSION__}

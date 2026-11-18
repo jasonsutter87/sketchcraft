@@ -25,6 +25,7 @@ import { autoTagColor, ACCENT, BACKGROUNDS } from "./viewport/colors";
 import { styledEdges, averagedNormals, smoothNormals } from "./viewport/edges";
 import { profileMaterial, textureFor } from "./viewport/materials";
 import { UP, r4, arr, circleThrough, bulgeThrough, basis, arcPoints, offsetOutline } from "./viewport/geometry";
+import { isTypingTarget } from "./keymap";
 import type { Tool, BuildSettings, FaceStyle, Backdrop, Styles, Cam, ViewportApi, PluginPoint, Props, Op, LabelSpec, Last } from "./viewport/types";
 export { autoTagColor };
 export type { Tool, BuildSettings, FaceStyle, Backdrop, Styles, Cam, ViewportApi, PluginPoint };
@@ -3159,7 +3160,7 @@ export default function Viewport(props: Props) {
     }
 
     const key = (e: KeyboardEvent) => {
-      const typing = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
+      const typing = isTypingTarget(e.target);
       if (e.code === "Space" && !typing) {
         const isDown = e.type === "keydown";
         e.preventDefault();

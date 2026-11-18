@@ -1,0 +1,134 @@
+@use "variables" as *;
+@use "mixins" as *;
+
+/* The Shortcuts editor */
+
+.key-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: min(640px, calc(100vh - 64px));
+}
+
+.key-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+
+  .key-search {
+    flex: 1 1 160px;
+    min-width: 0;
+  }
+}
+
+.key-blurb {
+  margin: 0;
+}
+
+.key-tools {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border-radius: $radius-md;
+  background: var(--bg, #f4f5f9);
+
+  p {
+    margin: 0;
+  }
+
+  textarea {
+    width: 100%;
+    box-sizing: border-box;
+    font: 11.5px ui-monospace, SFMono-Regular, Menlo, monospace;
+    resize: vertical;
+  }
+
+  .grow {
+    flex: 1;
+  }
+}
+
+.key-report {
+  display: grid;
+  gap: 4px;
+  font-size: $font-l;
+
+  &.bad b {
+    color: var(--danger);
+  }
+
+  ul {
+    margin: 4px 0 0;
+    padding-left: 18px;
+    max-height: 120px;
+    overflow: auto;
+  }
+}
+
+.key-notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: $radius-md;
+  background: var(--accent-soft);
+  font-size: $font-l;
+}
+
+.key-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.key-row {
+  display: grid;
+  grid-template-columns: 1fr 150px auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 6px;
+  border-radius: $radius-sm;
+  font-size: $font-l;
+
+  &:hover,
+  &.clash {
+    background: var(--accent-soft);
+  }
+}
+
+.key-row .btn {
+  border-color: transparent;
+
+  &:disabled {
+    opacity: 0.35;
+  }
+}
+
+.key-btn {
+  justify-self: start;
+  min-width: 90px;
+  padding: 3px 8px;
+  border: 1px solid var(--line-strong, #d9dbe5);
+  border-radius: $radius-sm;
+  background: var(--panel);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+
+  kbd {
+    font: 11.5px ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+
+  &.none {
+    color: var(--faint);
+  }
+
+  &.rec {
+    border-color: var(--accent);
+    color: var(--accent-ink);
+    box-shadow: 0 0 0 2px var(--accent-soft);
+  }
+}

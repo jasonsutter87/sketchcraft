@@ -5,6 +5,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Sheet } from "./sheet";
 
 export interface Command {
+  /** its place in the shortcuts list (keymap.ts), if it can have a key */
+  id?: string;
   label: string;
   /** what it does, or where it lives */
   hint?: string;

@@ -8,6 +8,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { type Scene } from "./engine";
 import { store } from "./skins";
 import { Sheet, SheetHead } from "./sheet";
+import { keyText, useKeymap, withKeys } from "./keymapstore";
 
 /** What a step can look at. */
 export interface LearnCtx {
@@ -85,10 +86,10 @@ export const LESSONS: Lesson[] = [
     minutes: 2,
     demo: "first-model",
     steps: [
-      { do: "Draw a rectangle on the ground", how: "Press R, click one corner, click the opposite corner.", done: (c, b) => c.scene.faces.length > b.faces },
-      { do: "Pull it up into a box", how: "Press P, click the face, move up, click.", done: (c, b) => c.scene.faces.length >= b.faces + 6 },
-      { do: "Paint a face", how: "Press B, pick a color on the right, click a face.", done: (c, b) => c.scene.faces.filter((f) => f.material).length > b.painted },
-      { do: "Make it a group", how: "Press Space, drag a box around it, then right-click › Make group.", done: (c, b) => c.scene.groups.length > b.groups },
+      { do: "Draw a rectangle on the ground", how: "Press {key:rect}, click one corner, click the opposite corner.", done: (c, b) => c.scene.faces.length > b.faces },
+      { do: "Pull it up into a box", how: "Press {key:push}, click the face, move up, click.", done: (c, b) => c.scene.faces.length >= b.faces + 6 },
+      { do: "Paint a face", how: "Press {key:paint}, pick a color on the right, click a face.", done: (c, b) => c.scene.faces.filter((f) => f.material).length > b.painted },
+      { do: "Make it a group", how: "Press {key:select}, drag a box around it, then right-click › Make group.", done: (c, b) => c.scene.groups.length > b.groups },
     ],
   },
   {
@@ -138,7 +139,7 @@ export const LESSONS: Lesson[] = [
     demo: "move-corner",
     steps: [
       { do: "Make a box", how: "R for a rectangle, then P to pull it up.", done: (c, b) => c.scene.faces.length >= b.faces + 6 },
-      { do: "Raise one top corner", how: "Press Space then Esc so nothing is selected, M for Move, click a top corner, move up, click (or type a height).", done: (c, b) => c.scene.faces.length >= b.faces + 7 },
+      { do: "Raise one top corner", how: "Press {key:select} then Esc so nothing is selected, then {key:move} for Move, click a top corner, move up, click (or type a height).", done: (c, b) => c.scene.faces.length >= b.faces + 7 },
     ],
   },
   {
@@ -160,7 +161,7 @@ export const LESSONS: Lesson[] = [
     demo: "shelves-cut-list",
     steps: [
       { do: "Build a shelf unit", how: "File › Plugins ▸ Shelf unit…, then Build.", done: (c, b) => c.scene.groups.length >= b.groups + 4 },
-      { do: "Make its cut list", how: "File › Plugins ▸ Cut list… (or Shift+S, type cut list).", done: (c, b) => c.pluginRuns >= b.pluginRuns + 2 },
+      { do: "Make its cut list", how: "File › Plugins ▸ Cut list… (or {cmd:help.search}, type cut list).", done: (c, b) => c.pluginRuns >= b.pluginRuns + 2 },
     ],
   },
   {
@@ -224,6 +225,7 @@ const GUIDE = "https://github.com/jasonsutter87/sketchcraft/blob/main/docs/guide
 
 /** The Learn center: lessons to do, demos to watch. */
 export function LearnCenter({ onStart, onClose }: { onStart: (id: string) => void; onClose: () => void }) {
+  useKeymap();
   const demos = useDemos();
   const [q, setQ] = useState("");
   const [tab, setTab] = useState<"lessons" | "watch">("lessons");
@@ -232,7 +234,7 @@ export function LearnCenter({ onStart, onClose }: { onStart: (id: string) => voi
   const reduce = typeof matchMedia !== "undefined" && (matchMedia("(prefers-reduced-motion: reduce)").matches || document.documentElement.dataset.reduceMotion === "true");
   const done = lessonsDone();
   const match = (...t: string[]) => !q.trim() || t.join(" ").toLowerCase().includes(q.trim().toLowerCase());
-  const lessons = LESSONS.filter((l) => match(l.title, l.about, ...l.steps.map((s) => s.do + " " + (s.how ?? ""))));
+  const lessons = LESSONS.filter((l) => match(l.title, l.about, ...l.steps.map((s) => s.do + " " + withKeys(s.how ?? ""))));
   const watch = Object.entries(demos).filter(([, d]) => match(d.title, d.about, d.topic ?? ""));
   return (
     <Sheet onClose={onClose} label="Learn" className="learn">
@@ -301,7 +303,7 @@ export function LearnCenter({ onStart, onClose }: { onStart: (id: string) => voi
         </div>
       )}
       <div className="row gap" style={{ marginTop: 12 }}>
-        <span className="muted small">Press ? any time for every keyboard shortcut, and Shift+S to find any command.</span>
+        <span className="muted small">Press {keyText("help.shortcuts") || "?"} any time for every keyboard shortcut, and {keyText("help.search") || "Shift+S"} to find any command.</span>
         <button className="btn small ghost" onClick={openGuide} title="The SketchCraft guide, in your browser">
           Read the guide
         </button>
@@ -316,6 +318,7 @@ export function LearnCenter({ onStart, onClose }: { onStart: (id: string) => voi
 
 /** The lesson in progress: a card beside the work; steps tick themselves. */
 export function LessonCard({ id, ctx, onClose, onToast }: { id: string; ctx: LearnCtx; onClose: () => void; onToast: (t: string) => void }) {
+  useKeymap();
   const lesson = LESSONS.find((l) => l.id === id)!;
   const demos = useDemos();
   const [base] = useState<Base>(() => measure(ctx.scene, ctx));
@@ -360,7 +363,7 @@ export function LessonCard({ id, ctx, onClose, onToast }: { id: string; ctx: Lea
             </span>
             <span>
               {s.do}
-              {i === current && s.how && <em>{s.how}</em>}
+              {i === current && s.how && <em>{withKeys(s.how)}</em>}
             </span>
           </li>
         ))}

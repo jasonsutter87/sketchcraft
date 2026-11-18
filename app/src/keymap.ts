@@ -152,10 +152,12 @@ export function reservedReason(combo: Combo, forId = ""): string | null {
 const CAMERA_TOOLS = new Set(["orbit", "pan", "zoom", "zoomwindow", "position", "lookaround", "walk"]);
 /** The short name of a tool ("Move (Option/Ctrl to copy)" is "Move"; "Arc: ends, then bulge" is "Arc"). */
 export const toolLabel = (name: string) => name.split(":")[0].split(" (")[0].trim();
+/** names that would read the same in a list of commands */
+const LABELS: Record<string, string> = { arc: "2-Point Arc", arccenter: "Arc (center)", text: "Text label", erase: "Eraser", section: "Section Plane" };
 
 export const TOOL_COMMANDS: CommandDef[] = (Object.entries(TOOL_INFO) as [string, { name: string; key: string }][]).map(([id, t]) => ({
   id: `tool:${id}`,
-  label: toolLabel(t.name),
+  label: LABELS[id] ?? toolLabel(t.name),
   group: CAMERA_TOOLS.has(id) ? "Camera" : "Tools",
   key: t.key === "" ? "" : normalizeCombo(t.key) ?? "",
 }));

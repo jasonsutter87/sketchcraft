@@ -1,56 +1,18 @@
-// The keyboard shortcuts sheet.
+// The keyboard shortcuts sheet (?): your own keys, laid out by kind, and a way into the editor.
 import { Sheet } from "./sheet";
+import { COMMANDS, PRESETS, formatCombo, type CommandDef, type CommandGroup } from "./keymap";
+import { keymap, useKeymap } from "./keymapstore";
 
-/** Every shortcut, laid out like SketchUp's defaults (Mac keys; Windows uses Ctrl for ⌘ and Option). */
-export const SHORTCUTS: [string, [string, string][]][] = [
-  [
-    "Tools",
-    [
-      ["Space", "Select"],
-      ["L", "Line"],
-      ["A", "Arc"],
-      ["R", "Rectangle"],
-      ["C", "Circle"],
-      ["N", "Polygon"],
-      ["P", "Push/Pull"],
-      ["F", "Offset"],
-      ["J", "Follow Me"],
-      ["M", "Move"],
-      ["Q", "Rotate"],
-      ["S", "Scale"],
-      ["T", "Tape Measure"],
-      ["D", "Dimension"],
-      ["W", "Text"],
-      ["B", "Paint Bucket"],
-      ["E", "Eraser"],
-      ["X", "Section Plane"],
-    ],
-  ],
-  [
-    "Camera",
-    [
-      ["O", "Orbit (or middle-drag)"],
-      ["H", "Pan (or Shift + middle-drag)"],
-      ["Z", "Zoom"],
-      ["⇧Z", "Zoom Extents"],
-      ["⌘1 – ⌘6", "Iso, Top, Front, Right, Back, Left"],
-      ["K", "Back Edges"],
-    ],
-  ],
-  [
-    "Edit",
-    [
-      ["⌘Z", "Undo"],
-      ["⇧⌘Z  /  Ctrl+Y", "Redo"],
-      ["⌘X  ⌘C  ⌘V", "Cut, Copy, Paste"],
-      ["⌘A", "Select All"],
-      ["⌘T", "Select None"],
-      ["⌫", "Delete"],
-      ["G", "Make Component"],
-      ["⌘N  ⌘O  ⌘S  ⇧⌘S", "New, Open, Save, Save As"],
-      ["⌘I", "Import"],
-    ],
-  ],
+/** the sheet's sections, each made of command groups */
+const SECTIONS: [string, CommandGroup[]][] = [
+  ["Tools", ["Tools"]],
+  ["Camera", ["Camera"]],
+  ["Edit and file", ["Edit", "File"]],
+  ["View and windows", ["View", "Window", "Plugins"]],
+];
+
+/** What you do while using a tool: these are fixed, not shortcuts you can change. */
+const WHILE_USING: [string, [string, string][]][] = [
   [
     "While using a tool",
     [
@@ -61,6 +23,7 @@ export const SHORTCUTS: [string, [string, string][]][] = [
       ["Option / Ctrl", "Move and Rotate: copy"],
       ["x5 after a copy", "Make 5 copies in a row"],
       ["Double-click", "Push/Pull: repeat the last distance; Select: open a group"],
+      ["Hold Space", "Orbit while it's down; tap it to Select"],
     ],
   ],
   [
@@ -77,18 +40,42 @@ export const SHORTCUTS: [string, [string, string][]][] = [
   ],
 ];
 
-export function ShortcutSheet({ onClose }: { onClose: () => void }) {
+export function ShortcutSheet({ onClose, onCustomize }: { onClose: () => void; onCustomize: () => void }) {
+  const res = useKeymap();
+  const all: CommandDef[] = [...COMMANDS, ...keymap.extra()];
+  const preset = PRESETS.find((p) => p.id === keymap.state().preset)!;
+  const changed = Object.keys(keymap.state().overrides).length;
   return (
     <Sheet onClose={onClose} label="Keyboard shortcuts">
       <div className="sheet-head">
         <b>Keyboard shortcuts</b>
-        <span className="muted">SketchUp's defaults. On Windows, Ctrl stands in for ⌘.</span>
+        <span className="muted">
+          {preset.name} keys{changed ? `, ${changed} changed by you` : ""}.
+        </span>
+        <button className="btn small primary" onClick={onCustomize}>
+          Customize…
+        </button>
         <button className="btn small ghost" onClick={onClose}>
           Close
         </button>
       </div>
       <div className="sheet-cols">
-        {SHORTCUTS.map(([title, rows]) => (
+        {SECTIONS.map(([title, groups]) => {
+          const rows = all.filter((d) => groups.includes(d.group) && res.bindings[d.id]);
+          if (!rows.length) return null;
+          return (
+            <div key={title} className="sheet-sec">
+              <div className="section-title">{title}</div>
+              {rows.map((d) => (
+                <div key={d.id} className="sheet-row">
+                  <kbd>{formatCombo(res.bindings[d.id])}</kbd>
+                  <span>{d.label}</span>
+                </div>
+              ))}
+            </div>
+          );
+        })}
+        {WHILE_USING.map(([title, rows]) => (
           <div key={title} className="sheet-sec">
             <div className="section-title">{title}</div>
             {rows.map(([k, what]) => (

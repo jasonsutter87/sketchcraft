@@ -12,6 +12,9 @@ import { Library } from "./library";
 import { Outliner } from "./outliner";
 import { RenderDialog } from "./renderdialog";
 import { ShortcutSheet } from "./shortcuts";
+import { ShortcutEditor } from "./shortcutseditor";
+import { comboFromEvent, isTypingTarget } from "./keymap";
+import { keymap, keyText, useKeymap } from "./keymapstore";
 import { Textures } from "./materialspanel";
 import { Views } from "./views";
 import { EMPTY, isEmpty, selIds, type Sel } from "./selection";
@@ -101,41 +104,6 @@ function SectionHeight({ api, units, tick }: { api: React.RefObject<ViewportApi 
     />
   );
 }
-
-const TOOL_GROUPS: { id: Tool; name: string; key: string }[][] = [
-  [{ id: "select", name: "Select", key: "Space" }],
-  [
-    { id: "line", name: "Line", key: "L" },
-    { id: "arc", name: "Arc", key: "A" },
-    { id: "rect", name: "Rectangle", key: "R" },
-    { id: "circle", name: "Circle", key: "C" },
-    { id: "polygon", name: "Polygon", key: "N" },
-  ],
-  [
-    { id: "push", name: "Push / Pull", key: "P" },
-    { id: "offset", name: "Offset", key: "F" },
-    { id: "followme", name: "Follow Me", key: "J" },
-  ],
-  [
-    { id: "move", name: "Move (Option/Ctrl to copy)", key: "M" },
-    { id: "rotate", name: "Rotate (Option/Ctrl to copy)", key: "Q" },
-    { id: "scale", name: "Scale", key: "S" },
-  ],
-  [
-    { id: "tape", name: "Tape Measure (makes guides)", key: "T" },
-    { id: "dimension", name: "Dimension: click, click, pull out", key: "D" },
-    { id: "text", name: "Text label: click a point, then where the label goes", key: "W" },
-    { id: "paint", name: "Paint Bucket (⌘/Option-click samples, Shift-click paints all matching)", key: "B" },
-    { id: "erase", name: "Eraser (Shift hides, Option/Ctrl softens, both unsoften)", key: "E" },
-  ],
-  [
-    { id: "orbit", name: "Orbit (or middle-drag / hold Space)", key: "O" },
-    { id: "pan", name: "Pan (or Shift+middle-drag / right-drag)", key: "H" },
-    { id: "zoom", name: "Zoom (drag up/down; Shift+Z zooms extents)", key: "Z" },
-    { id: "section", name: "Section cut: click a face", key: "X" },
-  ],
-];
-const ALL_TOOLS = TOOL_GROUPS.flat();
 
 const SWATCHES: [number, number, number][] = [
   [0.95, 0.94, 0.91], [0.93, 0.86, 0.72], [0.96, 0.8, 0.7], [0.82, 0.88, 0.8], [0.78, 0.85, 0.93], [0.87, 0.82, 0.92],
@@ -238,6 +206,7 @@ export default function App() {
   /** ⌘C / ⌘X: what to paste, and whether it was cut */
   const clip = useRef<{ ids: number[]; cut: boolean } | null>(null);
   const [showKeys, setShowKeys] = useState(false);
+  const [showKeyEditor, setShowKeyEditor] = useState(false);
   const [showPalette, setShowPalette] = useState(false);
   const [showSheets, setShowSheets] = useState(false);
   const [showLocation, setShowLocation] = useState(false);
@@ -300,6 +269,10 @@ export default function App() {
   // what a plugin says is shown as the plugin's, never in the app's own voice
   const sayAs = useCallback((plugin: Plugin, t: string, bad?: boolean, undo?: boolean) => say(plugin.builtin ? t : `Plugin “${plugin.name.slice(0, 40)}”: ${t}`, bad, undo), [say]);
   const { plugins, setPlugins, pluginShown, setPluginShown, pluginRuns, toolSession, pluginTool, pluginForm, reloadPlugins, livePlugins, pluginButtons, runPluginCommand } = usePlugins({ sel, scene, tool, setTool, say, sayAs, runForPlugin, refresh });
+  // every shortcut change re-renders the app (so tool tips and the ? sheet show the new keys); plugin commands can be given keys too
+  useKeymap();
+  const pluginCommandDefs = livePlugins.flatMap((pl) => pl.commands.map((c) => ({ id: `plugin:${pl.id}:${c.id}`, label: c.label, group: "Plugins" as const, key: "" })));
+  useEffect(() => keymap.setExtra(pluginCommandDefs));
   const { file, importFile, runTemplate } = useFileActions({ run, say, refresh, api, scene, figure, currentFile, setCurrentFile, setSel });
 
   // SubD: make one from a group or component (Subdivide…) or from a cube cage (SubD box); both end in SubD mode
@@ -415,15 +388,51 @@ export default function App() {
     say("Pasted in place. Click a point on it, then click where it goes.");
   };
 
-  // keyboard: tools, undo, delete, groups, typing into the measurement box
+  /** Copy or Cut (cut: out of sight until pasted; undo brings it back) */
+  const copySelection = async (cut: boolean) => {
+    if (isEmpty(sel)) return;
+    clip.current = { ids: selIds(sel), cut };
+    if (cut) {
+      await run({ cmd: "hide", ids: clip.current.ids });
+      setSel(EMPTY);
+    }
+    const pasteKey = keyText("edit.paste") || "Paste";
+    say(cut ? `Cut. ${pasteKey} pastes it where you click.` : `Copied. ${pasteKey} pastes, then click to place.`);
+  };
+  /** Select All: everything in the group you're in (or the whole model) */
+  const selectAll = () => {
+    if (!scene) return;
+    const inGroup = scene.activeGroup;
+    setSel({
+      faces: scene.faces.filter((f) => f.group === inGroup || (inGroup == null && f.group == null)).map((f) => f.id),
+      edges: [],
+      groups: inGroup == null ? scene.groups.map((g) => g.id) : [],
+      instances: inGroup == null && scene.editing == null ? scene.instances.map((i) => i.id) : [],
+    });
+  };
+  /** Make Component (SketchUp's G) from the selected faces and groups */
+  const makeComponent = async () => {
+    const ids = [...sel.faces, ...sel.groups];
+    if (!ids.length) return say(`Select faces or groups first, then ${keyText("edit.makecomponent") || "Make Component"} makes them a component.`, true);
+    const name = await ask("Component name", "Component");
+    if (name) {
+      await run({ cmd: "make_component", ids, name });
+      setSel(EMPTY);
+    }
+  };
+  const commandsRef = useRef<() => Command[]>(() => []);
+
+  // keyboard: every key is looked up in your shortcuts (keymap.ts), then runs that command
   useEffect(() => {
     const onKey = async (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-      // SubD mode has its own keys (the viewport handles them)
+      if (isTypingTarget(e.target)) return;
+      const combo = comboFromEvent(e);
+      // SubD mode has its own keys (the viewport handles them); only Undo and Redo work from here
       if (api.current?.inCage()) {
-        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") {
+        const id = combo ? keymap.resolved().byCombo.get(combo) : undefined;
+        if (id === "edit.undo" || id === "edit.redo") {
           e.preventDefault();
-          run({ cmd: e.shiftKey ? "redo" : "undo" });
+          run({ cmd: id === "edit.redo" ? "redo" : "undo" });
         }
         return;
       }
@@ -433,101 +442,27 @@ export default function App() {
         api.current?.editCage(sel.groups[0]);
         return;
       }
-      const mod = e.metaKey || e.ctrlKey;
-      const k = e.key.toLowerCase();
-      if (mod && ["n", "o", "s", "i"].includes(k)) {
-        e.preventDefault();
-        const f = fileRef2.current;
-        if (k === "n") return void f.new();
-        if (k === "o") return void f.open();
-        if (k === "s") return void f.save(e.shiftKey);
-        if (k === "i") return void f.import();
-      }
-      if (mod && k === "z") {
-        e.preventDefault();
-        await run({ cmd: e.shiftKey ? "redo" : "undo" });
-        return;
-      }
-      if (mod && k === "y") {
-        // Windows redo
+      if (!combo) return;
+      if (combo === "Mod+Y") {
+        // Windows redo, kept as a second Redo
         e.preventDefault();
         await run({ cmd: "redo" });
         return;
       }
-      if (mod && k === "t") {
-        // Select None
-        e.preventDefault();
-        setSel(EMPTY);
-        return;
-      }
-      if (mod && ["c", "x", "v"].includes(k)) {
-        e.preventDefault();
-        if (k === "v") return void paste(e.shiftKey);
-        if (isEmpty(sel)) return;
-        clip.current = { ids: selIds(sel), cut: k === "x" };
-        if (k === "x") {
-          // cut: out of sight until pasted (undo brings it back)
-          await run({ cmd: "hide", ids: clip.current.ids });
-          setSel(EMPTY);
-        }
-        say(k === "x" ? "Cut. ⌘V pastes it where you click." : "Copied. ⌘V pastes, then click to place.");
-        return;
-      }
-      if (mod && /^[1-6]$/.test(e.key)) {
-        // standard views (SketchUp for Mac): Iso, Top, Front, Right, Back, Left
-        e.preventDefault();
-        api.current?.view((["iso", "top", "front", "right", "back", "left"] as const)[Number(e.key) - 1]);
-        return;
-      }
-      if (mod && k === "a" && scene) {
-        e.preventDefault();
-        const inGroup = scene.activeGroup;
-        setSel({
-          faces: scene.faces.filter((f) => f.group === inGroup || (inGroup == null && f.group == null)).map((f) => f.id),
-          edges: [],
-          groups: inGroup == null ? scene.groups.map((g) => g.id) : [],
-          instances: inGroup == null && scene.editing == null ? scene.instances.map((i) => i.id) : [],
-        });
-        return;
-      }
-      if (mod) return;
-      if (e.key === "Escape" && showKeysRef.current) return setShowKeys(false);
-      if (e.key === "?" || (e.shiftKey && e.key === "/")) {
-        e.preventDefault();
-        return setShowKeys((v) => !v);
-      }
-      // Shift+S: search commands (before plain S picks Scale)
-      if (e.shiftKey && k === "s") {
-        e.preventDefault();
-        return setShowPalette(true);
-      }
-      if (e.key === "Delete" || e.key === "Backspace") return void deleteSelection();
-      if (e.shiftKey && k === "z") return api.current?.fit();
-      if (k === "g") {
-        // Make Component (SketchUp's G)
-        e.preventDefault();
-        const ids = [...sel.faces, ...sel.groups];
-        if (!ids.length) return say("Select faces or groups first, then G makes them a component.", true);
-        const name = await ask("Component name", "Component");
-        if (name) {
-          await run({ cmd: "make_component", ids, name });
-          setSel(EMPTY);
-        }
-        return;
-      }
-      if (k === "k") {
-        // Back Edges
-        setStyles((s) => ({ ...s, backEdges: !s.backEdges, xray: false }));
-        return;
-      }
-      if (/^[0-9.\-x/]$/.test(e.key) && !(k === "x" && tool !== "move")) {
+      const k = e.key.toLowerCase();
+      // typing a number starts a measurement (x too once Move is out: "x5" makes 5 copies)
+      if (!e.metaKey && !e.ctrlKey && /^[0-9.\-x/]$/.test(e.key) && !(k === "x" && tool !== "move")) {
         setTyped(e.key);
         typedRef.current?.focus();
         e.preventDefault();
         return;
       }
-      const t = ALL_TOOLS.find((x) => x.key.toLowerCase() === k);
-      if (t) chooseTool(t.id);
+      if (e.key === "Escape" && showKeysRef.current) return setShowKeys(false);
+      const id = keymap.resolved().byCombo.get(combo);
+      if (!id) return;
+      e.preventDefault();
+      if (id === "help.shortcuts") return setShowKeys((v) => !v);
+      commandsRef.current().find((c) => c.id === id)?.run();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -535,41 +470,49 @@ export default function App() {
 
   /** everything Shift+S can find: tools, then actions from the menus and view bar */
   const commands = (): Command[] => {
-    const tools: Command[] = (Object.entries(TOOL_INFO) as [Tool, { name: string; key: string }][]).map(([id, t]) => ({ label: t.name.split(":")[0].split(" (")[0], hint: `Tool${t.name.includes(":") ? ` · ${t.name.split(":")[1].trim()}` : ""}`, key: t.key || undefined, run: () => chooseTool(id) }));
-    const toggle = (k: keyof Styles, label: string) => ({ label, hint: "View", run: () => setStyles((s) => ({ ...s, [k]: !s[k] })) });
+    const tools: Command[] = (Object.entries(TOOL_INFO) as [Tool, { name: string; key: string }][]).map(([id, t]) => ({ label: t.name.split(":")[0].split(" (")[0], hint: `Tool${t.name.includes(":") ? ` · ${t.name.split(":")[1].trim()}` : ""}`, id: `tool:${id}`, run: () => chooseTool(id) }));
+    const toggle = (k: keyof Styles, label: string, id: string) => ({ id, label, hint: "View", run: () => setStyles((s) => ({ ...s, [k]: !s[k] })) });
     const act: Command[] = [
-      { label: "New model", hint: "File", key: "⌘N", run: file.new },
-      { label: "Open…", hint: "File", key: "⌘O", run: file.open },
-      { label: "Save", hint: "File", key: "⌘S", run: () => file.save(false) },
-      { label: "Save As…", hint: "File", run: () => file.save(true) },
+      { id: "file.new", label: "New model", hint: "File", run: file.new },
+      { id: "file.open", label: "Open…", hint: "File", run: file.open },
+      { id: "file.save", label: "Save", hint: "File", run: () => file.save(false) },
+      { id: "file.saveas", label: "Save As…", hint: "File", run: () => file.save(true) },
       { label: "Restore from backup…", hint: "File · earlier copies of this model, and work set aside", run: () => setShowRestore(true) },
-      { label: "Import…", hint: "File · SketchUp, DWG/DXF, IFC, FBX, OBJ, point clouds", key: "⌘I", run: file.import },
+      { id: "file.import", label: "Import…", hint: "File · SketchUp, DWG/DXF, IFC, FBX, OBJ, point clouds", run: file.import },
       ...(["glb", "obj", "stl", "dae", "dxf", "dwg", "pdf", "ifc"] as const).map((k) => ({ label: `Export ${k.toUpperCase()}…`, hint: "File", run: () => file.export(k) })),
-      { label: "Render…", hint: "Photoreal render", run: () => setShowRender(true) },
-      { label: "Timeline (video)…", hint: "Turntables, walkthroughs, sun studies", run: () => setShowTimeline(true) },
+      { id: "file.render", label: "Render…", hint: "Photoreal render", run: () => setShowRender(true) },
+      { id: "file.timeline", label: "Timeline (video)…", hint: "Turntables, walkthroughs, sun studies", run: () => setShowTimeline(true) },
       { label: "Drawing sheets (PDF)…", hint: "File", run: () => setShowSheets(true) },
       { label: "Make blueprint (PDF)…", hint: "File", run: file.blueprint },
       { label: "Add location…", hint: "Terrain and map imagery", run: () => setShowLocation(true) },
       { label: "3D Text…", hint: "File", run: () => setShowText3d(true) },
       { label: "Generate report (CSV)…", hint: "File", run: file.report },
-      { label: "Themes…", hint: "Colors, layout and icons (skins)", run: () => setShowSkins(true) },
-      ...livePlugins.flatMap((pl) => pl.commands.map((c) => ({ label: c.label, hint: `Plugin · ${c.hint ?? pl.name}`, run: () => void runPluginCommand(pl, c.id) }))),
-      { label: "Manage plugins…", hint: "Install, turn on or off, remove", run: () => (reloadPlugins(), setShowPlugins(true)) },
+      { id: "win.themes", label: "Themes…", hint: "Colors, layout and icons (skins)", run: () => setShowSkins(true) },
+      ...livePlugins.flatMap((pl) => pl.commands.map((c) => ({ id: `plugin:${pl.id}:${c.id}`, label: c.label, hint: `Plugin · ${c.hint ?? pl.name}`, run: () => void runPluginCommand(pl, c.id) }))),
+      { id: "win.plugins", label: "Manage plugins…", hint: "Install, turn on or off, remove", run: () => (reloadPlugins(), setShowPlugins(true)) },
       {
         label: ws.dock === "classic" ? "Floating layout" : "Classic layout",
         hint: ws.dock === "classic" ? "SketchCraft's floating tool bars" : "Tool bars docked above the model, like SketchUp",
         run: () => setLayout(ws.dock === "classic" ? "floating" : "classic"),
       },
-      { label: "Keyboard shortcuts", hint: "Help", key: "?", run: () => setShowKeys(true) },
+      { id: "help.shortcuts", label: "Keyboard shortcuts", hint: "Help", run: () => setShowKeys(true) },
+      { label: "Customize keyboard shortcuts…", hint: "Help · change any key, SketchUp preset, import and export", run: () => setShowKeyEditor(true) },
+      { id: "help.search", label: "Search commands", hint: "Help", run: () => setShowPalette(true) },
       ...(inTauri ? [{ label: "Check for updates…", hint: "Help", run: checkForUpdatesNow }] : []),
       { label: "About SketchCraft", hint: `Version ${__APP_VERSION__}`, run: () => say(`SketchCraft ${__APP_VERSION__}`) },
-      { label: "Zoom extents", hint: "Camera", key: "⇧Z", run: () => api.current?.fit() },
-      ...(["iso", "top", "front", "right", "back", "left"] as const).map((v) => ({ label: `${v[0].toUpperCase()}${v.slice(1)} view`, hint: "Camera", run: () => api.current?.view(v) })),
-      { label: "Undo", hint: "Edit", key: "⌘Z", run: () => void run({ cmd: "undo" }) },
-      { label: "Redo", hint: "Edit", key: "⇧⌘Z", run: () => void run({ cmd: "redo" }) },
-      { label: "Paste", hint: "Edit · then click where it goes", key: "⌘V", run: () => void paste() },
-      { label: "Paste in place", hint: "Edit · exactly where it was, into the open group", key: "⇧⌘V", run: () => void paste(true) },
-      { label: "Unhide all", hint: "Edit", run: () => void run({ cmd: "unhide" }) },
+      { id: "view.fit", label: "Zoom extents", hint: "Camera", run: () => api.current?.fit() },
+      ...(["iso", "top", "front", "right", "back", "left"] as const).map((v) => ({ id: `view.${v}`, label: `${v[0].toUpperCase()}${v.slice(1)} view`, hint: "Camera", run: () => api.current?.view(v) })),
+      { id: "edit.undo", label: "Undo", hint: "Edit", run: () => void run({ cmd: "undo" }) },
+      { id: "edit.redo", label: "Redo", hint: "Edit", run: () => void run({ cmd: "redo" }) },
+      { id: "edit.cut", label: "Cut", hint: "Edit · out of sight until pasted", run: () => void copySelection(true) },
+      { id: "edit.copy", label: "Copy", hint: "Edit", run: () => void copySelection(false) },
+      { id: "edit.paste", label: "Paste", hint: "Edit · then click where it goes", run: () => void paste() },
+      { id: "edit.pasteinplace", label: "Paste in place", hint: "Edit · exactly where it was, into the open group", run: () => void paste(true) },
+      { id: "edit.selectall", label: "Select All", hint: "Edit", run: selectAll },
+      { id: "edit.selectnone", label: "Select None", hint: "Edit", run: () => setSel(EMPTY) },
+      { id: "edit.delete", label: "Delete", hint: "Edit · the selection", run: () => void deleteSelection() },
+      { id: "edit.makecomponent", label: "Make Component", hint: "Edit · the selected faces or groups", run: () => void makeComponent() },
+      { id: "edit.unhide", label: "Unhide all", hint: "Edit", run: () => void run({ cmd: "unhide" }) },
       { label: "Reset axes", hint: "Drawing axes back to the model's own", run: () => void run({ cmd: "set_axes", reset: true }) },
       {
         label: "Raise walls…",
@@ -588,18 +531,23 @@ export default function App() {
       },
       { label: "Subdivide…", hint: `Tools · smooth the selected group or component into a SubD shape. ${SUBD_HOW}`, run: askSubdivide },
       { label: "SubD box", hint: `Tools · a cube cage to shape. ${SUBD_HOW}`, run: () => void addSubdBox() },
-      { label: "Clear guides", hint: "Edit", run: () => void run({ cmd: "clear_guides" }) },
-      toggle("xray", "X-Ray"),
-      toggle("shadows", "Shadows"),
-      toggle("edges", "Edges"),
-      toggle("backEdges", "Back edges"),
-      toggle("parallel", "Parallel projection"),
-      toggle("hideRest", "Hide rest of model (while editing)"),
-      ...WORKSPACES.map((w) => ({ label: `${w.name} workspace`, hint: w.blurb, run: () => switchWs(w.id) })),
+      { id: "edit.clearguides", label: "Clear guides", hint: "Edit", run: () => void run({ cmd: "clear_guides" }) },
+      toggle("xray", "X-Ray", "view.xray"),
+      toggle("shadows", "Shadows", "view.shadows"),
+      toggle("edges", "Edges", "view.edges"),
+      { id: "view.backedges", label: "Back edges", hint: "View", run: () => setStyles((s) => ({ ...s, backEdges: !s.backEdges, xray: false })) },
+      toggle("parallel", "Parallel projection", "view.parallel"),
+      toggle("hideRest", "Hide rest of model (while editing)", "view.hiderest"),
+      ...WORKSPACES.map((w) => ({ id: `ws.${w.id}`, label: `${w.name} workspace`, hint: w.blurb, run: () => switchWs(w.id) })),
       ...(scene?.views ?? []).map((v) => ({ label: `Go to scene "${v.name}"`, hint: "Scenes", run: () => void showView(v) })),
     ];
-    return [...tools, ...act];
+    // each shows the key it has now
+    return [...tools, ...act].map((cmd) => {
+      const key = cmd.id ? keyText(cmd.id) : "";
+      return key ? { ...cmd, key } : cmd;
+    });
   };
+  commandsRef.current = commands;
 
   const fileRef2 = useRef(file);
   fileRef2.current = file;
@@ -624,7 +572,7 @@ export default function App() {
             runPluginCommand={runPluginCommand}
             reloadPlugins={reloadPlugins}
             fileRef={fileRef}
-            open={{ restore: () => setShowRestore(true), plugins: () => setShowPlugins(true), sheets: () => setShowSheets(true), timeline: () => setShowTimeline(true), location: () => setShowLocation(true), text3d: () => setShowText3d(true), keys: () => setShowKeys(true) }}
+            open={{ restore: () => setShowRestore(true), plugins: () => setShowPlugins(true), sheets: () => setShowSheets(true), timeline: () => setShowTimeline(true), location: () => setShowLocation(true), text3d: () => setShowText3d(true), keys: () => setShowKeys(true), keyEditor: () => setShowKeyEditor(true) }}
           />
           <span className="doc">{docName}</span>
           <span className="live" title="Claude can edit this model over MCP; changes show up here">
@@ -933,7 +881,8 @@ export default function App() {
             onClose={() => setSubdividing(null)}
           />
         )}
-        {showKeys && <ShortcutSheet onClose={() => setShowKeys(false)} />}
+        {showKeys && <ShortcutSheet onClose={() => setShowKeys(false)} onCustomize={() => (setShowKeys(false), setShowKeyEditor(true))} />}
+        {showKeyEditor && <ShortcutEditor onClose={() => setShowKeyEditor(false)} />}
         {showPalette && <CommandPalette commands={commands()} onClose={() => setShowPalette(false)} />}
         {showLocation && (
           <LocationDialog
