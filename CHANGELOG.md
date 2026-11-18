@@ -17,6 +17,10 @@ What changed in each SketchCraft release, newest first. The format follows
   (over 32,767 objects) are read correctly too. (part of #70)
 
 ### Added
+- **Dimensions follow a group's copies.** When you group faces that share corners with other geometry, the group gets
+  its own copy of those corners. A dimension on a sheet now moves onto the copies when everything it measures went
+  into the group, so it stays with the group when you move it; a dimension that also measures something left outside
+  stays where it was. It is one undo step with the group, and redo brings it back. (part of #18)
 - **Hatch patterns per tag.** In the Outliner's Tags list, each tag has a Hatch button: pick a pattern and its walls
   are hatched wherever a plan or section cuts them, on drawing sheets (PDF, SVG and DXF) and on screen with a section
   plane. Set the hatch's colour, line thickness, scale and angle, and whether its size is fixed on paper or real size

@@ -1006,6 +1006,7 @@ impl Model {
         // faces become its own geometry
         let (nest, loose): (Vec<Id>, Vec<Id>) = ids.iter().partition(|id| self.groups.contains_key(id) || self.instances.contains_key(id));
         let faces = self.faces_of(&loose)?;
+        let nested = nest.clone();
         let gid = self.new_id();
         self.groups.insert(gid, Group { name, parent: self.active_group, ..Default::default() });
         for id in nest {
@@ -1068,6 +1069,10 @@ impl Model {
         }
         for v in &verts {
             self.vertices.get_mut(v).unwrap().group = Some(gid);
+        }
+        if !remap.is_empty() {
+            // dimensions whose geometry all went into the group follow the copies (see `Model::group_follow`)
+            self.note_remap(false, || crate::anchors::Remap::Group { copies: remap.iter().map(|(a, b)| (*a, *b)).collect(), inside: verts.clone(), nested });
         }
         let originals: BTreeSet<Id> = remap.keys().copied().collect();
         for e in self.edges.values_mut() {

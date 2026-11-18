@@ -22,6 +22,7 @@
 use crate::drafting::{Anchor, AnchorAt, DimMode, Dimension, Extra, ItemKind, SheetItem, ViewKind, Viewport};
 use crate::model::{Id, Model};
 use glam::{DMat4, DVec3};
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 /// How close (metres, 1 micrometre) a vertex must be to a broken anchor's last point to be offered as its new home.
@@ -40,6 +41,11 @@ pub enum Remap {
     Vertices { scope: Option<Id>, from_path: Vec<Id>, to_path: Vec<Id>, map: Vec<(Id, Id)> },
     /// An edge `a`-`b` was split by vertex `v`, which lies at `t` (0 at `a`, 1 at `b`).
     Split { a: Id, b: Id, v: Id, t: f64 },
+    /// `group` gave the new group its own copy of every corner the selection shared with geometry outside it:
+    /// `copies` is (original, copy); `inside` is every vertex now in the group (copies included, originals not);
+    /// `nested` are the groups and placements moved into it as they were. A dimension follows the copies only by
+    /// the rule in `Model::group_follow`.
+    Group { copies: Vec<(Id, Id)>, inside: BTreeSet<Id>, nested: Vec<Id> },
 }
 
 impl Model {
@@ -208,6 +214,12 @@ impl Model {
         let mut changed = 0;
         for (id, mut d) in dims {
             let mut touched = false;
+            // `group`: a dimension whose measured geometry all went into the group follows the group's copies, even
+            // though the original corners still resolve
+            if let Some(n) = self.group_follow(&d, &remaps) {
+                d.anchors = n;
+                touched = true;
+            }
             for a in &mut d.anchors {
                 // an anchor that resolves is attached: the remaps are for those that don't
                 if self.resolve_anchor(a).is_none() {
@@ -235,6 +247,57 @@ impl Model {
             }
         }
         changed
+    }
+
+    /// The rule for `group` (decided 2026-11-18): a dimension follows the group's copies of shared corners when
+    /// every one of its anchors is in the group afterwards, and at least one of them is on a copied corner. An
+    /// anchor is in the group when it is a vertex (or a `Between` over two vertices) that is now in the group, a
+    /// corner the group copied, or a point inside a placement or group moved into it. If any anchor stays outside
+    /// (a corner with other geometry, a guide, a curve centre, a loose edge, a placement left out), the whole
+    /// dimension stays on the original corners: what it measured is not in the group. All or none, per dimension.
+    fn group_follow(&self, d: &Dimension, remaps: &[Remap]) -> Option<Vec<Anchor>> {
+        let mut anchors = d.anchors.clone();
+        let mut moved = false;
+        for r in remaps {
+            let Remap::Group { copies, inside, nested } = r else { continue };
+            let copy_of = |v: &Id| copies.iter().find(|(o, _)| o == v).map(|(_, c)| *c);
+            let mut next = Vec::with_capacity(anchors.len());
+            let mut any = false;
+            for a in &anchors {
+                if !a.path.is_empty() {
+                    if !nested.contains(&a.path[0]) {
+                        return None;
+                    }
+                    next.push(a.clone());
+                    continue;
+                }
+                let at = match &a.at {
+                    AnchorAt::Vertex(v) => match copy_of(v) {
+                        Some(c) => {
+                            any = true;
+                            AnchorAt::Vertex(c)
+                        }
+                        None if inside.contains(v) => a.at.clone(),
+                        None => return None,
+                    },
+                    AnchorAt::Between { a: va, b: vb, t, extra } => {
+                        let (na, nb) = (copy_of(va).unwrap_or(*va), copy_of(vb).unwrap_or(*vb));
+                        if !(inside.contains(&na) && inside.contains(&nb)) {
+                            return None;
+                        }
+                        any |= (na, nb) != (*va, *vb);
+                        AnchorAt::Between { a: na, b: nb, t: *t, extra: extra.clone() }
+                    }
+                    _ => return None,
+                };
+                next.push(Anchor { path: Vec::new(), at, last: a.last, extra: a.extra.clone() });
+            }
+            if any && next.iter().all(|a| self.resolve_anchor(a).is_some()) {
+                anchors = next;
+                moved = true;
+            }
+        }
+        moved.then_some(anchors)
     }
 
     /// An anchor that no longer resolves, moved by the remaps that name what it pointed at (all of it, or none).
