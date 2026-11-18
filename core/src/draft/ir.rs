@@ -295,6 +295,138 @@ impl HatchPrim {
     }
 }
 
+/// Plain lines kept compactly: a run of `PathPrim`s that are each one straight segment (`M` then `L`), stroked and
+/// not filled, stored as flat arrays (their ends, a pen index, provenance apart) in a fraction of the memory.
+/// Purely a storage form: `path(i)` gives back each line exactly as it was made, and every writer reads them
+/// through `expanded`, so a drawing writes the same bytes either way. Viewport drawings are packed this way
+/// (`Cv::clipped`), and that is what the kept drawings hold (design §4, memory).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Lines {
+    /// each line's two ends, paper mm, y down
+    pub ends: Vec<[[f64; 2]; 2]>,
+    /// each line's pen: an index into `pens`
+    pub pen: Vec<u16>,
+    pub pens: Vec<Pen>,
+    /// each line's provenance (an index into `edges` and its span; `NO_EDGE`: none), or empty when no line has one
+    pub prov: Vec<(u32, [f32; 2])>,
+    pub edges: Vec<Arc<EdgeRef>>,
+}
+
+/// `Lines::prov` of a line with no provenance.
+pub const NO_EDGE: u32 = u32::MAX;
+/// Runs shorter than this stay as paths (packing them saves nothing worth the indirection).
+const PACK_MIN: usize = 8;
+
+impl Lines {
+    pub fn len(&self) -> usize {
+        self.ends.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.ends.is_empty()
+    }
+    /// Line `i` as the path it was made from.
+    pub fn path(&self, i: usize) -> PathPrim {
+        let [a, b] = self.ends[i];
+        let prov = self.prov.get(i).filter(|(e, _)| *e != NO_EDGE).map(|(e, t)| Prov { edge: self.edges[*e as usize].clone(), t: *t });
+        PathPrim { segs: vec![Seg::M(a), Seg::L(b)], pen: Some(self.pens[self.pen[i] as usize].clone()), fill: None, prov }
+    }
+    /// Can `p` be packed (one straight stroked segment, no fill)?
+    fn takes(p: &PathPrim) -> bool {
+        p.fill.is_none() && p.pen.is_some() && matches!(p.segs[..], [Seg::M(_), Seg::L(_)])
+    }
+    /// Add `p` (one that `takes`); given back when a table is full.
+    fn push(&mut self, p: PathPrim) -> Result<(), PathPrim> {
+        let (Some(pen), [Seg::M(a), Seg::L(b)]) = (&p.pen, &p.segs[..]) else { return Err(p) };
+        let k = match self.pens.iter().rposition(|q| q == pen) {
+            Some(k) => k,
+            None if self.pens.len() < u16::MAX as usize => {
+                self.pens.push(pen.clone());
+                self.pens.len() - 1
+            }
+            None => return Err(p),
+        };
+        if let Some(pv) = &p.prov {
+            let e = match self.edges.last() {
+                Some(last) if Arc::ptr_eq(last, &pv.edge) => self.edges.len() - 1,
+                _ if self.edges.len() >= NO_EDGE as usize => return Err(p),
+                _ => {
+                    self.edges.push(pv.edge.clone());
+                    self.edges.len() - 1
+                }
+            };
+            if self.prov.is_empty() {
+                self.prov = vec![(NO_EDGE, [0.0; 2]); self.ends.len()];
+            }
+            self.prov.push((e as u32, pv.t));
+        } else if !self.prov.is_empty() {
+            self.prov.push((NO_EDGE, [0.0; 2]));
+        }
+        self.ends.push([*a, *b]);
+        self.pen.push(k as u16);
+        Ok(())
+    }
+    /// Estimated bytes held.
+    pub fn bytes(&self) -> usize {
+        120 + self.ends.capacity() * 32
+            + self.pen.capacity() * 2
+            + self.prov.capacity() * 12
+            + self.pens.iter().map(|p| 40 + p.dash.len() * 8).sum::<usize>()
+            + self.edges.iter().map(|e| 8 + (64 + e.path.len() * 8) / Arc::strong_count(e).max(1)).sum::<usize>()
+    }
+}
+
+/// `items` with every `Prim::Lines` opened into its paths, in place (borrowed when there is none): what the
+/// writers draw, so packed and unpacked drawings write exactly the same.
+pub fn expanded(items: &[Prim]) -> std::borrow::Cow<'_, [Prim]> {
+    if !items.iter().any(|p| matches!(p, Prim::Lines(_))) {
+        return std::borrow::Cow::Borrowed(items);
+    }
+    let mut out = Vec::with_capacity(items.len());
+    for p in items {
+        match p {
+            Prim::Lines(l) => out.extend((0..l.len()).map(|i| Prim::Path(l.path(i)))),
+            other => out.push(other.clone()),
+        }
+    }
+    std::borrow::Cow::Owned(out)
+}
+
+/// Pack runs of plain lines (`Lines::takes`) of at least `PACK_MIN` into `Prim::Lines`, keeping the order.
+pub fn pack(items: Vec<Prim>) -> Vec<Prim> {
+    fn flush(run: &mut Vec<PathPrim>, out: &mut Vec<Prim>) {
+        if run.len() < PACK_MIN {
+            out.extend(run.drain(..).map(Prim::Path));
+            return;
+        }
+        let mut l = Lines { ends: Vec::with_capacity(run.len()), pen: Vec::with_capacity(run.len()), ..Default::default() };
+        for p in run.drain(..) {
+            if let Err(p) = l.push(p) {
+                // a table is full: start another
+                out.push(Prim::Lines(std::mem::take(&mut l)));
+                let _ = l.push(p);
+            }
+        }
+        l.ends.shrink_to_fit();
+        l.pen.shrink_to_fit();
+        l.prov.shrink_to_fit();
+        out.push(Prim::Lines(l));
+    }
+    let mut out: Vec<Prim> = Vec::new();
+    let mut run: Vec<PathPrim> = Vec::new();
+    for p in items {
+        match p {
+            Prim::Path(pp) if Lines::takes(&pp) => run.push(pp),
+            other => {
+                flush(&mut run, &mut out);
+                out.push(other);
+            }
+        }
+    }
+    flush(&mut run, &mut out);
+    out.shrink_to_fit();
+    out
+}
+
 #[derive(Clone, Debug)]
 pub enum Prim {
     Path(PathPrim),
@@ -302,6 +434,8 @@ pub enum Prim {
     Image(ImagePrim),
     Group(Group),
     Hatch(HatchPrim),
+    /// plain lines, packed (see `Lines`)
+    Lines(Lines),
 }
 
 impl PartialEq for Prim {
@@ -312,6 +446,7 @@ impl PartialEq for Prim {
             (Prim::Image(a), Prim::Image(b)) => a.rect == b.rect && a.rgb.as_raw() == b.rgb.as_raw(),
             (Prim::Group(a), Prim::Group(b)) => a.clip == b.clip && a.alt == b.alt && a.opacity == b.opacity && a.children == b.children,
             (Prim::Hatch(a), Prim::Hatch(b)) => a == b,
+            (Prim::Lines(a), Prim::Lines(b)) => a == b,
             _ => false,
         }
     }
@@ -333,13 +468,21 @@ impl Page {
     pub fn new(w: f64, h: f64) -> Self {
         Page { w, h, bg: None, title: String::new(), items: Vec::new() }
     }
-    /// Every primitive, groups opened.
-    pub fn walk<'a>(&'a self, f: &mut dyn FnMut(&'a Prim)) {
-        fn go<'a>(items: &'a [Prim], f: &mut dyn FnMut(&'a Prim)) {
+    /// Every primitive, groups opened and packed lines (`Prim::Lines`) as their paths.
+    pub fn walk(&self, f: &mut dyn FnMut(&Prim)) {
+        fn go(items: &[Prim], f: &mut dyn FnMut(&Prim)) {
             for p in items {
-                f(p);
-                if let Prim::Group(g) = p {
-                    go(&g.children, f);
+                match p {
+                    Prim::Group(g) => {
+                        f(p);
+                        go(&g.children, f);
+                    }
+                    Prim::Lines(l) => {
+                        for i in 0..l.len() {
+                            f(&Prim::Path(l.path(i)));
+                        }
+                    }
+                    _ => f(p),
                 }
             }
         }
@@ -443,7 +586,7 @@ impl Cv {
         let mut inner = Cv::new(self.h_mm);
         f(&mut inner);
         let rect = [top_left[0], top_left[1], w / PT, h / PT];
-        let children = cull(inner.out, &rect);
+        let children = pack(cull(inner.out, &rect));
         self.out.push(Prim::Group(Group { clip: Some(rect), alt: None, opacity: 1.0, children: Arc::new(children) }));
     }
 }

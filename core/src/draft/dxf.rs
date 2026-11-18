@@ -105,7 +105,7 @@ impl W {
     }
 
     fn prims(&mut self, items: &[Prim]) {
-        for p in items {
+        for p in expanded(items).iter() {
             match p {
                 Prim::Path(p) => {
                     let subs = flatten(&p.segs);
@@ -157,7 +157,8 @@ impl W {
                     self.g(7, "Standard");
                     self.g(100, "AcDbText");
                 }
-                Prim::Image(_) => {}
+                // (opened by `expanded`)
+                Prim::Image(_) | Prim::Lines(_) => {}
                 Prim::Group(g) => self.prims(&g.children),
                 Prim::Hatch(h) => {
                     let rings: Vec<(Vec<[f64; 2]>, bool)> = h.rings.iter().filter(|r| r.len() >= 3).map(|r| (r.clone(), true)).collect();

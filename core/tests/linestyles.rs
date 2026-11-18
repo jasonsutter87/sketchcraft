@@ -50,7 +50,8 @@ fn svg(d: &Doc) -> String {
 /// Stroke widths of the paths a model edge made (those with provenance), paper mm.
 fn model_widths(d: &Doc) -> Vec<f64> {
     fn walk(items: &[Prim], out: &mut Vec<f64>) {
-        for p in items {
+        // (packed lines opened into their paths)
+        for p in draft::ir::expanded(items).iter() {
             match p {
                 Prim::Path(PathPrim { pen: Some(pen), prov: Some(_), .. }) => {
                     if !out.iter().any(|w| (w - pen.w).abs() < 1e-9) {

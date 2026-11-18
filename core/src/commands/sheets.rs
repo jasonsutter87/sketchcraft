@@ -1083,7 +1083,7 @@ impl Engine {
                 Ok(prims) => {
                     let mut flat: Vec<linework::Curve> = Vec::new();
                     fn walk(items: &[crate::draft::ir::Prim], inside: bool, out: &mut Vec<linework::Curve>) {
-                        for p in items {
+                        for p in crate::draft::ir::expanded(items).iter() {
                             match p {
                                 crate::draft::ir::Prim::Group(g) => walk(&g.children, true, out),
                                 crate::draft::ir::Prim::Path(pp) if inside && pp.pen.is_some() => linework::flatten(&pp.segs, out),

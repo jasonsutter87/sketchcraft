@@ -80,6 +80,11 @@ impl Canvas {
             }
             Prim::Text(t) => self.text(t, alpha, clip),
             Prim::Image(im) => self.image(im, alpha, clip),
+            Prim::Lines(l) => {
+                for i in 0..l.len() {
+                    self.prim(&Prim::Path(l.path(i)), clip, alpha);
+                }
+            }
         }
     }
 

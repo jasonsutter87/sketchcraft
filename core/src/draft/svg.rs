@@ -37,7 +37,7 @@ struct W {
 
 impl W {
     fn prims(&mut self, items: &[Prim]) {
-        for p in items {
+        for p in expanded(items).iter() {
             match p {
                 Prim::Path(p) => self.path(p),
                 Prim::Text(t) => {
@@ -66,6 +66,8 @@ impl W {
                     self.s.push_str("</g>\n");
                 }
                 Prim::Hatch(h) => self.hatch(h),
+                // (opened by `expanded`)
+                Prim::Lines(_) => {}
             }
         }
     }

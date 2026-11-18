@@ -92,6 +92,7 @@ impl W {
     }
 
     fn items(&mut self, prims: &[Prim]) -> Vec<Value> {
+        let prims = expanded(prims);
         let mut out = Vec::new();
         let mut i = 0;
         while i < prims.len() && !self.truncated {
@@ -183,6 +184,8 @@ impl W {
                         out.push(json!({"k": "h", "rings": rings, "lines": lines, "s": pen(&h.pen), "tint": h.tint.map(rgb), "name": h.name}));
                     }
                 }
+                // (opened by `expanded`)
+                Prim::Lines(_) => {}
             }
             i += 1;
         }

@@ -147,6 +147,7 @@ pub fn bytes_of(items: &[Prim]) -> usize {
             Prim::Image(i) => 64 + i.rgb.as_raw().len() / 8,
             Prim::Group(g) => 96 + g.alt.as_ref().map_or(0, String::len) + bytes_of(&g.children),
             Prim::Hatch(h) => 160 + h.lines.len() * 32 + h.rings.iter().map(|r| r.len() * 16).sum::<usize>(),
+            Prim::Lines(l) => 96 + l.bytes(),
         })
         .sum()
 }

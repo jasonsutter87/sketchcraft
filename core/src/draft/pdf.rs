@@ -327,7 +327,7 @@ impl Writer<'_> {
     }
 
     fn prims(&mut self, items: &[Prim], pdf: &mut Pdf) -> Result<()> {
-        for p in items {
+        for p in expanded(items).iter() {
             match p {
                 Prim::Path(p) => {
                     // line work is part of its figure; the sheet's own rules are artifacts
@@ -413,6 +413,8 @@ impl Writer<'_> {
                         self.in_figure = false;
                     }
                 }
+                // (opened by `expanded`)
+                Prim::Lines(_) => {}
             }
         }
         Ok(())
