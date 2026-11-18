@@ -16,6 +16,7 @@ import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
 import { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeometry.js";
 import { edgePens, PX_PER_MM } from "./viewport/linepens";
+import { hatchMaterial, shaderCan, type CapHatch } from "./viewport/hatchshader";
 import { exec, type Annotation, type Reply, type Scene, type Vec3 } from "./engine";
 import { CageEditor, type CageData, type CageUi } from "./cage";
 import { CageBar } from "./cagebar";
@@ -857,7 +858,19 @@ export default function Viewport(props: Props) {
           m.userData.sectionFill = true;
           T2.model.add(m);
         }
-        // a tag's hatch: its cut walls on paper-white, with the pattern's lines in the hatch colour
+        // a tag's hatch, drawn by the hatch shader: paper white with the pattern's lines at the hatch's weight
+        for (const h of (r.hatches as CapHatch[] | undefined) ?? []) {
+          if (!h.fill.length || !shaderCan(h.families)) continue;
+          const g = new THREE.BufferGeometry();
+          g.setAttribute("position", new THREE.Float32BufferAttribute(shift(h.fill), 3));
+          const m = new THREE.Mesh(g, hatchMaterial(h, null));
+          m.userData.sectionFill = true;
+          m.userData.sectionHatchFill = true;
+          m.userData.sectionHatch = h.tag;
+          m.userData.hatchShader = true;
+          T2.model.add(m);
+        }
+        // (a pattern the shader can't take comes as lines: its cut walls on paper-white, the lines in the hatch colour)
         const paper = (r.hatchFill as number[] | undefined) ?? [];
         if (paper.length) {
           const g = new THREE.BufferGeometry();
