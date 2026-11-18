@@ -29,4 +29,29 @@ full list, and **Shift+S** to find any command by name.
 
 On Windows and Linux, ⌘ is Ctrl.
 
+## Make them yours
+
+Press **?**, then **Customize…** (or File › Customize shortcuts…). Search a command,
+click its key and press the one you want; **Backspace** takes the key away, **Esc**
+cancels. If another command already has the key, you're told which, and can **Swap**
+the two or **clear** the other one. **Reset** puts one command back; **Reset all** puts
+them all back. Tools, menu commands and plugin commands can all have keys. Your keys
+are saved on this computer and shown everywhere: the ? sheet, tool tips, Shift+S and
+the Learn lessons.
+
+A few keys stay the app's own and can't be taken: Esc, Enter, Tab (SubD), Backspace,
+the arrow keys, the digits and `.` `-` `/` (they start a typed measurement), Space
+(only Select can have it) and the keys your computer uses (quit, close, reload).
+Typing in a text box never runs a shortcut.
+
+**Presets.** *SketchCraft* is the default. *SketchUp* is SketchUp's own set: the same
+as ours, except Polygon, Follow Me, Dimension, Text and Section Plane, which SketchUp
+leaves without a key.
+
+**Import and export.** *Import / export* reads a SketchUp shortcuts file
+(Preferences › Shortcuts › Export in SketchUp, which gives a `.dat`; its settings
+file or a `Shortcuts.plist` work too) and lists the commands it could not match.
+SketchUp does not publish the format, so the reader is tolerant and tells you what
+it skipped. You can also export your keys as a JSON file, share it, and import it.
+
 Next: [Troubleshooting](10-troubleshooting.md)

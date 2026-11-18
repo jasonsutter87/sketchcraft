@@ -6,6 +6,17 @@ What changed in each SketchCraft release, newest first. The format follows
 
 ## [Unreleased]
 
+### Added
+- **Customizable keyboard shortcuts, with SketchUp import.** Press ? › Customize… (or
+  File › Customize shortcuts…): search a command, click its key and press a new one,
+  swap or clear a key another command has, reset one or all. Tools, menu commands and
+  plugin commands can all have keys. A **SketchUp** preset gives SketchUp's own defaults;
+  **Import** reads a shortcuts file exported from SketchUp (and lists what it could not
+  match), and your own keys export and import as JSON. Keys are saved per user and
+  checked on load, so a bad saved value falls back to the defaults. Esc, Enter, Tab in
+  SubD, the arrows and the measurement digits can't be taken. The ? sheet, tool tips,
+  the command search and the Learn lessons show your own keys. (#60)
+
 ## [0.3.7] - 2026-11-17
 
 ### Added

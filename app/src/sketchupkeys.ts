@@ -144,6 +144,8 @@ export function readSketchUpShortcuts(input: string): SketchUpRead {
   // UTF-16 text (a Windows export) arrives with a NUL between letters
   const text = input.replace(/^﻿/, "").replace(/\u0000/g, "").slice(0, 2_000_000);
   const add = (name: string, combo: Combo | null, raw: string) => {
+    if (out.entries.length + out.unreadable.length >= 5000) return; // no real file has this many
+    name = name.slice(0, 80);
     if (combo) out.entries.push({ name, combo });
     else out.unreadable.push({ name, why: `“${raw.slice(0, 20)}” isn't a key I know` });
   };
