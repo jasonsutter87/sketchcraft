@@ -7,6 +7,13 @@ What changed in each SketchCraft release, newest first. The format follows
 ## [Unreleased]
 
 ### Added
+- **Line weight and line style per tag and per edge.** In the Outliner's Tags list, each tag has a weight menu
+  (0.13 to 2 mm) and a style menu (solid, dashed, hidden, center). Select an edge and Entity Info has the same two
+  menus for it; an edge's own setting beats its tag's, which beats the default. They show in the model view (with a
+  new "Line weights" switch in Style) and print on sheets as real pen widths in paper millimetres, the same at
+  any scale, in PDF, SVG and DXF (DXF gets true lineweights and linetypes). New commands `tag_style` and
+  `edge_style` (agents and plugins may use them); they save in the model file, undo one step each, and a model that
+  uses them opens read-only in older versions instead of losing them. (part of #3)
 - **Customizable keyboard shortcuts, with SketchUp import.** Press ? › Customize… (or
   File › Customize shortcuts…): search a command, click its key and press a new one,
   swap or clear a key another command has, reset one or all. Tools, menu commands and

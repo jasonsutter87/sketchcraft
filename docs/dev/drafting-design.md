@@ -391,7 +391,7 @@ Size: **S** ≤ 2 days, **M** ≤ 1 week, **L** ≤ 2 weeks. Sprint 0 testing (#
 What the next steps plug into:
 
 - **#61 (saved sheets).** A saved `Viewport` item maps onto `ViewportSpec` (it already has `anchor`, `scale`, `beyond`, `raster`); call `draft::sheet::build` for the whole set, or `viewport` per item. `Prim::Path.prov` carries the instance path, the vertex ids and the span of the edge a line came from, which is what anchors need.
-- **#3 (tag styles).** Pens come from `Pens`; `hidden.rs` takes the pen for visible and hidden spans from it. A per-tag lookup goes where `View::lines` builds `ink` and `ghost`, keyed by the edge's `prov.edge.path` (instance, then its tag), and `Pens` grows a `for_tag`.
+- **#3 (tag styles)**: built, see "Step 6" below.
 - **#11 (the editor).** `Doc` is plain data; send it to the app as JSON now, as a binary `Float32Array` later. Every model-derived `Path` has `prov`, so snapping to projected geometry works from the list alone.
 
 Known limits: elevations and 3D views draw no face fills or model dimensions (the pictures did); curved surfaces draw only their hard edges (no silhouettes); a plan's automatic dimensions and tags are worked out from the whole building; DXF ignores clips and images; a viewport made without an anchor is pinned to the middle of the building (environment excluded) each time the sheet is built.
@@ -416,3 +416,22 @@ Known limits: elevations and 3D views draw no face fills or model dimensions (th
 Rules in force: nothing re-attaches by itself except the engine remaps above (decision 8); `sheets_info` lists each dimension's `measured.spans` and `measured.broken` (with `last` and `suggestions`, the vertices within 1 µm of where it was); `sheet_reattach {item, anchor, to}` picks one, `{all_exact: true}` attaches every broken anchor that has exactly one vertex within 1 µm and refuses if none, one undo step.
 
 Known limits: a component placement is resolved with its plain transform (Dynamic Component stretch and copies are not applied); viewport `rotation` is not applied to the paper mapping (the drawing ignores it as well); `CurveCenter` fits a circle through three of the curve's vertices; `group` copies shared corners and leaves an anchor on the original corner (it does not follow the group's copy); `csg`/`solid` operations and any other operation that rebuilds geometry with new ids record no remap, so their dimensions go broken and wait for `sheet_reattach`; a component being edited gets remaps for `explode` only; the editor (step 11) has no handles or badge UI yet, only the PDF/SVG/DXF drawing.
+
+**Step 6, tag and edge line weights and styles (#3).**
+
+| Where | What |
+|---|---|
+| `drafting.rs` | `EdgeDraft{weight_mm, line, color}` (all optional); `Drafting::dash_of(name)` (built-ins `solid`, `dashed` 3/1.5, `hidden` 2/1, `center` 8/1.5/1.5/1.5 paper mm, or a file `line_types` entry) and `tag_style`; `WEIGHT_RANGE` 0.05 to 2 mm |
+| `model.rs` | `Edge.draft: Option<Box<EdgeDraft>>`; `Model::has_edge_styles` makes the file format 2 (`format.rs` `has_sheets`), so 0.3.7 opens it read-only |
+| `components.rs` | `WEdge` carries `tag` (its group's, else the nearest tagged placement it sits in) and `draft` |
+| `commands/tags.rs` | `tag_style {tag, weight_mm?, line?, color?, clear?}` and `edge_style {ids, weight_mm?, line?, color?, clear?}` (0 or "" clears one field); `rename_tag` moves the style. Policy: `MODEL` (agents, plugins). One undo step each |
+| `draft/ir.rs` | `Pens::for_tag(drafting, tag, edge, base, beyond)`: edge override over tag style over the base pen, field by field |
+| `draft/hidden.rs`, `draft/project.rs` | `View::lines` and the plan's below-cut edges take their pen from `for_tag`; hidden ("beyond") spans use the tag's `beyond` weight and colour |
+| `scene.rs`, `viewport/linepens.ts`, `Viewport.tsx` | scene gets `edgeStyle` (per segment) + `edgeStyles` (the pen table) + `tagStyles`; the view draws one `LineSegments2` per pen behind `styles.lineWeights` (6 px per paper mm, at least 1 px) |
+| `linestyle.tsx`, `outliner.tsx`, `entityinfo.tsx` | the weight and style menus for a tag and for selected edges |
+
+Tests: `core/tests/linestyles.rs` (precedence, commands, save/open/undo, policy, SVG/PDF widths and dashes at 1:20, 1:50 and 1:200, DXF lineweight and linetype), `app/tests/linepens.test.ts`, `tools/ui-tests/line-styles.mjs`.
+
+What the next steps plug into: step 8 (cut fill) should read `TagStyle.cut` and use `for_tag` for cut outlines; the viewport `TagOverride` (design 1.1) goes between the tag and the edge in `for_tag` when viewports use it.
+
+Known limits: plan cut outlines (heavy walls) and saved dimensions (`dims.rs`) keep their fixed pens (they have no tag; cut outlines wait for step 8); the model view draws only the first dash and gap of a style, in world units; no per-viewport override yet; `color` is exposed in commands and drawings but not in the menus.
