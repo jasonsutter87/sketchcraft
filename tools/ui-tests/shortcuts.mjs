@@ -234,6 +234,31 @@ const isMac = process.platform === 'darwin';
   await p.keyboard.up('Space');
   await wait(300);
   check((await activeTool(p)) === 'Select', 'tapping Space picks Select');
+  // a line in progress survives holding Space: click the start, hold Space (with auto-repeat), click the end
+  await pageExec(p, { cmd: 'new' });
+  await p.reload();
+  await p.waitForSelector('.viewport canvas', { state: 'attached' });
+  await wait(700);
+  await press(p, 'l');
+  const box = await p.locator('.viewport canvas').boundingBox();
+  const cx = box.x + box.width / 2;
+  const cy = box.y + box.height / 2;
+  await p.mouse.click(cx - 80, cy);
+  await wait(300);
+  await p.keyboard.down('Space');
+  await p.keyboard.down('Space'); // auto-repeat
+  await wait(300);
+  const still = await activeTool(p);
+  await p.mouse.move(cx + 80, cy);
+  await p.keyboard.up('Space');
+  await wait(200);
+  check(still === 'Line', 'holding Space in the middle of a line keeps the Line tool');
+  await press(p, 'l');
+  await p.mouse.click(cx - 80, cy);
+  await wait(200);
+  await p.mouse.click(cx + 80, cy);
+  await wait(500);
+  check((await pageScene(p)).edges.length > 0, 'and a line can still be drawn afterwards');
   // Delete and Backspace both delete the selection
   for (const key of ['Delete', 'Backspace']) {
     await pageExec(p, { cmd: 'new' });
