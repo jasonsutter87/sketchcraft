@@ -98,7 +98,7 @@ struct Want {
 
 impl Engine {
     pub(super) fn run_autodraft(&mut self, cmd: Command) -> Result<Value> {
-        if !matches!(cmd, Command::ViewportPoints { .. } | Command::SheetRender { .. }) && self.ctx.is_some() {
+        if !matches!(cmd, Command::ViewportPoints { .. } | Command::SheetRender { .. } | Command::SheetIr { .. }) && self.ctx.is_some() {
             bail!("close the component you're editing first: sheets belong to the whole model");
         }
         Ok(match cmd {
@@ -116,13 +116,23 @@ impl Engine {
                 img.save_with_format(&path, image::ImageFormat::Png)?;
                 json!({"path": path, "width": img.width(), "height": img.height()})
             }
+            Command::SheetIr { sheet, limit_kb } => {
+                let limit = match limit_kb {
+                    Some(k) if k == 0 || k > crate::draft::irjson::LIMIT >> 10 => bail!("limit_kb is 1 to {}", crate::draft::irjson::LIMIT >> 10),
+                    Some(k) => k << 10,
+                    None => crate::draft::irjson::LIMIT,
+                };
+                let page = self.sheet_page(sheet)?;
+                let mut v = crate::draft::irjson::page(&page, Some(limit));
+                v["sheet"] = json!(sheet);
+                v
+            }
             other => unreachable!("command routed to the wrong group: {other:?}"),
         })
     }
 
-    /// A saved sheet drawn as a picture `px` wide (see `draft::raster`): what `sheet_render` writes and the MCP render
-    /// tool shows.
-    pub fn sheet_picture(&self, sheet: Id, px: u32) -> Result<image::RgbImage> {
+    /// A saved sheet drawn as the display list's one page (what `sheet_render` and `sheet_ir` show).
+    pub fn sheet_page(&self, sheet: Id) -> Result<crate::draft::ir::Page> {
         let m = &self.model;
         let Some(s) = m.sheets.get(&sheet) else { bail!("no sheet {sheet} (sheets_info lists them)") };
         let known = crate::layout::sheet_mm(&s.paper.name).ok().filter(|(w, h)| (w - s.paper.w_mm).abs() < 0.5 && (h - s.paper.h_mm).abs() < 0.5);
@@ -134,8 +144,13 @@ impl Engine {
         let notes: Vec<String> = s.fields.get("notes").map(|n| n.lines().map(str::to_string).collect()).unwrap_or_default();
         let blueprint = s.fields.get("blueprint").is_some_and(|b| b == "true");
         let doc = crate::draft::sheet::build_with(m, &paper, &project, vec![page_of(m, sheet)], blueprint, &notes, &crate::layout::today(), false)?;
-        let Some(page) = doc.pages.first() else { bail!("sheet {sheet} drew no page") };
-        Ok(crate::draft::raster::page(page, px))
+        doc.pages.into_iter().next().ok_or_else(|| anyhow::anyhow!("sheet {sheet} drew no page"))
+    }
+
+    /// A saved sheet drawn as a picture `px` wide (see `draft::raster`): what `sheet_render` writes and the MCP render
+    /// tool shows.
+    pub fn sheet_picture(&self, sheet: Id, px: u32) -> Result<image::RgbImage> {
+        Ok(crate::draft::raster::page(&self.sheet_page(sheet)?, px))
     }
 
     fn viewport_points(&self, id: Id, kinds: &[String], limit: Option<usize>) -> Result<Value> {

@@ -574,6 +574,21 @@ pub enum Command {
         #[serde(default)]
         project: Option<String>,
     },
+    /// Read-only: a saved sheet's drawing as its display list, in light JSON (paper mm, y down; paths as SVG path
+    /// strings, joined per pen): what the app's paper view draws. `limit_kb` caps the answer (default and most
+    /// 16384); past it the rest is left out and `truncated` is true.
+    SheetIr {
+        sheet: Id,
+        #[serde(default)]
+        limit_kb: Option<usize>,
+    },
+    /// A copy of a sheet with everything on it (viewports, dimensions, line work, text), placed right after it in
+    /// the set. One undo step.
+    SheetDuplicate {
+        sheet: Id,
+        #[serde(default)]
+        name: Option<String>,
+    },
     /// A saved sheet as a PNG picture (`path`), `px` wide (default 1600, 200 to 4000), to look at and check.
     SheetRender {
         sheet: Id,

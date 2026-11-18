@@ -346,6 +346,41 @@ impl Engine {
                 }
                 json!({"deleted": gone.len()})
             }
+            Command::SheetDuplicate { sheet, name } => {
+                if self.model.sheets.len() >= self.sheet_limit() {
+                    bail!("a model holds at most {} sheets", self.sheet_limit());
+                }
+                let Some(orig) = self.model.sheets.get(&sheet).cloned() else { bail!("no sheet {sheet}") };
+                let items: Vec<(Id, Arc<SheetItem>)> = self.model.sheet_items.iter().filter(|(_, i)| i.sheet() == Some(sheet)).map(|(k, i)| (*k, i.clone())).collect();
+                if self.untrusted && items.len() > crate::policy::MAX_SHEET_ITEMS_UNTRUSTED {
+                    bail!("sheet {sheet} has {} items; an agent or plugin copies at most {}", items.len(), crate::policy::MAX_SHEET_ITEMS_UNTRUSTED);
+                }
+                let name = name.unwrap_or_else(|| format!("{} copy", orig.name));
+                short("the name", &name)?;
+                // right after the original: everything after it moves down one
+                for s in self.model.sheets.values_mut().filter(|s| s.order > orig.order) {
+                    s.order = s.order.saturating_add(1);
+                }
+                let id = self.model.new_id();
+                let issued = vec![]; // a copy hasn't been issued
+                self.model.sheets.insert(id, Sheet { name, order: orig.order.saturating_add(1), issued, ..orig });
+                // every item, with the new sheet (known kinds and ones this version doesn't know alike, through their saved form)
+                let ids: BTreeMap<Id, Id> = items.iter().map(|(old, _)| (*old, self.model.new_id())).collect();
+                let mut made = vec![];
+                for (old, item) in items {
+                    let mut v = serde_json::to_value(&*item)?;
+                    let Some(o) = v.as_object_mut() else { continue };
+                    o.insert("sheet".into(), json!(id));
+                    // a dimension measured in one of the sheet's viewports measures in that viewport's copy
+                    if let Some(vp) = o.get("viewport").and_then(Value::as_u64).and_then(|n| Id::try_from(n).ok()).and_then(|n| ids.get(&n)) {
+                        o.insert("viewport".into(), json!(vp));
+                    }
+                    let copy: SheetItem = serde_json::from_value(v).map_err(|e| anyhow::anyhow!("sheet item {old} could not be copied: {e}"))?;
+                    self.model.sheet_items.insert(ids[&old], Arc::new(copy));
+                    made.push(json!([old, ids[&old]]));
+                }
+                json!({"sheet": id, "items": made})
+            }
             Command::ViewportAdd { args, viewports } => {
                 let fallback = args.sheet;
                 let mut made = vec![];

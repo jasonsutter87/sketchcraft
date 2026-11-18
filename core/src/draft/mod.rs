@@ -8,6 +8,7 @@ pub mod font;
 pub mod hatch;
 pub mod hidden;
 pub mod ir;
+pub mod irjson;
 pub mod linework;
 pub mod paper;
 pub mod pat;

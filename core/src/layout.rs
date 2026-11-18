@@ -325,7 +325,10 @@ pub(crate) fn dims_on_floor(m: &Model, floor: f64) -> Vec<(f64, f64)> {
 }
 
 pub(crate) fn today() -> String {
-    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0);
+    // SOURCE_DATE_EPOCH (the reproducible-builds convention) fixes the date, so the same sheet draws the same every day
+    // (the browser suites' visual references set it)
+    let fixed = std::env::var("SOURCE_DATE_EPOCH").ok().and_then(|s| s.trim().parse::<i64>().ok());
+    let secs = fixed.unwrap_or_else(|| std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0));
     // civil date from days since 1970-01-01 (Howard Hinnant's algorithm)
     let z = secs.div_euclid(86_400) + 719_468;
     let era = z.div_euclid(146_097);

@@ -146,6 +146,7 @@ impl Command {
                 | Command::SheetsInfo { .. }
                 | Command::ViewportPoints { .. }
                 | Command::SheetRender { .. }
+                | Command::SheetIr { .. }
                 | Command::HatchPatterns { .. }
                 | Command::Blueprint { .. }
                 | Command::Levels
@@ -920,9 +921,10 @@ impl Engine {
                 Command::Sheets { .. } | Command::ExportSheets { .. } | Command::SheetAdd { .. } | Command::SheetEdit { .. } |
                 Command::SheetDelete { .. } | Command::ViewportAdd { .. } | Command::ViewportEdit { .. } |
                 Command::SheetItemDelete { .. } | Command::SheetsInfo { .. } | Command::SheetDim { .. } | Command::SheetReattach { .. } |
-                Command::SheetLine { .. } | Command::SheetTrim { .. } | Command::SheetExtend { .. } | Command::SheetOffset { .. }
+                Command::SheetLine { .. } | Command::SheetTrim { .. } | Command::SheetExtend { .. } | Command::SheetOffset { .. } |
+                Command::SheetDuplicate { .. }
             ) => self.run_sheets(c),
-            c @ (Command::ViewportPoints { .. } | Command::DimensionAuto { .. } | Command::LayoutPreset { .. } | Command::SheetRender { .. }) => self.run_autodraft(c),
+            c @ (Command::ViewportPoints { .. } | Command::DimensionAuto { .. } | Command::LayoutPreset { .. } | Command::SheetRender { .. } | Command::SheetIr { .. }) => self.run_autodraft(c),
             c @ (
                 Command::BeginBatch { .. } | Command::EndBatch { .. } | Command::Undo { .. } | Command::Redo { .. }
             ) => self.run_session(c),
