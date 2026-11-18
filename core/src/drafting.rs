@@ -215,6 +215,34 @@ pub struct TagStyle {
     pub extra: Extra,
 }
 
+/// One edge's own line weight, style and colour: it beats its tag's style (`Edge::draft`). `None` fields fall through
+/// to the tag, then to the default pen.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct EdgeDraft {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub weight_mm: Option<f64>,
+    /// a line style name: solid, dashed, hidden, center, or one in `Drafting::line_types`
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub line: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+    #[serde(flatten)]
+    pub extra: Extra,
+}
+
+impl EdgeDraft {
+    pub fn is_empty(&self) -> bool {
+        self.weight_mm.is_none() && self.line.is_none() && self.color.is_none() && self.extra.is_empty()
+    }
+}
+
+/// The built-in line styles, as dash patterns in paper millimetres (on, off, ...; empty is solid).
+pub const LINE_STYLES: [&str; 4] = ["solid", "dashed", "hidden", "center"];
+
+/// The narrowest and widest pen a command accepts, in paper millimetres (ISO 128 runs 0.13 to 2.0).
+pub const WEIGHT_RANGE: (f64, f64) = (0.05, 2.0);
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct LineType {
@@ -266,6 +294,29 @@ pub struct Drafting {
 impl Drafting {
     pub fn is_empty(&self) -> bool {
         *self == Drafting::default()
+    }
+
+    /// The dash pattern a line style name means: the file's own `line_types` first, then the built-ins. None: no such
+    /// style.
+    pub fn dash_of(&self, name: &str) -> Option<Vec<f64>> {
+        if let Some(Keep::Known(l)) = self.line_types.get(name) {
+            return Some(l.dash_mm.clone());
+        }
+        match name {
+            "solid" | "continuous" => Some(vec![]),
+            "dashed" => Some(vec![3.0, 1.5]),
+            "hidden" => Some(vec![2.0, 1.0]),
+            "center" => Some(vec![8.0, 1.5, 1.5, 1.5]),
+            _ => None,
+        }
+    }
+
+    /// The style of a tag, when it has one this build understands.
+    pub fn tag_style(&self, tag: &str) -> Option<&TagStyle> {
+        match self.tag_styles.get(tag) {
+            Some(Keep::Known(t)) => Some(t),
+            _ => None,
+        }
     }
 }
 

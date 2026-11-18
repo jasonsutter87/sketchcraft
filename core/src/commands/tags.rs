@@ -3,7 +3,110 @@
 
 use super::*;
 
+/// A weight, line style and colour a command gave, checked. Empty or zero means "clear that one".
+struct StyleArgs {
+    weight: Option<Option<f64>>,
+    line: Option<Option<String>>,
+    color: Option<Option<String>>,
+}
+
+fn check_style(d: &crate::drafting::Drafting, weight_mm: Option<f64>, line: Option<String>, color: Option<String>) -> Result<StyleArgs> {
+    let (lo, hi) = crate::drafting::WEIGHT_RANGE;
+    let weight = match weight_mm {
+        None => None,
+        Some(w) if w == 0.0 => Some(None),
+        Some(w) if w.is_finite() && (lo..=hi).contains(&w) => Some(Some(w)),
+        Some(w) => bail!("a line weight is between {lo} and {hi} mm on the paper (or 0 for the default), not {w}"),
+    };
+    let line = match line.map(|l| l.trim().to_string()) {
+        None => None,
+        Some(l) if l.is_empty() => Some(None),
+        Some(l) if d.dash_of(&l).is_some() => Some(Some(l)),
+        Some(l) => bail!("no line style {l:?}; one of {}, or a line type in the file", crate::drafting::LINE_STYLES.join(", ")),
+    };
+    let color = match color.map(|c| c.trim().to_string()) {
+        None => None,
+        Some(c) if c.is_empty() => Some(None),
+        Some(c) if crate::draft::ir::parse_hex(&c).is_some() => Some(Some(c.to_ascii_lowercase())),
+        Some(c) => bail!("a line colour is \"#rrggbb\", not {c:?}"),
+    };
+    Ok(StyleArgs { weight, line, color })
+}
+
 impl Engine {
+    /// `tag_style` and `edge_style`: the drafting line weight and style of a tag, and of single edges.
+    fn run_line_styles(&mut self, cmd: Command) -> Result<Value> {
+        use crate::drafting::{EdgeDraft, Keep, TagStyle};
+        Ok(match cmd {
+            Command::TagStyle { tag, weight_mm, line, color, clear } => {
+                let tag = tag.trim().to_string();
+                if tag.is_empty() {
+                    bail!("a tag needs a name");
+                }
+                let d = &mut self.model.drafting;
+                if clear {
+                    d.tag_styles.remove(&tag);
+                    return Ok(json!({"tag": tag, "cleared": true}));
+                }
+                let a = check_style(d, weight_mm, line, color)?;
+                let entry = d.tag_styles.entry(tag.clone()).or_insert_with(|| Keep::Known(TagStyle::default()));
+                let Keep::Known(ts) = entry else { bail!("the style of tag {tag:?} was made by a newer SketchCraft; clear it first") };
+                if let Some(w) = a.weight {
+                    ts.weight_mm = w.unwrap_or(0.0);
+                }
+                if let Some(l) = a.line {
+                    ts.line = l.unwrap_or_default();
+                }
+                if let Some(c) = a.color {
+                    ts.color = c.unwrap_or_default();
+                }
+                if *ts == TagStyle::default() {
+                    d.tag_styles.remove(&tag);
+                }
+                json!({"tag": tag, "style": d.tag_styles.get(&tag)})
+            }
+            Command::EdgeStyle { ids, weight_mm, line, color, clear } => {
+                let a = check_style(&self.model.drafting, weight_mm, line, color)?;
+                let m: &mut Model = active_model!(self);
+                // edges named, or the edges around faces named
+                let mut edges: Vec<Id> = Vec::new();
+                for id in &ids {
+                    if m.edges.contains_key(id) {
+                        edges.push(*id);
+                    } else if let Some(f) = m.faces.get(id).cloned() {
+                        for l in f.loops() {
+                            for (p, q) in crate::model::pairs(l) {
+                                edges.extend(m.find_edge(p, q));
+                            }
+                        }
+                    } else {
+                        bail!("{id} is not an edge or face");
+                    }
+                }
+                for id in &edges {
+                    let e = m.edges.get_mut(id).unwrap();
+                    if clear {
+                        e.draft = None;
+                        continue;
+                    }
+                    let mut dr: EdgeDraft = e.draft.take().map(|b| *b).unwrap_or_default();
+                    if let Some(w) = a.weight {
+                        dr.weight_mm = w;
+                    }
+                    if let Some(l) = &a.line {
+                        dr.line = l.clone();
+                    }
+                    if let Some(c) = &a.color {
+                        dr.color = c.clone();
+                    }
+                    e.draft = (!dr.is_empty()).then(|| Box::new(dr));
+                }
+                json!({"edges": edges.len()})
+            }
+            other => unreachable!("command routed to the wrong group: {other:?}"),
+        })
+    }
+
     pub(super) fn run_tags(&mut self, cmd: Command) -> Result<Value> {
         let m: &mut Model = active_model!(self);
         Ok(match cmd {
@@ -41,6 +144,9 @@ impl Engine {
                 if let Some(c) = m.tag_colors.remove(&tag) {
                     m.tag_colors.insert(to.clone(), c);
                 }
+                if let Some(s) = m.drafting.tag_styles.remove(&tag) {
+                    m.drafting.tag_styles.insert(to.clone(), s);
+                }
                 for g in m.groups.values_mut().filter(|g| g.tag.as_deref() == Some(tag.as_str())) {
                     g.tag = Some(to.clone());
                 }
@@ -49,6 +155,7 @@ impl Engine {
                 }
                 json!({"tag": to})
             }
+            Command::TagStyle { .. } | Command::EdgeStyle { .. } => return self.run_line_styles(cmd),
             Command::SetParent { ids, parent } => {
                 m.set_parent(&ids, parent)?;
                 json!({})

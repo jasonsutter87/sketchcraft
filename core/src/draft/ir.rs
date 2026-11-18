@@ -81,6 +81,51 @@ impl Pens {
     pub fn ink(&self, w: f64) -> Pen {
         Pen::new(w, self.ink)
     }
+
+    /// The pen for a line of model geometry: `base` (the default pen for that kind of line), then the tag's style over
+    /// it, then the edge's own style over both. Each of weight, line style and colour falls through on its own.
+    /// Weights are paper millimetres and never change with a drawing's scale. `beyond` is for hidden ("beyond")
+    /// spans: the tag's `beyond` weight and colour apply to them, and they stay dashed unless a style says otherwise.
+    pub fn for_tag(&self, d: &crate::drafting::Drafting, tag: Option<&str>, edge: Option<&crate::drafting::EdgeDraft>, base: Pen, beyond: bool) -> Pen {
+        let mut pen = base;
+        let ts = tag.and_then(|t| d.tag_style(t));
+        if let Some(t) = ts {
+            let (w, c) = if beyond { (t.beyond.weight_mm, t.beyond.color.as_str()) } else { (t.weight_mm, t.color.as_str()) };
+            if w > 0.0 && w.is_finite() {
+                pen.w = w;
+            }
+            if let Some(rgb) = parse_hex(c) {
+                pen.rgb = rgb;
+            }
+            if !t.line.is_empty() && !beyond {
+                if let Some(dash) = d.dash_of(&t.line) {
+                    pen.dash = dash;
+                }
+            }
+        }
+        if let Some(e) = edge {
+            if let Some(w) = e.weight_mm.filter(|w| *w > 0.0 && w.is_finite()) {
+                pen.w = w;
+            }
+            if let Some(rgb) = e.color.as_deref().and_then(parse_hex) {
+                pen.rgb = rgb;
+            }
+            if let Some(dash) = e.line.as_deref().and_then(|l| d.dash_of(l)) {
+                pen.dash = dash;
+            }
+        }
+        pen
+    }
+}
+
+/// "#rrggbb" as a colour.
+pub fn parse_hex(s: &str) -> Option<Rgb> {
+    let h = s.strip_prefix('#')?;
+    if h.len() != 6 || !h.is_ascii() {
+        return None;
+    }
+    let v = u32::from_str_radix(h, 16).ok()?;
+    Some([(v >> 16) as u8, (v >> 8) as u8, v as u8])
 }
 
 /// One path segment.

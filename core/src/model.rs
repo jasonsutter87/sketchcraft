@@ -41,6 +41,9 @@ pub struct Edge {
     pub curve: Option<Id>,
     #[serde(default, skip_serializing_if = "is_false")]
     pub hidden: bool,
+    /// this edge's own line weight and style on drawing sheets; beats its tag's style. Boxed to keep `Edge` small.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub draft: Option<Box<crate::drafting::EdgeDraft>>,
 }
 
 fn is_false(b: &bool) -> bool {
@@ -1123,7 +1126,7 @@ impl Model {
             // a copy's curves are its own
             let curve = e.curve.map(|c| *curves.entry(c).or_insert_with(|| self.new_id()));
             let id = self.new_id();
-            self.edges.insert(id, Edge { a: map[&e.a], b: map[&e.b], group: Some(new), soft: e.soft, hidden: e.hidden, curve });
+            self.edges.insert(id, Edge { a: map[&e.a], b: map[&e.b], group: Some(new), soft: e.soft, hidden: e.hidden, curve, draft: e.draft.clone() });
         }
         let faces: Vec<Face> = self.faces.values().filter(|f| f.group == Some(gid)).cloned().collect();
         for f in faces {

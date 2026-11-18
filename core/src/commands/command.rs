@@ -194,6 +194,33 @@ pub enum Command {
     TagVisible { tag: String, visible: bool },
     /// A tag's color (for Color by tag); null clears it.
     TagColor { tag: String, color: Option<[f32; 3]> },
+    /// A tag's line weight (paper mm, 0.05 to 2; 0 clears it), line style (solid, dashed, hidden, center, or a line
+    /// type name; "" clears it) and colour ("#rrggbb"; "" clears it) on drawing sheets and in the model view. Only
+    /// what is given changes; `clear: true` removes the tag's whole style.
+    TagStyle {
+        tag: String,
+        #[serde(default)]
+        weight_mm: Option<f64>,
+        #[serde(default)]
+        line: Option<String>,
+        #[serde(default)]
+        color: Option<String>,
+        #[serde(default)]
+        clear: bool,
+    },
+    /// The same for single edges (`ids`: edges, or faces for all their edges); an edge's own style beats its tag's.
+    /// `clear: true` removes the edges' own style.
+    EdgeStyle {
+        ids: Vec<Id>,
+        #[serde(default)]
+        weight_mm: Option<f64>,
+        #[serde(default)]
+        line: Option<String>,
+        #[serde(default)]
+        color: Option<String>,
+        #[serde(default)]
+        clear: bool,
+    },
     /// Rename a tag everywhere it's used.
     RenameTag { tag: String, to: String },
     /// Put groups and components inside a group (`parent`), or at the top (null).

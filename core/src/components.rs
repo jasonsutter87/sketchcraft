@@ -31,6 +31,10 @@ pub struct WEdge {
     pub path: std::sync::Arc<[Id]>,
     /// the edge's two vertex ids there
     pub v: [Id; 2],
+    /// the tag that styles the edge: its group's, else the nearest tagged placement it sits inside
+    pub tag: Option<String>,
+    /// the edge's own style, if it has one
+    pub draft: Option<Box<crate::drafting::EdgeDraft>>,
 }
 
 impl Model {
@@ -151,13 +155,25 @@ impl Model {
         }
     }
 
+    /// The tag of a group, or of the nearest group around it that has one.
+    fn group_tag(&self, mut g: Option<Id>) -> Option<String> {
+        for _ in 0..crate::nesting::MAX_NEST {
+            let grp = self.groups.get(&g?)?;
+            if grp.tag.is_some() {
+                return grp.tag.clone();
+            }
+            g = grp.parent;
+        }
+        None
+    }
+
     pub fn world_edges(&self) -> Vec<WEdge> {
         let mut out = Vec::new();
-        self.collect_edges(self, DMat4::IDENTITY, None, &Default::default(), &std::sync::Arc::from(Vec::new()), &mut out, 0);
+        self.collect_edges(self, DMat4::IDENTITY, None, &Default::default(), &std::sync::Arc::from(Vec::new()), None, &mut out, 0);
         out
     }
 
-    fn collect_edges(&self, root: &Model, t: DMat4, owner: Option<Id>, scope: &BTreeMap<String, f64>, path: &std::sync::Arc<[Id]>, out: &mut Vec<WEdge>, depth: usize) {
+    fn collect_edges(&self, root: &Model, t: DMat4, owner: Option<Id>, scope: &BTreeMap<String, f64>, path: &std::sync::Arc<[Id]>, itag: Option<&str>, out: &mut Vec<WEdge>, depth: usize) {
         if depth > crate::nesting::MAX_NEST {
             return;
         }
@@ -189,6 +205,8 @@ impl Model {
                 soft: e.soft,
                 path: path.clone(),
                 v: [e.a, e.b],
+                tag: self.group_tag(e.group).or_else(|| itag.map(str::to_string)),
+                draft: e.draft.clone(),
             });
         }
         for (&iid, inst) in &self.instances {
@@ -202,7 +220,7 @@ impl Model {
                 }
                 let inner: std::sync::Arc<[Id]> = path.iter().copied().chain(std::iter::once(iid)).collect();
                 for p in &d.placements {
-                    def.model.collect_edges(root, t * *p, Some(owner.unwrap_or(iid)), &d.scope, &inner, out, depth + 1);
+                    def.model.collect_edges(root, t * *p, Some(owner.unwrap_or(iid)), &d.scope, &inner, inst.tag.as_deref().or(itag), out, depth + 1);
                     if out.len() >= crate::nesting::MAX_EXPANDED {
                         return;
                     }
@@ -397,6 +415,12 @@ impl Model {
             }
         }
         Ok(n)
+    }
+
+    /// Whether any edge (in a component too) has its own drawing style: the file then needs the newer format, so an
+    /// older build can't open it and quietly drop them.
+    pub fn has_edge_styles(&self) -> bool {
+        self.edges.values().any(|e| e.draft.is_some()) || self.definitions.values().any(|d| d.model.has_edge_styles())
     }
 
     /// Soften every edge that lies between two coplanar faces (cleans up

@@ -84,7 +84,8 @@ pub(super) fn plan(cv: &mut Cv, m: &Model, bm: &Model, v: &ViewportSpec, z: f64,
             if (e.a.x - e.b.x).hypot(e.a.y - e.b.y) < 0.01 {
                 continue; // vertical: a point from above
             }
-            cv.line(to(e.a.x, e.a.y), to(e.b.x, e.b.y), &faint);
+            let pen = if e.tag.is_some() || e.draft.is_some() { pens.for_tag(&m.drafting, e.tag.as_deref(), e.draft.as_deref(), faint.clone(), false) } else { faint.clone() };
+            cv.line(to(e.a.x, e.a.y), to(e.b.x, e.b.y), &pen);
         }
         stairs(cv, m, pens, floor, &to);
         overhead(cv, m, pens, floor, z, &to);

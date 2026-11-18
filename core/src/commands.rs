@@ -867,6 +867,7 @@ impl Engine {
             c @ (
                 Command::Hide { .. } | Command::Unhide { .. } | Command::Tag { .. } | Command::TagVisible { .. } |
                 Command::TagColor { .. } | Command::RenameTag { .. } | Command::SetParent { .. } |
+                Command::TagStyle { .. } | Command::EdgeStyle { .. } |
                 Command::Lock { .. } | Command::Soften { .. } | Command::Rename { .. } | Command::Opacity { .. } |
                 Command::SetAttrs { .. } | Command::Classify { .. } | Command::Reveal { .. }
             ) => self.run_tags(c),

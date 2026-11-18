@@ -98,6 +98,8 @@ struct Item {
     len: f64,
     ta: f64,
     tb: f64,
+    tag: Option<String>,
+    draft: Option<Box<crate::drafting::EdgeDraft>>,
 }
 
 struct Occluder {
@@ -215,14 +217,18 @@ impl View<'_> {
                 continue;
             }
             // the edge's own parameter runs along the whole edge, including any section-clipped part
-            edges.push(Item { path: e.path, v: e.v, a, b, t0, t1, len, ta, tb });
+            edges.push(Item { path: e.path, v: e.v, a, b, t0, t1, len, ta, tb, tag: e.tag, draft: e.draft });
         }
-        let ink = self.pens.ink(self.pens.medium);
-        let ghost = Pen::new(self.pens.thin, self.pens.faint()).dashed(&[1.6, 1.0]);
+        let base_ink = self.pens.ink(self.pens.medium);
+        let base_ghost = Pen::new(self.pens.thin, self.pens.faint()).dashed(&[1.6, 1.0]);
+        let styles = &self.m.drafting;
         let work = |chunk: &[Item]| -> Vec<Prim> {
             let mut out = Vec::new();
             for it in chunk {
-                let Item { path, v, a, b, t0, t1, len, ta, tb } = it;
+                let Item { path, v, a, b, t0, t1, len, ta, tb, tag, draft } = it;
+                // the pen for this edge: edge override, then its tag, then the default
+                let ink = self.pens.for_tag(styles, tag.as_deref(), draft.as_deref(), base_ink.clone(), false);
+                let ghost = self.pens.for_tag(styles, tag.as_deref(), draft.as_deref(), base_ghost.clone(), true);
                 let (s, e) = (*a + (*b - *a) * *t0, *a + (*b - *a) * *t1);
                 let edge = Arc::new(EdgeRef { path: path.to_vec(), v: *v });
                 for (u0, u1, vis) in spans(&occ, s, e, *len) {

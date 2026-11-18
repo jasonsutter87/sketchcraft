@@ -120,7 +120,7 @@ fn reasons(s: &Skim) -> Vec<String> {
 
 /// Does the model hold anything only a build that knows about sheets can keep? Then the file says so.
 fn has_sheets(m: &crate::model::Model) -> bool {
-    !m.sheets.is_empty() || !m.sheet_items.is_empty() || !m.title_blocks.is_empty() || !m.drafting.is_empty()
+    !m.sheets.is_empty() || !m.sheet_items.is_empty() || !m.title_blocks.is_empty() || !m.drafting.is_empty() || m.has_edge_styles()
 }
 
 /// The format number a file of this model is written with: 2 when it holds sheets, 1 otherwise.
