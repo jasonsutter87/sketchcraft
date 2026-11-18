@@ -123,6 +123,7 @@ feature/*  --PR-->  develop  --PR-->  staging  --PR-->  main  --tag v*-->  relea
 - **`staging`** is the release candidate: `develop` is merged into it when a release is close, and the full browser suite has to pass there.
 - **`main`** holds released code only. It takes pull requests from `staging`, and releases are tagged from it.
 - The `flow` check refuses a pull request into `staging` that doesn't come from `develop`, and one into `main` that doesn't come from `staging`.
+- Every release also passes a **security gate** on `staging` before it reaches `main`: an attack pass, fixes, and a re-test until nothing above Info is left. See [docs/dev/releasing.md](docs/dev/releasing.md).
 
 ## What CI checks on a pull request
 
