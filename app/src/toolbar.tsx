@@ -59,20 +59,44 @@ export function Toolbar({
   const choose = (id: string) => (EXTRA.has(id) ? EXTRA.get(id)!.run() : chooseTool(id));
   const nav = useRef<HTMLElement>(null);
   const [room, setRoom] = useState(Infinity);
+  const [tall, setTall] = useState(Infinity);
   const [open, setOpen] = useState(false);
 
   // how wide the model area is (the bar's parent)
   useLayoutEffect(() => {
     const host = nav.current?.parentElement;
-    if (!host || vertical) {
-      setRoom(Infinity);
-      return;
-    }
-    const ro = new ResizeObserver(() => setRoom(host.clientWidth));
+    setRoom(Infinity);
+    setTall(Infinity);
+    if (!host) return;
+    const measure = () => (vertical ? setTall(host.clientHeight) : setRoom(host.clientWidth));
+    const ro = new ResizeObserver(measure);
     ro.observe(host);
-    setRoom(host.clientWidth);
+    measure();
     return () => ro.disconnect();
   }, [vertical]);
+
+  // docked down the left: one column of tools when they fit the height, else two side by side
+  // (like Photoshop's double-column tool bar), more on a very short window. The bar is a grid per
+  // group, so it is exactly as wide as its columns and every button sits on its background.
+  const cols = useMemo(() => {
+    if (!vertical || !Number.isFinite(tall)) return 1;
+    const btn = nav.current?.querySelector<HTMLElement>(".tool:not(.more)");
+    const per = (btn?.offsetHeight ?? 34) + 1;
+    const groupPad = 9;
+    const chrome = 28 + 14 + 48; // margins top and bottom, bar padding, color chip
+    for (const c of [1, 2, 3]) {
+      const need = groups.reduce((h, g) => h + Math.ceil(g.length / c) * per + groupPad, chrome);
+      if (need <= tall) return c;
+    }
+    return 4;
+  }, [vertical, tall, groups]);
+  // the view bar and the quick-action strip keep clear of however wide that makes the bar
+  useLayoutEffect(() => {
+    const host = nav.current?.parentElement;
+    if (!host) return;
+    host.style.setProperty("--tool-cols", String(cols));
+    return () => void host.style.removeProperty("--tool-cols");
+  }, [cols]);
 
   // which tools fit: sizes measured from the bar itself, so skins can differ
   const { shown, hidden } = useMemo(() => {
@@ -112,7 +136,7 @@ export function Toolbar({
 
   const activeHidden = hidden.includes(tool);
   return (
-    <nav className="toolbar" ref={nav} aria-label="Tools">
+    <nav className="toolbar" ref={nav} aria-label="Tools" data-cols={vertical ? cols : undefined}>
       {shown.map((g, i) => (
         <div key={i} className="tool-group">
           {g.map((id) => {

@@ -41,6 +41,13 @@ What changed in each SketchCraft release, newest first. The format follows
   made without one are fitted to the building, not its environment, so adding a tree no longer
   moves every drawing. (#62)
 
+### Fixed
+- **The Vertical layout's tool bar keeps every tool on its background.** When the tools didn't fit one
+  column, the second column spilled outside the bar with no background behind it, over the model. It's now
+  laid out like Photoshop's tool bar: one column when there's room, two side by side when not (three or four
+  on a short window), each group of tools in rows, and the bar exactly as wide as its columns. The view bar
+  and the quick-action strip move over to stay clear of it.
+
 ## [0.3.7] - 2026-11-17
 
 ### Added

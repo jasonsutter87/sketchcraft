@@ -2,7 +2,8 @@
 // The overlays on the model view stay clear of each other in every layout (#55): the axis gizmo (top right)
 // is fully inside the view, not under the view bar, and clickable, in Classic, Floating and Vertical tools,
 // at the smallest window, a usual one and a big one; in the Vertical layout the tool hint card, the Value
-// box and the SubD bar stay clear of the tool bar, the view bar and the gizmo too. It compares element boxes
+// box and the SubD bar stay clear of the tool bar, the view bar and the gizmo too, and every tool button sits inside
+// the tool bar's background when it goes to two columns on a short window. It compares element boxes
 // (getBoundingClientRect), not screenshots; SHOT_DIR keeps a picture of each for looking at.
 // In a real browser against the dev page and bridge (docs/dev/building.md), on a scratch model:
 // SKETCHCRAFT_DOC must be set (and the bridge run with the same).
@@ -99,6 +100,14 @@ for (const [layout, name] of Object.entries(LAYOUTS)) {
         const pairs = [['views', 'toolbar'], ['hint', 'toolbar'], ['hint', 'views'], ['hint', 'value'], ['value', 'toolbar'], ['subd', 'toolbar'], ['subd', 'value'], ['subd', 'gizmo'], ['subd', 'hint'], ['subd', 'views']];
         for (const [a, c] of pairs) if (boxes[a] && boxes[c]) check(!cross(boxes[a], boxes[c]), `${tag}: ${a} and ${c} don't overlap`);
         for (const k of ['views', 'toolbar', 'hint', 'value', 'subd']) if (boxes[k]) check(inside(boxes[k], view), `${tag}: ${k} is inside the model view`);
+        // every tool button sits on the tool bar's background, whether it's one column or two (Photoshop-style)
+        const tb = await p.evaluate(() => {
+          const bar = document.querySelector('.toolbar');
+          const r = bar.getBoundingClientRect();
+          const out = [...bar.querySelectorAll('.tool, .chip')].filter((e) => { const b = e.getBoundingClientRect(); return b.left < r.left - 0.5 || b.right > r.right + 0.5 || b.top < r.top - 0.5 || b.bottom > r.bottom + 0.5; });
+          return { cols: Number(bar.dataset.cols), out: out.map((e) => e.getAttribute('aria-label') ?? e.className) };
+        });
+        check(tb.out.length === 0, `${tag}: every tool is inside the tool bar (${tb.cols} column${tb.cols > 1 ? 's' : ''}${tb.out.length ? `; outside: ${tb.out.join(', ')}` : ''})`);
       }
       await p.screenshot({ path: path.join(shots, `${layout}-${w}x${h}${subd ? '-subd' : ''}.png`) });
       await ctx.close();

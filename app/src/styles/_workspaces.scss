@@ -57,19 +57,30 @@
   border-top: 0;
 }
 
+/* docked down the left: one column, or two side by side like Photoshop's (the Toolbar picks
+   --tool-cols from the window's height). Each group is a grid of that many columns, so the bar is
+   exactly as wide as its tools and every button sits on its background (a wrapping column flexbox
+   doesn't widen for the columns it wraps into). */
 .app.dock-left .toolbar {
   left: 14px;
   top: 14px;
   bottom: auto;
   transform: none;
   flex-direction: column;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  width: max-content;
   max-height: calc(100% - 28px);
-  align-content: flex-start;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
 }
 
 .app.dock-left .tool-group {
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(var(--tool-cols, 1), max-content);
+  justify-content: center;
+  gap: 1px;
   padding: 4px 0;
   border-right: none;
   border-bottom: 1px solid var(--line);
@@ -80,6 +91,7 @@
 }
 
 .app.dock-left .chip {
+  align-self: center;
   margin: 6px 0 2px;
 }
 
@@ -142,8 +154,9 @@
 
 .app.dock-left .ws-strip {
   bottom: 18px;
-  /* between the tool bar (left) and the Value box (right), centered there, never over either */
-  left: 170px;
+  /* between the tool bar (left) and the Value box (right), centered there, never over either; the tool
+     bar is 27px + 35px a column from the left */
+  left: max(170px, calc(41px + var(--tool-cols, 1) * 35px));
   right: 230px;
   width: fit-content;
   margin: 0 auto;
@@ -153,7 +166,7 @@
 
 /* the view bar stays clear of the tool bar down the left */
 .app.dock-left .views {
-  max-width: calc(100% - 170px);
+  max-width: calc(100% - max(170px, calc(55px + var(--tool-cols, 1) * 35px)));
 }
 
 .ws-strip .lbl {
