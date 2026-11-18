@@ -52,6 +52,19 @@ What changed in each SketchCraft release, newest first. The format follows
   dimensioned to, with where each point is on the paper, and `sheet_render` (or the agent's render tool with a
   sheet) shows a sheet as a picture so an agent can look at its own work. The agent help now has a short drafting
   recipe: inspect, lay out, dimension, hatch by tag, render to check, fix. Each step is one Undo. (part of #10)
+- **Big drawing sets stay fast.** SketchCraft now keeps each viewport's drawing once it has been drawn, and only
+  redraws the ones a change can reach: move one wall in a 52-page A1 set and the plans, elevations and sections that
+  show it are redrawn (30 of its 70 viewports in our test set), while everything else, and every page whose only
+  change is a dimension, a line or a text, comes straight from what was kept. Hatches are kept per region too, so a
+  redrawn plan reuses the hatching of the walls that didn't move. Nothing is drawn when a file opens; pages are
+  drawn when you look at them or export. The pages you looked at last are redrawn in the background after a change,
+  using at most two threads, and a result is thrown away if the model changed while it was being drawn, so nothing
+  out of date is ever shown or exported. Memory for kept drawings is capped (512 MB), least recently used first. A
+  set can now have up to 200 pages (it was 50). `drafting_status` tells the editor, agents and plugins how the kept
+  drawings stand. A benchmark of a 52-page A1 permit set (about 200,000 faces, 2,000 dimensions, 400 text blocks,
+  hatches on 8 tags) checks the timings against a budget on every release candidate and nightly. A saved viewport is
+  now drawn exactly where its anchor says (it was re-centred on the building on every export, while its dimensions
+  used the anchor). (part of #8)
 - **Line work on sheets: draw, trim, extend and offset.** A sheet can hold plain lines, polylines, arcs and
   rectangles (`sheet_line`: a pen weight in paper millimetres, a colour, optional dashes), drawn in the PDF, SVG and
   DXF. `sheet_trim` cuts away the span you pick between the nearest places other things cross it: the other line work
