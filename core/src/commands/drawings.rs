@@ -26,20 +26,19 @@ impl Engine {
 
     /// How a saved sheet prints: its paper, project name, notes and blueprint look (from the sheet's own fields).
     fn sheet_look(&self, sheet: Id) -> Result<(String, String, Vec<String>, bool, f64, f64)> {
-        let Some(s) = self.model.sheets.get(&sheet) else { bail!("no sheet {sheet}") };
-        let Ok((w, h)) = crate::layout::sheet_mm(&s.paper.name) else {
-            bail!("sheet {sheet} is {} x {} mm, not one of the standard sizes the drawing knows", s.paper.w_mm, s.paper.h_mm)
-        };
-        let project = s.fields.get("project").cloned().unwrap_or_else(|| "Project".into());
+        let Some(s) = self.model.sheets.get(&sheet) else { bail!("no sheet {sheet} (sheets_info lists them)") };
+        let known = crate::layout::sheet_mm(&s.paper.name).ok().filter(|(w, h)| (w - s.paper.w_mm).abs() < 0.5 && (h - s.paper.h_mm).abs() < 0.5);
+        let Some((w, h)) = known else { bail!("sheet {sheet} is {} x {} mm, not a standard size the drawing knows", s.paper.w_mm, s.paper.h_mm) };
+        let project = s.fields.get("project").cloned().unwrap_or_default();
         let notes = s.fields.get("notes").map(|n| n.lines().map(str::to_string).collect()).unwrap_or_default();
         let blueprint = s.fields.get("blueprint").is_some_and(|b| b == "true");
         Ok((s.paper.name.clone(), project, notes, blueprint, w, h))
     }
 
-    /// One saved sheet drawn as a page, as the editor shows it: viewports from the kept drawings (drawn and kept
-    /// when they aren't), numbered as in the whole set. The sheet counts as looked at: after a change, it (and the
-    /// two looked at before it) is redrawn in the background.
-    pub fn sheet_page(&mut self, sheet: Id) -> Result<Page> {
+    /// One saved sheet drawn as a page, as the editor shows it (`sheet_ir`) and `sheet_render` pictures it: viewports
+    /// from the kept drawings (drawn and kept when they aren't), numbered as in the whole set. The sheet counts as
+    /// looked at: after a change, it (and the two looked at before it) is redrawn in the background.
+    pub fn sheet_page(&self, sheet: Id) -> Result<Page> {
         let page = self.draw_sheet(sheet, true)?;
         self.drawings.viewed(sheet);
         Ok(page)

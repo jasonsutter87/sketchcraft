@@ -131,21 +131,7 @@ impl Engine {
         })
     }
 
-    /// A saved sheet drawn as the display list's one page (what `sheet_render` and `sheet_ir` show).
-    pub fn sheet_page(&self, sheet: Id) -> Result<crate::draft::ir::Page> {
-        let m = &self.model;
-        let Some(s) = m.sheets.get(&sheet) else { bail!("no sheet {sheet} (sheets_info lists them)") };
-        let known = crate::layout::sheet_mm(&s.paper.name).ok().filter(|(w, h)| (w - s.paper.w_mm).abs() < 0.5 && (h - s.paper.h_mm).abs() < 0.5);
-        let paper = match known {
-            Some(_) => s.paper.name.clone(),
-            None => bail!("sheet {sheet} is {} x {} mm, not a standard size the drawing knows", s.paper.w_mm, s.paper.h_mm),
-        };
-        let project = s.fields.get("project").cloned().unwrap_or_default();
-        let notes: Vec<String> = s.fields.get("notes").map(|n| n.lines().map(str::to_string).collect()).unwrap_or_default();
-        let blueprint = s.fields.get("blueprint").is_some_and(|b| b == "true");
-        let doc = crate::draft::sheet::build_with(m, &paper, &project, vec![page_of(m, sheet)], blueprint, &notes, &crate::layout::today(), false)?;
-        doc.pages.into_iter().next().ok_or_else(|| anyhow::anyhow!("sheet {sheet} drew no page"))
-    }
+    // (`sheet_page`, the one page `sheet_render` and `sheet_ir` show, is in `drawings.rs`: drawn from the kept drawings)
 
     /// A saved sheet drawn as a picture `px` wide (see `draft::raster`): what `sheet_render` writes and the MCP render
     /// tool shows.
