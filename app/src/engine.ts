@@ -46,7 +46,7 @@ export interface TagStyleInfo {
   color?: string;
   /** how the tag's cut walls are filled in plans and sections: the drawing's own poché ("auto", also when unset), a
    * solid `color`, the hatch, or nothing ("none"); `outline_mm` is the cut outline's pen (0: the heavy default) */
-  cut?: { fill?: "auto" | "none" | "solid" | "hatch"; outline_mm?: number; color?: string; hatch?: HatchUseInfo };
+  cut?: { fill?: "auto" | "none" | "solid" | "hatch"; outline_mm?: number; color?: string; hatch?: HatchUseInfo; /** intersection priority 0 to 999: the higher tag wins where cuts overlap (absent: 0) */ priority?: number };
 }
 
 export interface GroupInfo {

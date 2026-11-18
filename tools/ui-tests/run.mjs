@@ -25,6 +25,7 @@ const SUITES = [
   ['line-styles', 'tools/ui-tests/line-styles.mjs', 300],
   ['hatches', 'tools/ui-tests/hatches.mjs', 300],
   ['cut-fills', 'tools/ui-tests/cut-fills.mjs', 300],
+  ['cut-priority', 'tools/ui-tests/cut-priority.mjs', 300],
   ['subdivide', 'tools/ui-tests/subdivide.mjs', 300],
   ['shortcuts', 'tools/ui-tests/shortcuts.mjs', 300],
   ['tools', 'tools/ui-tests/tools.mjs', 900],

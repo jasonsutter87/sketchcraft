@@ -12,6 +12,7 @@ import { autoTagColor } from "./Viewport";
 import { LineStyleControls } from "./linestyle";
 import { HatchControls } from "./hatchstyle";
 import { CutStyleControls } from "./cutstyle";
+import { CutPriority } from "./cutpriorityeditor";
 
 type Run = (cmd: Record<string, unknown>) => Promise<Reply>;
 
@@ -318,6 +319,7 @@ function Tags({ scene, sel, run, byTag, setByTag }: { scene: Scene; sel: Sel; ru
         })}
         {!tags.length && <li className="empty">Tags are layers: give things a tag to show, hide or color them together.</li>}
       </ul>
+      <CutPriority tags={tags.map(([t]) => t)} styles={scene.tagStyles} run={run} />
       <button
         className="btn small ghost new-tag"
         disabled={!taggable.length}
