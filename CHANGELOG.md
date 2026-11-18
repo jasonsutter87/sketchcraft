@@ -52,6 +52,11 @@ What changed in each SketchCraft release, newest first. The format follows
   dimensioned to, with where each point is on the paper, and `sheet_render` (or the agent's render tool with a
   sheet) shows a sheet as a picture so an agent can look at its own work. The agent help now has a short drafting
   recipe: inspect, lay out, dimension, hatch by tag, render to check, fix. Each step is one Undo. (part of #10)
+- **Hatches on screen at their true weight.** When a section plane cuts a tagged wall, its hatch is now painted by
+  the graphics card: lines as thick on screen as the hatch's pen weight says (0.35 mm draws wider than 0.13 mm, 6
+  pixels per paper millimetre, as edges and cut outlines are), with its dashes and dots, and no limit on how many
+  lines a big or finely hatched cut can have (it used to stop at 60,000 lines and fill the rest with a flat tint).
+  A pattern with more than 16 line families falls back to the old lines. (part of #8)
 - **Big drawing sets stay fast.** SketchCraft now keeps each viewport's drawing once it has been drawn, and only
   redraws the ones a change can reach: move one wall in a 52-page A1 set and the plans, elevations and sections that
   show it are redrawn (30 of its 70 viewports in our test set), while everything else, and every page whose only
