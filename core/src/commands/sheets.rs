@@ -341,12 +341,12 @@ impl Engine {
                 let was_parallel = matches!(v.view, ViewKind::View3d { parallel: true, .. });
                 if let Some(view) = &args.view {
                     v.view = view.clone();
-                    drop_legacy(&mut v, "view");
+                    v.extra.remove("legacy"); // every old-style option (fit, callouts, marks, levels, section mark, view name) described the old view
                 } else if let Some(name) = &args.from_view {
                     v.view = view3d(&self.model, self.model.world_bounds(), name, scale.is_some() || was_parallel);
                     // it follows the saved view it names, and nothing if it names a standard one
                     v.scene = self.model.views.iter().any(|x| &x.name == name).then(|| name.clone());
-                    drop_legacy(&mut v, "view");
+                    v.extra.remove("legacy"); // every old-style option (fit, callouts, marks, levels, section mark, view name) described the old view
                 }
                 if let Some(z) = args.z {
                     v.z = z;

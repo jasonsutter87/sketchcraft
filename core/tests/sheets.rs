@@ -490,6 +490,25 @@ fn a_model_file_with_sheets_placed_as_a_part_brings_no_paper_along() {
 }
 
 #[test]
+fn changing_a_viewports_view_drops_the_old_style_options() {
+    let dir = scratch("legacy");
+    let mut e = Engine::new();
+    let f = ok(&mut e, json!({"cmd": "rect", "from": [0, 0, 0], "to": [4, 3, 0]}))["face"].clone();
+    ok(&mut e, json!({"cmd": "pushpull", "face": f, "distance": 2.5}));
+    // made by `sheets` with no scale (so "fit the picture" is remembered), then turned into an elevation
+    ok(&mut e, json!({"cmd": "sheets", "pages": [{"title": "A", "viewports": [{"view": "iso", "callouts": true, "marks": ["1/2"]}]}]}));
+    let vp = *e.model.sheet_items.keys().next().unwrap();
+    ok(&mut e, json!({"cmd": "viewport_edit", "id": vp, "view": {"type": "elevation", "dir": [0, -1, 0]}}));
+    let item = serde_json::to_value(&*e.model.sheet_items[&vp]).unwrap();
+    assert!(item.get("legacy").is_none());
+    let scale = item["scale"].as_f64().unwrap() as u64;
+    let p = dir.join("e.pdf");
+    ok(&mut e, json!({"cmd": "export_sheets", "path": p}));
+    assert!(String::from_utf8_lossy(&std::fs::read(&p).unwrap()).contains(&format!("1:{scale}")), "the saved scale is what is drawn");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn export_refuses_papers_the_writer_would_print_wrongly() {
     let dir = scratch("paper");
     let mut e = with_sheets(); // an a3 sheet and a custom 600 x 400 one
