@@ -1,0 +1,52 @@
+name: Perf
+
+# The big-document benchmark (#8, docs/dev/drafting-design.md §4): core/tests/drafting_perf.rs on the full 52-page A1
+# set (about 200,000 faces), release build, against the budget table and drafting_perf.baseline.json (a timing more
+# than 20% over the baseline fails).
+#
+# When it runs, and why not on every PR: a release build plus the benchmark is about 10 minutes, and timings on
+# shared runners vary by more than the 20% the check allows now and then, so it would make the develop PR checks
+# slow and flaky. It is not a required check. It runs on staging and main (the release candidates), nightly on
+# develop, by hand, and on a develop PR labelled `perf` (for work that touches drawing speed). The counter
+# assertions (exactly which viewports a change redraws) are exact and also run in the normal `test` job, on the
+# small fixture, on every PR.
+on:
+  push:
+    branches: [staging, main]
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+  schedule:
+    - cron: "23 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  drafting:
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.base_ref == 'staging' || github.base_ref == 'main' ||
+      contains(github.event.pull_request.labels.*.name, 'perf')
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@263313d2989f864a2b8613f97277288638e7d8f8 # rust 1.99.1 (its version branch)
+      - name: Drafting benchmark (release, full size)
+        env:
+          SKETCHCRAFT_PERF: full
+          SKETCHCRAFT_PERF_OUT: ${{ runner.temp }}/drafting-perf.json
+          SKETCHCRAFT_PERF_DIR: ${{ runner.temp }}
+          SKETCHCRAFT_TESTING: "1"
+        run: cargo test --release --locked -p sketchcraft-core --test drafting_perf -- --nocapture
+      - name: Keep the numbers
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: drafting-perf
+          path: ${{ runner.temp }}/drafting-perf.json
+          if-no-files-found: ignore
+          retention-days: 30
