@@ -30,6 +30,15 @@ What changed in each SketchCraft release, newest first. The format follows
   engine and the commands it will use. A chain of dimensions was already one command: `sheet_dim` with more than two
   points measures every span in one go (or every span from the first point, as a baseline set), and is now written up
   in the agent help. (part of #19)
+- **Dimensions from SketchUp files stay attached.** A dimension imported from a SketchUp file now holds on to the
+  corners or edges it measures, so when you move a wall the dimension moves with it and shows the new length; undo
+  puts both back in one step. An end that sits on nothing (within a thousandth of an inch, SketchUp's own tolerance)
+  keeps its fixed point, and the import tells you how many dimensions attached and how many didn't. SketchUp text
+  labels and screen texts are now read fully: they are still left out of the model (no sample file shows where a
+  label's text sits against its leader), but the import counts them and lists their words so you can add them back.
+  A file that holds only a screen text opens instead of being refused. Models with attached dimensions save in the
+  0.3.8 file format (0.3.7 opens them read-only); dimensions you drew yourself, and older files, are unchanged.
+  (part of #59)
 - **Cut fill per tag.** Where a plan or section cuts something, each tag now decides how its cut looks: the usual
   dark fill, a solid colour of your choice, its hatch, or nothing at all (just the outline), with its own outline
   thickness. A section through walls, a slab and furniture on different tags shows each its own way, on drawing sheets

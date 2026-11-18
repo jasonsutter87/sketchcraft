@@ -79,7 +79,7 @@ ORGANIZE
 - sun {date?, time?, utc_offset?}: real sun azimuth/altitude at the model location
 - door_swing {hinge, strike, toward}: door swing symbol for plans. blueprint also takes notes:[...]; sheets takes notes:[...] (a line starting with a hash is a heading)
 - solid {op: union|subtract|intersect|trim|split|outer_shell, ids:[group or instance, ...]}: solid tools on closed shapes; subtract/trim: the first cuts the second. volume {id} -> {solid, volume m3}
-- import_skp {path | data(base64)}: SketchUp files, legacy 6-8 and modern 2013+ (geometry, nested components, colors, textures)
+- import_skp {path | data(base64)}: SketchUp files, legacy 6-8 and modern 2013+ (geometry, nested components, colors, textures, linear dimensions attached to the geometry); the result counts dimensions_attached/dimensions_unattached and lists skipped_labels
 - insert {asset, at, rotate?}: built-ins door, window, garage_door, tree, palm, car, streetlight, bench, hydrant (doors/windows face -Y, origin bottom-left on the wall).
 - hide {ids}; unhide {ids?}; tag {ids, tag}; tag_visible {tag, visible}; soften {ids | coplanar:true}; rename {id, name}
 - guide {point, direction?}; clear_guides; save_view {name, eye, target, fov?}; delete_view {name}
