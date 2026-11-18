@@ -17,6 +17,13 @@ What changed in each SketchCraft release, newest first. The format follows
   (over 32,767 objects) are read correctly too. (part of #70)
 
 ### Added
+- **Cut fill per tag.** Where a plan or section cuts something, each tag now decides how its cut looks: the usual
+  dark fill, a solid colour of your choice, its hatch, or nothing at all (just the outline), with its own outline
+  thickness. A section through walls, a slab and furniture on different tags shows each its own way, on drawing sheets
+  (PDF, SVG and DXF) and on screen with a section plane. In the Outliner's Tags list, the new Cut button next to Hatch
+  shows a swatch of the fill and opens the choices, each with a hint. A cut takes the tag of the innermost tagged
+  group or component around it, so a tagged part inside a component (the glass in a desk) keeps its own fill. It is
+  saved with the model and undoes in one step; agents and plugins can set it with `tag_style {cut}`. (part of #5)
 - **Dimensions follow a group's copies.** When you group faces that share corners with other geometry, the group gets
   its own copy of those corners. A dimension on a sheet now moves onto the copies when everything it measures went
   into the group, so it stays with the group when you move it; a dimension that also measures something left outside
