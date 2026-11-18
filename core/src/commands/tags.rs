@@ -38,6 +38,7 @@ struct CutChange {
     fill: Option<crate::drafting::CutFill>,
     color: Option<Option<String>>,
     outline: Option<Option<f64>>,
+    priority: Option<i32>,
 }
 
 fn check_cut(c: super::command::CutArgs) -> Result<CutChange> {
@@ -65,7 +66,13 @@ fn check_cut(c: super::command::CutArgs) -> Result<CutChange> {
         Some(w) if w.is_finite() && (lo..=hi).contains(&w) => Some(Some(w)),
         Some(w) => bail!("a cut outline weight is between {lo} and {hi} mm on the paper (or 0 for the default), not {w}"),
     };
-    Ok(CutChange { fill, color, outline })
+    let (plo, phi) = crate::drafting::PRIORITY_RANGE;
+    let priority = match c.priority {
+        None => None,
+        Some(p) if (plo as i64..=phi as i64).contains(&p) => Some(p as i32),
+        Some(p) => bail!("an intersection priority is a whole number between {plo} and {phi}, not {p}"),
+    };
+    Ok(CutChange { fill, color, outline, priority })
 }
 
 /// The scale range a hatch accepts (paper or model mm per pattern mm).
@@ -288,6 +295,9 @@ impl Engine {
                     }
                     if let Some(w) = c.outline {
                         ts.cut.outline_mm = w.unwrap_or(0.0);
+                    }
+                    if let Some(pr) = c.priority {
+                        ts.cut.priority = pr;
                     }
                 }
                 if *ts == TagStyle::default() {

@@ -209,9 +209,20 @@ pub struct CutStyle {
     pub color: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hatch: Option<HatchUse>,
+    /// intersection priority (0 to 999, higher wins): where cut regions of different tags overlap, the higher keeps the
+    /// overlap and the lower is trimmed back; same tag or equal priority merge. 0 (not written) everywhere: no resolving
+    #[serde(skip_serializing_if = "is_zero_i32")]
+    pub priority: i32,
     #[serde(flatten)]
     pub extra: Extra,
 }
+
+fn is_zero_i32(n: &i32) -> bool {
+    *n == 0
+}
+
+/// The range of `CutStyle::priority`.
+pub const PRIORITY_RANGE: (i32, i32) = (0, 999);
 
 /// Line work beyond the cut (what is seen past the section plane).
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -843,7 +854,7 @@ impl Drafting {
     }
     pub fn sane(&self) -> bool {
         let w = |x: f64| sane(x);
-        self.tag_styles.values().all(|t| matches!(t, Keep::Known(t) if w(t.weight_mm) && w(t.cut.outline_mm) && w(t.beyond.weight_mm) && t.cut.hatch.iter().chain(t.surface_hatch.iter()).all(|h| w(h.weight_mm) && w(h.scale) && w(h.angle))) || matches!(t, Keep::Raw(_)))
+        self.tag_styles.values().all(|t| matches!(t, Keep::Known(t) if w(t.weight_mm) && w(t.cut.outline_mm) && (PRIORITY_RANGE.0..=PRIORITY_RANGE.1).contains(&t.cut.priority) && w(t.beyond.weight_mm) && t.cut.hatch.iter().chain(t.surface_hatch.iter()).all(|h| w(h.weight_mm) && w(h.scale) && w(h.angle))) || matches!(t, Keep::Raw(_)))
             && self.line_types.values().all(|l| matches!(l, Keep::Known(l) if l.dash_mm.iter().all(|&x| w(x))) || matches!(l, Keep::Raw(_)))
             && self.text_styles.values().all(|t| matches!(t, Keep::Known(t) if w(t.height_mm)) || matches!(t, Keep::Raw(_)))
     }

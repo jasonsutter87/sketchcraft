@@ -40,6 +40,12 @@ fn key(p: DVec3) -> (i64, i64, i64) {
 impl Model {
     /// Slice the visible model with the plane through `origin` facing `normal`.
     pub fn section(&self, origin: DVec3, normal: DVec3) -> Result<Cut> {
+        self.section_styled(origin, normal, &self.drafting)
+    }
+
+    /// `section` with the tag styles of `drafting` (the whole model's, when a component is open and `self` is it):
+    /// cut regions of different tags that overlap are resolved by `CutStyle::priority` (see `resolve_priorities`).
+    pub fn section_styled(&self, origin: DVec3, normal: DVec3, drafting: &crate::drafting::Drafting) -> Result<Cut> {
         if normal.length_squared() < 1e-18 {
             bail!("the section plane needs a direction");
         }
@@ -55,6 +61,7 @@ impl Model {
         let w = n.dot(origin);
         let mut by_owner: HashMap<(Id, Option<std::sync::Arc<str>>), Vec<(DVec3, DVec3)>> = HashMap::new();
         let mut segments = Vec::new();
+        let mut seg_tags: Vec<Option<std::sync::Arc<str>>> = Vec::new();
         for f in self.world_faces() {
             // the plane against each face: a line in the face, clipped to it
             let fn_ = f.normal.normalize_or_zero();
@@ -74,6 +81,7 @@ impl Model {
             }
             for seg in crate::intersect::plane_crossing(&f, n, w) {
                 segments.push(seg);
+                seg_tags.push(f.tag.clone());
                 by_owner.entry((f.cut, f.tag.clone())).or_default().push(seg);
             }
         }
@@ -137,8 +145,130 @@ impl Model {
             }
             regions.extend(outs.into_iter().map(|(_, outer, holes)| Region { owner: owner.0, tag: owner.1.as_deref().map(str::to_string), outer, holes }));
         }
+        if priorities_in_use(drafting) {
+            (regions, segments) = resolve_priorities(drafting, regions, segments, &seg_tags, (u, v, n, w));
+        }
         Ok(Cut { u, v, n, origin, segments, regions })
     }
+}
+
+/// A cut region smaller than this (m², 0.01 mm²) is numerical dust from a boolean, not a surface: dropped.
+const SLIVER_AREA: f64 = 1e-8;
+
+fn priority_of(d: &crate::drafting::Drafting, tag: Option<&str>) -> i32 {
+    tag.and_then(|t| d.tag_style(t)).map_or(0, |s| s.cut.priority)
+}
+
+/// Whether any tag has an intersection priority. With none, regions stay exactly as the chaining made them
+/// (the output before priorities existed).
+fn priorities_in_use(d: &crate::drafting::Drafting) -> bool {
+    d.tag_styles.values().any(|t| matches!(t, crate::drafting::Keep::Known(t) if t.cut.priority != 0))
+}
+
+/// Resolve overlapping cut regions of different tags by `CutStyle::priority` (design §3.4, #88): the higher
+/// priority keeps the overlap and the lower is trimmed back (no seam: the trimmed region simply ends at the winner's
+/// edge). Regions of one tag merge (union, no internal outline); so do equal priorities, where the overlap goes to the
+/// tag that sorts first by name (one fill, one outline, never two on top of each other). A region keeps its tag; a
+/// merged one keeps the owner of the first region (by owner id) it covers. Dust below `SLIVER_AREA` is dropped.
+/// The thin cut lines of a trimmed tag are cut back by the same winners.
+/// `plane` is the plane's `(u, v, n, w)`: a point is `u*x + v*y + n*w`.
+fn resolve_priorities(
+    d: &crate::drafting::Drafting,
+    regions: Vec<Region>,
+    segments: Vec<(DVec3, DVec3)>,
+    seg_tags: &[Option<std::sync::Arc<str>>],
+    plane: (DVec3, DVec3, DVec3, f64),
+) -> (Vec<Region>, Vec<(DVec3, DVec3)>) {
+    use geo::{Area, BooleanOps, Contains, Coord, InteriorPoint, LineString, MultiLineString, MultiPolygon, Polygon};
+    let (u, v, n, w) = plane;
+    let fallback = (regions.clone(), segments.clone());
+    let ring2 = |r: &[DVec3]| LineString::from(r.iter().map(|p| Coord { x: p.dot(u), y: p.dot(v) }).collect::<Vec<_>>());
+    let to3 = |c: &Coord<f64>| u * c.x + v * c.y + n * w;
+    // the order of claiming: higher priority first, then tag name, untagged last
+    let rank = |t: &Option<String>| (std::cmp::Reverse(priority_of(d, t.as_deref())), t.is_none(), t.clone());
+    let mut tags: Vec<Option<String>> = regions.iter().map(|r| r.tag.clone()).chain(seg_tags.iter().map(|t| t.as_deref().map(str::to_string))).collect();
+    tags.sort_by_key(rank);
+    tags.dedup();
+    let work = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut claimed = MultiPolygon::<f64>::new(vec![]);
+        let mut out: Vec<Region> = Vec::new();
+        let mut segs_out: Vec<(DVec3, DVec3)> = Vec::new();
+        for tag in &tags {
+            let mine: Vec<&Region> = regions.iter().filter(|r| &r.tag == tag).collect();
+            let mut group = MultiPolygon::<f64>::new(vec![]);
+            for r in &mine {
+                let poly = MultiPolygon::new(vec![Polygon::new(ring2(&r.outer), r.holes.iter().map(|h| ring2(h)).collect())]);
+                group = if group.0.is_empty() { poly } else { group.union(&poly) };
+            }
+            let visible = if claimed.0.is_empty() { group.clone() } else { group.difference(&claimed) };
+            for poly in visible.0 {
+                if poly.unsigned_area() < SLIVER_AREA {
+                    continue;
+                }
+                let holes: Vec<LineString<f64>> = poly.interiors().iter().filter(|h| Polygon::new((*h).clone(), vec![]).unsigned_area() >= SLIVER_AREA).cloned().collect();
+                let poly = Polygon::new(poly.exterior().clone(), holes);
+                // the first source region (by owner id) that covers a point inside the piece
+                let probe = poly.interior_point();
+                let owner = mine
+                    .iter()
+                    .filter(|r| probe.is_some_and(|p| Polygon::new(ring2(&r.outer), r.holes.iter().map(|h| ring2(h)).collect()).contains(&p)))
+                    .map(|r| r.owner)
+                    .min()
+                    .or_else(|| mine.iter().map(|r| r.owner).min());
+                let Some(owner) = owner else { continue };
+                let ring3 = |l: &LineString<f64>| -> Vec<DVec3> {
+                    let mut pts: Vec<DVec3> = l.coords().map(to3).collect();
+                    if pts.len() > 1 && l.0.first() == l.0.last() {
+                        pts.pop();
+                    }
+                    pts
+                };
+                let mut outer = ring3(poly.exterior());
+                if outer.len() < 3 {
+                    continue;
+                }
+                if crate::geom::newell(&outer).dot(n) < 0.0 {
+                    outer.reverse();
+                }
+                let holes = poly
+                    .interiors()
+                    .iter()
+                    .map(ring3)
+                    .filter(|h| h.len() >= 3)
+                    .map(|mut h| {
+                        if crate::geom::newell(&h).dot(n) > 0.0 {
+                            h.reverse();
+                        }
+                        h
+                    })
+                    .collect();
+                out.push(Region { owner, tag: tag.clone(), outer, holes });
+            }
+            // this tag's thin cut lines, minus what higher claims cover
+            let mine_segs: Vec<&(DVec3, DVec3)> = segments.iter().zip(seg_tags).filter(|(_, t)| t.as_deref() == tag.as_deref()).map(|(s, _)| s).collect();
+            if claimed.0.is_empty() {
+                segs_out.extend(mine_segs.into_iter().copied());
+            } else if !mine_segs.is_empty() {
+                let lines: Vec<LineString<f64>> = mine_segs
+                    .iter()
+                    .map(|(a, b)| LineString::from(vec![Coord { x: a.dot(u), y: a.dot(v) }, Coord { x: b.dot(u), y: b.dot(v) }]))
+                    .collect();
+                let kept = claimed.clip(&MultiLineString::new(lines), true);
+                for l in kept.0 {
+                    for pair in l.0.windows(2) {
+                        let (a, b) = (to3(&pair[0]), to3(&pair[1]));
+                        if (a - b).length() > 1e-7 {
+                            segs_out.push((a, b));
+                        }
+                    }
+                }
+            }
+            claimed = if claimed.0.is_empty() { group } else { claimed.union(&group) };
+        }
+        (out, segs_out)
+    }));
+    // a boolean that cannot cope with some degenerate loop must not lose the drawing: the unresolved regions stand
+    work.unwrap_or(fallback)
 }
 
 impl Cut {

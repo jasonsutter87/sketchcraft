@@ -35,7 +35,7 @@ impl Engine {
         let m: &mut Model = active_model!(self);
         Ok(match cmd {
             Command::Section { origin, normal, path } => {
-                let cut = m.section(v3(origin), v3(normal))?;
+                let cut = m.section_styled(v3(origin), v3(normal), &drafting)?;
                 if let Some(p) = &path {
                     let text = if p.to_ascii_lowercase().ends_with(".dxf") { cut.dxf() } else { cut.svg() };
                     std::fs::write(p, text)?;

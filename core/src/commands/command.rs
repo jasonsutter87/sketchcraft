@@ -211,7 +211,7 @@ pub enum Command {
         hatch: Option<HatchArgs>,
         /// how the tag's cut surfaces are filled and outlined in plans and sections (sheets and the on-screen
         /// section): `{fill?: auto|solid|hatch|none, color? ("#rrggbb" for solid; "" clears), outline_mm? (0.05 to 2;
-        /// 0 clears)}`; only what is given changes
+        /// 0 clears), priority? (0 to 999: the higher tag wins where cuts overlap)}`; only what is given changes
         #[serde(default)]
         cut: Option<CutArgs>,
         #[serde(default)]
@@ -1504,6 +1504,9 @@ pub struct CutArgs {
     pub color: Option<String>,
     #[serde(default)]
     pub outline_mm: Option<f64>,
+    /// intersection priority, a whole number 0 to 999 (higher wins where cuts of different tags overlap)
+    #[serde(default)]
+    pub priority: Option<i64>,
 }
 
 /// The hatch fields `tag_style` takes; each optional (only what is given changes).
