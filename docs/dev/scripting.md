@@ -54,7 +54,8 @@ townhouse, a row of houses, a retail center and the asset lineup.
 | Terrain and site | `terrain_from_contours`, `terrain_grid`, `smoove`, `stamp`, `drape`, `flip_edge`, `add_location`, `environment`, `sun` |
 | Photos and scans | `match_photo`, `photo_solve`, `project_photo`, `import_cloud`, `cloud`, `cloud_data` |
 | Inspect | `info`, `faces`, `pick`, `parts`, `volume`, `report`, `classify`, `units` |
-| Pictures and video | `render`, `photoreal`, `animate`, `timeline`, `timeline_frames`, `sheets`, `blueprint` |
+| Pictures and video | `render`, `photoreal`, `animate`, `timeline`, `timeline_frames`, `export_sheets` (a PDF of the saved sheets), `blueprint` |
+| Drawing sheets (saved in the model) | `sheets` (makes sheets from a page description), `sheet_add`, `sheet_edit`, `sheet_delete`, `viewport_add`, `viewport_edit`, `sheet_item_delete`, `sheets_info` |
 | Files | `new` (optionally with a `figure`), `save`, `open`, `import_skp`, `import_dxf`, `import_dwg`, `import_ifc`, `import_fbx`, `import_obj`, `export_glb`, `export_obj`, `export_stl`, `export_dae`, `export_dxf`, `export_dwg`, `export_ifc`, `export_pdf`, `raise_walls` |
 | Plugins | `plugins`, `plugin_enable`, `install_plugin` (`preview: true` describes a plugin without installing it; replacing an installed one needs `replace: true`), `remove_plugin` |
 
