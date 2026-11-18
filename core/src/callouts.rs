@@ -1,9 +1,11 @@
 //! Drawing callouts worked out from the model: door and window tags (and
 //! their schedule), automatic exterior dimension strings, and the shapes
 //! blueprints mark things with (tags, elevation markers, north arrow, level
-//! datums). Everything here is in PDF points; `layout` places it.
+//! datums). The shapes draw into the display list (`draft::ir::Cv`): sizes and positions are in
+//! PDF points, y up, as they always were, and `Cv` stores paper millimeters.
 
 use crate::model::{Annotation, Model};
+use crate::draft::ir::{Cv, Fill, Pens, PT};
 use glam::DVec3;
 use std::collections::BTreeMap;
 
@@ -229,129 +231,95 @@ pub fn outline(m: &Model, cut_z: f64) -> Option<(f64, f64, f64, f64)> {
     Some((x0, y0, x1, y1))
 }
 
-// ---- shapes (PDF operators, coordinates in points) ---------------------------------
+// ---- shapes (points, y up; drawn into the display list) ------------------------------
 
-/// A circle path (four Béziers).
-pub fn circle(cx: f64, cy: f64, r: f64) -> String {
-    let k = 0.552_284_75 * r;
-    format!(
-        "{:.2} {:.2} m {:.2} {:.2} {:.2} {:.2} {:.2} {:.2} c {:.2} {:.2} {:.2} {:.2} {:.2} {:.2} c {:.2} {:.2} {:.2} {:.2} {:.2} {:.2} c {:.2} {:.2} {:.2} {:.2} {:.2} {:.2} c h\n",
-        cx + r, cy,
-        cx + r, cy + k, cx + k, cy + r, cx, cy + r,
-        cx - k, cy + r, cx - r, cy + k, cx - r, cy,
-        cx - r, cy - k, cx - k, cy - r, cx, cy - r,
-        cx + k, cy - r, cx + r, cy - k, cx + r, cy
-    )
-}
-
-/// Width of Helvetica-ish text, roughly (points).
+/// Width of `s` in points at `size` (the drawing typeface's real metrics).
 pub fn text_w(s: &str, size: f64) -> f64 {
-    s.chars().map(|c| if c.is_ascii_uppercase() || c.is_ascii_digit() { 0.62 } else if c == ' ' || c == '\'' || c == '"' { 0.3 } else { 0.5 }).sum::<f64>() * size
-}
-
-pub fn esc(s: &str) -> String {
-    s.replace('\\', "\\\\").replace('(', "\\(").replace(')', "\\)")
-}
-
-/// Centered text.
-pub fn text_c(x: f64, y: f64, s: &str, size: f64, font: &str) -> String {
-    format!("BT /{font} {size} Tf {:.2} {:.2} Td ({}) Tj ET\n", x - text_w(s, size) / 2.0, y - size * 0.35, esc(s))
+    crate::draft::font::width(s, size, false)
 }
 
 /// A door tag (circle) or window tag (hexagon) with its label.
-pub fn tag(x: f64, y: f64, label: &str, kind: char, ink: &str, paper: &str) -> String {
+pub fn tag(cv: &mut Cv, pens: &Pens, x: f64, y: f64, label: &str, kind: char) {
     let r = 6.2;
-    let mut c = format!("0.45 w {ink} RG {paper} rg\n");
+    let pen = pens.ink(pens.medium);
     if kind == 'D' {
-        c += &circle(x, y, r);
+        cv.circle(x, y, r, Some(&pen), Some(pens.paper));
     } else {
-        for i in 0..6 {
-            let a = std::f64::consts::PI / 3.0 * i as f64;
-            c += &format!("{:.2} {:.2} {}\n", x + r * 1.1 * a.cos(), y + r * 1.1 * a.sin(), if i == 0 { "m" } else { "l" });
-        }
-        c += "h\n";
+        let pts: Vec<(f64, f64)> = (0..6)
+            .map(|i| {
+                let a = std::f64::consts::PI / 3.0 * i as f64;
+                (x + r * 1.1 * a.cos(), y + r * 1.1 * a.sin())
+            })
+            .collect();
+        cv.path(&pts, true, Some(&pen), Some(Fill { rgb: pens.paper, even_odd: false }));
     }
-    c += "B\n";
-    c += &format!("{ink} rg ");
-    c += &text_c(x, y, label, 5.5, "F2");
-    c
+    cv.text_c(x, y, label, 5.5, true, pens.ink);
 }
 
 /// An elevation marker: a circle split in two (drawing number over sheet
 /// number) with a solid pointer toward what it looks at (`dir`, unit, in
 /// paper space with y up).
-pub fn elevation_marker(x: f64, y: f64, dir: (f64, f64), num: &str, sheet: &str, ink: &str, paper: &str) -> String {
+pub fn elevation_marker(cv: &mut Cv, pens: &Pens, x: f64, y: f64, dir: (f64, f64), num: &str, sheet: &str) {
     let r = 9.0;
     let (dx, dy) = dir;
     let (px, py) = (-dy, dx);
     // the pointer: a triangle from the circle's sides to a tip beyond it
     let tip = (x + dx * r * 1.75, y + dy * r * 1.75);
-    let mut c = format!("{ink} rg {:.2} {:.2} m {:.2} {:.2} l {:.2} {:.2} l h f\n", x + px * r * 0.95, y + py * r * 0.95, tip.0, tip.1, x - px * r * 0.95, y - py * r * 0.95);
-    c += &format!("0.6 w {ink} RG {paper} rg\n");
-    c += &circle(x, y, r);
-    c += "B\n";
-    c += &format!("0.4 w {:.2} {:.2} m {:.2} {:.2} l S\n", x - r, y, x + r, y);
-    c += &format!("{ink} rg ");
-    c += &text_c(x, y + r * 0.42, num, 6.5, "F2");
-    c += &text_c(x, y - r * 0.45, sheet, 5.5, "F1");
-    c
+    let fill = Fill { rgb: pens.ink, even_odd: false };
+    cv.path(&[(x + px * r * 0.95, y + py * r * 0.95), tip, (x - px * r * 0.95, y - py * r * 0.95)], true, None, Some(fill));
+    cv.circle(x, y, r, Some(&pens.ink(pens.medium)), Some(pens.paper));
+    cv.line((x - r, y), (x + r, y), &pens.ink(pens.thin));
+    cv.text_c(x, y + r * 0.42, num, 6.5, true, pens.ink);
+    cv.text_c(x, y - r * 0.45, sheet, 5.5, false, pens.ink);
 }
 
 /// A north arrow (plan +Y is north).
-pub fn north_arrow(x: f64, y: f64, ink: &str) -> String {
+pub fn north_arrow(cv: &mut Cv, pens: &Pens, x: f64, y: f64) {
     let r = 10.0;
-    let mut c = format!("0.5 w {ink} RG\n");
-    c += &circle(x, y, r);
-    c += "S\n";
+    cv.circle(x, y, r, Some(&pens.ink(pens.medium)), None);
     // half-filled arrow
-    c += &format!("{ink} rg {:.2} {:.2} m {:.2} {:.2} l {:.2} {:.2} l h f\n", x, y + r * 0.85, x + r * 0.42, y - r * 0.6, x, y - r * 0.25);
-    c += &format!("{:.2} {:.2} m {:.2} {:.2} l {:.2} {:.2} l h S\n", x, y + r * 0.85, x - r * 0.42, y - r * 0.6, x, y - r * 0.25);
-    c += &text_c(x, y + r + 6.0, "N", 7.0, "F2");
-    c
+    let fill = Fill { rgb: pens.ink, even_odd: false };
+    cv.path(&[(x, y + r * 0.85), (x + r * 0.42, y - r * 0.6), (x, y - r * 0.25)], true, None, Some(fill));
+    cv.path(&[(x, y + r * 0.85), (x - r * 0.42, y - r * 0.6), (x, y - r * 0.25)], true, Some(&pens.ink(pens.medium)), None);
+    cv.text_c(x, y + r + 6.0, "N", 7.0, true, pens.ink);
 }
 
 /// A level datum on an elevation: a dashed line across, and at its right
 /// end a quartered circle with the level's name and height.
-pub fn level(x0: f64, x1: f64, y: f64, name: &str, height: &str, ink: &str) -> String {
-    let mut c = format!("[3 2] 0 d 0.3 w {ink} RG {x0:.2} {y:.2} m {x1:.2} {y:.2} l S [] 0 d\n");
+pub fn level(cv: &mut Cv, pens: &Pens, x0: f64, x1: f64, y: f64, name: &str, height: &str) {
+    cv.line((x0, y), (x1, y), &pens.ink(pens.thin).dashed(&[3.0 / PT, 2.0 / PT]));
     let (cx, r) = (x1 + 5.0, 3.6);
-    c += &format!("0.4 w {ink} RG ");
-    c += &circle(cx, y, r);
-    c += "S\n";
+    cv.circle(cx, y, r, Some(&pens.ink(pens.thin)), None);
     // two opposite quarters filled
-    c += &format!("{ink} rg {cx:.2} {y:.2} m {:.2} {y:.2} l {cx:.2} {:.2} l h f {cx:.2} {y:.2} m {:.2} {y:.2} l {cx:.2} {:.2} l h f\n", cx + r, y + r, cx - r, y - r);
-    c += &format!("BT /F2 5.5 Tf {:.2} {:.2} Td ({}) Tj ET\n", cx + r + 3.0, y + 1.6, esc(name));
-    c += &format!("BT /F1 5.5 Tf {:.2} {:.2} Td ({}) Tj ET\n", cx + r + 3.0, y - 5.2, esc(height));
-    c
+    let fill = Fill { rgb: pens.ink, even_odd: false };
+    cv.path(&[(cx, y), (cx + r, y), (cx, y + r)], true, None, Some(fill));
+    cv.path(&[(cx, y), (cx - r, y), (cx, y - r)], true, None, Some(fill));
+    cv.text(cx + r + 3.0, y + 1.6, name, 5.5, true, pens.ink, 0.0);
+    cv.text(cx + r + 3.0, y - 5.2, height, 5.5, false, pens.ink, 0.0);
 }
 
 /// The elevation key: a circle with four pointers, each the way one
 /// elevation looks (front looks north at the south face, right side looks
 /// west, rear south, left side east), numbered with its drawing; the sheet
 /// in the middle. `labels` are "drawing/sheet" for front, right, rear, left.
-pub fn elevation_key(x: f64, y: f64, labels: &[String], ink: &str, paper: &str) -> String {
+pub fn elevation_key(cv: &mut Cv, pens: &Pens, x: f64, y: f64, labels: &[String]) {
     let r = 11.0;
     let dirs = [(0.0, 1.0), (-1.0, 0.0), (0.0, -1.0), (1.0, 0.0)];
-    let mut c = String::new();
+    let fill = Fill { rgb: pens.ink, even_odd: false };
     for (dx, dy) in dirs {
         let (px, py) = (-dy, dx);
         let tip = (x + dx * r * 1.6, y + dy * r * 1.6);
-        c += &format!("{ink} rg {:.2} {:.2} m {:.2} {:.2} l {:.2} {:.2} l h f\n", x + dx * r * 0.6 + px * r * 0.55, y + dy * r * 0.6 + py * r * 0.55, tip.0, tip.1, x + dx * r * 0.6 - px * r * 0.55, y + dy * r * 0.6 - py * r * 0.55);
+        let (bx, by) = (x + dx * r * 0.6, y + dy * r * 0.6);
+        cv.path(&[(bx + px * r * 0.55, by + py * r * 0.55), tip, (bx - px * r * 0.55, by - py * r * 0.55)], true, None, Some(fill));
     }
-    c += &format!("0.6 w {ink} RG {paper} rg\n");
-    c += &circle(x, y, r);
-    c += "B\n";
-    c += &format!("{ink} rg ");
+    cv.circle(x, y, r, Some(&pens.ink(pens.medium)), Some(pens.paper));
     for ((dx, dy), l) in dirs.iter().zip(labels) {
         let num = l.split('/').next().unwrap_or(l);
-        c += &text_c(x + dx * r * 0.58, y + dy * r * 0.58, num, 6.0, "F2");
+        cv.text_c(x + dx * r * 0.58, y + dy * r * 0.58, num, 6.0, true, pens.ink);
     }
     let sheet = labels.first().and_then(|l| l.split('/').nth(1)).unwrap_or("");
-    c += &format!("0.3 w {ink} RG ");
-    c += &circle(x, y, 3.6);
-    c += "S\n";
-    c += &text_c(x, y, sheet, 4.5, "F1");
-    c += &text_c(x, y - r * 1.6 - 9.0, "ELEVATIONS", 5.0, "F2");
-    c += &text_c(x, y - r * 1.6 - 15.0, &format!("on sheet {sheet}"), 4.5, "F1");
-    c
+    cv.circle(x, y, 3.6, Some(&pens.ink(pens.thin)), None);
+    cv.text_c(x, y, sheet, 4.5, false, pens.ink);
+    cv.text_c(x, y - r * 1.6 - 9.0, "ELEVATIONS", 5.0, true, pens.ink);
+    cv.text_c(x, y - r * 1.6 - 15.0, &format!("on sheet {sheet}"), 4.5, false, pens.ink);
 }

@@ -26,6 +26,20 @@ What changed in each SketchCraft release, newest first. The format follows
   needs `sheets`, so SketchCraft 0.3.7 opens it read-only instead of dropping them; a model without sheets is still
   format 1. Kinds of paper item a newer version adds are kept as they are and written back. Agents and plugins may
   edit sheets (at most 120 sheets, and 5,000 items in one command); only the person may issue a set. (#61)
+- **Crisp vector drawings.** Drawing sheets and blueprints are built from one paper-space
+  display list that feeds the PDF, SVG and DXF writers. Elevations, sections and parallel 3D
+  views are now vector line work with hidden lines removed (they were pictures), and the PDFs
+  embed their fonts, so accents and other non-ASCII text work. Line weights are pens in paper
+  millimeters (ISO 0.13 to 0.5), not scaled with the drawing. Viewports can show what's
+  hidden behind other things, dashed. `sheets` writes one page as `.svg` or `.dxf` (AC1015,
+  with lineweights) as well as a PDF. (#62)
+- **More paper and imperial scales.** A1, A0, ARCH A to E and ANSI C to E sheets, and scales like
+  `1/4"=1'-0"`, `1/8"=1'-0"` or `1"=20'`. (#62)
+
+### Changed
+- **A drawing stays where it was made.** A viewport can carry its own anchor, and drawings
+  made without one are fitted to the building, not its environment, so adding a tree no longer
+  moves every drawing. (#62)
 
 ## [0.3.7] - 2026-11-17
 

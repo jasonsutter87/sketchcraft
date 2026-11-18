@@ -149,7 +149,7 @@ const WRITES: &[(&str, &str, &[&str])] = &[
     ("render", "out", &["png", "jpg", "jpeg"]),
     ("photoreal", "out", &["png", "jpg", "jpeg"]),
     ("animate", "path", &["mp4", "mov", "gif"]),
-    ("export_sheets", "path", &["pdf"]),
+    ("export_sheets", "path", &["pdf", "svg", "dxf"]),
     ("blueprint", "path", &["pdf"]),
     ("report", "path", &["csv"]),
     ("section", "path", &["svg", "dxf"]),
@@ -569,9 +569,9 @@ mod tests {
             assert!(permits(&Caller::Plugin, c) && permits(&agent, c) && permits(&Caller::Ui, c), "{c}");
             assert!(!FILES.contains(&c), "{c} writes no file");
         }
-        // the PDF writer is a file command, and an agent writes only .pdf
+        // the sheet writer is a file command, and an agent writes only .pdf, .svg and .dxf
         assert!(FILES.contains(&"export_sheets") && !MODEL.contains(&"export_sheets"));
-        assert!(WRITES.iter().any(|(c, k, e)| *c == "export_sheets" && *k == "path" && *e == ["pdf"]));
+        assert!(WRITES.iter().any(|(c, k, e)| *c == "export_sheets" && *k == "path" && *e == ["pdf", "svg", "dxf"]));
         assert!(!WRITES.iter().any(|(c, ..)| *c == "sheets"), "`sheets` makes sheets; it writes no file");
         // person-only: issuing a set, adding fonts
         for c in ["sheet_issue", "font_add"] {

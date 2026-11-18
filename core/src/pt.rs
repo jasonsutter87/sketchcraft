@@ -71,12 +71,12 @@ fn kind_of(name: &str) -> Kind {
 // ----- geometry ---------------------------------------------------------------------
 
 #[derive(Clone, Copy)]
-struct Tri {
-    a: Vec3,
-    e1: Vec3,
-    e2: Vec3,
-    n: Vec3,
-    mat: u32,
+pub(crate) struct Tri {
+    pub(crate) a: Vec3,
+    pub(crate) e1: Vec3,
+    pub(crate) e2: Vec3,
+    pub(crate) n: Vec3,
+    pub(crate) mat: u32,
 }
 
 #[derive(Clone, Copy)]
@@ -103,9 +103,9 @@ impl Aabb {
     }
     /// Entry distance of a ray, if it hits before `tmax`.
     #[inline]
-    fn hit(&self, o: Vec3, inv: Vec3, tmax: f32) -> Option<f32> {
-        let t0 = (self.lo - o) * inv;
-        let t1 = (self.hi - o) * inv;
+    fn hit(&self, o: Vec3, inv: Vec3, tmax: f32, pad: f32) -> Option<f32> {
+        let t0 = (self.lo - pad - o) * inv;
+        let t1 = (self.hi + pad - o) * inv;
         let tn = t0.min(t1).max_element();
         let tf = t0.max(t1).min_element();
         (tf >= tn.max(0.0) && tn < tmax).then_some(tn)
@@ -119,13 +119,22 @@ struct Node {
     count: u32,
 }
 
-struct Bvh {
+#[inline]
+fn nonzero(v: f32) -> f32 {
+    if v.abs() < 1e-6 {
+        if v.is_sign_negative() { -1e-6 } else { 1e-6 }
+    } else {
+        v
+    }
+}
+
+pub(crate) struct Bvh {
     nodes: Vec<Node>,
     tris: Vec<Tri>,
 }
 
 impl Bvh {
-    fn build(mut tris: Vec<Tri>) -> Bvh {
+    pub(crate) fn build(mut tris: Vec<Tri>) -> Bvh {
         let n = tris.len();
         let bounds = |t: &Tri| {
             let mut b = Aabb::empty();
@@ -218,9 +227,25 @@ impl Bvh {
 
     /// Nearest hit: (t, triangle index, u, v).
     fn hit(&self, o: Vec3, d: Vec3, tmax: f32) -> Option<(f32, usize)> {
+        self.hit_from(o, d, 1e-4, tmax, false)
+    }
+
+    /// Is anything between `tmin` and `tmax` along the ray? (Stops at the first thing found.)
+    pub(crate) fn blocked(&self, o: Vec3, d: Vec3, tmin: f32, tmax: f32) -> bool {
+        self.hit_from(o, d, tmin, tmax, true).is_some()
+    }
+
+    fn hit_from(&self, o: Vec3, d: Vec3, tmin: f32, tmax: f32, any: bool) -> Option<(f32, usize)> {
+        // a ray that only grazes a triangle's edge counts as a hit when asked "is anything in the
+        // way" (a drawing's edge that runs along another thing's silhouette is behind it)
+        let tol = if any { 1e-5 } else { 0.0 };
+        let pad = if any { 1e-4 } else { 0.0 };
         if self.tris.is_empty() {
             return None;
         }
+        // an axis-aligned ray that starts exactly on a box face would divide 0 by 0 in the slab test
+        // and miss; tilting it by a millionth keeps the maths finite
+        let d = if any { Vec3::new(nonzero(d.x), nonzero(d.y), nonzero(d.z)) } else { d };
         let inv = Vec3::ONE / d;
         let mut best: Option<(f32, usize)> = None;
         let mut tbest = tmax;
@@ -229,7 +254,7 @@ impl Bvh {
         while sp > 0 {
             sp -= 1;
             let node = &self.nodes[stack[sp] as usize];
-            if node.b.hit(o, inv, tbest).is_none() {
+            if node.b.hit(o, inv, tbest, pad).is_none() {
                 continue;
             }
             if node.count > 0 {
@@ -244,25 +269,28 @@ impl Bvh {
                     let inv_det = 1.0 / det;
                     let s = o - t.a;
                     let u = s.dot(p) * inv_det;
-                    if !(0.0..=1.0).contains(&u) {
+                    if !(-tol..=1.0 + tol).contains(&u) {
                         continue;
                     }
                     let q = s.cross(t.e1);
                     let v = d.dot(q) * inv_det;
-                    if v < 0.0 || u + v > 1.0 {
+                    if v < -tol || u + v > 1.0 + tol {
                         continue;
                     }
                     let tt = t.e2.dot(q) * inv_det;
-                    if tt > 1e-4 && tt < tbest {
+                    if tt > tmin && tt < tbest {
                         tbest = tt;
                         best = Some((tt, i as usize));
+                        if any {
+                            return best;
+                        }
                     }
                 }
             } else {
                 let (l, r) = (node.start, node.start + 1);
                 // nearer child last, so it's popped first
-                let dl = self.nodes[l as usize].b.hit(o, inv, tbest);
-                let dr = self.nodes[r as usize].b.hit(o, inv, tbest);
+                let dl = self.nodes[l as usize].b.hit(o, inv, tbest, pad);
+                let dr = self.nodes[r as usize].b.hit(o, inv, tbest, pad);
                 match (dl, dr) {
                     (Some(a), Some(b)) => {
                         if sp + 2 > stack.len() {

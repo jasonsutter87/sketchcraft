@@ -19,6 +19,9 @@ fn pause() {
     std::thread::sleep(Duration::from_millis(1100));
 }
 
+#[path = "pdftext/mod.rs"]
+mod pdftext;
+
 fn ok(e: &mut Engine, v: Value) -> Value {
     let r = e.exec_json(&v.to_string());
     assert_eq!(r["ok"], true, "{v} -> {r}");
@@ -331,8 +334,9 @@ fn sheets_creates_saved_sheets_and_export_sheets_writes_the_pdf() {
     let r = ok(&mut e, json!({"cmd": "export_sheets", "path": p}));
     assert_eq!(r["pages"], 3);
     assert_eq!(e.revision(), revision);
-    let pdf = String::from_utf8_lossy(&std::fs::read(&p).unwrap()).to_string();
-    assert!(pdf.contains("/Count 3") && pdf.contains("Sheet 1 of 3") && pdf.contains("1:50"), "{}", &pdf[..200.min(pdf.len())]);
+    let pdf = pdftext::parse(&std::fs::read(&p).unwrap());
+    let text = pdf.pages().iter().flat_map(|pg| pdf.text(*pg)).collect::<Vec<_>>().join("\n");
+    assert!(pdf.pages().len() == 3 && text.contains("Sheet 1 of 3") && text.contains("1:50"), "{text}");
     // a subset, by id, in the order asked
     let ids: Vec<u32> = e.model.sheets.keys().copied().collect();
     let q = dir.join("two.pdf");
@@ -382,7 +386,8 @@ fn edits_made_after_sheets_are_what_the_pdf_draws() {
     ok(&mut e, json!({"cmd": "export_sheets", "path": p3, "pages": [empty]}));
     let with = dir.join("one.pdf");
     ok(&mut e, json!({"cmd": "export_sheets", "path": with, "pages": [first]}));
-    assert!(std::fs::metadata(&p3).unwrap().len() * 3 < std::fs::metadata(&with).unwrap().len(), "empty sheet should have no pictures in it");
+    let figures = |f: &std::path::Path| pdftext::parse(&std::fs::read(f).unwrap()).objs.values().filter(|o| o.dict.contains("/S /Figure")).count();
+    assert_eq!((figures(&p3), figures(&with)), (0, 1), "an empty sheet has no drawing in it, a sheet with a viewport has one");
     std::fs::remove_dir_all(&dir).ok();
 }
 

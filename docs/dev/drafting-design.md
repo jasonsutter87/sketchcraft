@@ -1,6 +1,6 @@
 # SketchCraft 0.3.8 "Drafting": design
 
-Status: proposal (2026-11-17). Scope: issues #3–#10, #18, #19 in the **0.3.8 — Drafting** milestone (renamed **0.3.8 — Drafting** after 0.3.7 became the safety-and-polish release).
+Status: proposal (2026-11-17). Build steps 2 and 3 (display list, PDF/SVG/DXF, hidden lines) landed in #62; see "Built so far" at the end. Scope: issues #3–#10, #18, #19 in the **0.3.8 — Drafting** milestone (renamed **0.3.8 — Drafting** after 0.3.7 became the safety-and-polish release).
 Order follows the pain-point research (§2, §5): big-document speed, then attached dimensions,
 then weights, hatches and cut fills, then opacity, trim/extend, the editor, AI drafting, and tables last.
 
@@ -370,5 +370,28 @@ Size: **S** ≤ 2 days, **M** ≤ 1 week, **L** ≤ 2 weeks. Sprint 0 testing (#
 - **Format guard first**, shipped on its own as **0.3.7** (a three-part version is required, so "0.3.6.1" isn't possible). Drafting becomes 0.3.8, Texturing 0.3.9, Makers 0.3.10.
 - **Layout** is a new fifth workspace.
 - **Sheets live in the model file, and viewports are live**, with an Issued snapshot per sheet and a "changed since issue" badge.
-- **Adopt `pdf-writer` + `subsetter` + `ttf-parser`** (MIT/Apache) for embedded fonts and Unicode text.
+- **Adopt `pdf-writer` + `subsetter` + `ttf-parser`** (MIT/Apache) for embedded fonts and Unicode text. (Amended in #62: `ttf-parser` is unmaintained, RUSTSEC-2026-0192, so the font reader is `skrifa` instead, which `subsetter` already depends on.)
 - The other decisions take the recommendation above unless the owner says otherwise.
+
+## Built so far
+
+**Steps 2 and 3 (#62).** `core/src/draft/`:
+
+| File | What it is |
+|---|---|
+| `ir.rs` | the display list: `Path{segs, pen, fill, prov}`, `Text`, `Image`, `Group{clip}`; `Pens` (the default pen table, ISO widths in paper mm: hair 0.13, thin 0.18, medium 0.25, heavy 0.35, border 0.5); `Cv`, the recorder the ported drawers draw into (PDF points, y up, as they always were; it stores mm) |
+| `font.rs` | Inter (OFL) Latin and Latin-Extended, regular and semibold, embedded as WOFF, measured with `skrifa` |
+| `pdf.rs` | `pdf-writer` + `subsetter`: pages (no transparency groups yet), one subset CID font per face used, ToUnicode maps, images only for raster viewports |
+| `svg.rs`, `dxf.rs` | one page each; DXF is AC1015 with lineweights (370), true colors (420), linetypes from dash patterns, solid HATCH for fills |
+| `hidden.rs` | `Proj` (parallel projection onto the paper) and `View::lines()`: BVH from `pt.rs`, a sample every 0.5 mm on the paper (8 at least), bisected to 0.05 mm, threads per chunk of edges, optional dashed "beyond" spans |
+| `project.rs` | one viewport to IR: plans (ported `plan_cut`), vector elevations/sections/3D views, raster for perspective or unscaled views; the ported `dimension_lift` |
+| `sheet.rs` | `PageSpec`/`ViewportSpec` to `Doc`: a thread per viewport, frame, captions, scale bars, tables, notes, title block |
+| `paper.rs` | sizes (A4..A0, Letter, Tabloid, ARCH A..E, ANSI C..E) and scales (`1:100`, `1/4"=1'-0"`) |
+
+What the next steps plug into:
+
+- **#61 (saved sheets).** A saved `Viewport` item maps onto `ViewportSpec` (it already has `anchor`, `scale`, `beyond`, `raster`); call `draft::sheet::build` for the whole set, or `viewport` per item. `Prim::Path.prov` carries the instance path, the vertex ids and the span of the edge a line came from, which is what anchors need.
+- **#3 (tag styles).** Pens come from `Pens`; `hidden.rs` takes the pen for visible and hidden spans from it. A per-tag lookup goes where `View::lines` builds `ink` and `ghost`, keyed by the edge's `prov.edge.path` (instance, then its tag), and `Pens` grows a `for_tag`.
+- **#11 (the editor).** `Doc` is plain data; send it to the app as JSON now, as a binary `Float32Array` later. Every model-derived `Path` has `prov`, so snapping to projected geometry works from the list alone.
+
+Known limits: elevations and 3D views draw no face fills or model dimensions (the pictures did); curved surfaces draw only their hard edges (no silhouettes); a plan's automatic dimensions and tags are worked out from the whole building; DXF ignores clips and images; a viewport made without an anchor is pinned to the middle of the building (environment excluded) each time the sheet is built.

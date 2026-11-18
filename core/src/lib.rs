@@ -14,6 +14,7 @@ pub mod commands;
 pub mod components;
 pub mod csg;
 pub mod drafting;
+pub mod draft;
 pub mod dynamic;
 pub mod dwg;
 pub mod dxf;

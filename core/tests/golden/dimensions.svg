@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="420mm" height="297mm" viewBox="0 0 420 297" aria-labelledby="sc-337edee2-title" font-family="Inter, Helvetica, Arial, sans-serif">
+<title id="sc-337edee2-title">Fixture: Studio</title>
+<rect width="420" height="297" fill="#ffffff"/>
+<path d="M10 287L410 287L410 10L10 10Z" fill="none" stroke="#1a1a1f" stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M300 287L410 287L410 255L300 255Z" fill="none" stroke="#1a1a1f" stroke-width="0.35" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M300 269L410 269" fill="none" stroke="#1a1a1f" stroke-width="0.18" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="304" y="264" font-size="4.23" font-weight="600" fill="#1a1a1f">Fixture</text>
+<text x="304" y="276" font-size="3.17" fill="#1a1a1f">Studio</text>
+<text x="304" y="283.5" font-size="2.47" fill="#1a1a1f">2026-11-17   Sheet 1 of 1   Drawn in SketchCraft</text>
+<clipPath id="sc-337edee2-c1"><rect x="20" y="20" width="260" height="170"/></clipPath>
+<g clip-path="url(#sc-337edee2-c1)">
+<path d="M98 51.5L202 51.5L202 135.5L98 135.5ZM102 131.5L198 131.5L198 55.5L102 55.5Z" fill="#292b33" fill-rule="evenodd" stroke="#1a1a1f" stroke-width="0.35" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M98 135.5L202 135.5" fill="none" stroke="#1a1a1f" stroke-width="0.18" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M202 135.5L202 51.5" fill="none" stroke="#1a1a1f" stroke-width="0.18" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M202 51.5L98 51.5" fill="none" stroke="#1a1a1f" stroke-width="0.18" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M98 51.5L98 135.5" fill="none" stroke="#1a1a1f" stroke-width="0.18" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M102 55.5L198 55.5" fill="none" stroke="#1a1a1f" stroke-width="0.18" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M198 55.5L198 131.5" fill="none" stroke="#1a1a1f" stroke-width="0.18" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M198 131.5L102 131.5" fill="none" stroke="#1a1a1f" stroke-width="0.18" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M102 131.5L102 55.5" fill="none" stroke="#1a1a1f" stroke-width="0.18" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M100 153.5L200 153.5" fill="none" stroke="#1a1a1f" stroke-width="0.18" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M100 134.21L100 154.21" fill="none" stroke="#1a1a1f" stroke-width="0.13" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M99.12 154.38L100.88 152.62" fill="none" stroke="#1a1a1f" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M200 134.21L200 154.21" fill="none" stroke="#1a1a1f" stroke-width="0.13" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M199.12 154.38L200.88 152.62" fill="none" stroke="#1a1a1f" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="146.51" y="155.79" font-size="2.12" fill="#1a1a1f">5.00 m</text>
+<path d="M220 133.5L220 53.5" fill="none" stroke="#1a1a1f" stroke-width="0.18" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M200.71 133.5L220.71 133.5" fill="none" stroke="#1a1a1f" stroke-width="0.13" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M219.12 134.38L220.88 132.62" fill="none" stroke="#1a1a1f" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M200.71 53.5L220.71 53.5" fill="none" stroke="#1a1a1f" stroke-width="0.13" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M219.12 54.38L220.88 52.62" fill="none" stroke="#1a1a1f" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="222.29" y="97.05" font-size="2.12" fill="#1a1a1f" transform="rotate(-90 222.29 97.05)">4.00 m</text>
+<path d="M80 133.5L80 53.5" fill="none" stroke="#1a1a1f" stroke-width="0.18" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M99.29 133.5L79.29 133.5" fill="none" stroke="#1a1a1f" stroke-width="0.13" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M79.12 134.38L80.88 132.62" fill="none" stroke="#1a1a1f" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M99.29 53.5L79.29 53.5" fill="none" stroke="#1a1a1f" stroke-width="0.13" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M79.12 54.38L80.88 52.62" fill="none" stroke="#1a1a1f" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="79.29" y="97.05" font-size="2.12" fill="#1a1a1f" transform="rotate(-90 79.29 97.05)">4.00 m</text>
+<text x="146.16" y="92.94" font-size="2.47" font-weight="600" fill="#1a1a1f">Studio</text>
+<text x="147.08" y="95.76" font-size="1.94" fill="#1a1a1f">20 m2</text>
+<path d="M183.18 70.85L192 63.5" fill="none" stroke="#1a1a1f" stroke-width="0.18" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M192.46 63.5C192.46 63.25 192.25 63.04 192 63.04C191.75 63.04 191.54 63.25 191.54 63.5C191.54 63.75 191.75 63.96 192 63.96C192.25 63.96 192.46 63.75 192.46 63.5Z" fill="#1a1a1f"/>
+<text x="177" y="74.35" font-size="2.47" font-weight="600" fill="#1a1a1f">Desk</text>
+<path d="M120 133.5L120 113.5" fill="none" stroke="#1a1a1f" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M140 133.5L139.9 131.54L139.62 129.6L139.14 127.69L138.48 125.85L137.64 124.07L136.63 122.39L135.46 120.81L134.14 119.36L132.69 118.04L131.11 116.87L129.43 115.86L127.65 115.02L125.81 114.36L123.9 113.88L121.96 113.6L120 113.5" fill="none" stroke="#1a1a1f" stroke-width="0.13" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M274.53 179C274.53 177.05 272.95 175.47 271 175.47C269.05 175.47 267.47 177.05 267.47 179C267.47 180.95 269.05 182.53 271 182.53C272.95 182.53 274.53 180.95 274.53 179Z" fill="none" stroke="#1a1a1f" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M271 176L272.48 181.12L271 179.88Z" fill="#1a1a1f"/>
+<path d="M271 176L269.52 181.12L271 179.88Z" fill="none" stroke="#1a1a1f" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="270.06" y="174.22" font-size="2.47" font-weight="600" fill="#1a1a1f">N</text>
+</g>
+<path d="M20 190L280 190L280 20L20 20Z" fill="none" stroke="#1a1a1f" stroke-width="0.18" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="20" y="195" font-size="2.82" font-weight="600" fill="#1a1a1f">Plan at 1.22 m   1:50</text>
+<path d="M240 193.5L280 193.5" fill="none" stroke="#1a1a1f" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M240 192.5L240 194.5" fill="none" stroke="#1a1a1f" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M250 192.5L250 194.5" fill="none" stroke="#1a1a1f" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M260 192.5L260 194.5" fill="none" stroke="#1a1a1f" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M270 192.5L270 194.5" fill="none" stroke="#1a1a1f" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M280 192.5L280 194.5" fill="none" stroke="#1a1a1f" stroke-width="0.25" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="281" y="194.5" font-size="2.12" fill="#1a1a1f">2 m</text>
+</svg>

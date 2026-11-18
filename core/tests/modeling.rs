@@ -2,6 +2,22 @@ use glam::DVec3;
 use sketchcraft::Engine;
 use serde_json::{json, Value};
 
+#[path = "pdftext/mod.rs"]
+mod pdftext;
+
+/// Every piece of text on every page of a PDF, one per line (with a line break before the first).
+fn pdf_words(path: &str) -> String {
+    let pdf = pdftext::parse(&std::fs::read(path).unwrap());
+    let mut out = String::from("\n");
+    for p in pdf.pages() {
+        for t in pdf.text(p) {
+            out += &t;
+            out.push('\n');
+        }
+    }
+    out
+}
+
 fn run(e: &mut Engine, v: Value) -> Value {
     let r = e.exec_json(&v.to_string());
     assert_eq!(r["ok"], true, "{v} -> {r}");
@@ -943,10 +959,10 @@ fn drawing_sheets_pdf() {
         {"title":"Views"}
     ]}));
     assert_eq!(r["pages"], 2);
-    let pdf = std::fs::read(&path).unwrap();
-    let text = String::from_utf8_lossy(&pdf);
-    assert!(text.contains("/Count 2"));
-    assert!(text.contains("Sheet 1 of 2") && text.contains("1:50"));
+    let pdf = pdftext::parse(&std::fs::read(&path).unwrap());
+    assert_eq!(pdf.pages().len(), 2);
+    let text = pdf.pages().iter().flat_map(|p| pdf.text(*p)).collect::<Vec<_>>().join("\n");
+    assert!(text.contains("Sheet 1 of 2") && text.contains("1:50"), "{text}");
     // a bad scale is an error, not a broken file
     let bad = e.exec_json(&json!({"cmd":"export_sheets","path":path,"pages":[{"title":"x","viewports":[{"view":"top","scale":"one to fifty"}]}]}).to_string());
     assert_eq!(bad["ok"], false);
@@ -1157,8 +1173,8 @@ fn blueprint_finds_floors_and_draws_them() {
     let path = dir.join("bp.pdf").to_string_lossy().to_string();
     let r = run(&mut e, json!({"cmd":"blueprint","path":path,"sheet":"a3"}));
     assert_eq!(r["pages"], 3, "plans, elevations, building section");
-    let pdf = String::from_utf8_lossy(&std::fs::read(&path).unwrap()).to_string();
-    assert!(pdf.contains("Section A") && pdf.contains("(A) Tj"), "section sheet and its marks on the plans");
+    let pdf = pdf_words(&path);
+    assert!(pdf.contains("Section A") && pdf.contains("\nA\n"), "section sheet and its marks on the plans");
     assert!(pdf.contains("Main floor plan") && pdf.contains("Upper floor plan") && pdf.contains("Front elevation"));
     assert!(pdf.contains("1:50") || pdf.contains("1:75") || pdf.contains("1:100"), "a true scale");
     assert!(pdf.contains("AREA") && pdf.contains("TOTAL"), "areas in the title block");
@@ -1166,15 +1182,15 @@ fn blueprint_finds_floors_and_draws_them() {
     let areas: Vec<&str> = pdf.lines().filter(|l| l.contains(" m2")).collect();
     assert!(pdf.contains("50.8 m2") && pdf.contains("TOTAL   101.7 m2"), "gross floor area: {areas:?}");
     // no doors or windows: no schedule page, but still a north arrow and level datums
-    assert!(pdf.contains("(N) Tj") && pdf.contains("UPPER FLOOR") && pdf.contains("ELEVATIONS"), "callouts");
+    assert!(pdf.contains("\nN\n") && pdf.contains("UPPER FLOOR") && pdf.contains("ELEVATIONS"), "callouts");
     // a door and two windows: tags on the plan and a schedule page
     run(&mut e, json!({"cmd":"insert","asset":"door","at":[1.0,-0.1,0.0]}));
     run(&mut e, json!({"cmd":"insert","asset":"window","at":[3.5,-0.1,0.9]}));
     run(&mut e, json!({"cmd":"insert","asset":"window","at":[3.5,-0.1,3.9]}));
     let r2 = run(&mut e, json!({"cmd":"blueprint","path":path,"sheet":"a3"}));
     assert_eq!(r2["pages"], 4, "schedule page");
-    let pdf = String::from_utf8_lossy(&std::fs::read(&path).unwrap()).to_string();
-    assert!(pdf.contains("(D1) Tj") && pdf.contains("(W1) Tj") && pdf.contains("SCHEDULE"), "tags and schedule");
+    let pdf = pdf_words(&path);
+    assert!(pdf.contains("\nD1\n") && pdf.contains("\nW1\n") && pdf.contains("SCHEDULE"), "tags and schedule");
     assert!(pdf.contains("Main, Upper"), "one window type on both floors");
     // a door swing: hinge, strike, the side it opens to
     let r = run(&mut e, json!({"cmd":"door_swing","hinge":[1,0,0.02],"strike":[2,0,0.02],"toward":[1.5,3,0]}));

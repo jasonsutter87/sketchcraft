@@ -1,24 +1,16 @@
 //! Drawing sheets (a small LayOut): pages with model viewports (saved views,
 //! optionally at a true scale like 1:100), a frame, labels with scale bars,
-//! and a title block. Written as a vector PDF; the views are images.
+//! and a title block. A page is built as a display list (`draft`: plans, elevations,
+//! sections and parallel views are vector, with hidden lines removed) and written as a
+//! PDF (or one page as SVG or DXF).
 
+use crate::draft::ir::Doc;
+pub use crate::draft::paper::sheet_mm;
 use crate::model::Model;
-use crate::render::{self, CameraSpec, RenderOpts};
-use anyhow::{bail, Context, Result};
+use crate::render::CameraSpec;
+use anyhow::{bail, Result};
 use glam::DVec3;
 use serde::Deserialize;
-
-/// Sheet sizes, landscape, in millimeters.
-pub fn sheet_mm(name: &str) -> Result<(f64, f64)> {
-    Ok(match name.to_ascii_lowercase().as_str() {
-        "a4" => (297.0, 210.0),
-        "a3" => (420.0, 297.0),
-        "a2" => (594.0, 420.0),
-        "letter" => (279.4, 215.9),
-        "tabloid" | "11x17" => (431.8, 279.4),
-        _ => bail!("sheet is a4, a3, a2, letter or tabloid"),
-    })
-}
 
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(default)]
@@ -55,6 +47,14 @@ pub struct ViewportSpec {
     pub section_mark: Option<SectionMark>,
     /// a camera of its own (a saved sheet's 3D viewport that follows no saved view)
     pub camera: Option<CameraSpec>,
+    /// the model point pinned to the middle of the viewport, meters. A drawing keeps it: nothing
+    /// re-centres it later, so adding a tree (or moving a far-away object) never moves the drawing.
+    /// Left out, the middle of the building (without its environment) is used.
+    pub anchor: Option<[f64; 3]>,
+    /// elevations, sections and parallel views: also draw what's hidden behind other things, dashed
+    pub beyond: bool,
+    /// draw a scaled view as a picture instead of vector line work
+    pub raster: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -74,43 +74,11 @@ pub struct PageSpec {
     pub table: Vec<Vec<String>>,
 }
 
-/// "1:100" -> 100
-pub(crate) fn scale_of(s: &str) -> Result<f64> {
-    let d = s.trim().split(':').nth(1).unwrap_or(s).trim().parse::<f64>().context("scale looks like 1:100")?;
-    if d <= 0.0 {
-        bail!("scale must be positive");
-    }
-    Ok(d)
-}
-
-struct Page {
-    content: String,
-    images: Vec<image::RgbImage>,
-}
-
-const PT: f64 = 72.0 / 25.4;
-
-/// Lay viewports out in a grid where they have no size of their own.
-pub(crate) fn place(vps: &mut [ViewportSpec], sw: f64, sh: f64) {
-    let n = vps.len().max(1);
-    let cols = if n == 1 { 1 } else { 2 };
-    let rows = n.div_ceil(cols);
-    let (left, top, right, bottom) = (15.0, 15.0, 15.0, 52.0); // room for the title block
-    let (cw, ch) = ((sw - left - right) / cols as f64, (sh - top - bottom) / rows as f64);
-    for (i, v) in vps.iter_mut().enumerate() {
-        if v.w <= 0.0 || v.h <= 0.0 {
-            let (c, r) = (i % cols, i / cols);
-            v.x = left + c as f64 * cw + 4.0;
-            v.y = top + r as f64 * ch + 4.0;
-            v.w = cw - 8.0;
-            v.h = ch - 14.0; // caption below
-        }
-    }
-}
-
-fn esc(s: &str) -> String {
-    s.chars().filter(|c| c.is_ascii() && !c.is_ascii_control()).map(|c| if matches!(c, '(' | ')' | '\\') { format!("\\{c}") } else { c.to_string() }).collect()
-}
+// the scale parser and the grid placer, where the saved-sheets commands (#61) look for them
+#[allow(unused_imports)]
+pub(crate) use crate::draft::paper::scale_of;
+#[allow(unused_imports)]
+pub(crate) use crate::draft::sheet::place;
 
 /// Saved views in a grid, or the four standard views: what a page with nothing on it shows.
 pub(crate) fn default_specs(m: &Model) -> Vec<ViewportSpec> {
@@ -120,508 +88,72 @@ pub(crate) fn default_specs(m: &Model) -> Vec<ViewportSpec> {
         .collect()
 }
 
+/// Sheets as a PDF. Returns how many pages the set has.
 pub fn write_sheets(m: &Model, path: &str, sheet: &str, project: &str, pages: Vec<PageSpec>, blueprint: bool, notes: &[String]) -> Result<usize> {
     write_pages(m, path, sheet, project, pages, blueprint, notes, true)
 }
 
-/// `write_sheets`; `fill` false: a page with nothing on it is drawn empty (a saved sheet the person hasn't filled), not given
-/// the model's views.
-pub(crate) fn write_pages(m: &Model, path: &str, sheet: &str, project: &str, mut pages: Vec<PageSpec>, blueprint: bool, notes: &[String], fill: bool) -> Result<usize> {
-    let (sw, sh) = sheet_mm(sheet)?;
-    if fill {
-        // saved views in a grid, or the four standard views
-        let defaults = default_specs(m);
-        if pages.is_empty() {
-            pages.push(PageSpec { title: "Views".into(), ..Default::default() });
-        }
-        for p in &mut pages {
-            if p.viewports.is_empty() && p.table.is_empty() {
-                p.viewports = defaults.clone();
-            }
-        }
-    }
-    if pages.len() > 50 {
-        bail!("a PDF holds at most 50 pages here, and this set has {}: export part of it with pages: [sheet ids] (a page-at-a-time writer lifts this limit)", pages.len());
-    }
-    let date = today();
-    let total = pages.len();
-    let mut out_pages = Vec::new();
-    for (pi, page) in pages.iter_mut().enumerate() {
-        place(&mut page.viewports, sw, sh);
-        let y = |mm: f64| (sh - mm) * PT; // top-left mm -> PDF points
-        let mut c = String::new();
-        if blueprint {
-            // the whole sheet blueprint blue; frames, text and lines in white
-            let b = crate::render::BLUEPRINT;
-            c += &format!("{} {} {} rg 0 0 {:.2} {:.2} re f 0.93 0.96 1 rg 0.93 0.96 1 RG\n", b[0], b[1], b[2], sw * PT, sh * PT);
-        }
-        let mut images = Vec::new();
-        // sheet border
-        c += &format!("0.6 w {:.2} {:.2} {:.2} {:.2} re S\n", 10.0 * PT, 10.0 * PT, (sw - 20.0) * PT, (sh - 20.0) * PT);
-        for v in &page.viewports {
-            if let Some(z) = v.cut {
-                c += &plan_cut(m, v, z, &y, blueprint)?;
-                continue;
-            }
-            // drawings carry their own notes; the model's plan labels don't belong on elevations
-            let mut o = RenderOpts { paper: true, grid: false, blueprint, annotations: !v.callouts, ..Default::default() };
-            let px_per_mm = (6.0f64).min(4000.0 / v.w.max(v.h));
-            o.width = (v.w * px_per_mm) as u32;
-            o.height = (v.h * px_per_mm) as u32;
-            let mut label = v.label.clone().unwrap_or_else(|| v.view.clone());
-            // a true elevation: looking dead level at the side, from the middle
-            let elev_dir = match v.view.as_str() {
-                "front" => Some(DVec3::new(0.0, -1.0, 0.0)),
-                "back" => Some(DVec3::new(0.0, 1.0, 0.0)),
-                "left" => Some(DVec3::new(-1.0, 0.0, 0.0)),
-                "right" => Some(DVec3::new(1.0, 0.0, 0.0)),
-                _ => None,
-            }
-            .filter(|_| v.callouts && v.scale.is_some());
-            // a section looks along `look` from the far side of its plane
-            let sec = v.section.map(|s| (DVec3::new(s[0], s[1], s[2]), DVec3::new(s[3], s[4], 0.0).normalize_or_zero()));
-            let elev_dir = if let Some((_, look)) = sec { Some(-look) } else { elev_dir };
-            let bounds = m.world_bounds();
-            if let (Some((origin, look)), Some((lo, hi))) = (sec, bounds) {
-                let center = (lo + hi) / 2.0;
-                let eye = center - look * ((hi - lo).length() + 10.0);
-                o.camera = Some(CameraSpec { eye: eye.to_array(), target: center.to_array(), fov: 40.0 });
-                o.clip = Some([origin.x, origin.y, origin.z, look.x, look.y, look.z]);
-            } else if let Some(cam) = &v.camera {
-                o.camera = Some(cam.clone());
-            } else if let Some(saved) = m.views.iter().find(|s| s.name == v.view) {
-                o.camera = Some(CameraSpec { eye: saved.eye, target: saved.target, fov: saved.fov });
-            } else if let (Some(d), Some((lo, hi))) = (elev_dir, bounds) {
-                let center = (lo + hi) / 2.0;
-                let eye = center + d * ((hi - lo).length() + 10.0);
-                o.camera = Some(CameraSpec { eye: eye.to_array(), target: center.to_array(), fov: 40.0 });
-            } else {
-                o.view = v.view.clone();
-            }
-            let mut denom = None;
-            if let Some(s) = &v.scale {
-                let d = scale_of(s)?;
-                o.parallel = true;
-                o.ortho_height = Some(v.h * d / 1000.0);
-                label = format!("{label}   1:{d}");
-                denom = Some(d);
-            }
-            images.push(render::render(m, &o));
-            let n = images.len();
-            c += &format!("q {:.2} 0 0 {:.2} {:.2} {:.2} cm /Im{n} Do Q\n", v.w * PT, v.h * PT, v.x * PT, y(v.y + v.h));
-            c += &format!("0.3 w {:.2} {:.2} {:.2} {:.2} re S\n", v.x * PT, y(v.y + v.h), v.w * PT, v.h * PT);
-            c += &format!("BT /F2 8 Tf {:.2} {:.2} Td ({}) Tj ET\n", v.x * PT, y(v.y + v.h + 5.0), esc(&label));
-            if let Some(d) = denom {
-                c += &scale_bar(v, d, &y);
-            }
-            // a section: what the plane cuts through, filled solid over the picture
-            if let (Some((origin, look)), Some((lo, hi)), Some(d)) = (sec, bounds, denom) {
-                if let Ok(cut) = m.section(origin, look) {
-                    let k = 1000.0 / d;
-                    let center = (lo + hi) / 2.0;
-                    let right = DVec3::Z.cross(look);
-                    let (cx, cy) = (v.x + v.w / 2.0, v.y + v.h / 2.0);
-                    let to = |p: DVec3| ((cx + (p - center).dot(right) * k) * PT, y(cy - (p.z - center.z) * k));
-                    c += &format!("q {:.2} {:.2} {:.2} {:.2} re W n\n", v.x * PT, y(v.y + v.h), v.w * PT, v.h * PT);
-                    c += if blueprint { "0.62 0.74 0.88 rg 0.93 0.96 1 RG 0.5 w\n" } else { "0.16 0.17 0.2 rg 0.1 0.1 0.12 RG 0.4 w\n" };
-                    for (_, outer, holes) in &cut.regions {
-                        for ring in std::iter::once(outer).chain(holes.iter()) {
-                            for (i, p) in ring.iter().enumerate() {
-                                let (a, b) = to(*p);
-                                c += &format!("{a:.2} {b:.2} {}\n", if i == 0 { "m" } else { "l" });
-                            }
-                            c += "h\n";
-                        }
-                        c += "B*\n";
-                    }
-                    c += if blueprint { "0.25 w 0.93 0.96 1 RG\n" } else { "0.25 w 0.15 0.15 0.18 RG\n" };
-                    for (a, b) in &cut.segments {
-                        let (p, q) = (to(*a), to(*b));
-                        c += &format!("{:.2} {:.2} m {:.2} {:.2} l S\n", p.0, p.1, q.0, q.1);
-                    }
-                    c += "Q\n";
-                }
-            }
-            // level datums across a true elevation
-            if let (Some(dir), Some((lo, hi)), Some(d)) = (elev_dir, bounds, denom) {
-                if !v.levels.is_empty() {
-                    let ink = if blueprint { "0.93 0.96 1" } else { "0.1 0.1 0.12" };
-                    let k = 1000.0 / d; // mm per m
-                    let center = (lo + hi) / 2.0;
-                    // screen right, seen from outside looking in
-                    let right = DVec3::Z.cross(-dir);
-                    let span = |p: DVec3| (p - center).dot(right);
-                    let corners = [lo, hi, DVec3::new(lo.x, hi.y, 0.0), DVec3::new(hi.x, lo.y, 0.0)];
-                    let (smin, smax) = corners.iter().map(|p| span(*p)).fold((f64::MAX, f64::MIN), |(a, b), s| (a.min(s), b.max(s)));
-                    let (cx, cy) = (v.x + v.w / 2.0, v.y + v.h / 2.0);
-                    let x0 = ((cx + (smin - 0.6) * k) * PT).max(v.x * PT + 2.0);
-                    let x1 = ((cx + (smax + 0.6) * k) * PT).min((v.x + v.w) * PT - 60.0);
-                    c += &format!("q {:.2} {:.2} {:.2} {:.2} re W n\n", v.x * PT, y(v.y + v.h), v.w * PT, v.h * PT);
-                    let units = if m.units.is_empty() { "m" } else { m.units.as_str() };
-                    let base = v.levels.first().map(|l| l.1).unwrap_or(0.0);
-                    for (name, h) in &v.levels {
-                        let yy = y(cy - (h - center.z) * k);
-                        c += &crate::callouts::level(x0, x1, yy, name, &format!("{}{}", if h - base < -1e-3 { "-" } else { "+" }, crate::units::format((h - base).abs(), units)), ink);
-                    }
-                    c += "Q\n";
-                }
-            }
-        }
-        // a table (schedule) at the top left
-        if !page.table.is_empty() {
-            let size = 7.5;
-            let cols = page.table.iter().map(|r| r.len()).max().unwrap_or(0);
-            let widths: Vec<f64> = (0..cols).map(|i| page.table.iter().map(|r| r.get(i).map(|s| crate::callouts::text_w(s, size)).unwrap_or(0.0)).fold(0.0, f64::max) + 16.0).collect();
-            let (tx, ty, rh) = (20.0 * PT, 20.0, 6.5);
-            let total_w: f64 = widths.iter().sum();
-            c += &format!("BT /F2 11 Tf {:.2} {:.2} Td ({}) Tj ET\n", tx, y(ty), esc(&page.title.to_uppercase()));
-            for (ri, row) in page.table.iter().enumerate() {
-                let top = ty + 4.0 + ri as f64 * rh;
-                c += &format!("{} w {:.2} {:.2} m {:.2} {:.2} l S\n", if ri <= 1 { 0.6 } else { 0.25 }, tx, y(top), tx + total_w, y(top));
-                let mut x = tx;
-                for (ci, cell) in row.iter().enumerate() {
-                    c += &format!("BT /{} {size} Tf {:.2} {:.2} Td ({}) Tj ET\n", if ri == 0 || ci == 0 { "F2" } else { "F1" }, x + 6.0, y(top + rh - 2.0), esc(cell));
-                    x += widths[ci];
-                }
-            }
-            let bottom = ty + 4.0 + page.table.len() as f64 * rh;
-            c += &format!("0.6 w {:.2} {:.2} m {:.2} {:.2} l S\n", tx, y(bottom), tx + total_w, y(bottom));
-            // column rules
-            let mut x = tx;
-            for w in std::iter::once(0.0).chain(widths.iter().copied()) {
-                x += w;
-                c += &format!("0.25 w {:.2} {:.2} m {:.2} {:.2} l S\n", x, y(ty + 4.0), x, y(bottom));
-            }
-        }
-        // notes (areas, general notes) in a box above the title block
-        if !notes.is_empty() {
-            // beside the title block, bottom-aligned with it
-            let (tw, lh) = (70.0f64, 4.2);
-            let nh = 6.0 + notes.len() as f64 * lh;
-            let title_w = 110.0f64.min(sw * 0.4);
-            let (nx, ny) = (sw - 10.0 - title_w - tw, sh - 10.0 - nh);
-            c += &format!("0.6 w {:.2} {:.2} {:.2} {:.2} re S\n", nx * PT, y(ny + nh), tw * PT, nh * PT);
-            for (i, line) in notes.iter().enumerate() {
-                let bold = line.starts_with('#');
-                let text = line.trim_start_matches('#').trim();
-                c += &format!("BT /{} 6.5 Tf {:.2} {:.2} Td ({}) Tj ET\n", if bold { "F2" } else { "F1" }, (nx + 4.0) * PT, y(ny + 5.5 + i as f64 * lh), esc(text));
-            }
-        }
-        // title block, bottom right
-        let (tw, th) = (110.0f64.min(sw * 0.4), 32.0);
-        let (tx, ty) = (sw - 10.0 - tw, sh - 10.0 - th);
-        c += &format!("0.6 w {:.2} {:.2} {:.2} {:.2} re S\n", tx * PT, y(ty + th), tw * PT, th * PT);
-        c += &format!("0.3 w {:.2} {:.2} m {:.2} {:.2} l S\n", tx * PT, y(ty + 14.0), (tx + tw) * PT, y(ty + 14.0));
-        c += &format!("BT /F2 12 Tf {:.2} {:.2} Td ({}) Tj ET\n", (tx + 4.0) * PT, y(ty + 9.0), esc(project));
-        c += &format!("BT /F1 9 Tf {:.2} {:.2} Td ({}) Tj ET\n", (tx + 4.0) * PT, y(ty + 21.0), esc(&page.title));
-        c += &format!("BT /F1 7 Tf {:.2} {:.2} Td ({}   Sheet {} of {}   Drawn in SketchCraft) Tj ET\n", (tx + 4.0) * PT, y(ty + 28.5), date, pi + 1, total);
-        out_pages.push(Page { content: c, images });
-    }
-    write_pdf(path, sw * PT, sh * PT, &out_pages)?;
-    Ok(total)
+/// `write_sheets`; `fill` false: a page with nothing on it is drawn empty, not given the model's views.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn write_pages(m: &Model, path: &str, sheet: &str, project: &str, pages: Vec<PageSpec>, blueprint: bool, notes: &[String], fill: bool) -> Result<usize> {
+    write_sheets_page(m, path, sheet, project, pages, blueprint, notes, fill, None)
 }
 
-/// A floor plan viewport: the section at height `z` as vector paths, to
-/// scale (or fitted), with its caption and scale bar.
-fn plan_cut(m: &Model, v: &ViewportSpec, z: f64, y: &dyn Fn(f64) -> f64, blueprint: bool) -> Result<String> {
-    let cut = m.section(glam::DVec3::new(0.0, 0.0, z), glam::DVec3::new(0.0, 0.0, -1.0))?;
-    let mut pts: Vec<(f64, f64)> = cut.segments.iter().flat_map(|(a, b)| [(a.x, a.y), (b.x, b.y)]).collect();
-    // dimension strings on this floor count toward the plan's size
-    let floor = v.floor.unwrap_or(z - 1.22);
-    pts.extend(dims_on_floor(m, floor));
-    let extras = if v.callouts { plan_extras(m, floor, z, !v.marks.is_empty()) } else { PlanExtras::default() };
-    pts.extend(extras.reach.iter().copied());
+/// Sheets to a file by its extension: a PDF of every page, or (`.svg`, `.dxf`) one page of them,
+/// `page` counting from 1. Returns how many pages the set has.
+#[allow(clippy::too_many_arguments)]
+pub fn write_sheets_page(m: &Model, path: &str, sheet: &str, project: &str, pages: Vec<PageSpec>, blueprint: bool, notes: &[String], fill: bool, page: Option<usize>) -> Result<usize> {
+    let mut doc = crate::draft::sheet::build_with(m, sheet, project, pages, blueprint, notes, &today(), fill)?;
+    doc.lang = locale_lang();
+    write_doc(&doc, path, page)?;
+    Ok(doc.pages.len())
+}
 
-    if pts.is_empty() {
-        bail!("nothing is cut at {z} m");
+/// The language tag for the PDF (screen readers pronounce by it): from the machine's locale (`de_DE.UTF-8` is
+/// `de`), English when it names none.
+fn locale_lang() -> String {
+    for k in ["LC_ALL", "LC_MESSAGES", "LANG"] {
+        if let Ok(v) = std::env::var(k) {
+            let lang: String = v.split(['_', '.', '@']).next().unwrap_or("").to_ascii_lowercase();
+            if (2..=3).contains(&lang.len()) && lang.chars().all(|c| c.is_ascii_lowercase()) {
+                return lang;
+            }
+        }
     }
-    let (x0, x1) = pts.iter().fold((f64::MAX, f64::MIN), |(lo, hi), p| (lo.min(p.0), hi.max(p.0)));
-    let (y0, y1) = pts.iter().fold((f64::MAX, f64::MIN), |(lo, hi), p| (lo.min(p.1), hi.max(p.1)));
-    // meters -> mm on paper
-    let denom = match &v.scale {
-        Some(s) => scale_of(s)?,
-        None => ((x1 - x0) * 1000.0 / (v.w * 0.9)).max((y1 - y0) * 1000.0 / (v.h * 0.9)),
+    "en".into()
+}
+
+/// A built set to a file, by its extension: PDF (every page), SVG or DXF (one page).
+pub fn write_doc(doc: &Doc, path: &str, page: Option<usize>) -> Result<()> {
+    let ext = std::path::Path::new(path).extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+    let bytes: Vec<u8> = match ext.as_str() {
+        "svg" | "dxf" => {
+            let n = page.unwrap_or(1);
+            let Some(p) = n.checked_sub(1).and_then(|i| doc.pages.get(i)) else { bail!("there is no page {n} (the set has {})", doc.pages.len()) };
+            if ext == "svg" { crate::draft::svg::page(p).into_bytes() } else { crate::draft::dxf::page(p).into_bytes() }
+        }
+        _ => crate::draft::pdf::write(doc)?,
     };
-    let k = 1000.0 / denom;
-    let (cx, cy) = (v.x + v.w / 2.0, v.y + v.h / 2.0);
-    let (mx, my) = ((x0 + x1) / 2.0, (y0 + y1) / 2.0);
-    // plan +Y is up the sheet
-    let to = |px: f64, py: f64| -> (f64, f64) { ((cx + (px - mx) * k) * PT, y(cy - (py - my) * k)) };
-    let mut c = String::new();
-    c += &format!("q {:.2} {:.2} {:.2} {:.2} re W n\n", v.x * PT, y(v.y + v.h), v.w * PT, v.h * PT);
-    // cut walls: dark fill, holes left open (even-odd)
-    // cut walls: solid dark on paper; pale with white outlines on a blueprint
-    c += if blueprint { "0.62 0.74 0.88 rg 0.93 0.96 1 RG 0.5 w\n" } else { "0.16 0.17 0.2 rg 0.1 0.1 0.12 RG 0.4 w\n" };
-    for (_, outer, holes) in &cut.regions {
-        for ring in std::iter::once(outer).chain(holes.iter()) {
-            for (i, p) in ring.iter().enumerate() {
-                let (a, b) = to(p.x, p.y);
-                c += &format!("{a:.2} {b:.2} {}\n", if i == 0 { "m" } else { "l" });
-            }
-            c += "h\n";
-        }
-        c += "B*\n";
+    if let Some(dir) = std::path::Path::new(path).parent() {
+        std::fs::create_dir_all(dir).ok();
     }
-    // everything else the cut passes through (glass, frames): thin lines
-    c += if blueprint { "0.25 w 0.93 0.96 1 RG\n" } else { "0.25 w 0.15 0.15 0.18 RG\n" };
-    for (a, b) in &cut.segments {
-        let (p, q) = (to(a.x, a.y), to(b.x, b.y));
-        c += &format!("{:.2} {:.2} m {:.2} {:.2} l S\n", p.0, p.1, q.0, q.1);
-    }
-    // what's below the cut on this floor, seen from above: stair treads,
-    // counters, fixtures (finer and lighter than the cut)
-    c += if blueprint { "0.2 w 0.75 0.84 0.95 RG\n" } else { "0.2 w 0.45 0.46 0.5 RG\n" };
-    for e in m.world_edges().into_iter().filter(|e| !e.soft) {
-        let (lo, hi) = (e.a.z.min(e.b.z), e.a.z.max(e.b.z));
-        if lo < floor + 0.02 && hi < floor + 0.02 {
-            continue; // lying on the floor: the floor's own outline, not a thing on it
-        }
-        if lo < floor - 0.01 || hi > z + 1e-3 {
-            continue;
-        }
-        if (e.a.x - e.b.x).hypot(e.a.y - e.b.y) < 0.01 {
-            continue; // vertical: a point from above
-        }
-        let (p, q) = (to(e.a.x, e.a.y), to(e.b.x, e.b.y));
-        c += &format!("{:.2} {:.2} m {:.2} {:.2} l S\n", p.0, p.1, q.0, q.1);
-    }
-    // stairs: on the floor they start from, the treads up to the cut with UP;
-    // on the floor they arrive at, the whole run seen through the opening with DN
-    let ink = if blueprint { "0.93 0.96 1" } else { "0.1 0.1 0.12" };
-    let lift = 1.22; // the cut height above each floor
-    for (gid, g) in &m.groups {
-        if !g.name.to_ascii_lowercase().contains("stair") || g.name.to_ascii_lowercase().contains("rail") {
-            continue;
-        }
-        let es: Vec<(DVec3, DVec3)> = m.edges.values().filter(|e| e.group == Some(*gid) && !e.soft).map(|e| (m.p(e.a), m.p(e.b))).collect();
-        let Some(first) = es.first() else { continue };
-        let (mut lo, mut hi) = (first.0, first.0);
-        for (a, b) in &es {
-            lo = lo.min(*a).min(*b);
-            hi = hi.max(*a).max(*b);
-        }
-        let starts_here = (lo.z - floor).abs() < 0.3;
-        let arrives_here = (hi.z - floor).abs() < 0.3 && !starts_here;
-        if !starts_here && !arrives_here {
-            continue;
-        }
-        if arrives_here {
-            // the run below, through the floor opening
-            c += &format!("0.2 w {ink} RG\n");
-            for (a, b) in &es {
-                if (a.x - b.x).hypot(a.y - b.y) < 0.01 {
-                    continue;
-                }
-                let (p, q) = (to(a.x, a.y), to(b.x, b.y));
-                c += &format!("{:.2} {:.2} m {:.2} {:.2} l S\n", p.0, p.1, q.0, q.1);
-            }
-        }
-        // which way it climbs: toward the side its high treads are on
-        let long_x = hi.x - lo.x > hi.y - lo.y;
-        let mid_lo = |p: DVec3| if long_x { p.x < (lo.x + hi.x) / 2.0 } else { p.y < (lo.y + hi.y) / 2.0 };
-        let (mut zl, mut nl, mut zh, mut nh) = (0.0, 0, 0.0, 0);
-        for (a, b) in &es {
-            for p in [a, b] {
-                if mid_lo(*p) {
-                    zl += p.z;
-                    nl += 1;
-                } else {
-                    zh += p.z;
-                    nh += 1;
-                }
-            }
-        }
-        let climbs_up = zh / nh.max(1) as f64 >= zl / nl.max(1) as f64;
-        let (cx, cy) = ((lo.x + hi.x) / 2.0, (lo.y + hi.y) / 2.0);
-        let half = if long_x { (hi.x - lo.x) * 0.35 } else { (hi.y - lo.y) * 0.35 };
-        let (sx, sy, ex, ey) = if long_x { (cx - half, cy, cx + half, cy) } else { (cx, cy - half, cx, cy + half) };
-        // arrow points up the stair (UP) or down it (DN)
-        let ((ax, ay), (bx, by)) = if climbs_up == starts_here { ((sx, sy), (ex, ey)) } else { ((ex, ey), (sx, sy)) };
-        let (p, q) = (to(ax, ay), to(bx, by));
-        let (dx, dy) = (q.0 - p.0, q.1 - p.1);
-        let l = dx.hypot(dy).max(1e-6);
-        let (ux, uy) = (dx / l * 5.0, dy / l * 5.0);
-        c += &format!("0.5 w {ink} RG {:.2} {:.2} m {:.2} {:.2} l S\n", p.0, p.1, q.0, q.1);
-        c += &format!("{ink} rg {:.2} {:.2} m {:.2} {:.2} l {:.2} {:.2} l h f\n", q.0, q.1, q.0 - ux - uy * 0.5, q.1 - uy + ux * 0.5, q.0 - ux + uy * 0.5, q.1 - uy - ux * 0.5);
-        let label = if starts_here { "UP" } else { "DN" };
-        c += &format!("BT /F2 6 Tf {:.2} {:.2} Td ({label}) Tj ET\n", p.0 + 3.0, p.1 - 8.0);
-        let _ = lift;
-    }
-    // overhead: shelves, closets and upper cabinets above the cut, dashed
-    c += &format!("[2 1.5] 0 d 0.25 w {ink} RG\n");
-    for (gid, g) in &m.groups {
-        let n = g.name.to_ascii_lowercase();
-        let furniture = matches!(m.classes.get(gid).map(|s| s.as_str()), Some("IfcFurniture") | Some("IfcCovering"));
-        if !(furniture || ["shelf", "closet", "cabinet", "upper"].iter().any(|w| n.contains(w))) {
-            continue;
-        }
-        for e in m.edges.values().filter(|e| e.group == Some(*gid) && !e.soft) {
-            let (a, b) = (m.p(e.a), m.p(e.b));
-            if a.z.min(b.z) <= z || a.z.max(b.z) > floor + 2.8 || (a.x - b.x).hypot(a.y - b.y) < 0.01 {
-                continue;
-            }
-            let (p, q) = (to(a.x, a.y), to(b.x, b.y));
-            c += &format!("{:.2} {:.2} m {:.2} {:.2} l S\n", p.0, p.1, q.0, q.1);
-        }
-    }
-    c += "[] 0 d\n";
-    // notes and dimensions placed on this floor (room names, overall sizes)
-    let units = if m.units.is_empty() { "m" } else { m.units.as_str() };
-    let on_floor = |pz: f64| pz > floor - 0.05 && pz < floor + 1.0;
-    for a in &m.annotations {
-        match a {
-            crate::model::Annotation::Text { at, text, leader, .. } if on_floor(at.z) => {
-                // centered, line by line
-                let lines: Vec<&str> = text.lines().collect();
-                let (px, py) = to(at.x, at.y);
-                // a leader: from the edge of the note to a dot on what it's about
-                if let Some(l) = leader {
-                    let (lx, ly) = to(l.x, l.y);
-                    let (dx, dy) = (lx - px, ly - py);
-                    let d = dx.hypot(dy);
-                    if d > 4.0 {
-                        let w = lines.iter().map(|s| crate::callouts::text_w(s, 7.0)).fold(0.0, f64::max) / 2.0 + 3.0;
-                        let h = lines.len() as f64 * 4.5 + 3.0;
-                        // leave the text box where the line crosses it
-                        let t = (w / dx.abs().max(1e-6)).min(h / dy.abs().max(1e-6)).min(0.9);
-                        c += &format!("0.35 w {ink} RG {:.2} {:.2} m {:.2} {:.2} l S\n", px + dx * t, py + dy * t, lx, ly);
-                        c += &format!("{ink} rg ");
-                        c += &crate::callouts::circle(lx, ly, 1.3);
-                        c += "f\n";
-                    }
-                }
-                for (i, line) in lines.iter().enumerate() {
-                    let size = if i == 0 { 7.0 } else { 5.5 };
-                    let w = line.len() as f64 * size * 0.52;
-                    let font = if i == 0 { "F2" } else { "F1" };
-                    let yy = py + (lines.len() as f64 / 2.0 - i as f64 - 0.8) * 8.0;
-                    c += &format!("{ink} rg BT /{font} {size} Tf {:.2} {:.2} Td ({}) Tj ET\n", px - w / 2.0, yy, esc(line));
-                }
-            }
-            crate::model::Annotation::Swing { hinge, from, to: open, .. } if on_floor(hinge.z) => {
-                let (h, o) = (to(hinge.x, hinge.y), to(open.x, open.y));
-                c += &format!("0.45 w {ink} RG {:.2} {:.2} m {:.2} {:.2} l S\n", h.0, h.1, o.0, o.1);
-                let arc = swing_arc(*hinge, *from, *open, 16);
-                c += "0.2 w ";
-                for (i, p) in arc.iter().enumerate() {
-                    let q = to(p.x, p.y);
-                    c += &format!("{:.2} {:.2} {} ", q.0, q.1, if i == 0 { "m" } else { "l" });
-                }
-                c += "S\n";
-            }
-            crate::model::Annotation::Dimension { a: da, b: db, offset, .. } if on_floor(da.z) && on_floor(db.z) => {
-                c += &dimension(*da, *db, *offset, &to, ink, units);
-            }
-            _ => {}
-        }
-    }
-    // worked-out callouts: exterior dimension chains, door/window tags,
-    // elevation markers, north arrow
-    // short neighbours take turns lifting their labels
-    let mut lift = false;
-    for (a, b, off) in &extras.dims {
-        let short = a.distance(*b) * 1000.0 / denom < 12.0;
-        lift = short && !lift;
-        c += &dimension_lift(*a, *b, *off, &to, ink, units, lift);
-    }
-    let paper = if blueprint { let b = crate::render::BLUEPRINT; format!("{} {} {}", b[0], b[1], b[2]) } else { "1 1 1".to_string() };
-    for (p, label, kind) in &extras.tags {
-        let (tx, ty) = to(p.x, p.y);
-        c += &crate::callouts::tag(tx, ty, label, *kind, ink, &paper);
-    }
-    if let (Some((p, _)), 4) = (extras.marks.first(), v.marks.len()) {
-        let (mx, my) = to(p.x, p.y);
-        c += &crate::callouts::elevation_key(mx, my, &v.marks, ink, &paper);
-    }
-    if let Some(sm) = &v.section_mark {
-        let (o, look) = (DVec3::from(sm.origin), DVec3::new(sm.look[0], sm.look[1], 0.0).normalize_or_zero());
-        // the line runs across the plan, past the building on both sides
-        let along = DVec3::Z.cross(look);
-        // past the building and every dimension and tag around it
-        let reach: Vec<f64> = pts.iter().map(|(px, py)| (DVec3::new(*px, *py, 0.0) - DVec3::new(o.x, o.y, 0.0)).dot(along)).collect();
-        let (s0, s1) = reach.iter().fold((f64::MAX, f64::MIN), |(a, b), s| (a.min(*s), b.max(*s)));
-        if s0 < s1 {
-            let (a, b) = (o + along * (s0 - 0.7), o + along * (s1 + 0.7));
-            // kept inside the frame (between the dimensions and its edge)
-            let inside = |p: (f64, f64)| ((p.0).clamp(v.x * PT + 14.0, (v.x + v.w) * PT - 14.0), (p.1).clamp(y(v.y + v.h) + 14.0, y(v.y) - 14.0));
-            let (pa, pb) = (inside(to(a.x, a.y)), inside(to(b.x, b.y)));
-            c += &format!("[9 2 2 2] 0 d 0.7 w {ink} RG {:.2} {:.2} m {:.2} {:.2} l S [] 0 d\n", pa.0, pa.1, pb.0, pb.1);
-            // heads at both ends: which way it looks, and where it's drawn
-            let lp = { let q = to(o.x + look.x, o.y + look.y); let p0 = to(o.x, o.y); let (dx, dy) = (q.0 - p0.0, q.1 - p0.1); let l = dx.hypot(dy).max(1e-9); (dx / l, dy / l) };
-            let (num, sheet) = sm.label.split_once('/').unwrap_or((sm.label.as_str(), ""));
-            for p in [pa, pb] {
-                c += &crate::callouts::elevation_marker(p.0, p.1, lp, num, sheet, ink, &paper);
-            }
-        }
-    }
-    if v.callouts {
-        c += &crate::callouts::north_arrow((v.x + v.w - 9.0) * PT, y(v.y + v.h - 11.0), ink);
-    }
-    c += if blueprint { "Q 0.93 0.96 1 rg 0.93 0.96 1 RG\n" } else { "Q 0 g 0 G\n" };
-    let label = v.label.clone().unwrap_or_else(|| format!("Plan at {z:.2} m"));
-    let label = if v.scale.is_some() { format!("{label}   1:{denom}") } else { label };
-    c += &format!("0.3 w {:.2} {:.2} {:.2} {:.2} re S\n", v.x * PT, y(v.y + v.h), v.w * PT, v.h * PT);
-    c += &format!("BT /F2 8 Tf {:.2} {:.2} Td ({}) Tj ET\n", v.x * PT, y(v.y + v.h + 5.0), esc(&label));
-    if v.scale.is_some() {
-        c += &scale_bar(v, denom, y);
-    }
-    Ok(c)
-}
-
-/// A dimension: the line `offset` out from a-b, extension lines, ticks and
-/// the length along it.
-fn dimension(da: DVec3, db: DVec3, offset: DVec3, to: &dyn Fn(f64, f64) -> (f64, f64), ink: &str, units: &str) -> String {
-    dimension_lift(da, db, offset, to, ink, units, false)
-}
-
-/// `lift`: a short segment whose text sits a line further out (so
-/// neighbouring short ones don't collide).
-fn dimension_lift(da: DVec3, db: DVec3, offset: DVec3, to: &dyn Fn(f64, f64) -> (f64, f64), ink: &str, units: &str, lift: bool) -> String {
-    let mut c = String::new();
-    let (pa, pb) = (da + offset, db + offset);
-    let (p, q) = (to(pa.x, pa.y), to(pb.x, pb.y));
-    let (o1, o2) = (to(da.x, da.y), to(db.x, db.y));
-    c += &format!("0.3 w {ink} RG {:.2} {:.2} m {:.2} {:.2} l S\n", p.0, p.1, q.0, q.1);
-    // extension lines and tick marks
-    for (from, at) in [(o1, p), (o2, q)] {
-        let (dx, dy) = (at.0 - from.0, at.1 - from.1);
-        let l = dx.hypot(dy).max(1e-6);
-        let gap = 2.0f64.min(l * 0.3);
-        c += &format!("0.2 w {:.2} {:.2} m {:.2} {:.2} l S\n", from.0 + dx / l * gap, from.1 + dy / l * gap, at.0 + dx / l * 2.0, at.1 + dy / l * 2.0);
-        c += &format!("0.5 w {:.2} {:.2} m {:.2} {:.2} l S\n", at.0 - 2.5, at.1 - 2.5, at.0 + 2.5, at.1 + 2.5);
-    }
-    let label = crate::units::format(da.distance(db), units);
-    let (mx, my) = ((p.0 + q.0) / 2.0, (p.1 + q.1) / 2.0);
-    let ang = (q.1 - p.1).atan2(q.0 - p.0);
-    let ang = if ang > std::f64::consts::FRAC_PI_2 || ang < -std::f64::consts::FRAC_PI_2 { ang + std::f64::consts::PI } else { ang };
-    let (ca, sa) = (ang.cos(), ang.sin());
-    let w = crate::callouts::text_w(&label, 6.0);
-    // text along the line, on the side away from the building; a short
-    // segment's text can be lifted a line further out
-    let (ox, oy) = { let (a, b) = (to(0.0, 0.0), to(offset.x, offset.y)); let (dx, dy) = (b.0 - a.0, b.1 - a.1); let l = dx.hypot(dy).max(1e-9); (dx / l, dy / l) };
-    // the text's "up" (-sa, ca) points outward, or flip which side it hangs on
-    let up = if -sa * ox + ca * oy >= 0.0 { 1.0 } else { -1.0 };
-    let len = (q.0 - p.0).hypot(q.1 - p.1);
-    let raise = if lift && w > len - 3.0 { 7.0 } else { 0.0 };
-    let base = if up > 0.0 { 2.0 + raise } else { -6.5 - raise };
-    let (tx, ty) = (mx - ca * w / 2.0 - sa * base, my - sa * w / 2.0 + ca * base);
-    c += &format!("{ink} rg BT /F1 6 Tf {ca:.4} {sa:.4} {:.4} {ca:.4} {tx:.2} {ty:.2} Tm ({}) Tj ET\n", -sa, esc(&label));
-    c
+    std::fs::write(path, bytes)?;
+    Ok(())
 }
 
 /// What a plan works out for itself: dimension chains, tags, where the
 /// elevation markers go, and every point they reach (for fitting the plan).
 #[derive(Default)]
-struct PlanExtras {
-    dims: Vec<(DVec3, DVec3, DVec3)>,
+pub(crate) struct PlanExtras {
+    pub dims: Vec<(DVec3, DVec3, DVec3)>,
     /// (where, "W1", 'W')
-    tags: Vec<(DVec3, String, char)>,
+    pub tags: Vec<(DVec3, String, char)>,
     /// front, right, back, left: where, and the way it looks (plan axes)
-    marks: Vec<(DVec3, DVec3)>,
-    reach: Vec<(f64, f64)>,
+    pub marks: Vec<(DVec3, DVec3)>,
+    pub reach: Vec<(f64, f64)>,
 }
 
-fn plan_extras(m: &Model, floor: f64, cut_z: f64, marks: bool) -> PlanExtras {
+pub(crate) fn plan_extras(m: &Model, floor: f64, cut_z: f64, marks: bool) -> PlanExtras {
     let mut e = PlanExtras::default();
     let Some(box_) = crate::callouts::outline(m, cut_z) else { return e };
     let (x0, y0, x1, y1) = box_;
@@ -728,7 +260,7 @@ pub fn swing_arc(hinge: DVec3, from: DVec3, to: DVec3, steps: usize) -> Vec<DVec
 }
 
 /// Where a floor's dimension lines run (with a margin for their labels).
-fn dims_on_floor(m: &Model, floor: f64) -> Vec<(f64, f64)> {
+pub(crate) fn dims_on_floor(m: &Model, floor: f64) -> Vec<(f64, f64)> {
     let mut out = Vec::new();
     for a in &m.annotations {
         if let crate::model::Annotation::Dimension { a, b, offset, .. } = a {
@@ -740,21 +272,6 @@ fn dims_on_floor(m: &Model, floor: f64) -> Vec<(f64, f64)> {
         }
     }
     out
-}
-
-/// A scale bar under a viewport: a round length no longer than 40 mm.
-fn scale_bar(v: &ViewportSpec, d: f64, y: &dyn Fn(f64) -> f64) -> String {
-    let max_m = 40.0 * d / 1000.0;
-    let len_m = [0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 200.0, 500.0].iter().copied().filter(|l| *l <= max_m).last().unwrap_or(max_m);
-    let len_mm = len_m * 1000.0 / d;
-    let (bx, by) = (v.x + v.w - len_mm, v.y + v.h + 3.5);
-    let mut c = format!("0.5 w {:.2} {:.2} m {:.2} {:.2} l S\n", bx * PT, y(by), (bx + len_mm) * PT, y(by));
-    for k in 0..=4 {
-        let tx = bx + len_mm * k as f64 / 4.0;
-        c += &format!("{:.2} {:.2} m {:.2} {:.2} l S\n", tx * PT, y(by - 1.0), tx * PT, y(by + 1.0));
-    }
-    c += &format!("BT /F1 6 Tf {:.2} {:.2} Td ({} m) Tj ET\n", (bx + len_mm + 1.0) * PT, y(by + 1.0), len_m);
-    c
 }
 
 fn today() -> String {
@@ -770,57 +287,6 @@ fn today() -> String {
     let mo = if mp < 10 { mp + 3 } else { mp - 9 };
     let yr = yoe + era * 400 + i64::from(mo <= 2);
     format!("{yr:04}-{mo:02}-{d:02}")
-}
-
-fn write_pdf(path: &str, pw: f64, ph: f64, pages: &[Page]) -> Result<()> {
-    use flate2::{write::ZlibEncoder, Compression};
-    use std::io::Write;
-    let mut objs: Vec<Vec<u8>> = vec![Vec::new(), Vec::new()]; // 1 catalog, 2 pages: filled last
-    let font = |name: &str| format!("<< /Type /Font /Subtype /Type1 /BaseFont /{name} >>").into_bytes();
-    objs.push(font("Helvetica")); // 3
-    objs.push(font("Helvetica-Bold")); // 4
-    let mut kids = Vec::new();
-    for p in pages {
-        let mut xobj = String::new();
-        for (i, img) in p.images.iter().enumerate() {
-            let mut enc = ZlibEncoder::new(Vec::new(), Compression::default());
-            enc.write_all(img.as_raw())?;
-            let data = enc.finish()?;
-            let mut o = format!("<< /Type /XObject /Subtype /Image /Width {} /Height {} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode /Length {} >>\nstream\n", img.width(), img.height(), data.len()).into_bytes();
-            o.extend(&data);
-            o.extend(b"\nendstream");
-            objs.push(o);
-            xobj += &format!("/Im{} {} 0 R ", i + 1, objs.len());
-        }
-        let mut cs = format!("<< /Length {} >>\nstream\n", p.content.len()).into_bytes();
-        cs.extend(p.content.as_bytes());
-        cs.extend(b"endstream");
-        objs.push(cs);
-        let content = objs.len();
-        objs.push(format!("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {pw:.2} {ph:.2}] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> /XObject << {xobj}>> >> /Contents {content} 0 R >>").into_bytes());
-        kids.push(format!("{} 0 R", objs.len()));
-    }
-    objs[0] = b"<< /Type /Catalog /Pages 2 0 R >>".to_vec();
-    objs[1] = format!("<< /Type /Pages /Kids [{}] /Count {} >>", kids.join(" "), kids.len()).into_bytes();
-    let mut out: Vec<u8> = b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n".to_vec();
-    let mut offsets = Vec::new();
-    for (i, o) in objs.iter().enumerate() {
-        offsets.push(out.len());
-        out.extend(format!("{} 0 obj\n", i + 1).as_bytes());
-        out.extend(o);
-        out.extend(b"\nendobj\n");
-    }
-    let xref = out.len();
-    out.extend(format!("xref\n0 {}\n0000000000 65535 f \n", objs.len() + 1).as_bytes());
-    for o in &offsets {
-        out.extend(format!("{o:010} 00000 n \n").as_bytes());
-    }
-    out.extend(format!("trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n", objs.len() + 1).as_bytes());
-    if let Some(dir) = std::path::Path::new(path).parent() {
-        std::fs::create_dir_all(dir).ok();
-    }
-    std::fs::write(path, out)?;
-    Ok(())
 }
 
 /// The floors of a building: heights of big upward faces (slabs, floors,
@@ -860,7 +326,16 @@ pub fn floor_levels(m: &Model) -> Vec<f64> {
 /// A blueprint set: every floor's plan, then the four elevations, white on
 /// blue, at the largest true scale that fits the sheet.
 pub fn blueprint(m: &Model, path: &str, sheet: &str, project: &str, extra_notes: &[String]) -> Result<usize> {
+    let (pages, notes) = blueprint_specs(m, sheet, extra_notes)?;
+    write_sheets(m, path, sheet, project, pages, true, &notes)
+}
+
+/// The pages and notes of a blueprint set (what `blueprint` writes), before they're drawn.
+pub fn blueprint_specs(m: &Model, sheet: &str, extra_notes: &[String]) -> Result<(Vec<PageSpec>, Vec<String>)> {
     let (sw, sh) = sheet_mm(sheet)?;
+    // scales and the section's place come from the building, not the lawn and trees around it
+    let building = crate::environment::without(m);
+    let m = &*building;
     let Some((lo, hi)) = m.world_bounds() else { bail!("nothing to draw") };
     let size = hi - lo;
     let levels = floor_levels(m);
@@ -911,14 +386,11 @@ pub fn blueprint(m: &Model, path: &str, sheet: &str, project: &str, extra_notes:
             callouts: true,
             // markers for the four elevations (drawings n+1.. on sheet 2), on the main floor
             marks: if i == 0 { (0..4).map(|k| format!("{}/2", n + k + 1)).collect() } else { vec![] },
-            levels: vec![],
-            section: None,
-            section_mark: None,
-            camera: None,
             x: left + (i % cols) as f64 * cw + 4.0,
             y: top + (i / cols) as f64 * ch + 4.0,
             w: cw - 8.0,
             h: ch - 14.0,
+            ..Default::default()
         })
         .collect();
     // level datums: each floor, and the top of the building
@@ -999,7 +471,7 @@ pub fn blueprint(m: &Model, path: &str, sheet: &str, project: &str, extra_notes:
     if !ops.is_empty() {
         pages.push(PageSpec { title: "Door and window schedule".into(), table: crate::callouts::schedule(&ops, units, &levels), ..Default::default() });
     }
-    write_sheets(m, path, sheet, project, pages, true, &notes)
+    Ok((pages, notes))
 }
 
 fn thousands(n: i64) -> String {

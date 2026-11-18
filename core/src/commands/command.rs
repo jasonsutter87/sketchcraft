@@ -310,7 +310,7 @@ pub enum Command {
         #[serde(default)]
         notes: Vec<String>,
     },
-    /// Write drawing sheets as a PDF. With `pages` as numbers (sheet ids), or none: the saved sheets (all, or those).
+    /// Write drawing sheets as a PDF (or, for a `.svg` or `.dxf` path, one page of them). With `pages` as numbers (sheet ids), or none: the saved sheets (all, or those).
     /// With `pages` as descriptions (what `sheets` takes): a one-shot set that saves nothing. No saved sheets and no
     /// pages: your saved views on one sheet.
     ExportSheets {
@@ -327,6 +327,9 @@ pub enum Command {
         blueprint: Option<bool>,
         #[serde(default)]
         notes: Option<Vec<String>>,
+        /// a `.svg` or `.dxf` path writes one page of the set: which one, from 1 (default 1)
+        #[serde(default)]
+        page: Option<usize>,
     },
     /// A new empty drawing sheet in the model.
     SheetAdd {

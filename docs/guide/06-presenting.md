@@ -45,6 +45,12 @@ studies, exported as MP4.
 ## Drawings
 
 **File › Make blueprint (PDF)** and **Drawing sheets (PDF)** lay out views at
-true scale with a title block.
+true scale with a title block. Plans, elevations, sections and parallel 3D views are
+drawn as crisp vector lines with the hidden lines removed (add `"beyond": true` to a
+viewport in the `sheets` command to show them dashed), so they stay sharp at any size
+and print or open in a CAD program. Sheets come in A4 to A0, Letter, Tabloid, ARCH A to E
+and ANSI C to E; a scale is `1:100` or imperial like `1/4"=1'-0"`. Line weights are pens
+in paper millimeters (0.13 to 0.5), so they don't change with the scale. The `sheets`
+command writes a `.pdf` (every page), or one page as `.svg` or `.dxf` (`"page": 2`).
 
 Next: [Themes and workspaces](07-themes.md)

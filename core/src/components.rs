@@ -27,6 +27,10 @@ pub struct WEdge {
     pub a: DVec3,
     pub b: DVec3,
     pub soft: bool,
+    /// instance ids from the root down to the model that holds the edge (empty: the root)
+    pub path: std::sync::Arc<[Id]>,
+    /// the edge's two vertex ids there
+    pub v: [Id; 2],
 }
 
 impl Model {
@@ -149,11 +153,11 @@ impl Model {
 
     pub fn world_edges(&self) -> Vec<WEdge> {
         let mut out = Vec::new();
-        self.collect_edges(self, DMat4::IDENTITY, None, &Default::default(), &mut out, 0);
+        self.collect_edges(self, DMat4::IDENTITY, None, &Default::default(), &std::sync::Arc::from(Vec::new()), &mut out, 0);
         out
     }
 
-    fn collect_edges(&self, root: &Model, t: DMat4, owner: Option<Id>, scope: &BTreeMap<String, f64>, out: &mut Vec<WEdge>, depth: usize) {
+    fn collect_edges(&self, root: &Model, t: DMat4, owner: Option<Id>, scope: &BTreeMap<String, f64>, path: &std::sync::Arc<[Id]>, out: &mut Vec<WEdge>, depth: usize) {
         if depth > crate::nesting::MAX_NEST {
             return;
         }
@@ -183,6 +187,8 @@ impl Model {
                 a: t.transform_point3(self.p(e.a)),
                 b: t.transform_point3(self.p(e.b)),
                 soft: e.soft,
+                path: path.clone(),
+                v: [e.a, e.b],
             });
         }
         for (&iid, inst) in &self.instances {
@@ -194,8 +200,9 @@ impl Model {
                 if d.hidden {
                     continue;
                 }
+                let inner: std::sync::Arc<[Id]> = path.iter().copied().chain(std::iter::once(iid)).collect();
                 for p in &d.placements {
-                    def.model.collect_edges(root, t * *p, Some(owner.unwrap_or(iid)), &d.scope, out, depth + 1);
+                    def.model.collect_edges(root, t * *p, Some(owner.unwrap_or(iid)), &d.scope, &inner, out, depth + 1);
                     if out.len() >= crate::nesting::MAX_EXPANDED {
                         return;
                     }

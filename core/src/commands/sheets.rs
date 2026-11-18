@@ -404,13 +404,16 @@ impl Engine {
                 let orphans: Vec<&Id> = m.sheet_items.iter().filter(|(_, i)| i.sheet().is_none_or(|s| !m.sheets.contains_key(&s))).map(|(k, _)| k).collect();
                 json!({"sheets": sheets, "items": m.sheet_items.len(), "unsupported": unsupported, "orphans": orphans})
             }
-            Command::ExportSheets { path, format, sheet, project, pages, blueprint, notes } => {
-                if let Some(f) = format.as_deref().filter(|f| !f.eq_ignore_ascii_case("pdf")) {
-                    bail!("export_sheets writes pdf for now (got {f:?})");
+            Command::ExportSheets { path, format, sheet, project, pages, blueprint, notes, page } => {
+                if let Some(f) = format.as_deref().filter(|f| !matches!(f.to_ascii_lowercase().as_str(), "pdf" | "svg" | "dxf")) {
+                    bail!("export_sheets writes pdf, svg or dxf (got {f:?})");
                 }
-                let ext_ok = std::path::Path::new(&path).extension().is_some_and(|e| e.eq_ignore_ascii_case("pdf"));
-                if !ext_ok {
-                    bail!("export_sheets writes a .pdf file");
+                let ext = std::path::Path::new(&path).extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+                if !matches!(ext.as_str(), "pdf" | "svg" | "dxf") {
+                    bail!("export_sheets writes a .pdf (every page), or one page as .svg or .dxf");
+                }
+                if format.as_deref().is_some_and(|f| !f.eq_ignore_ascii_case(&ext)) {
+                    bail!("format {:?} doesn't match the .{ext} path", format.unwrap_or_default());
                 }
                 let specs: Vec<&PageSpec> = pages.iter().filter_map(|p| if let ExportPage::Spec(s) = p { Some(s) } else { None }).collect();
                 let saved: Vec<Id> = pages.iter().filter_map(|p| if let ExportPage::Saved(i) = p { Some(*i) } else { None }).collect();
@@ -422,7 +425,7 @@ impl Engine {
                 if !specs.is_empty() || (m.sheets.is_empty() && saved.is_empty()) {
                     // the one-shot set: nothing saved
                     let paper = sheet.unwrap_or_else(|| "a3".into());
-                    let n = crate::layout::write_sheets(m, &path, &paper, &project.unwrap_or_else(stem), specs.into_iter().cloned().collect(), blueprint.unwrap_or(false), &notes.unwrap_or_default())?;
+                    let n = crate::layout::write_sheets_page(m, &path, &paper, &project.unwrap_or_else(stem), specs.into_iter().cloned().collect(), blueprint.unwrap_or(false), &notes.unwrap_or_default(), true, page)?;
                     return Ok(json!({"path": path, "pages": n}));
                 }
                 // from the saved sheets, in their order (or the ids given, in the order given)
@@ -445,7 +448,7 @@ impl Engine {
                         let same = |a: &Paper, b: &Paper| (a.w_mm - b.w_mm).abs() < 0.5 && (a.h_mm - b.h_mm).abs() < 0.5;
                         let known = crate::layout::sheet_mm(&first.paper.name).ok().filter(|(w, h)| (w - first.paper.w_mm).abs() < 0.5 && (h - first.paper.h_mm).abs() < 0.5);
                         if known.is_none() {
-                            bail!("sheet {} is {} x {} mm ({}), a size the PDF writer can't print yet (it prints a4, a3, a2, letter or tabloid); give `sheet` to print it on one of those", chosen[0], first.paper.w_mm, first.paper.h_mm, if first.paper.name.is_empty() { "custom" } else { &first.paper.name });
+                            bail!("sheet {} is {} x {} mm ({}), not one of the standard sizes the writer knows (a4 to a0, letter, tabloid, arch a to e, ansi c to e); give `sheet` to print it on one of those", chosen[0], first.paper.w_mm, first.paper.h_mm, if first.paper.name.is_empty() { "custom" } else { &first.paper.name });
                         }
                         if let Some(odd) = chosen.iter().find(|id| !same(&m.sheets[*id].paper, &first.paper)) {
                             let o = &m.sheets[odd];
@@ -459,7 +462,7 @@ impl Engine {
                 let blueprint = blueprint.unwrap_or_else(|| first.fields.get("blueprint").is_some_and(|b| b == "true"));
                 let pages: Vec<PageSpec> = chosen.iter().map(|id| page_of(m, *id)).collect();
                 // saved sheets are drawn as they are: an empty one stays empty
-                let n = crate::layout::write_pages(m, &path, &paper, &project, pages, blueprint, &notes, false)?;
+                let n = crate::layout::write_sheets_page(m, &path, &paper, &project, pages, blueprint, &notes, false, page)?;
                 json!({"path": path, "pages": n, "paper": paper})
             }
             other => unreachable!("command routed to the wrong group: {other:?}"),
