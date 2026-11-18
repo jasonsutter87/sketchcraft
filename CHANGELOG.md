@@ -23,6 +23,21 @@ What changed in each SketchCraft release, newest first. The format follows
   (over 32,767 objects) are read correctly too. (part of #70)
 
 ### Added
+- **Lay out a sheet entirely by mouse.** Layout has a tool bar down the left of the paper: Select, Viewport, Line,
+  Polyline, Rectangle, Arc, Text, Dimension, Trim, Extend, Offset and Delete, each with a key (V, W, L, P, R, A, T, D,
+  X, E, O, K), its icon as the cursor, and a hint under the paper saying what to do next. Drag a frame with Viewport
+  and pick what it shows (a floor plan, an elevation, a 3D view or a saved scene). With Select, drag a view to move it
+  and its eight handles to resize it; arrow keys nudge it (Shift for a grid step), and the scale is set on the right.
+  Everything snaps, with a marker saying to what: the paper grid (5 mm, or your own size; it can be turned off), the
+  page's edges, margin and middle, the edges and middles of other views and the title block, the ends and middles of
+  lines, and the model's corners and middles. Dimensions attach to the model: click its points, keep clicking to make
+  a chain, Shift for a baseline set, and Enter or a double-click puts the line where the mouse is (Auto, Horizontal,
+  Vertical or Aligned at the top). Text: click and type; double-click text to change it. Trim shows in red what a click
+  would cut away (Shift extends instead), Extend shows where a line would run to, and Offset shows the copy and its
+  distance (or type one). Double-click the title block to type the project or the page's name on the page. Escape
+  cancels a step, every gesture is one Undo step, and it is all saved in the model. Everything on the page can be
+  reached with Tab and the arrow keys, with a label for screen readers. Agents get `sheet_text` (paper text) and
+  `preview: true` on `sheet_trim` and `sheet_extend`. (part of #9)
 - **A Layout workspace for drawing sheets.** A fifth workspace, Layout, beside Model, Arch, Design and Previz. Pages
   are on the left: add, duplicate, rename (double-click or F2) and delete them, and drag them into order (or the
   arrows, or Alt+Up and Alt+Down). Each is one Undo step. The page you pick is in the middle, drawn on paper exactly
