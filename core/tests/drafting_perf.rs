@@ -78,6 +78,13 @@ fn drafting_perf() {
     let mut f = build(size);
     let build_ms = ms(t);
     let mut got = Map::new();
+    // counter checks: all are reported with the timings, then fail the test (exact in both sizes)
+    let mut wrong: Vec<String> = Vec::new();
+    let mut expect = |ok: bool, what: String| {
+        if !ok {
+            wrong.push(what);
+        }
+    };
     got.insert("faces".into(), json!(f.faces));
     got.insert("fixture_ms".into(), json!(build_ms.round()));
     if full {
@@ -104,7 +111,7 @@ fn drafting_perf() {
     }
     got.insert("open_added_ms".into(), json!((median(t_with) - median(t_bare)).max(0.0)));
     let (mut e, _) = open(&with);
-    assert_eq!(e.drawings.stats().drawn, 0, "nothing is drawn at open");
+    expect(e.drawings.stats().drawn == 0, "nothing is drawn at open".into());
     let sheets: Vec<Id> = {
         let mut v: Vec<(i32, Id)> = e.model.sheets.iter().map(|(id, s)| (s.order, *id)).collect();
         v.sort();
@@ -131,11 +138,17 @@ fn drafting_perf() {
     let t = Instant::now();
     ok(&mut e, json!({"cmd": "export_sheets", "path": pdf}));
     got.insert("export_cold_ms".into(), json!(ms(t)));
-    assert_eq!(e.drawings.stats().drawn, 70, "a cold export draws each of the 70 viewports once");
+    let s = e.drawings.stats();
+    expect(s.drawn == 70, format!("a cold export draws each of the 70 viewports once ({} drawn)", s.drawn));
+    got.insert("kept_mb".into(), json!(e.drawings.bytes() as f64 / 1048576.0));
+    got.insert("kept_viewports".into(), json!(e.drawings.len()));
+    got.insert("hatches_made".into(), json!(s.hatch_made));
+    got.insert("hatches_kept".into(), json!(s.hatch_kept));
     let t = Instant::now();
     ok(&mut e, json!({"cmd": "export_sheets", "path": pdf}));
     got.insert("export_warm_ms".into(), json!(ms(t)));
-    assert_eq!(e.drawings.stats().drawn, 70, "a warm export draws nothing");
+    let s = e.drawings.stats();
+    expect(s.drawn == 70, format!("a warm export draws nothing ({} drawn, {} let go for memory)", s.drawn - 70, s.evicted));
     got.insert("pdf_mb".into(), json!(std::fs::metadata(&pdf).unwrap().len() as f64 / 1048576.0));
 
     // switching between pages already drawn
@@ -162,7 +175,7 @@ fn drafting_perf() {
     }
     e.drawings.wait();
     got.insert("commit_edit_ms".into(), json!(median(edits)));
-    assert_eq!(e.drawings.stats().dropped, 0, "paper edits drop no drawing");
+    expect(e.drawings.stats().dropped == 0, "paper edits drop no drawing".into());
 
     // moving one wall: exactly the viewports that see it are redrawn (30 of 70: see `drafting_cache`)
     let wall = *e.model.groups.iter().find(|(_, g)| g.name == "Wall I0-0a").unwrap().0;
@@ -171,7 +184,7 @@ fn drafting_perf() {
     ok(&mut e, json!({"cmd": "move", "ids": [wall], "by": [0.4, 0.0, 0.0]}));
     e.drawings.wait();
     let after_move = e.drawings.stats();
-    assert_eq!(after_move.dropped - before.dropped, 30, "moving one wall drops exactly the 30 viewports that see it");
+    expect(after_move.dropped - before.dropped == 30, format!("moving one wall drops exactly the 30 viewports that see it ({})", after_move.dropped - before.dropped));
     // the slowest of them, drawn one page at a time
     let stale: Vec<Id> = {
         let kept: std::collections::HashMap<Id, bool> = e.kept_viewports().into_iter().collect();
@@ -193,13 +206,17 @@ fn drafting_perf() {
     }
     e.drawings.wait();
     got.insert("wall_redraw_max_ms".into(), json!(worst));
-    assert_eq!(e.drawings.stats().drawn - after_move.drawn, 30, "and redrawn once each");
+    expect(e.drawings.stats().drawn - after_move.drawn == 30, format!("and redraws them once each ({})", e.drawings.stats().drawn - after_move.drawn));
     if let Some(r) = peak_rss_mb() {
         got.insert("peak_rss_mb".into(), json!(r));
     }
     std::fs::remove_dir_all(&dir).ok();
 
+    for w in &wrong {
+        println!("counter wrong: {w}");
+    }
     report(&got, full);
+    assert!(wrong.is_empty(), "counters:\n{}", wrong.join("\n"));
 }
 
 fn report(got: &Map<String, Value>, full: bool) {
@@ -229,6 +246,7 @@ fn report(got: &Map<String, Value>, full: bool) {
         }
     }
     table.push_str(&format!("| Faces / fixture build (ms) | {} / {} | | |\n", got["faces"], got["fixture_ms"]));
+    table.push_str(&format!("| Kept drawings (MB, viewports) / hatches made, reused | {:.0}, {} / {}, {} | | |\n", num("kept_mb"), got["kept_viewports"], got["hatches_made"], got["hatches_kept"]));
     table.push_str("| Pan and zoom an A1 page (fps) | not measured: the sheet editor (step 11) isn't built | 50 | |\n");
     println!("{}\n{table}", if full { "drafting_perf (full)" } else { "drafting_perf (small: no timing checks)" });
     if let Some(p) = std::env::var_os("GITHUB_STEP_SUMMARY") {

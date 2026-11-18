@@ -26,7 +26,7 @@ use std::sync::{Arc, Mutex};
 /// "UP" and the reach of short text all stay within it.
 pub const PAD_MM: f64 = 10.0;
 /// What the drawings of all viewports may hold (estimated bytes) before the least recently used are let go.
-pub const DEFAULT_BUDGET: usize = 512 << 20;
+pub const DEFAULT_BUDGET: usize = 1 << 30;
 /// What the hatch results may hold (segments) before they are let go.
 pub const HATCH_BUDGET_SEGMENTS: usize = 4_000_000;
 

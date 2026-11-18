@@ -228,7 +228,8 @@ pub struct Group {
     /// 0 to 1, how much of the group shows (1: all of it). Drawn as one transparency group, so lines
     /// overlapping inside it don't darken each other.
     pub opacity: f64,
-    pub children: Vec<Prim>,
+    /// shared: a kept drawing placed on a page is not copied
+    pub children: Arc<Vec<Prim>>,
 }
 
 /// A hatched region (design §3.3). PDF and SVG clip to `rings` and draw `lines`; DXF writes a native `HATCH`
@@ -415,7 +416,7 @@ impl Cv {
         f(&mut inner);
         let rect = [top_left[0], top_left[1], w / PT, h / PT];
         let children = cull(inner.out, &rect);
-        self.out.push(Prim::Group(Group { clip: Some(rect), alt: None, opacity: 1.0, children }));
+        self.out.push(Prim::Group(Group { clip: Some(rect), alt: None, opacity: 1.0, children: Arc::new(children) }));
     }
 }
 
