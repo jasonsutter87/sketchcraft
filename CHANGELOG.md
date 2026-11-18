@@ -17,6 +17,17 @@ What changed in each SketchCraft release, newest first. The format follows
   SubD, the arrows and the measurement digits can't be taken. The ? sheet, tool tips,
   the command search and the Learn lessons show your own keys. (#60)
 
+- **Drawing sheets are saved in the model file** (design step 1 of 0.3.8 "Drafting": the data only; drawing them
+  and editing them come next). A model can hold sheets (page records: name, number, paper size, order), and
+  viewports and other things on them as flat items, so Undo works one item at a time, even across another
+  program's save. A viewport keeps its own anchor, scale, rotation and crop; nothing re-fits it when the model changes.
+  New commands: `sheet_add`, `sheet_edit`, `sheet_delete`, `viewport_add`, `viewport_edit`, `sheet_item_delete`,
+  `sheets_info`. `sheets` now creates saved sheets from its page description, and `export_sheets` writes the PDF
+  (it still takes the old one-shot description). A model with sheets is saved as format 2 and
+  needs `sheets`, so SketchCraft 0.3.7 opens it read-only instead of dropping them; a model without sheets is still
+  format 1. Kinds of paper item a newer version adds are kept as they are and written back. Agents and plugins may
+  edit sheets (at most 120 sheets, and 5,000 items in one command); only the person may issue a set. (#61)
+
 ## [0.3.7] - 2026-11-17
 
 ### Added
