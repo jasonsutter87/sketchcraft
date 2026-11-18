@@ -217,7 +217,7 @@ export function ShortcutEditor({ onClose }: { onClose: () => void }) {
               <span>
                 <kbd>{formatCombo(clash.combo)}</kbd> is already <b>{nameOf(clash.holder)}</b>.
               </span>
-              <button className="btn small primary" onClick={() => (set(clash.id, clash.combo, "swap"), setClash(null))} title={`${nameOf(clash.holder)} gets ${res.bindings[clash.id] ? formatCombo(res.bindings[clash.id]) : "no key"}`}>
+              <button className="btn small" onClick={() => (set(clash.id, clash.combo, "swap"), setClash(null))} title={`${nameOf(clash.holder)} gets ${res.bindings[clash.id] ? formatCombo(res.bindings[clash.id]) : "no key"}`}>
                 Swap
               </button>
               <button className="btn small" onClick={() => (set(clash.id, clash.combo, "clear"), setClash(null))}>
