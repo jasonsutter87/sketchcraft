@@ -171,8 +171,8 @@ impl Model {
     }
 
     /// Visit the root model and every component definition placed in it: `f(path, model, to_world, depth)`.
-    fn walk_geometry(&self, f: &mut dyn FnMut(&[Id], &Model, DMat4, usize)) {
-        fn go(root: &Model, m: &Model, path: &mut Vec<Id>, t: DMat4, depth: usize, budget: &mut usize, f: &mut dyn FnMut(&[Id], &Model, DMat4, usize)) {
+    fn walk_geometry(&self, f: &mut Visit) {
+        fn go(root: &Model, m: &Model, path: &mut Vec<Id>, t: DMat4, depth: usize, budget: &mut usize, f: &mut Visit) {
             if depth > crate::nesting::MAX_NEST || *budget == 0 {
                 return;
             }
@@ -309,6 +309,8 @@ impl Model {
     }
 }
 
+type Visit<'a> = dyn FnMut(&[Id], &Model, DMat4, usize) + 'a;
+
 /// The result of `Model::measure`.
 #[derive(Clone, Debug)]
 pub struct Measure {
@@ -379,7 +381,7 @@ impl Model {
             .iter()
             .filter_map(|(id, i)| if let SheetItem::Known(ItemKind::Viewport(v)) = &**i { (v.sheet == d.sheet).then_some((v.z, *id, v)) } else { None })
             .collect();
-        vps.sort_by(|a, b| (b.0, b.1).cmp(&(a.0, a.1)));
+        vps.sort_by_key(|a| std::cmp::Reverse((a.0, a.1)));
         if let Some(want) = d.viewport {
             let (_, id, v) = vps.into_iter().find(|(_, id, _)| *id == want)?;
             return viewport_proj(v).map(|p| (id, v.clone(), p));
