@@ -135,6 +135,8 @@ impl Model {
             return;
         }
         let mirrored = t.determinant() < 0.0;
+        // each group's innermost tagged owner, worked out once per group (the tag shared, not copied per face)
+        let mut by_group: HashMap<Option<Id>, Option<(Id, std::sync::Arc<str>)>> = HashMap::new();
         for (&id, f) in &self.faces {
             if out.len() >= crate::nesting::MAX_EXPANDED {
                 return;
@@ -146,7 +148,10 @@ impl Model {
             let outer = tp(&f.outer);
             let normal = geom::newell(&outer);
             // the innermost tagged owner: the face's group (or one around it) here, else what is around this model
-            let tagged = self.tagged_group(f.group).map(|(g, tag)| (owner.unwrap_or(g), tag)).or_else(|| inh.cloned());
+            let tagged = by_group
+                .entry(f.group)
+                .or_insert_with(|| self.tagged_group(f.group).map(|(g, tag)| (owner.unwrap_or(g), tag)).or_else(|| inh.cloned()))
+                .clone();
             let (cut, tag) = match tagged {
                 Some((c, tag)) => (c, Some(tag)),
                 None => (if owner.is_none() { f.group.unwrap_or(id) } else { owner.unwrap_or(id) }, None),
