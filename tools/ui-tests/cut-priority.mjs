@@ -159,6 +159,21 @@ c = await colorAt([2.5, 1, 1.2], 'slab-wins');
 check(blue(c), `the overlap is now the slab's blue (${c})`);
 check(((await slabTris()) ?? 99) <= 2 + 1e-6, `the slab's cap reaches back to its own edge (x=${await slabTris()})`);
 
+// ---- undo again, on a reorder that changes BOTH numbers --------------------------------------------------------
+// (the first undo check above moves one tag only, which is a single command and never needed a batch; this swap
+// sends two commands inside begin_batch/end_batch, so one Ctrl+Z only works if the batch really is one step)
+pr = await prios();
+check(pr.Slab > pr.Wall && pr.Slab !== 0 && pr.Wall === 0, `the drag changed both numbers (${JSON.stringify(pr)})`);
+await p.locator('.viewport canvas').click({ position: { x: 5, y: 5 } }).catch(() => {});
+await p.keyboard.press('Control+z');
+await wait(1000);
+pr = await prios();
+check(pr.Wall > 0 && pr.Slab === 0, `one Ctrl+Z takes the two-number swap back whole (${JSON.stringify(pr)})`);
+await p.keyboard.press('Control+Shift+z');
+await wait(1000);
+pr = await prios();
+check(pr.Slab > pr.Wall && pr.Wall === 0, `one Ctrl+Shift+Z does it again whole (${JSON.stringify(pr)})`);
+
 // ---- the keyboard: Alt+ArrowDown on the grip ---------------------------------------------------------------
 await p.getByLabel('Move tag Slab: Alt+Up or Alt+Down').focus();
 await p.keyboard.press('Alt+ArrowDown');

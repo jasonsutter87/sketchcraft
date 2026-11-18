@@ -87,6 +87,7 @@ DRAFTING RECIPE (a dimensioned, hatched plan set): 1 inspect: sketchcraft_info, 
 - guide {point, direction?}; clear_guides; save_view {name, eye, target, fov?}; delete_view {name}
 INSPECT / FILES
 - pick {at, facing?}: face under a point; faces {group?, facing?}; info; undo; redo; new
+- begin_batch / end_batch {id?}: everything between them is ONE undo step (one answer, one Undo). Don't nest; end what you begin (one left open is closed after 150 s). If the person edits meanwhile your batch is closed there and what you did so far stays one step.
 - save/open {path} (.sketchcraft); export_obj/export_glb {path}; export_stl {path, scale?}; import_obj {path, up?="y", scale?, at?}
 - render {out, view?: iso|front|back|left|right|top|<saved view>, camera?, width?, height?}
 Tips: build each house in its own group; pick faces by point after pulls; check your work with sketchcraft_render."#;

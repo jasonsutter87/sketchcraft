@@ -179,7 +179,9 @@ const FILES: &[&str] = &[
 /// or by the person's own edit) would be stepping back through the *person's* history. An agent's undo is its own
 /// process's history of its own steps (a separate engine, per-client undo: it is value-checked against the file, so it
 /// can't take back the person's or another program's work), and an agent that makes a mistake has no other way back.
-const AGENT_EXTRA: &[&str] = &["undo", "redo"];
+/// `begin_batch`/`end_batch` are the agent's too: one answer's several commands become ONE undo step (a plugin's run is
+/// batched by the app for it, so it never opens one itself).
+const AGENT_EXTRA: &[&str] = &["undo", "redo", "begin_batch", "end_batch"];
 
 // Everything else (plugins, plugin_enable, install_plugin, remove_plugin,
 // save_text, reveal, skins, save_skin, video_frame, video_finish) is for the

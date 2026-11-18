@@ -32,7 +32,9 @@ export function CutPriority({ tags, styles, run }: { tags: string[]; styles: Rec
     const entries = Object.entries(changes);
     if (!entries.length) return;
     // one undo step for the whole reorder
-    const b = entries.length > 1 ? await run({ cmd: "begin_batch" }) : null;
+    // (a batch the engine refused to open is not ended: the commands then run one by one)
+    const opened = entries.length > 1 ? await run({ cmd: "begin_batch" }) : null;
+    const b = opened && opened.ok !== false ? opened : null;
     let fail = "";
     for (const [t, p] of entries) {
       const r = await run(priorityCommand(t, p));

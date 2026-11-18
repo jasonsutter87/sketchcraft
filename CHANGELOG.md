@@ -7,6 +7,12 @@ What changed in each SketchCraft release, newest first. The format follows
 ## [Unreleased]
 
 ### Fixed
+- **Changes the app groups together now undo in one step.** When the app sent several changes as one group (reordering
+  the intersection priorities of several tags, for example), the first change closed the group, so Undo had to be
+  pressed once per change. A group of changes from one source is now one Undo and one Redo. Groups stay apart by
+  source: an agent's group, the app's own group and a plugin's run never mix, a group that is left open is closed on its
+  own, and opening a group inside a group or closing one that isn't open now says so. Agents can group their commands
+  too, so a whole AI answer can be taken back with a single Undo while your own edits stay their own steps.
 - **SketchUp 2013 to 2020 files with curves, pictures or text labels import again.** A SketchUp 2016 model (the
   "SpeedyBee" file from #1) was refused as damaged because SketchCraft stopped at the control points a Bézier curve
   keeps in its attributes; it also could not read the model's pictures (now placed like components) or its text labels
