@@ -78,7 +78,7 @@ await wait(600);
 await p.getByLabel('Hatch line weight of tag Walls').selectOption('0.35');
 await wait(600);
 const scaleBox = p.getByLabel('Hatch scale of tag Walls');
-await scaleBox.fill('2');
+await scaleBox.fill('50');
 await scaleBox.press('Enter');
 await wait(600);
 const angleBox = p.getByLabel('Hatch angle of tag Walls');
@@ -88,7 +88,7 @@ await wait(600);
 await p.getByLabel('Hatch scale mode of tag Walls').selectOption('model');
 await wait(700);
 h = await hatchOf();
-check(h?.color === '#cc0000' && h?.weight_mm === 0.35 && h?.scale === 2 && h?.angle === 30 && h?.scale_mode === 'model', `colour, weight, scale, angle and scale mode all reach the model (${JSON.stringify(h)})`);
+check(h?.color === '#cc0000' && h?.weight_mm === 0.35 && h?.scale === 50 && h?.angle === 30 && h?.scale_mode === 'model', `colour, weight, scale, angle and scale mode all reach the model (${JSON.stringify(h)})`);
 const stroke = await p.locator('.hatch-editor svg.hatch-swatch path').first().getAttribute('stroke');
 check(stroke === '#cc0000', `the preview draws in the hatch colour (${stroke})`);
 
@@ -96,7 +96,7 @@ check(stroke === '#cc0000', `the preview draws in the hatch colour (${stroke})`)
 await scaleBox.fill('-4');
 await scaleBox.press('Enter');
 await wait(400);
-check((await hatchOf())?.scale === 2 && (await scaleBox.inputValue()) === '2', 'a scale out of range goes back to the one set');
+check((await hatchOf())?.scale === 50 && (await scaleBox.inputValue()) === '50', 'a scale out of range goes back to the one set');
 
 // ---- on screen: the section's cut walls show the hatch ------------------------------------------------
 await pageExec(p, { cmd: 'section_plane', origin: [0, 0, 1.2], normal: [0, 0, -1] });
