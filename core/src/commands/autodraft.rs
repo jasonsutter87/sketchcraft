@@ -23,6 +23,8 @@ const MAX_POINTS: usize = 5_000;
 const STOP_TOL: f64 = 0.015;
 /// Paper mm between dimension strings stacked out from a face.
 const TIER_MM: f64 = 7.0;
+/// The shortest stretch of cut (metres) the interior strings take for a wall's face.
+const WALL_FACE: f64 = 0.45;
 
 /// A vertex a dimension could attach to: where it is in the world, the instance path down to it, its id.
 #[derive(Clone, Debug)]
@@ -265,7 +267,7 @@ impl Engine {
             Side::East => DVec3::new(x1, (y0 + y1) / 2.0, floor_z),
         };
         // the first string clears the door and window tags (0.5 m out); each further one is a tier beyond
-        let first = (500.0 / v.scale + 5.0).max(8.0);
+        let first = (500.0 / v.scale + 8.0).max(10.0);
         let mut wants: Vec<Want> = Vec::new();
         let mut empty: Vec<Value> = Vec::new();
         let (chains, _) = crate::callouts::auto_chains(&bm, &ops, floor_z, outline);
@@ -289,10 +291,11 @@ impl Engine {
                         for ring in std::iter::once(&r.outer).chain(r.holes.iter()) {
                             for i in 0..ring.len() {
                                 let (a, b) = (ring[i], ring[(i + 1) % ring.len()]);
-                                if (a.x - b.x).abs() < 1e-3 && (a.y - b.y).abs() > 0.05 {
+                                // a wall's face runs a way (a door's jamb, a frame or a post is shorter than this)
+                                if (a.x - b.x).abs() < 1e-3 && (a.y - b.y).abs() > WALL_FACE {
                                     xs.push(a.x);
                                 }
-                                if (a.y - b.y).abs() < 1e-3 && (a.x - b.x).abs() > 0.05 {
+                                if (a.y - b.y).abs() < 1e-3 && (a.x - b.x).abs() > WALL_FACE {
                                     ys.push(a.y);
                                 }
                             }
@@ -462,19 +465,36 @@ impl Engine {
 /// its foot, and the guide points standing on the floor. Returns chains along x and along y (one anchor per distinct
 /// position, in order).
 fn grid_points(m: &Model, floor_z: f64, cut_z: f64) -> (Vec<Anchor>, Vec<Anchor>) {
-    let is_column = |id: Id| {
+    let named = |id: Id| {
         let name = m.groups.get(&id).map(|g| g.name.clone()).or_else(|| m.instances.get(&id).map(|i| if i.name.is_empty() { m.definitions.get(&i.def).map(|d| d.name.clone()).unwrap_or_default() } else { i.name.clone() })).unwrap_or_default();
         m.classes.get(&id).is_some_and(|c| c == "IfcColumn") || name.to_ascii_lowercase().contains("column")
+    };
+    // the column an edge belongs to: a group around it (a root edge's `owner` is the edge itself), or a placement
+    let column_of = |e: &crate::components::WEdge| -> Option<Id> {
+        if !e.path.is_empty() {
+            return e.path.iter().copied().find(|i| named(*i));
+        }
+        let mut g = m.edges.get(&e.owner)?.group;
+        let mut hops = 0;
+        while let Some(id) = g {
+            if named(id) {
+                return Some(id);
+            }
+            g = m.groups.get(&id)?.parent;
+            hops += 1;
+            if hops > 64 {
+                return None;
+            }
+        }
+        None
     };
     // the corners at each column's foot
     let mut feet: BTreeMap<Id, Vec<Cand>> = BTreeMap::new();
     for e in m.world_edges() {
-        if !is_column(e.owner) {
-            continue;
-        }
+        let Some(col) = column_of(&e) else { continue };
         for (w, v) in [(e.a, e.v[0]), (e.b, e.v[1])] {
             if w.z >= floor_z - 0.05 && w.z <= cut_z {
-                let list = feet.entry(e.owner).or_default();
+                let list = feet.entry(col).or_default();
                 if !list.iter().any(|c| c.v == v && c.path == *e.path) {
                     list.push(Cand { w, path: e.path.to_vec(), v });
                 }

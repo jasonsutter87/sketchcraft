@@ -813,7 +813,9 @@ pub(super) fn viewport_to_spec(v: &Viewport) -> ViewportSpec {
     // a perspective view has no scale to draw at (the PDF takes a scale to mean parallel and to scale): fitted
     let perspective = matches!(v.view, ViewKind::View3d { parallel: false, .. });
     let fit = l("fit") == json!(true);
-    let mut s = ViewportSpec { x: v.rect_mm[0], y: v.rect_mm[1], w: v.rect_mm[2], h: v.rect_mm[3], label: (!v.label.is_empty()).then(|| v.label.clone()), scale: (!fit && !perspective).then(|| scale_text(v.scale)), callouts: l("callouts") == json!(true), opacity: (v.opacity < 1.0).then_some(v.opacity), ..Default::default() };
+    // a scaled drawing stays pinned to its saved anchor (as its dimensions are, through `anchors::viewport_proj`);
+    // a fitted or perspective one is fitted to what it shows each time
+    let mut s = ViewportSpec { anchor: (!fit && !perspective).then_some(v.anchor), x: v.rect_mm[0], y: v.rect_mm[1], w: v.rect_mm[2], h: v.rect_mm[3], label: (!v.label.is_empty()).then(|| v.label.clone()), scale: (!fit && !perspective).then(|| scale_text(v.scale)), callouts: l("callouts") == json!(true), opacity: (v.opacity < 1.0).then_some(v.opacity), ..Default::default() };
     // `dimension_auto` put attached dimensions where the worked-out ones were
     s.no_auto_dims = l("auto_dims") == json!(false);
     s.marks = serde_json::from_value(l("marks")).unwrap_or_default();

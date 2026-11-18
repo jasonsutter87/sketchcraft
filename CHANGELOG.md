@@ -17,6 +17,17 @@ What changed in each SketchCraft release, newest first. The format follows
   (over 32,767 objects) are read correctly too. (part of #70)
 
 ### Added
+- **Ask an agent to draw the sheets: lay out a permit set, dimension the plans, hatch, check.** `layout_preset`
+  makes a permit set of ordinary saved sheets in one Undo step: a cover with the sheet index and a 3D view, a plan
+  per floor, the four elevations, a section through the stairs (when there are stairs) and the door and window
+  schedule, numbered G-001, A-101, A-201, A-301 and A-601, on the paper and at the scale you ask for. It refuses an
+  empty model. `dimension_auto` puts attached chain dimensions on a plan, worked out the way the blueprint's are:
+  the overall width and depth, a chain through both sides of every door and window, every wall face across the
+  building, and column centres and guide points as grids. They follow the walls when you move them, a re-run never
+  doubles them, and dimensions it didn't make are never touched. `viewport_points` lists what a drawing can be
+  dimensioned to, with where each point is on the paper, and `sheet_render` (or the agent's render tool with a
+  sheet) shows a sheet as a picture so an agent can look at its own work. The agent help now has a short drafting
+  recipe: inspect, lay out, dimension, hatch by tag, render to check, fix. Each step is one Undo. (part of #10)
 - **Line work on sheets: draw, trim, extend and offset.** A sheet can hold plain lines, polylines, arcs and
   rectangles (`sheet_line`: a pen weight in paper millimetres, a colour, optional dashes), drawn in the PDF, SVG and
   DXF. `sheet_trim` cuts away the span you pick between the nearest places other things cross it: the other line work
