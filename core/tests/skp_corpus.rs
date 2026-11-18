@@ -68,8 +68,9 @@ struct Entry {
 
 /// What each file must read as. These are what the reader gives today for files SketchUp wrote, checked against
 /// the model each file holds; a change here is a change in what we import, so it should be deliberate.
-const CORPUS: [Entry; 5] = [
+const CORPUS: [Entry; 6] = [
     Entry { file: "v06-extruded-box.skp", version: "{6.0.1}", faces: 6, components: 1, placed: 1 },
+    Entry { file: "v06-screen-text.skp", version: "{6.0.1}", faces: 0, components: 0, placed: 0 },
     Entry { file: "v13-extruded-circle.skp", version: "{13.0.1}", faces: 26, components: 1, placed: 1 },
     Entry { file: "v20-model.skp", version: "{20.2.160}", faces: 63, components: 1, placed: 1 },
     Entry { file: "v21-components.skp", version: "{21.0.0}", faces: 2453, components: 12, placed: 2 },
@@ -179,4 +180,29 @@ fn corrupted_files_never_panic_hang_or_balloon() {
     assert!(cases >= 500);
     // corruption that leaves everything readable, or everything refused, means the corruptions aren't doing their job
     assert!(errors > 0 && ok > 0, "{ok} read, {errors} refused");
+}
+
+/// SketchUp 6's `screentext.skp`: a model holding only a screen text ("Screentext", fixed to the window). It reads; the
+/// text is found and counted, and named in the summary, but not placed (a screen text has no point in the model).
+#[test]
+fn a_screen_text_is_read_counted_and_named_not_placed() {
+    let mut m = Model::default();
+    let s = sketchcraft::skp::import(&mut m, &read("v06-screen-text.skp"), DVec3::ZERO, "t").expect("reads");
+    assert_eq!((s.dimensions, s.labels, s.skipped_annotations, s.screen_texts), (0, 0, 1, 1));
+    assert_eq!(s.skipped_labels, ["Screentext"]);
+    assert!(m.annotations.is_empty());
+}
+
+/// Every cut through the screen text's record (and a cut every 64 bytes elsewhere) reads or is refused, never panics.
+#[test]
+fn every_truncation_of_the_screen_text_file_is_safe() {
+    let d = read("v06-screen-text.skp");
+    let t = Instant::now();
+    for n in (0..d.len()).filter(|n| n % 64 == 0 || (4100..4500).contains(n)) {
+        let mut m = Model::default();
+        if let Ok(s) = sketchcraft::skp::import(&mut m, &d[..n], DVec3::ZERO, "t") {
+            assert!(s.skipped_annotations <= 1 && m.annotations.is_empty(), "cut at {n}");
+        }
+    }
+    assert!(t.elapsed() < Duration::from_secs(60), "{:?}", t.elapsed());
 }

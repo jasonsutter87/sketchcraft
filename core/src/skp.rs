@@ -665,7 +665,7 @@ impl<'a> Reader<'a> {
                         }
                     }
                 }
-                Obj::Instance { .. } | Obj::Dim { .. } => items += 1,
+                Obj::Instance { .. } | Obj::Dim { .. } | Obj::Text { .. } => items += 1,
                 _ => {}
             }
         }
@@ -1257,6 +1257,27 @@ pub fn parse(d: &[u8]) -> Result<SkpFile> {
     }
     if gave_up() {
         bail!("this SketchUp file looks damaged: SketchCraft couldn't make sense of its contents");
+    }
+    if file.definitions.is_empty() && file.roots.is_empty() {
+        // a model with no geometry at all may still hold annotations (SketchUp's own `screentext.skp` is one screen
+        // text): its own list then starts by declaring the annotation's class. Only looked for when nothing else was
+        // found, so a definition's list that starts with a text can never be taken for the model's own.
+        let annotation_tag = |i: usize| -> bool {
+            let n = d.get(i + 4..i + 6).map(|b| u16::from_le_bytes([b[0], b[1]]) as usize).unwrap_or(0);
+            d.get(i..i + 2) == Some(&[0xFF, 0xFF]) && d.get(i + 6..i + 6 + n).is_some_and(|name| matches!(name, b"CText" | b"CDimensionLinear"))
+        };
+        let mut i = 0x100;
+        while i + 12 < d.len() && file.roots.len() < 16 && !gave_up() && !out_of_time() {
+            let n = u32::from_le_bytes(d[i..i + 4].try_into().unwrap());
+            if (1..=10_000).contains(&n) && annotation_tag(i + 4) {
+                if let Some((r, items, _)) = try_bases(&known, i + 4, n, &mut (1..8192)) {
+                    file.roots.push(resolve(&r, &items));
+                    i = r.p.max(i + 1);
+                    continue;
+                }
+            }
+            i += 1;
+        }
     }
     if file.definitions.is_empty() && file.roots.is_empty() {
         bail!("no geometry found in this SketchUp file");
