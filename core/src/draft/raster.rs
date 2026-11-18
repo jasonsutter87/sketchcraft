@@ -55,7 +55,7 @@ impl Canvas {
                     return;
                 }
                 let a = alpha * g.opacity.clamp(0.0, 1.0);
-                for c in &g.children {
+                for c in g.children.iter() {
                     self.prim(c, clip, a);
                 }
             }
