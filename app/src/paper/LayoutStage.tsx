@@ -8,7 +8,7 @@ import { PaperView } from "./PaperView";
 import { paperItems } from "./items";
 import { viewportsOf } from "./pages";
 import { GRID_DEFAULT } from "./snap";
-import { iconSvg, PAPER_TOOL_INFO, TOOL_GROUPS, type DimChoice, type PaperTool } from "./tools";
+import { PAPER_TOOL_INFO, TOOL_GROUPS, type DimChoice, type PaperTool } from "./tools";
 import type { LayoutState } from "./uselayout";
 import type { EditorOpts } from "./editor";
 
@@ -39,8 +39,11 @@ function PaperToolbar({ tool, setTool }: { tool: PaperTool; setTool: (t: PaperTo
                 aria-keyshortcuts={info.key.toUpperCase()}
                 title={`${info.name} (${info.key.toUpperCase()}): ${info.tip}`}
                 onClick={() => setTool(t)}
-                dangerouslySetInnerHTML={{ __html: iconSvg(t, 20, "currentColor") }}
-              />
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d={info.icon} />
+                </svg>
+              </button>
             );
           })}
         </div>

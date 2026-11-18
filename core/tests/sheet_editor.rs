@@ -225,9 +225,8 @@ fn sheets_info_says_where_a_dimension_is_on_the_paper() {
 #[test]
 fn agents_and_plugins_may_write_text_and_preview() {
     let agent = Caller::Mcp(Workspace::anywhere());
-    for c in ["sheet_text"] {
-        assert!(permits(&agent, c) && permits(&Caller::Plugin, c) && permits(&Caller::Ui, c), "{c}");
-    }
+    let c = "sheet_text";
+    assert!(permits(&agent, c) && permits(&Caller::Plugin, c) && permits(&Caller::Ui, c), "{c}");
     assert!(vet(&agent, &mut json!({"cmd": "sheet_text", "sheet": 1, "at_mm": [1, 1], "text": "x"})).is_ok());
     let (mut e, s) = sheet();
     let r = e.exec_json_as(&agent, &json!({"cmd": "sheet_text", "sheet": s, "at_mm": [10, 10], "text": "by an agent"}).to_string());

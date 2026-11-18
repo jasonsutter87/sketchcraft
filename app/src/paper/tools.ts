@@ -54,11 +54,6 @@ export const TOOL_GROUPS: PaperTool[][] = [["select", "viewport"], ["line", "pol
 
 export const toolForKey = (key: string): PaperTool | null => PAPER_TOOLS.find((t) => PAPER_TOOL_INFO[t].key === key.toLowerCase()) ?? null;
 
-/** The tool's icon as an SVG document (for the cursor and the buttons). */
-export function iconSvg(tool: PaperTool, size = 24, stroke = "#111"): string {
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="${stroke}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="${PAPER_TOOL_INFO[tool].icon}"/></svg>`;
-}
-
 /**
  * The cursor for a tool: a crosshair with the tool's icon beside it (white under black, so it shows on paper and on
  * the desk). Select uses the normal arrow.
