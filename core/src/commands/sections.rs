@@ -5,8 +5,27 @@ use super::*;
 
 /// On screen, a paper-scaled hatch is drawn as on a 1:50 drawing (the model view has no paper).
 pub const SCREEN_HATCH_SCALE: f64 = 50.0;
-/// Most hatch segments one `section` answer carries (the rest of the hatched regions get a tint).
+/// Most hatch segments one `section` answer carries as lines (only patterns the app's shader can't draw are sent as
+/// lines; the rest of those regions get a tint).
 const SCREEN_HATCH_SEGMENTS: usize = 60_000;
+/// The most line families, and dashes per family, the app's hatch shader draws (`app/src/viewport/hatchshader.ts`).
+pub const SHADER_FAMILIES: usize = 16;
+pub const SHADER_DASHES: usize = 16;
+
+/// A tag's hatch placed on the cut plane for the app's shader: its families in the plane's millimetres (from
+/// `cut.origin` along `cut.u` and `cut.v`), as `screen_hatch` would generate them. None: no such pattern, or more
+/// families or dashes than the shader takes (the lines are sent instead).
+fn shader_hatch(d: &crate::drafting::Drafting, u: &crate::drafting::HatchUse) -> Option<Vec<crate::draft::hatch::Placed>> {
+    use crate::draft::hatch;
+    let p = crate::draft::pat::lookup(d, &u.pattern)?;
+    let k = match u.scale_mode {
+        crate::drafting::ScaleMode::Paper => hatch::scale_k(u, 1.0) * SCREEN_HATCH_SCALE,
+        crate::drafting::ScaleMode::Model => hatch::scale_k(u, 1.0),
+    };
+    let fams = hatch::place(&p, k, if u.angle.is_finite() { u.angle } else { 0.0 });
+    let fits = !fams.is_empty() && fams.len() <= SHADER_FAMILIES && fams.iter().all(|f| f.dash.len() <= SHADER_DASHES && f.angle.is_finite() && f.base.iter().chain(&f.offset).chain(&f.dash).all(|v| v.is_finite()));
+    fits.then_some(fams)
+}
 
 /// The on-screen hatch of a cut region whose tag has one: segments in world metres on the cut plane.
 fn screen_hatch(d: &crate::drafting::Drafting, u: &crate::drafting::HatchUse, cut: &crate::section::Cut, outer: &[DVec3], holes: &[Vec<DVec3>], budget: usize) -> crate::draft::hatch::Hatched {
@@ -41,9 +60,12 @@ impl Engine {
                     std::fs::write(p, text)?;
                 }
                 // fills as triangles, ready to draw, by each region's tag cut style (design §3.4): the default
-                // poché in `fill`; a tag's own solid colour in `solid`; paper under a tag's hatch in `hatchFill`, whose
-                // lines come per tag (world metres, on the plane); nothing for a tag whose cut fill is none. A tag
-                // with its own outline (weight or colour) lists its regions' rings in `outlines`.
+                // poché in `fill`; a tag's own solid colour in `solid`; a tag's hatch in `hatches` (its triangles and
+                // its pattern placed on the plane, which the app's shader draws at the hatch's weight, with no limit on
+                // lines); nothing for a tag whose cut fill is none. A pattern the shader can't take (over 16 families
+                // or dashes) comes as lines instead: paper under it in `hatchFill`, its lines per tag in `hatch` (world
+                // metres, on the plane). A tag with its own outline (weight or colour) lists its regions' rings in
+                // `outlines`.
                 use crate::drafting::CutFill;
                 let mut fill: Vec<f64> = Vec::new();
                 let mut paper: Vec<f64> = Vec::new();
@@ -52,6 +74,7 @@ impl Engine {
                 let mut solid: std::collections::BTreeMap<String, (String, Vec<f64>)> = Default::default();
                 let mut outlines: std::collections::BTreeMap<String, (f64, String, Vec<f64>)> = Default::default();
                 let mut open: std::collections::BTreeSet<String> = Default::default();
+                let mut shaded: std::collections::BTreeMap<String, (Value, Vec<f64>)> = Default::default();
                 let mut budget = SCREEN_HATCH_SEGMENTS;
                 let tri_list = |tris: Vec<[DVec3; 3]>, to: &mut Vec<f64>| to.extend(tris.iter().flat_map(|t| t.iter().flat_map(|p| [p.x, p.y, p.z])));
                 for r in &cut.regions {
@@ -72,6 +95,14 @@ impl Engine {
                         }
                     }
                     match (drafting.cut_fill(tag), drafting.cut_hatch(tag), tag) {
+                        (CutFill::Hatch, Some(u), Some(tag)) if shaded.contains_key(tag) || shader_hatch(&drafting, u).is_some() => {
+                            let e = shaded.entry(tag.to_string()).or_insert_with(|| {
+                                let fams: Vec<Value> = shader_hatch(&drafting, u).unwrap_or_default().iter().map(|f| json!({"angle": f.angle, "base": f.base, "offset": f.offset, "dash": f.dash})).collect();
+                                let w = if u.weight_mm.is_finite() && u.weight_mm > 0.0 { u.weight_mm } else { 0.13 };
+                                (json!({"tag": tag, "color": u.color, "weight_mm": w, "pattern": u.pattern, "families": fams, "origin": cut.origin.to_array(), "u": cut.u.to_array(), "v": cut.v.to_array()}), Vec::new())
+                            });
+                            tri_list(tris, &mut e.1);
+                        }
                         (CutFill::Hatch, Some(u), Some(tag)) => {
                             let got = screen_hatch(&drafting, u, &cut, o, h, budget);
                             let e = by_tag.entry(tag.to_string()).or_insert_with(|| (u.color.clone(), Vec::new(), Vec::new()));
@@ -109,7 +140,14 @@ impl Engine {
                 let solid: Vec<Value> = solid.into_iter().map(|(tag, (color, fill))| json!({"tag": tag, "color": color, "fill": fill})).collect();
                 let outlines: Vec<Value> = outlines.into_iter().map(|(tag, (w, color, lines))| json!({"tag": tag, "weight_mm": w, "color": color, "lines": lines})).collect();
                 let lines: Vec<f64> = cut.segments.iter().flat_map(|(a, b)| [a.x, a.y, a.z, b.x, b.y, b.z]).collect();
-                json!({"regions": cut.regions.len(), "fill": fill, "fillOwners": owners, "hatchFill": paper, "hatch": hatch, "solid": solid, "open": open, "outlines": outlines, "lines": lines, "path": path})
+                let hatches: Vec<Value> = shaded
+                    .into_values()
+                    .map(|(mut v, fill)| {
+                        v["fill"] = json!(fill);
+                        v
+                    })
+                    .collect();
+                json!({"regions": cut.regions.len(), "fill": fill, "fillOwners": owners, "hatchFill": paper, "hatch": hatch, "hatches": hatches, "solid": solid, "open": open, "outlines": outlines, "lines": lines, "path": path})
             }
             Command::SectionPlane { name, origin, normal } => {
                 let n = DVec3::from(normal);

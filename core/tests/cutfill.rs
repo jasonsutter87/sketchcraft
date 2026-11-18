@@ -456,9 +456,9 @@ fn the_section_command_gives_each_tag_its_fill_and_outline() {
     }
     // the furniture: no cap at all, just listed
     assert_eq!(r["open"], json!(["Furniture"]));
-    // the walls: paper under the hatch, hatch lines
-    assert!(!r["hatchFill"].as_array().unwrap().is_empty());
-    assert_eq!(r["hatch"][0]["tag"], "Walls");
+    // the walls: their cap and pattern for the hatch shader
+    assert_eq!(r["hatches"][0]["tag"], "Walls");
+    assert!(!r["hatches"][0]["fill"].as_array().unwrap().is_empty() && !r["hatches"][0]["families"].as_array().unwrap().is_empty());
     // nothing is left in the default fill
     assert!(r["fill"].as_array().unwrap().is_empty(), "{}", r["fill"]);
     // outlines per tag with their weights, as closed rings on the plane

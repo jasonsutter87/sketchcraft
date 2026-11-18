@@ -660,17 +660,59 @@ fn saved_sheets_export_with_hatched_cuts() {
 // ---- on screen --------------------------------------------------------------------------------
 
 #[test]
-fn the_section_command_gives_the_screen_hatch_lines_per_tag() {
+fn the_section_command_gives_each_hatched_tag_to_the_screen_shader() {
     let mut e = model();
     let plain = ok(&mut e, json!({"cmd": "section", "origin": [0, 0, 1.2], "normal": [0, 0, -1]}));
-    assert!(plain["hatch"].as_array().unwrap().is_empty());
+    assert!(plain["hatch"].as_array().unwrap().is_empty() && plain["hatches"].as_array().unwrap().is_empty());
     let all_fill = plain["fill"].as_array().unwrap().len();
-    ok(&mut e, json!({"cmd": "tag_style", "tag": "Walls", "hatch": {"pattern": "diagonal", "color": "#ff0000", "scale_mode": "model", "scale": 50}}));
+    ok(&mut e, json!({"cmd": "tag_style", "tag": "Walls", "hatch": {"pattern": "diagonal", "color": "#ff0000", "weight_mm": 0.35, "scale_mode": "model", "scale": 50}}));
     let r = ok(&mut e, json!({"cmd": "section", "origin": [0, 0, 1.2], "normal": [0, 0, -1]}));
+    // no lines: the tag's cap triangles and its pattern placed on the plane
+    assert!(r["hatch"].as_array().unwrap().is_empty() && r["hatchFill"].as_array().unwrap().is_empty(), "{r}");
+    let h = r["hatches"].as_array().unwrap();
+    assert_eq!(h.len(), 1, "one hatch, the Walls tag's: {r}");
+    assert_eq!((h[0]["tag"].as_str(), h[0]["color"].as_str(), h[0]["weight_mm"].as_f64(), h[0]["pattern"].as_str()), (Some("Walls"), Some("#ff0000"), Some(0.35), Some("diagonal")));
+    // the families are the pattern placed as the engine's own lines are (model-scaled: 50 model mm per pattern mm)
+    let u = sketchcraft::drafting::HatchUse { pattern: "diagonal".into(), scale: 50.0, scale_mode: sketchcraft::drafting::ScaleMode::Model, ..Default::default() };
+    let want = hatch::place(&pat::lookup(&e.model.drafting, "diagonal").unwrap(), hatch::scale_k(&u, 1.0), 0.0);
+    let fams = h[0]["families"].as_array().unwrap();
+    assert_eq!(fams.len(), want.len());
+    for (f, w) in fams.iter().zip(&want) {
+        assert_eq!(f["angle"].as_f64(), Some(w.angle));
+        assert_eq!(f["offset"], json!(w.offset));
+        assert_eq!(f["base"], json!(w.base));
+        assert_eq!(f["dash"], json!(w.dash));
+    }
+    // the plane's frame: the cut's origin and axes
+    let cut = e.model.section(glam::DVec3::new(0.0, 0.0, 1.2), glam::DVec3::new(0.0, 0.0, -1.0)).unwrap();
+    assert_eq!(h[0]["origin"], json!(cut.origin.to_array()));
+    assert_eq!((h[0]["u"].clone(), h[0]["v"].clone()), (json!(cut.u.to_array()), json!(cut.v.to_array())));
+    // the cap: triangles on the plane inside the walls' footprint, apart from the solid fill
+    let tri: Vec<f64> = h[0]["fill"].as_array().unwrap().iter().map(|v| v.as_f64().unwrap()).collect();
+    assert!(!tri.is_empty() && tri.len().is_multiple_of(9));
+    for p in tri.chunks(3) {
+        assert!((p[2] - 1.2).abs() < 1e-6 && p[0] > -1e-6 && p[0] < 4.0 + 1e-6 && p[1] > -1e-6 && p[1] < 3.0 + 1e-6, "{p:?}");
+    }
+    let solid = r["fill"].as_array().unwrap().len();
+    assert!(solid > 0 && solid + tri.len() == all_fill, "{solid} + {} vs {all_fill}", tri.len());
+
+    // no segment limit: a hatch far too dense for 60,000 lines (it used to turn to a tint) still goes to the shader
+    ok(&mut e, json!({"cmd": "tag_style", "tag": "Walls", "hatch": {"scale": 0.01, "scale_mode": "paper"}}));
+    let r = ok(&mut e, json!({"cmd": "section", "origin": [0, 0, 1.2], "normal": [0, 0, -1]}));
+    assert_eq!(r["hatches"].as_array().unwrap().len(), 1);
+    assert_eq!(r["fill"].as_array().unwrap().len(), solid, "nothing tinted");
+
+    // a pattern of more families than the shader takes comes as lines, as before
+    let text = format!(";%UNITS=MM\n*Many, seventeen families\n{}", (0..17).map(|i| format!("{}, 0,0, 0,{}\n", i * 10, 20 + i)).collect::<String>());
+    ok(&mut e, json!({"cmd": "hatch_pattern", "name": "Many", "text": text}));
+    ok(&mut e, json!({"cmd": "tag_style", "tag": "Walls", "hatch": {"pattern": "Many", "scale": 50, "scale_mode": "model"}}));
+    let r = ok(&mut e, json!({"cmd": "section", "origin": [0, 0, 1.2], "normal": [0, 0, -1]}));
+    assert!(r["hatches"].as_array().unwrap().is_empty(), "{}", r["hatches"]);
     let h = r["hatch"].as_array().unwrap();
     assert_eq!(h.len(), 1, "one hatch, the Walls tag's: {r}");
     assert_eq!(h[0]["tag"], "Walls");
     assert_eq!(h[0]["color"], "#ff0000");
+    // (17 families of lines over 50 model mm per pattern mm: thousands of segments, under the 60,000 cap)
     let lines: Vec<f64> = h[0]["lines"].as_array().unwrap().iter().map(|v| v.as_f64().unwrap()).collect();
     assert!(lines.len() >= 6 && lines.len().is_multiple_of(6));
     // in world metres, on the cut plane, inside the walls' footprint
