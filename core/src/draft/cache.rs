@@ -116,9 +116,13 @@ impl Volume {
             return false;
         }
         match self {
-            Volume::All => d.all || d.views || !d.boxes.is_empty() || !d.notes_z.is_empty() || !d.stairs.is_empty(),
+            Volume::All => d.all || d.views || d.cuts || !d.boxes.is_empty() || !d.notes_z.is_empty() || !d.stairs.is_empty(),
             Volume::Raster => true,
-            Volume::Prism { floor, views, .. } => {
+            Volume::Prism { floor, views, z, half, .. } => {
+                // plans and sections draw the cut
+                if d.cuts && (z.is_some() || half.is_some()) {
+                    return true;
+                }
                 // model notes on a plan's floor (`annotations`: from 5 cm below the floor to 1 m above)
                 let note = floor.is_some_and(|f| d.notes_z.iter().any(|z| *z > f - 0.06 && *z < f + 1.01));
                 // a stair starting or arriving within 0.3 m of the floor is drawn (`project::stairs`)
@@ -185,11 +189,13 @@ struct Inner {
     /// background requests: the newest wins
     ticket: u64,
     busy: usize,
+    /// the model's world geometry, for the model as it is now (dropped with any change that reaches a drawing)
+    world: Option<Arc<World>>,
 }
 
 impl Default for Inner {
     fn default() -> Self {
-        Inner { map: HashMap::new(), bytes: 0, budget: DEFAULT_BUDGET, clock: 0, epoch: 0, stats: Stats::default(), recent: Vec::new(), ticket: 0, busy: 0 }
+        Inner { map: HashMap::new(), bytes: 0, budget: DEFAULT_BUDGET, clock: 0, epoch: 0, stats: Stats::default(), recent: Vec::new(), ticket: 0, busy: 0, world: None }
     }
 }
 
@@ -215,7 +221,13 @@ impl Drawings {
         self.lock().map.len()
     }
     pub fn is_empty(&self) -> bool {
-        self.len() == 0 && self.hatches.is_empty()
+        let g = self.lock();
+        g.map.is_empty() && g.world.is_none() && self.hatches.is_empty()
+    }
+
+    /// The world geometry of the model as it is now, shared by the drawings until it changes.
+    pub fn world(&self) -> Arc<World> {
+        self.lock().world.get_or_insert_with(Default::default).clone()
     }
     pub fn bytes(&self) -> usize {
         self.lock().bytes
@@ -303,6 +315,7 @@ impl Drawings {
         g.stats.dropped += gone.len() as u64;
         // a drawing in progress may have read the model before the change
         g.epoch += 1;
+        g.world = None;
         gone.len()
     }
 
@@ -311,6 +324,7 @@ impl Drawings {
         let mut g = self.lock();
         let n = g.map.len() as u64;
         g.map.clear();
+        g.world = None;
         g.bytes = 0;
         g.stats.dropped += n;
         g.epoch += 1;
@@ -373,6 +387,40 @@ fn evict(g: &mut Inner) {
             g.bytes -= e.bytes;
             g.stats.evicted += 1;
         }
+    }
+}
+
+// ---- the model's world geometry ---------------------------------------------------------------------------
+
+/// A model's faces, edges and triangles in world space, worked out once (on first use) and shared by every drawing
+/// that has it in its pens: all viewports of a set or a page, and the kept drawings until the next change to the
+/// model (`Drawings::world`). Each drawing used to expand every component placement again.
+#[derive(Default)]
+pub struct World {
+    faces: std::sync::OnceLock<Vec<crate::components::WFace>>,
+    edges: std::sync::OnceLock<Vec<crate::components::WEdge>>,
+    tris: std::sync::OnceLock<Vec<[DVec3; 3]>>,
+}
+
+impl std::fmt::Debug for World {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "World")
+    }
+}
+
+impl World {
+    pub fn faces(&self, m: &Model) -> &[crate::components::WFace] {
+        self.faces.get_or_init(|| m.world_faces())
+    }
+    pub fn edges(&self, m: &Model) -> &[crate::components::WEdge] {
+        self.edges.get_or_init(|| m.world_edges())
+    }
+    pub fn tris(&self, m: &Model) -> &[[DVec3; 3]] {
+        self.tris.get_or_init(|| World::triangles(self.faces(m)))
+    }
+    /// Faces as triangles (faces with no normal left out).
+    pub fn triangles(faces: &[crate::components::WFace]) -> Vec<[DVec3; 3]> {
+        faces.iter().filter(|f| f.normal.length_squared() >= 1e-18).flat_map(|f| crate::geom::triangulate(&f.outer, &f.holes, f.normal)).collect()
     }
 }
 

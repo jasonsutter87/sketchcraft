@@ -46,6 +46,11 @@ impl Model {
     /// `section` with the tag styles of `drafting` (the whole model's, when a component is open and `self` is it):
     /// cut regions of different tags that overlap are resolved by `CutStyle::priority` (see `resolve_priorities`).
     pub fn section_styled(&self, origin: DVec3, normal: DVec3, drafting: &crate::drafting::Drafting) -> Result<Cut> {
+        self.section_of(&self.world_faces(), origin, normal, drafting)
+    }
+
+    /// `section_styled` of these faces (`self.world_faces()`, worked out once and shared by the drawings of a sheet set).
+    pub fn section_of(&self, faces: &[crate::components::WFace], origin: DVec3, normal: DVec3, drafting: &crate::drafting::Drafting) -> Result<Cut> {
         if normal.length_squared() < 1e-18 {
             bail!("the section plane needs a direction");
         }
@@ -62,7 +67,7 @@ impl Model {
         let mut by_owner: HashMap<(Id, Option<std::sync::Arc<str>>), Vec<(DVec3, DVec3)>> = HashMap::new();
         let mut segments = Vec::new();
         let mut seg_tags: Vec<Option<std::sync::Arc<str>>> = Vec::new();
-        for f in self.world_faces() {
+        for f in faces {
             // the plane against each face: a line in the face, clipped to it
             let fn_ = f.normal.normalize_or_zero();
             let d = fn_.cross(n);

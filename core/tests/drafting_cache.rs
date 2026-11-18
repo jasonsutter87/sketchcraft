@@ -231,3 +231,48 @@ fn the_cache_lets_go_of_the_least_recently_used_past_its_budget() {
     kept_equals_fresh(&mut f, "after evicting");
     std::fs::remove_dir_all(&dir).ok();
 }
+
+#[test]
+fn a_tags_cut_style_redraws_what_shows_that_tag_and_keeps_the_rest() {
+    // fill, hatch and outline: each a change to one tag's cut style. The columns stand in the rooms on both floors;
+    // the corner details show none, so they stay kept.
+    let mut f = build(Size::small());
+    let dir = scratch("cutstyle");
+    let changes = [
+        json!({"cmd": "tag_style", "tag": "column", "cut": {"fill": "solid", "color": "#336699"}}),
+        json!({"cmd": "tag_style", "tag": "column", "hatch": {"pattern": "cross", "scale": 2}}),
+        json!({"cmd": "tag_style", "tag": "column", "cut": {"fill": "hatch", "outline_mm": 0.7}}),
+    ];
+    for c in changes {
+        let why = c.to_string();
+        export(&mut f.e, &dir);
+        assert!(stale(&f).is_empty(), "everything kept before {why}");
+        ok(&mut f.e, c);
+        let s = stale(&f);
+        for keep in ["Detail 0-0 a", "Detail 0-1 a", "Detail 1-0 b", "Detail 3-1 a"] {
+            assert!(!s.contains(keep), "{why} keeps {keep}: {s:?}");
+        }
+        assert!(s.contains("Floor plan 0") && s.contains("Floor plan 1") && s.contains("Section A0"), "{why} redraws the plans and sections that show it: {s:?}");
+        kept_equals_fresh(&mut f, &why);
+    }
+    // an intersection priority (#88): resolving it unions each tag's cut regions over the whole plane, so every plan
+    // and section is redrawn (the corner details too); drawings with no cut that don't show columns stay kept
+    export(&mut f.e, &dir);
+    ok(&mut f.e, json!({"cmd": "tag_style", "tag": "column", "cut": {"priority": 5}}));
+    let s = stale(&f);
+    for redrawn in ["Floor plan 0", "Floor plan 1", "Detail 0-0 a", "Detail 3-1 b", "Section A0", "Section B2", "Key plan ground"] {
+        assert!(s.contains(redrawn), "a priority redraws {redrawn}: {s:?}");
+    }
+    assert!(!s.contains("East bay 1:20"), "an elevation that shows no column is kept: {s:?}");
+    kept_equals_fresh(&mut f, "column priority");
+    // and while one is set, any change redraws the cuts (here: the slab raised over the walls it carries)
+    export(&mut f.e, &dir);
+    ok(&mut f.e, json!({"cmd": "tag_style", "tag": "slab", "cut": {"priority": 9}}));
+    let s = stale(&f);
+    assert!(s.contains("Floor plan 0") && s.contains("Detail 0-0 a"), "{s:?}");
+    kept_equals_fresh(&mut f, "slab priority");
+    ok(&mut f.e, json!({"cmd": "move", "ids": [f.wall], "by": [0.2, 0.0, 0.0]}));
+    assert!(stale(&f).contains("Detail 3-1 b"), "a wall moved while priorities are set redraws every cut");
+    kept_equals_fresh(&mut f, "wall moved with priorities");
+    std::fs::remove_dir_all(&dir).ok();
+}

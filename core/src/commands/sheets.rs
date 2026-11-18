@@ -1066,7 +1066,8 @@ impl Engine {
         vps.sort_by_key(|(z, id, _)| (*z, *id));
         let sh = m.sheets.get(&sheet).map_or(297.0, |s| s.paper.h_mm);
         let bm = crate::environment::without(m);
-        let pens = crate::draft::ir::Pens::new(false);
+        let mut pens = crate::draft::ir::Pens::new(false);
+        pens.world = Some(self.drawings.world());
         for (_, id, v) in vps {
             if v.rect_mm[2] <= 0.0 || v.rect_mm[3] <= 0.0 {
                 continue;

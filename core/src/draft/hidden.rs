@@ -154,12 +154,9 @@ impl View<'_> {
         let pr = &self.proj;
         let mut tris = Vec::new();
         let mut far = 1.0f64;
-        for f in self.m.world_faces() {
-            let n = f.normal;
-            if n.length_squared() < 1e-18 {
-                continue;
-            }
-            for t in crate::geom::triangulate(&f.outer, &f.holes, n) {
+        // the model's faces as triangles (shared by the drawings of a set: `Pens::with_tris`)
+        self.pens.with_tris(self.m, |all| {
+            for t in all.iter().copied() {
                 let polys: Vec<[DVec3; 3]> = match self.clip {
                     None => vec![t],
                     Some((o, d)) => {
@@ -183,7 +180,7 @@ impl View<'_> {
                     tris.push(Tri { a, e1, e2, n: e1.cross(e2).normalize_or_zero(), mat: 0 });
                 }
             }
-        }
+        });
         (tris, far)
     }
 
@@ -196,7 +193,7 @@ impl View<'_> {
         let reach = far * 4.0 + 10.0;
         let occ = Occluder { bvh: Bvh::build(tris), origin: pr.anchor, toward: (-pr.look).as_vec3(), tmin: (reach * 2e-6).max(1e-4) as f32, tmax: (reach * 2.0) as f32 };
         let mut edges = Vec::new();
-        for e in self.m.world_edges().into_iter().filter(|e| !e.soft) {
+        self.pens.with_edges(self.m, |all| for e in all.iter().filter(|e| !e.soft) {
             let (mut ta, mut tb) = (0.0f64, 1.0f64);
             if let Some((o, d)) = self.clip {
                 let (da, db) = ((e.a - o).dot(d), (e.b - o).dot(d));
@@ -217,8 +214,8 @@ impl View<'_> {
                 continue;
             }
             // the edge's own parameter runs along the whole edge, including any section-clipped part
-            edges.push(Item { path: e.path, v: e.v, a, b, t0, t1, len, ta, tb, tag: e.tag, draft: e.draft });
-        }
+            edges.push(Item { path: e.path.clone(), v: e.v, a, b, t0, t1, len, ta, tb, tag: e.tag.clone(), draft: e.draft.clone() });
+        });
         let base_ink = self.pens.ink(self.pens.medium);
         let base_ghost = Pen::new(self.pens.thin, self.pens.faint()).dashed(&[1.6, 1.0]);
         let styles = &self.m.drafting;

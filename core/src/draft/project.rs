@@ -14,8 +14,16 @@ use glam::DVec3;
 // ---- plans -----------------------------------------------------------------------------
 
 /// Where a plan's content lies (meters): the cut, its dimension strings and callouts.
-fn plan_points(bm: &Model, v: &ViewportSpec, z: f64) -> Result<(Vec<(f64, f64)>, PlanExtras, f64)> {
-    let cut = bm.section(DVec3::new(0.0, 0.0, z), DVec3::new(0.0, 0.0, -1.0))?;
+/// `same`: the plan's own cut, when `bm` is the model itself (no environment to leave out), so it isn't cut twice.
+fn plan_points(bm: &Model, v: &ViewportSpec, z: f64, same: Option<&crate::section::Cut>) -> Result<(Vec<(f64, f64)>, PlanExtras, f64)> {
+    let own;
+    let cut = match same {
+        Some(c) => c,
+        None => {
+            own = bm.section(DVec3::new(0.0, 0.0, z), DVec3::new(0.0, 0.0, -1.0))?;
+            &own
+        }
+    };
     let mut pts: Vec<(f64, f64)> = cut.segments.iter().flat_map(|(a, b)| [(a.x, a.y), (b.x, b.y)]).collect();
     // dimension strings on this floor count toward the plan's size
     let floor = v.floor.unwrap_or(z - 1.22);
@@ -34,8 +42,8 @@ fn plan_points(bm: &Model, v: &ViewportSpec, z: f64) -> Result<(Vec<(f64, f64)>,
 pub(super) fn plan(cv: &mut Cv, m: &Model, bm: &Model, v: &ViewportSpec, z: f64, pens: &Pens) -> Result<(String, Option<f64>)> {
     let sh = cv.h_mm;
     let y = |mm: f64| (sh - mm) * PT;
-    let cut = m.section(DVec3::new(0.0, 0.0, z), DVec3::new(0.0, 0.0, -1.0))?;
-    let (pts, extras, floor) = plan_points(bm, v, z)?;
+    let cut = pens.section(m, DVec3::new(0.0, 0.0, z), DVec3::new(0.0, 0.0, -1.0))?;
+    let (pts, extras, floor) = plan_points(bm, v, z, std::ptr::eq(m, bm).then_some(&cut))?;
     if pts.is_empty() {
         bail!("nothing is cut at {z} m");
     }
@@ -79,7 +87,7 @@ pub(super) fn plan(cv: &mut Cv, m: &Model, bm: &Model, v: &ViewportSpec, z: f64,
         // what's below the cut on this floor, seen from above: stair treads, counters, fixtures
         // (finer and lighter than the cut)
         let faint = Pen::new(pens.hair, pens.faint());
-        for e in m.world_edges().into_iter().filter(|e| !e.soft) {
+        pens.with_edges(m, |edges| for e in edges.iter().filter(|e| !e.soft) {
             let (lo, hi) = (e.a.z.min(e.b.z), e.a.z.max(e.b.z));
             if lo < floor + 0.02 && hi < floor + 0.02 {
                 continue; // lying on the floor: the floor's own outline, not a thing on it
@@ -92,7 +100,7 @@ pub(super) fn plan(cv: &mut Cv, m: &Model, bm: &Model, v: &ViewportSpec, z: f64,
             }
             let pen = if e.tag.is_some() || e.draft.is_some() { pens.for_tag(&m.drafting, e.tag.as_deref(), e.draft.as_deref(), faint.clone(), false) } else { faint.clone() };
             cv.line(to(e.a.x, e.a.y), to(e.b.x, e.b.y), &pen);
-        }
+        });
         stairs(cv, m, pens, floor, &to);
         overhead(cv, m, pens, floor, z, &to);
         annotations(cv, m, pens, floor, units, &to);
@@ -433,7 +441,7 @@ pub(super) fn view(cv: &mut Cv, m: &Model, bm: &Model, v: &ViewportSpec, pens: &
         cv.out.extend(lines);
         // a section: what the plane cuts through, filled solid over the picture
         if let Some((origin, look)) = sec {
-            if let Ok(cut) = m.section(origin, look) {
+            if let Ok(cut) = pens.section(m, origin, look) {
                 // the cut is drawn in the same frame as the lines
                 let to = |p: DVec3| proj.xy(p);
                 for r in &cut.regions {

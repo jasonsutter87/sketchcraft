@@ -88,12 +88,15 @@ impl Engine {
     /// now. Nothing waits for it; a change made meanwhile makes it throw its work away (`Drawings::put`).
     pub fn warm_sheets(&self, sheets: &[Id]) {
         let mut pages = Vec::new();
+        let world: std::sync::Arc<crate::draft::cache::World> = Default::default();
         for s in sheets {
             let Ok((_, _, _, blueprint, w, h)) = self.sheet_look(*s) else { continue };
             let mut spec = super::sheets::page_of(&self.model, *s);
             crate::draft::sheet::place(&mut spec.viewports, w, h);
             let mut pens = Pens::new(blueprint);
             pens.hatches = Some(self.drawings.hatches.clone());
+            // (the worker's own: its copy of the model is not the engine's)
+            pens.world = Some(world.clone());
             let todo: Vec<_> = spec.viewports.into_iter().filter(|v| !self.drawings.contains(&crate::draft::cache::key(v, &pens, h))).collect();
             if !todo.is_empty() {
                 pages.push((todo, pens, h));

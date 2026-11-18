@@ -62,15 +62,43 @@ pub struct Pens {
     pub blueprint: bool,
     /// where generated hatches are kept between drawings (the engine's `Drawings`); None: worked out each time
     pub hatches: Option<std::sync::Arc<super::cache::HatchCache>>,
+    /// the model's world faces, edges and triangles, worked out once for every drawing that shares these pens (a
+    /// sheet set, a page, the kept drawings between changes); None: each drawing works them out
+    pub world: Option<std::sync::Arc<super::cache::World>>,
 }
 
 impl Pens {
     pub fn new(blueprint: bool) -> Self {
         if blueprint {
-            Pens { ink: BP_INK, paper: BP_PAPER, cut_fill: BP_CUT, hair: 0.13, thin: 0.18, medium: 0.25, heavy: 0.35, border: 0.5, blueprint, hatches: None }
+            Pens { ink: BP_INK, paper: BP_PAPER, cut_fill: BP_CUT, hair: 0.13, thin: 0.18, medium: 0.25, heavy: 0.35, border: 0.5, blueprint, hatches: None, world: None }
         } else {
-            Pens { ink: BLACK, paper: WHITE, cut_fill: [41, 43, 51], hair: 0.13, thin: 0.18, medium: 0.25, heavy: 0.35, border: 0.5, blueprint, hatches: None }
+            Pens { ink: BLACK, paper: WHITE, cut_fill: [41, 43, 51], hair: 0.13, thin: 0.18, medium: 0.25, heavy: 0.35, border: 0.5, blueprint, hatches: None, world: None }
         }
+    }
+    /// `m.world_faces()`, shared when these pens carry the world
+    pub fn with_faces<R>(&self, m: &crate::model::Model, f: impl FnOnce(&[crate::components::WFace]) -> R) -> R {
+        match &self.world {
+            Some(w) => f(w.faces(m)),
+            None => f(&m.world_faces()),
+        }
+    }
+    /// `m.world_edges()`, shared the same way
+    pub fn with_edges<R>(&self, m: &crate::model::Model, f: impl FnOnce(&[crate::components::WEdge]) -> R) -> R {
+        match &self.world {
+            Some(w) => f(w.edges(m)),
+            None => f(&m.world_edges()),
+        }
+    }
+    /// the faces of `m.world_faces()` triangulated (faces with no normal left out), shared the same way
+    pub fn with_tris<R>(&self, m: &crate::model::Model, f: impl FnOnce(&[[glam::DVec3; 3]]) -> R) -> R {
+        match &self.world {
+            Some(w) => f(w.tris(m)),
+            None => f(&super::cache::World::triangles(&m.world_faces())),
+        }
+    }
+    /// `m.section(..)` from the shared faces
+    pub fn section(&self, m: &crate::model::Model, origin: glam::DVec3, normal: glam::DVec3) -> anyhow::Result<crate::section::Cut> {
+        self.with_faces(m, |fs| m.section_of(fs, origin, normal, &m.drafting))
     }
     /// a lighter ink for what lies below the cut
     pub fn faint(&self) -> Rgb {

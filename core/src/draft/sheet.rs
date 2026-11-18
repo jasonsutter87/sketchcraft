@@ -73,6 +73,8 @@ pub fn build_opts(m: &Model, sheet: &str, project: &str, mut pages: Vec<PageSpec
     let bm = crate::environment::without(m);
     let mut pens = Pens::new(blueprint);
     pens.hatches = o.cache.map(|c| c.hatches.clone());
+    // the model's world geometry once for every viewport (kept with the drawings between changes)
+    pens.world = Some(o.cache.map_or_else(Default::default, |c| c.world()));
     let total = o.total.unwrap_or(pages.len());
     let mut doc = Doc { title: project.to_string(), lang: String::new(), pages: Vec::new() };
     for (pi, page) in pages.iter_mut().enumerate() {

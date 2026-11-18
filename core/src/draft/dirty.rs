@@ -89,6 +89,9 @@ pub struct Dirty {
     pub boxes: Vec<Bx>,
     /// heights of changed model annotations (notes, swings, model dimensions): plans of floors that show them
     pub notes_z: Vec<f64>,
+    /// every drawing that draws a cut (plans and sections): cut priorities (#88) changed, or the model changed while
+    /// some are set (resolving them unions each tag's regions over the whole plane, so a cut can change far away)
+    pub cuts: bool,
     /// boxes of changed stairs (groups named "stair"): a plan draws a stair that starts or arrives within 0.3 m of its
     /// floor, a little further down than anything else it draws
     pub stairs: Vec<Bx>,
@@ -96,7 +99,7 @@ pub struct Dirty {
 
 impl Dirty {
     pub fn is_empty(&self) -> bool {
-        !self.all && !self.raster && !self.views && self.boxes.is_empty() && self.notes_z.is_empty() && self.stairs.is_empty()
+        !self.all && !self.raster && !self.views && !self.cuts && self.boxes.is_empty() && self.notes_z.is_empty() && self.stairs.is_empty()
     }
     pub fn everything() -> Dirty {
         Dirty { all: true, ..Default::default() }
@@ -431,6 +434,17 @@ pub fn changes(before: &Model, after: &Model) -> Dirty {
     if vs.len() + es.len() + fs.len() + gs.len() + is.len() + cls.len() > MAX_PRECISE {
         return Dirty::everything();
     }
+    // cut priorities: any change to one, or any change at all while one is set, redraws every cut
+    let priorities = |dr: &crate::drafting::Drafting| -> Vec<(String, i32)> {
+        dr.tag_styles.iter().filter_map(|(t, s)| match s {
+            crate::drafting::Keep::Known(s) if s.cut.priority != 0 => Some((t.clone(), s.cut.priority)),
+            _ => None,
+        }).collect()
+    };
+    let (pb, pa) = (priorities(drafting), priorities(&after.drafting));
+    if pb != pa {
+        d.cuts = true;
+    }
     let nothing = vs.is_empty() && es.is_empty() && fs.is_empty() && gs.is_empty() && is.is_empty() && ds.is_empty() && cls.is_empty() && tagset.is_empty();
     if nothing {
         return d;
@@ -496,6 +510,9 @@ pub fn changes(before: &Model, after: &Model) -> Dirty {
     // the same box from both models (or twice from one) is checked once
     boxes.sort_by(|a, b| a.lo.to_array().partial_cmp(&b.lo.to_array()).unwrap_or(std::cmp::Ordering::Equal).then(a.hi.to_array().partial_cmp(&b.hi.to_array()).unwrap_or(std::cmp::Ordering::Equal)));
     boxes.dedup();
+    if !pa.is_empty() && !boxes.is_empty() {
+        d.cuts = true;
+    }
     d.boxes = boxes;
     d
 }
