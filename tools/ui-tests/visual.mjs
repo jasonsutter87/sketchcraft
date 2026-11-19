@@ -254,6 +254,8 @@ const editorDraw = async (p, s, pts, ys, bottom) => {
     await p.mouse.click(...at(top[0].mm));
     await wait(150);
     await p.mouse.click(...at(top[top.length - 1].mm));
+    // wait until the second point has registered (the hint moves on to chaining) instead of hoping 150 ms is enough
+    await p.getByText(/Click more points to chain/).waitFor({ timeout: 5000 }).catch(() => {});
     await wait(150);
     // the mouse on a third corner: its snap marker, and the chain previewed to it
     await p.mouse.move(...at([bottom[bottom.length - 1].mm[0] + 0.4, bottom[bottom.length - 1].mm[1] - 0.3]), { steps: 3 });

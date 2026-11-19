@@ -131,6 +131,8 @@ await p.locator('.paper-chooser').getByRole('button', { name: 'Floor plan' }).cl
 await until(async () => (await ofKind('viewport')).length === 1);
 const plan = (await ofKind('viewport'))[0];
 check(JSON.stringify(plan.rect_mm) === JSON.stringify([20, 20, 180, 140]) && plan.view?.type === 'plan', `the plan's frame is where it was dragged, on the 5 mm grid (${JSON.stringify(plan.rect_mm)}, ${plan.view?.type})`);
+// the engine has the frame before the page has finished switching tool and picking it: wait for the page
+await until(async () => (await p.locator('.paper-tools .paper-tool.on').getAttribute('aria-label')) === 'Select' && (await p.locator('.layout-inspector[aria-label="Viewport"]').count()) === 1, 3000).catch(() => {});
 check((await p.locator('.paper-tools .paper-tool.on').getAttribute('aria-label')) === 'Select' && (await p.locator('.layout-inspector[aria-label="Viewport"]').count()) === 1, 'placing it goes back to Select with the new view picked');
 await undo();
 await until(async () => (await ofKind('viewport')).length === 0);
