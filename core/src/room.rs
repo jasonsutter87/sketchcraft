@@ -175,7 +175,7 @@ impl Model {
         let mut shared: Vec<(Id, &'static str)> = Vec::new();
         let mut t = thickness;
         let mut t_from: Option<f64> = None;
-        for i in 0..4 {
+        for (i, side_name) in SIDE_NAMES.iter().enumerate() {
             let (horizontal, v, lo, hi) = side_line(r, i);
             for (x, c) in &others {
                 for j in 0..4 {
@@ -188,8 +188,8 @@ impl Model {
                     }
                     t_from = Some(x.thickness);
                     t = x.thickness;
-                    if !shared.iter().any(|(id, s)| *id == x.id && *s == SIDE_NAMES[i]) {
-                        shared.push((x.id, SIDE_NAMES[i]));
+                    if !shared.iter().any(|(id, s)| *id == x.id && s == side_name) {
+                        shared.push((x.id, side_name));
                     }
                 }
             }

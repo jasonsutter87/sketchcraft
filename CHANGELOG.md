@@ -7,6 +7,18 @@ What changed in each SketchCraft release, newest first. The format follows
 ## [Unreleased]
 
 ### Added
+- **Room mode: draw a room by dragging it out, like in The Sims.** Pick **Room** in the Build panel (or on the Arch
+  toolbar), press on the ground, drag a rectangle and let go: you get four walls of the usual height and thickness and a
+  floor, snapped to a 0.1 m grid (6 in in feet and inches). While you drag, the inside width, depth and area show in
+  your units (m² or ft²). Each room is a group named Room 1, Room 2 and so on (rename it in the Room options) on the
+  "Rooms" tag, with its walls on the "Walls" tag, so it saves, exports and undoes like anything else, and one Undo
+  removes a whole room. A room dragged against another shares that wall instead of doubling it, a side within one wall
+  thickness of a neighbour's wall snaps onto it, and a room that would overlap another is refused with a message and
+  nothing changes. While Room mode is on, every room shows its name and area, and they update as walls move. Dragging a
+  wall in Room mode is Wall pull, so the rooms on both sides grow and shrink together; clicking a wall adds a door or a
+  window (your choice in the Room options). **Walls down** shows the walls low so you can see inside; it only changes
+  the view, never the model. Agents can use `room_rect`, `room_preview` and `rooms`. Italian wording for the new tool
+  is welcome from Italian speakers.
 - **Pull a whole wall, like in The Sims.** The new **Pull wall** tool (in the Build panel) lights up a wall as one piece
   when you point at it, and drags it sideways; type a distance and press Enter for an exact pull, or Esc to cancel. The
   wall keeps its thickness, the walls joined to it at corners and T-junctions stretch or shrink to stay joined (so a

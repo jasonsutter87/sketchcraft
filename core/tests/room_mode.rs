@@ -77,7 +77,7 @@ fn one_room_is_four_walls_and_a_floor() {
     assert!((e.model.face_area(floor) - 3.8 * 2.8).abs() < 1e-9);
     // the ring: an outer wall face on each side (4), an inner one (4), and they are 2.7 high and 0.2 thick
     let n = faces_in(&e, g).len();
-    assert!(n >= 4 + 4 + 2 + 1, "faces in the room: {n}");
+    assert!(n > 4 + 4 + 2, "faces in the room: {n}");
     let top = e.model.vertices.values().map(|v| v.p.z).fold(f64::MIN, f64::max);
     assert!((top - 2.7).abs() < 1e-9);
     let outer = side(&e, [0.0, -1.0, 0.0], 0.1);

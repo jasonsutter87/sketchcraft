@@ -903,6 +903,19 @@ await scenario('wallpull', ['wallpull'], async () => {
   check(near(Math.min(...s.faces.flatMap((f) => f.outer.map((v) => v[0]))), west0 - 1, 0.001), 'Pull wall: a click on a wall and a typed 1 moves the whole wall a metre out');
 });
 
+await scenario('room', ['room'], async () => {
+  // the full story (a second room sharing a wall, labels, pulling it, a door, Undo, refusals) is tools/ui-tests/room-mode.mjs
+  await fresh();
+  await tool('room');
+  check((await activeTool()) === INFO.room.name, 'the Room button turns the tool on');
+  await drag([[-3, -2, 0], [0, 0, 0], [3, 2, 0]]);
+  const s = await until((s) => s.faces.length > 0 && s.groups.some((g) => g.tag === 'Rooms'));
+  const room = s.groups.find((g) => g.tag === 'Rooms');
+  check(!!room && /^Room 1$/.test(room.name), `a press, drag and release draws a room, named "${room?.name}"`);
+  const xs = s.faces.flatMap((f) => f.outer.map((v) => v[0]));
+  check(near(Math.max(...xs) - Math.min(...xs), 6.2, 0.4) && s.faces.some((f) => f.normal && f.normal[2] > 0.99 && f.outer.every((v) => near(v[2], 0, 0.001))), 'about 6 m wide with a floor at the ground');
+});
+
 await scenario('stairs', ['stairs'], async () => {
   await fresh();
   await tool('stairs');
