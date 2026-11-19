@@ -7,6 +7,26 @@ What changed in each SketchCraft release, newest first. The format follows
 ## [Unreleased]
 
 ### Added
+- **A real menu bar: File, Edit, View, Camera, Draw, Tools, Window and Help.** It replaces the single File drop-down
+  next to the logo. File holds New, Open, Save, Save As, Restore from backup, Import, Export, Render, blueprints,
+  drawing sheets, Layout, Timeline, locations, 3D text, reports and Plugins; Edit has Undo and Redo, Cut, Copy, Paste
+  (and Paste in place), Delete, Select all and none, Make group and component, Explode, Hide and Unhide; View has the
+  workspaces, face styles, backgrounds, Shadows, X-Ray, Back edges and the other style switches, the section cut, the
+  panels, the toolbar layout, Themes and Language; Camera has the standard views, Perspective and Parallel, Zoom extents
+  and the Orbit, Pan, Walk and other camera tools; Draw and Tools list the drawing and editing tools; Window shows the
+  Outliner, Library, Views and the right panel and opens the shortcut editor and the plugin manager; Help has the Learn
+  center, Keyboard shortcuts, Search commands, Check for updates (desktop app), Report a bug and About. Each item shows
+  its keyboard shortcut (the one you have set), and items that don't apply right now are greyed out. Click a name to
+  open a menu, point at another name to move between menus, and use the keyboard: F10 (or a tap on Alt on Windows and
+  Linux) focuses the bar, the arrow keys move and open submenus, Enter runs an item and Esc closes. Nothing that was in
+  the old File menu is gone: Keyboard shortcuts and Check for updates moved to Help, Customize shortcuts to Window,
+  Language to View, and the version to About. On narrow windows the workspace switch is hidden (View > Workspaces has
+  the same choices). Italian wording for the menus and About is welcome from Italian speakers (Kad26 has been asked to
+  review it).
+- **Help > About SketchCraft.** The app's name and version, then "Always free. Never freemium. Never paid." and "It's
+  a promise.", links to the source on GitHub, the MIT license and the changelog, and a **Thank you** to everyone who has
+  written code for SketchCraft. That list is made when the app is built, from the authors in the project's git history
+  (bots are left out), so it never needs updating by hand.
 - **Room mode: draw a room by dragging it out, like in The Sims.** Pick **Room** in the Build panel (or on the Arch
   toolbar), press on the ground, drag a rectangle and let go: you get four walls of the usual height and thickness and a
   floor, snapped to a 0.1 m grid (6 in in feet and inches). While you drag, the inside width, depth and area show in

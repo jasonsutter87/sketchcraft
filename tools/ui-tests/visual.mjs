@@ -151,6 +151,12 @@ const shots = [];
 for (const [layout] of LAYOUTS) for (const [skin, label] of SKINS) shots.push({ name: `main-${layout}-${label}`, layout, skin, run: async () => {} });
 const dialogs = [
   ['file-menu', async (p) => p.getByRole('menuitem', { name: 'File', exact: true }).click()],
+  ['view-menu', async (p) => p.getByRole('menuitem', { name: 'View', exact: true }).click()],
+  ['about', async (p) => {
+    await p.getByRole('menuitem', { name: 'Help', exact: true }).click();
+    await p.getByRole('menuitem', { name: 'About SketchCraft' }).click();
+    await p.getByRole('dialog', { name: 'About SketchCraft' }).waitFor();
+  }],
   ['themes', async (p) => p.locator('.skin-btn').click()],
   ['learn', async (p) => p.locator('.learn-btn').click()],
   ['plugins', async (p) => {

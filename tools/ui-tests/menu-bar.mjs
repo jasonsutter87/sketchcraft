@@ -467,7 +467,7 @@ for (const layout of ['classic', 'floating', 'side']) {
 }
 
 // ---- narrow windows ----------------------------------------------------------------------------------------------------------
-for (const width of [1100, 900]) {
+for (const width of [1366, 1280, 1100, 900]) {
   const { p, ctx } = await open({ viewport: { width, height: 800 } });
   const buttons = await p.locator('[role=menubar] > .menubar-item > button').evaluateAll((els) => els.map((e) => e.getBoundingClientRect()));
   const sw = await p.locator('.ws-switch').boundingBox();
