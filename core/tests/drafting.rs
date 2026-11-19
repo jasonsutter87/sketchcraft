@@ -671,6 +671,7 @@ fn a_stopped_hidden_line_worker_fails_the_drawing() {
         beyond: false,
         pens: &pens,
         inject_panic,
+        cover: true,
     };
     assert!(mk(false).lines().unwrap().len() > 100);
     let err = mk(true).lines().err().expect("a worker that stopped must not leave a silent hole");
