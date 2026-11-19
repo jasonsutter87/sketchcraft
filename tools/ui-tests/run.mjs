@@ -30,6 +30,7 @@ const SUITES = [
   ['sheet-editor', 'tools/ui-tests/sheet-editor.mjs', 420],
   ['sheet-tables', 'tools/ui-tests/sheet-tables.mjs', 300],
   ['subdivide', 'tools/ui-tests/subdivide.mjs', 300],
+  ['wall-pull', 'tools/ui-tests/wall-pull.mjs', 300],
   ['shortcuts', 'tools/ui-tests/shortcuts.mjs', 300],
   ['tools', 'tools/ui-tests/tools.mjs', 900],
   ['plugin-sandbox', 'tools/security-tests/plugin-sandbox.mjs', 240],

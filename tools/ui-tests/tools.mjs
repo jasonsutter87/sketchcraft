@@ -890,6 +890,19 @@ await scenario('wall', ['wall'], async () => {
   check(s3.faces.length === 0, `Esc drops a wall in progress: nothing was built (${s3.faces.length} faces)`);
 });
 
+await scenario('wallpull', ['wallpull'], async () => {
+  // a room built by command; the full drawing, dragging, typing, Escape and Undo story is tools/ui-tests/wall-pull.mjs
+  await fresh((X) => X({ cmd: 'wall', points: [[-3, -3, 0], [3, -3, 0], [3, 3, 0], [-3, 3, 0]], closed: true, thickness: 0.2, height: 2.7 }));
+  const before = await scene();
+  const west0 = Math.min(...before.faces.flatMap((f) => f.outer.map((v) => v[0])));
+  await tool('wallpull');
+  check((await activeTool()) === INFO.wallpull.name, 'the Pull wall button turns the tool on');
+  await click([-3.05, 0, 2.7]);
+  await typed('1');
+  const s = await until((s) => Math.min(...s.faces.flatMap((f) => f.outer.map((v) => v[0]))) < west0 - 0.5);
+  check(near(Math.min(...s.faces.flatMap((f) => f.outer.map((v) => v[0]))), west0 - 1, 0.001), 'Pull wall: a click on a wall and a typed 1 moves the whole wall a metre out');
+});
+
 await scenario('stairs', ['stairs'], async () => {
   await fresh();
   await tool('stairs');

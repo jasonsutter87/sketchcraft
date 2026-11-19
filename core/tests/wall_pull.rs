@@ -228,3 +228,26 @@ fn a_plain_box_shaped_wall_works_and_wall_info_describes_the_plan() {
     let ys: Vec<f64> = e.model.vertices.values().map(|v| v.p.y).collect();
     assert!((ys.iter().cloned().fold(f64::MIN, f64::max) + 0.5).abs() < 1e-9);
 }
+
+#[test]
+fn a_click_on_the_top_of_a_wall_finds_the_wall_under_the_cursor() {
+    let mut e = Engine::new();
+    room(&mut e);
+    // the one top face of the ring (it belongs to all four walls)
+    let tops = run(&mut e, json!({"cmd": "faces", "facing": [0, 0, 1]}))["faces"].as_array().unwrap().clone();
+    let top = tops.iter().find(|f| (f["center"][2].as_f64().unwrap() - 2.7).abs() < 1e-9).unwrap()["id"].as_u64().unwrap();
+    // over the west wall, nearer its outside: the outside of the west wall; over the north wall, nearer its inside
+    let west = run(&mut e, json!({"cmd": "wall_info", "face": top, "at": [-0.06, 2.0, 2.7]}));
+    assert_eq!(west["normal"], json!([-1.0, 0.0, 0.0]));
+    let north = run(&mut e, json!({"cmd": "wall_info", "face": top, "at": [2.0, 3.95, 2.7]}));
+    assert_eq!(north["normal"], json!([0.0, -1.0, 0.0]), "the inside of the north wall looks south");
+    // pulling what it found is the same as pulling that side
+    run(&mut e, json!({"cmd": "wall_pull", "face": west["face"], "by": 1.0}));
+    // a hand-made box: near its end, the answer is still the long side
+    let mut e = Engine::new();
+    let base = run(&mut e, json!({"cmd": "rect", "from": [0, 0, 0], "to": [1.2, 0.3, 0]}))["face"].as_u64().unwrap();
+    run(&mut e, json!({"cmd": "pushpull", "face": base, "distance": 2.7}));
+    let top = e.model.faces.keys().copied().find(|&k| e.model.normal(k).z > 0.999).unwrap();
+    let r = run(&mut e, json!({"cmd": "wall_info", "face": top, "at": [1.15, 0.15, 2.7]}));
+    assert!((r["thickness"].as_f64().unwrap() - 0.3).abs() < 1e-9, "not the end cap: {r}");
+}

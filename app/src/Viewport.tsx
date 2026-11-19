@@ -145,7 +145,7 @@ export default function Viewport(props: Props) {
     hover: number | null;
     hoverEdge: number | null;
     /** Wall pull: the wall under the cursor (plan null: asking the engine, or it isn't a wall that can be pulled) */
-    wall: { face: number; plan: WallPlan | null; scene: Scene } | null;
+    wall: { face: number; plan: WallPlan | null; scene: Scene; at: THREE.Vector3 } | null;
     /** last inference shown (Shift locks to it) */
     snap: Snap | null;
     /** the lock came from holding Shift (released with it) */
@@ -1380,10 +1380,11 @@ export default function Viewport(props: Props) {
     return out;
   }
 
-  /** Ask the engine what the wall under the cursor is (once per face; the answer is dropped when the model changes). */
-  function lookAtWall(face: number | null) {
+  /** Ask the engine what the wall under the cursor is (once per face; the answer is dropped when the model changes).
+   *  Over a wall's top (a plan view) the answer depends on where on it the cursor is, so it is asked again as the cursor moves. */
+  function lookAtWall(face: number | null, at?: THREE.Vector3) {
     const cur = st.current.wall;
-    if (face == null) {
+    if (face == null || !at) {
       if (cur) {
         st.current.wall = null;
         drawOverlay();
@@ -1391,12 +1392,13 @@ export default function Viewport(props: Props) {
       return;
     }
     const scene = sceneNow();
-    if (cur?.face === face && cur.scene === scene) return;
-    st.current.wall = { face, plan: null, scene };
-    drawOverlay();
-    void exec({ cmd: "wall_info", face }).then((r) => {
-      if (st.current.wall?.face !== face || st.current.wall.scene !== scene) return;
-      st.current.wall = { face, plan: r.ok ? ({ ...(r as unknown as WallPlan), face } as WallPlan) : null, scene };
+    const top = Math.abs(faceById(face)?.normal[2] ?? 0) > 0.9;
+    if (cur?.face === face && cur.scene === scene && (!top || cur.at.distanceTo(at) < 0.15)) return;
+    st.current.wall = { face, plan: null, scene, at: at.clone() };
+    void exec({ cmd: "wall_info", face, at: arr(at) }).then((r) => {
+      const now = st.current.wall;
+      if (!now || now.face !== face || now.scene !== scene || now.at.distanceTo(at) > 1e-9) return;
+      st.current.wall = { ...now, plan: r.ok ? (r as unknown as WallPlan) : null };
       drawOverlay();
     });
   }
@@ -2657,7 +2659,7 @@ export default function Viewport(props: Props) {
         const he = ["select", "erase", "move"].includes(L.tool) ? pickEdge(e) : null;
         const h = he == null ? pick(e) : null;
         const id = h ? h.owner : null;
-        if (L.tool === "wallpull") lookAtWall(h?.face ? h.owner : null);
+        if (L.tool === "wallpull") lookAtWall(h?.face ? h.owner : null, h?.point);
         if (id !== st.current.hover || he !== st.current.hoverEdge) {
           st.current.hover = id;
           st.current.hoverEdge = he;
@@ -2836,10 +2838,10 @@ export default function Viewport(props: Props) {
       if (op?.t === "wallpull") return void (await commitWallPull()); // click-move-click
       const h = pick(e);
       if (!h?.face) return;
-      const r = await exec({ cmd: "wall_info", face: h.face.id });
+      const r = await exec({ cmd: "wall_info", face: h.face.id, at: arr(h.point) });
       if (!r.ok) return L.onToast(r.error ?? "That isn't a wall that can be pulled.", true);
-      const plan = { ...(r as unknown as WallPlan), face: h.face.id };
-      st.current.op = { t: "wallpull", face: h.face.id, plan, origin: h.point.clone(), n: V(plan.normal), d: 0, dragged: false };
+      const plan = r as unknown as WallPlan;
+      st.current.op = { t: "wallpull", face: plan.face, plan, origin: h.point.clone(), n: V(plan.normal), d: 0, dragged: false };
       el.setPointerCapture(e.pointerId);
       return;
     };

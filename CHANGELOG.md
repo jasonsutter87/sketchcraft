@@ -6,6 +6,16 @@ What changed in each SketchCraft release, newest first. The format follows
 
 ## [Unreleased]
 
+### Added
+- **Pull a whole wall, like in The Sims.** The new **Pull wall** tool (in the Build panel) lights up a wall as one piece
+  when you point at it, and drags it sideways; type a distance and press Enter for an exact pull, or Esc to cancel. The
+  wall keeps its thickness, the walls joined to it at corners and T-junctions stretch or shrink to stay joined (so a
+  room grows or shrinks), and the doors and windows in the wall go with it. Doors and windows in the walls that stretch
+  stay where they are, and if one would no longer fit the pull is refused with a message and nothing changes. It works on
+  walls made with the Wall tool and on plain box-shaped walls in other models; walls that are sloped, curved, or carry
+  on in a straight line past their end are refused with a reason. The whole pull is one Undo step. Agents can use it
+  as `wall_pull`. Italian wording for the new tool is welcome from Italian speakers.
+
 ## [0.3.8] - 2026-11-18
 
 ### Added

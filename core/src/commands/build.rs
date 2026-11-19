@@ -40,7 +40,11 @@ impl Engine {
                 let p = m.wall_pull(face, by)?;
                 json!({"moved": p.moves.len(), "faces": p.faces, "instances": p.instances})
             }
-            Command::WallInfo { face } => {
+            Command::WallInfo { face, at } => {
+                let face = match at {
+                    Some(at) if m.faces.contains_key(&face) && m.normal(face).z.abs() > 0.9999 => m.wall_side_from_top(face, v3(at))?,
+                    _ => face,
+                };
                 let p = m.wall_plan(face)?;
                 let a = |v: DVec3| json!([v.x, v.y, v.z]);
                 json!({

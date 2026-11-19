@@ -1295,8 +1295,13 @@ pub enum Command {
     /// joined to it stretch or shrink to stay joined. Refused, with the model untouched, when it can't be done cleanly.
     WallPull { face: Id, by: f64 },
     /// What pulling the wall of `face` would involve: its faces, the pull direction, and each moving point's travel per
-    /// metre (the app previews with this). Read-only.
-    WallInfo { face: Id },
+    /// metre (the app previews with this). Read-only. A click on a wall's top (a plan view) gives a top face: pass the
+    /// point `at` and the wall side nearest to it is used.
+    WallInfo {
+        face: Id,
+        #[serde(default)]
+        at: Option<[f64; 3]>,
+    },
     /// A straight stair climbing `rise` along `direction` (degrees from +X).
     Stairs {
         at: [f64; 3],

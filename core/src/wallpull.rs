@@ -47,6 +47,44 @@ pub struct WallPlan {
 }
 
 impl Model {
+    /// The side of a wall for a click on its top (the way a plan view or a high camera sees a wall): of the upright
+    /// faces that share an edge with the top face, the ones that make a wall with a thickness (a wall's long sides,
+    /// not its end caps), and of those the one whose edge is nearest `at`.
+    pub fn wall_side_from_top(&self, top: Id, at: DVec3) -> Result<Id> {
+        let f = self.face(top)?;
+        let n = self.normal(top);
+        if n.z.abs() < 0.9999 {
+            bail!("pick the side of a wall");
+        }
+        let mut sides: Vec<(f64, Id)> = Vec::new();
+        for l in f.loops() {
+            for i in 0..l.len() {
+                let (a, b) = (l[i], l[(i + 1) % l.len()]);
+                let (pa, pb) = (self.p(a), self.p(b));
+                let d = pb - pa;
+                let t = if d.length_squared() > 0.0 { ((at - pa).dot(d) / d.length_squared()).clamp(0.0, 1.0) } else { 0.0 };
+                let dist = DVec2::new(at.x - (pa + d * t).x, at.y - (pa + d * t).y).length();
+                // the upright face that runs along this edge, the other way round
+                let side = self.faces.iter().find(|(&id, g)| {
+                    id != top && g.outer.len() >= 3 && self.normal(id).z.abs() < 1e-4 && (0..g.outer.len()).any(|k| g.outer[k] == b && g.outer[(k + 1) % g.outer.len()] == a)
+                });
+                if let Some((&id, _)) = side {
+                    sides.push((dist, id));
+                }
+            }
+        }
+        sides.sort_by(|x, y| x.0.total_cmp(&y.0));
+        let mut best: Option<(f64, Id)> = None;
+        for &(_, id) in sides.iter().take(8) {
+            if let Ok(p) = self.wall_plan(id) {
+                if best.is_none_or(|(t, _)| p.thickness < t - 1e-6) {
+                    best = Some((p.thickness, id));
+                }
+            }
+        }
+        best.map(|(_, id)| id).ok_or_else(|| anyhow::anyhow!("that isn't the top of a wall that can be pulled: Wall pull needs a straight wall with two parallel faces"))
+    }
+
     /// Work out what pulling the wall that `face` belongs to would move.
     pub fn wall_plan(&self, face: Id) -> Result<WallPlan> {
         let fa = self.face(face)?.clone();
