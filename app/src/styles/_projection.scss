@@ -1,0 +1,78 @@
+@use "variables" as *;
+
+/* Project texture: a small panel over the corner of the model, so the selection stays in view while it is tuned */
+
+.proj-panel {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 30;
+  display: grid;
+  gap: 8px;
+  width: min(300px, calc(100vw - 32px));
+  padding: 12px;
+  border-radius: $radius-lg;
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 6px 24px rgba(20, 22, 40, 0.22), 0 0 0 1px rgba(20, 22, 40, 0.08);
+  font-size: $font-l;
+
+  .seg {
+    display: flex;
+
+    button {
+      flex: 1;
+      padding: 5px 4px;
+    }
+  }
+
+  .field {
+    display: grid;
+    gap: 2px;
+  }
+
+  .field.check {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+}
+
+.proj-head {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.proj-step {
+  padding: 6px 8px;
+  border-left: 3px solid var(--accent);
+  border-radius: $radius-sm;
+  background: var(--bg-sunk, rgba(0, 0, 0, 0.04));
+  line-height: 1.4;
+}
+
+.proj-more {
+  justify-self: start;
+}
+
+.proj-more-body {
+  display: grid;
+  gap: 6px;
+}
+
+.proj-origin {
+  display: grid;
+  grid-template-columns: auto repeat(3, 1fr);
+  gap: 4px;
+  align-items: center;
+
+  input {
+    min-width: 0;
+  }
+}
+
+.proj-actions {
+  margin-top: 2px;
+}

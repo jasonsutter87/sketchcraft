@@ -49,6 +49,7 @@ import { ErrorBoundary } from "./boundary";
 import { PhotoModeler } from "./photomodel";
 import { RefImageDialog } from "./refimage";
 import { Text3dDialog } from "./text3d";
+import { ProjectionPanel } from "./projectionpanel";
 import { RestoreDialog } from "./restore";
 import { TimelinePanel } from "./timeline";
 import { LearnCenter, LessonCard, lessonsDone, useLearnCtx } from "./learn";
@@ -187,6 +188,8 @@ function ModelingApp() {
   const [showPhotoModel, setShowPhotoModel] = useState(false);
   const [showRef, setShowRef] = useState(false);
   const [showText3d, setShowText3d] = useState(false);
+  // Project texture: the panel is about the selection it opened on
+  const [showProjection, setShowProjection] = useState(false);
   const [showRestore, setShowRestore] = useState(false);
   const [showTimeline, setShowTimeline] = useState(false);
   const [showLearn, setShowLearn] = useState(false);
@@ -307,6 +310,10 @@ function ModelingApp() {
     },
     [say]
   );
+  const askProjection = () => {
+    if (!sel.faces.length && !sel.groups.length && !sel.instances.length) return say(tr("proj.select"), true);
+    setShowProjection(true);
+  };
   const askSubdivide = () => {
     if (api.current?.inCage()) return;
     const id = sel.groups.length === 1 && !sel.instances.length && !sel.faces.length ? sel.groups[0] : sel.instances.length === 1 && !sel.groups.length && !sel.faces.length ? sel.instances[0] : null;
@@ -575,6 +582,7 @@ function ModelingApp() {
           if (r.ok) say(`Raised ${r.walls} walls${r.windows ? ` with ${r.windows} window openings` : ""}`);
         },
       },
+      { id: "tools.projecttexture", label: "Project texture…", hint: "Tools · lay a picture on the selection: planar, box, cylinder or sphere", run: askProjection },
       { label: "Subdivide…", hint: `Tools · smooth the selected group or component into a SubD shape. ${SUBD_HOW}`, run: askSubdivide },
       { label: "SubD box", hint: `Tools · a cube cage to shape. ${SUBD_HOW}`, run: () => void addSubdBox() },
       { id: "edit.clearguides", label: "Clear guides", hint: "Edit", run: () => void run({ cmd: "clear_guides" }) },
@@ -687,6 +695,7 @@ function ModelingApp() {
       timeline: () => setShowTimeline(true),
       location: () => setShowLocation(true),
       text3d: () => setShowText3d(true),
+      projection: askProjection,
       plugins: () => (reloadPlugins(), setShowPlugins(true)),
       themes: () => setShowSkins(true),
       keys: () => setShowKeys(true),
@@ -1167,6 +1176,7 @@ function ModelingApp() {
         )}
         {lesson && learnCtx && <LessonCard key={lesson} id={lesson} ctx={learnCtx} onClose={() => setLesson(null)} onToast={say} />}
         {showRestore && <RestoreDialog run={run} onClose={() => setShowRestore(false)} onToast={say} />}
+        {showProjection && scene && <ProjectionPanel scene={scene} sel={sel} run={run} camera={() => api.current!.camera()} onClose={() => setShowProjection(false)} onToast={say} />}
         {showText3d && scene && <Text3dDialog scene={scene} run={run} camera={() => api.current!.camera()} onClose={() => setShowText3d(false)} onToast={say} />}
         {showRef && scene && <RefImageDialog scene={scene} run={run} onClose={() => setShowRef(false)} onToast={say} />}
         {showPhotoModel && scene && <PhotoModeler scene={scene} run={run} onClose={() => setShowPhotoModel(false)} onToast={say} />}
@@ -1248,7 +1258,7 @@ function ModelingApp() {
             }}
           />
         )}
-        {menu && scene && <ContextMenu x={menu.x} y={menu.y} close={() => setMenu(null)} items={contextItems(scene, sel, run, setSel, () => api.current?.fit(), api.current?.sectionPlane(), (id) => api.current?.editCage(id), say, { subdivide: askSubdivide, subdBox: addSubdBox })} />}
+        {menu && scene && <ContextMenu x={menu.x} y={menu.y} close={() => setMenu(null)} items={contextItems(scene, sel, run, setSel, () => api.current?.fit(), api.current?.sectionPlane(), (id) => api.current?.editCage(id), say, { subdivide: askSubdivide, subdBox: addSubdBox, projectTexture: askProjection })} />}
       </main>
 
       {!merged && <aside className="panel right">{inspector}</aside>}

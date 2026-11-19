@@ -424,7 +424,7 @@ mod tests {
     fn planar_tile_size_centres_on_the_origin_and_follows_scale() {
         let quad = ring(&[[0.0, 0.0, 0.0], [2.0, 0.0, 0.0], [2.0, 0.0, 1.0], [0.0, 0.0, 1.0]]);
         // a wall in the xz plane facing -y: the projector shines along +y
-        let s = setup(Mode::Planar, |p| p.axis = Some(DVec3::Y), &[quad.clone()], DVec3::NEG_Y);
+        let s = setup(Mode::Planar, |p| p.axis = Some(DVec3::Y), std::slice::from_ref(&quad), DVec3::NEG_Y);
         let uv = s.uvs(&[&quad], DVec3::NEG_Y, (1.0, 1.0));
         // seen from the front (-y): x runs right, z runs up; the middle of the wall is the middle of one tile
         let mid = (quad[0] + quad[2]) * 0.5;
@@ -432,7 +432,7 @@ mod tests {
         let w = (uv[0][1][0] - uv[0][0][0]).abs();
         assert!((w - 2.0).abs() < 1e-9, "2 m wide on a 1 m tile is 2 tiles: {w}");
         // double the scale: one tile now covers 2 m
-        let s2 = setup(Mode::Planar, |p| { p.axis = Some(DVec3::Y); p.scale = 2.0 }, &[quad.clone()], DVec3::NEG_Y);
+        let s2 = setup(Mode::Planar, |p| { p.axis = Some(DVec3::Y); p.scale = 2.0 }, std::slice::from_ref(&quad), DVec3::NEG_Y);
         let uv2 = s2.uvs(&[&quad], DVec3::NEG_Y, (1.0, 1.0));
         assert!(((uv2[0][1][0] - uv2[0][0][0]).abs() - 1.0).abs() < 1e-9);
         // the picture is upright and not mirrored: up on the wall is up in the picture, and the front's right is u's way
@@ -441,7 +441,7 @@ mod tests {
     #[test]
     fn planar_default_direction_lands_on_the_biggest_face() {
         let floor = ring(&[[0.0, 0.0, 0.0], [4.0, 0.0, 0.0], [4.0, 4.0, 0.0], [0.0, 4.0, 0.0]]);
-        let s = setup(Mode::Planar, |_| {}, &[floor.clone()], DVec3::Z);
+        let s = setup(Mode::Planar, |_| {}, std::slice::from_ref(&floor), DVec3::Z);
         // projector shines down (-z); the frame's axis points back up
         assert!((s.e[2] - DVec3::Z).length() < 1e-9);
         let uv = s.uvs(&[&floor], DVec3::Z, (1.0, 1.0));
@@ -453,13 +453,13 @@ mod tests {
     #[test]
     fn planar_fit_covers_the_selection_once_and_rotation_turns_it() {
         let quad = ring(&[[0.0, 0.0, 0.0], [2.0, 0.0, 0.0], [2.0, 0.0, 1.0], [0.0, 0.0, 1.0]]);
-        let s = setup(Mode::Planar, |p| { p.axis = Some(DVec3::Y); p.fit = Some(true) }, &[quad.clone()], DVec3::NEG_Y);
+        let s = setup(Mode::Planar, |p| { p.axis = Some(DVec3::Y); p.fit = Some(true) }, std::slice::from_ref(&quad), DVec3::NEG_Y);
         let uv = s.uvs(&[&quad], DVec3::NEG_Y, (1.0, 1.0));
         let (umin, umax) = uv[0].iter().fold((f64::MAX, f64::MIN), |a, p| (a.0.min(p[0]), a.1.max(p[0])));
         let (vmin, vmax) = uv[0].iter().fold((f64::MAX, f64::MIN), |a, p| (a.0.min(p[1]), a.1.max(p[1])));
         assert!(umin.abs() < 1e-9 && (umax - 1.0).abs() < 1e-9 && vmin.abs() < 1e-9 && (vmax - 1.0).abs() < 1e-9);
         // 90 degrees: the picture's up now runs along the wall's length
-        let r = setup(Mode::Planar, |p| { p.axis = Some(DVec3::Y); p.fit = Some(true); p.rotation = 90.0 }, &[quad.clone()], DVec3::NEG_Y);
+        let r = setup(Mode::Planar, |p| { p.axis = Some(DVec3::Y); p.fit = Some(true); p.rotation = 90.0 }, std::slice::from_ref(&quad), DVec3::NEG_Y);
         let ru = r.uvs(&[&quad], DVec3::NEG_Y, (1.0, 1.0));
         let dv = (ru[0][1][1] - ru[0][0][1]).abs();
         assert!((dv - 1.0).abs() < 1e-9, "v now follows the 2 m edge: {dv}");

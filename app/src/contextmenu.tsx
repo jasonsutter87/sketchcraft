@@ -16,7 +16,7 @@ export interface MenuItem {
   run: () => void;
 }
 
-export function contextItems(scene: Scene, sel: Sel, run: Run, setSel: (s: Sel) => void, fitSel: () => void, section?: { origin: number[]; normal: number[] } | null, onCage?: (id: number) => void, onToast?: (t: string) => void, subd?: { subdivide: () => void; subdBox: () => void }): MenuItem[] {
+export function contextItems(scene: Scene, sel: Sel, run: Run, setSel: (s: Sel) => void, fitSel: () => void, section?: { origin: number[]; normal: number[] } | null, onCage?: (id: number) => void, onToast?: (t: string) => void, subd?: { subdivide: () => void; subdBox: () => void; projectTexture?: () => void }): MenuItem[] {
   const ids = selIds(sel);
   const items: MenuItem[] = [];
   if (isEmpty(sel)) {
@@ -64,6 +64,8 @@ export function contextItems(scene: Scene, sel: Sel, run: Run, setSel: (s: Sel) 
     const def = scene.instances.find((i) => i.id === ids[0])?.component;
     if (def != null && scene.instances.filter((i) => i.component === def).length > 1) items.push({ label: "Make unique", run: () => run({ cmd: "make_unique", id: ids[0] }) });
   }
+  // a picture laid on the selection by planar, box, cylinder or sphere projection
+  if (subd?.projectTexture && (sel.faces.length || sel.groups.length || sel.instances.length)) items.push({ label: "Project texture…", labelId: "context.projectTexture", run: () => subd.projectTexture?.() });
   if (sel.faces.length === 1 && !sel.groups.length && !sel.instances.length) items.push({ label: "Orient faces (match this one)", run: () => run({ cmd: "orient_faces", face: sel.faces[0] }) });
   // Select ›: what's connected, what shares the paint, what shares the tag
   const pickInto = (r: Reply) => r.ok && setSel({ ...EMPTY, faces: (r.faces as number[]) ?? [], edges: (r.edges as number[]) ?? [], groups: (r.groups as number[]) ?? [], instances: (r.instances as number[]) ?? [] });

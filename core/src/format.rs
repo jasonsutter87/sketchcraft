@@ -210,6 +210,9 @@ mod tests {
         assert!(check(br#"{"format":1,"next_id":1,"needs":[]}"#).is_none());
         // what this build writes when it holds sheets, it reads
         assert!(check(br#"{"format":2,"needs":["sheets"],"next_id":1,"sheets":{},"sheet_items":{},"drafting":{},"title_blocks":{}}"#).is_none());
+        // and projected texture coordinates (0.3.9)
+        assert!(check(br#"{"format":2,"needs":["face_uv"],"next_id":1}"#).is_none());
+        assert!(check(br#"{"format":2,"needs":["face_uv","nope"],"next_id":1}"#).is_some());
         assert!(check(b"not json").is_none());
         assert!(check(b"[1,2]").is_none());
     }

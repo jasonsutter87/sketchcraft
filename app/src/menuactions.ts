@@ -85,7 +85,7 @@ export interface MenuCtx {
   setLayout: (l: Layout) => void;
   setLanguage: (l: string) => void;
   // dialogs and links
-  open: Record<"restore" | "render" | "sheets" | "layout" | "timeline" | "location" | "text3d" | "plugins" | "themes" | "keys" | "keyEditor" | "palette" | "learn" | "about" | "customize", () => void>;
+  open: Record<"restore" | "render" | "sheets" | "layout" | "timeline" | "location" | "text3d" | "projection" | "plugins" | "themes" | "keys" | "keyEditor" | "palette" | "learn" | "about" | "customize", () => void>;
   checkForUpdates: () => void;
   openLink: (which: "issues") => void;
 }
@@ -178,6 +178,9 @@ export function buildMenuActions(c: MenuCtx): Record<string, MenuAction> {
   for (const id of ["orbit", "pan", "zoom", "zoomwindow", "position", "lookaround", "walk", "line", "freehand", "arc", "arccenter", "arc3", "pie", "rect", "rrect", "circle", "polygon", "wall", "room", "select", "move", "rotate", "scale", "push", "wallpull", "followme", "offset", "tape", "dimension", "text", "paint", "erase", "section"] as const) {
     add(`tool:${id}`, () => c.tool(id), model);
   }
+
+  // Project texture: a panel over a selection (the same action the command search and the context menu run)
+  add("tools.projecttexture", c.open.projection, model && has);
 
   // Window
   add("win.outliner", () => c.showTab("outliner"), c.leftTabs.includes("outliner"));
