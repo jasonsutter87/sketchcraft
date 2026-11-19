@@ -1,4 +1,4 @@
-import { LocaleProvider } from "./locale";
+import { LocaleProvider, useLocale } from "./locale";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { UpdateCard, checkForUpdatesNow } from "./updater";
 import { ask, AskHost } from "./ask";
@@ -35,9 +35,13 @@ import { LayoutInspector } from "./paper/Inspector";
 import { AppearanceDialog, WorkspaceDialog } from "./appearance";
 import { WorkspaceStrip } from "./wsstrip";
 import { Toolbar } from "./toolbar";
-import { PluginFormDialog, PluginResultDialog, PluginsDialog, type Plugin } from "./plugins";
+import { loadPlugins, PluginFormDialog, PluginResultDialog, PluginsDialog, type Plugin } from "./plugins";
 import { usePlugins } from "./useplugins";
-import { FileMenu } from "./filemenu";
+import { MenuBar, type PluginEntry } from "./menubar";
+import { MENUS } from "./menumodel";
+import { buildMenuActions, type MenuCtx } from "./menuactions";
+import { AboutDialog } from "./about";
+import { openLink } from "./links";
 import { makeSubdBox, SUBD_HOW, subdivideEntity, SubdivideDialog, type SubdivideOptions } from "./subdivide";
 import { readFigure, skippedText, useFileActions, type FigureChoice } from "./usefiles";
 import { ErrorBoundary } from "./boundary";
@@ -184,6 +188,8 @@ function ModelingApp() {
   const [showRestore, setShowRestore] = useState(false);
   const [showTimeline, setShowTimeline] = useState(false);
   const [showLearn, setShowLearn] = useState(false);
+  const [showAbout, setShowAbout] = useState(false);
+  const { preference, setPreference } = useLocale();
   const [lesson, setLesson] = useState<string | null>(null);
   const [showWs, setShowWs] = useState(false);
   const [placing, setPlacing] = useState<string | null>(null);
@@ -377,6 +383,20 @@ function ModelingApp() {
     setSel(EMPTY);
   }, [sel, run]);
 
+  /** Make Group (Edit menu, and Arrange in the right panel): faces, groups and components go inside a new group */
+  const groupSelection = async () => {
+    const r = await run({ cmd: "group", ids: [...sel.faces, ...sel.groups, ...sel.instances] });
+    if (r.ok) setSel({ ...EMPTY, groups: [r.group as number] });
+  };
+  const explodeSelection = async () => {
+    await Promise.all(sel.instances.map((id) => run({ cmd: "explode", id })));
+    setSel(EMPTY);
+  };
+  const hideSelection = async () => {
+    await run({ cmd: "hide", ids: selIds(sel) });
+    setSel(EMPTY);
+  };
+
   // ⌘V: a copy of the clipboard, selected, with Move ready to place it.
   // ⇧⌘V (Paste in Place): the copy stays exactly where the original was,
   // inside whatever group is open now.
@@ -523,7 +543,7 @@ function ModelingApp() {
       { label: "Customize keyboard shortcuts…", hint: "Help · change any key, SketchUp preset, import and export", run: () => setShowKeyEditor(true) },
       { id: "help.search", label: "Search commands", hint: "Help", run: () => setShowPalette(true) },
       ...(inTauri ? [{ label: "Check for updates…", hint: "Help", run: checkForUpdatesNow }] : []),
-      { label: "About SketchCraft", hint: `Version ${__APP_VERSION__}`, run: () => say(`SketchCraft ${__APP_VERSION__}`) },
+      { label: "About SketchCraft", hint: `Version ${__APP_VERSION__}`, run: () => setShowAbout(true) },
       { id: "view.fit", label: "Zoom extents", hint: "Camera", run: () => api.current?.fit() },
       ...(["iso", "top", "front", "right", "back", "left"] as const).map((v) => ({ id: `view.${v}`, label: `${v[0].toUpperCase()}${v.slice(1)} view`, hint: "Camera", run: () => api.current?.view(v) })),
       { id: "edit.undo", label: "Undo", hint: "Edit", run: () => void run({ cmd: "undo" }) },
@@ -576,6 +596,102 @@ function ModelingApp() {
   const fileRef2 = useRef(file);
   fileRef2.current = file;
 
+  /** the menu bar: the same handlers the keys, the command search and the buttons use */
+  const menuCtx: MenuCtx = {
+    selection: { total: selIds(sel).length, faces: sel.faces.length, groups: sel.groups.length, instances: sel.instances.length },
+    canPaste: clip.current != null,
+    editing: scene?.activeGroup != null || scene?.editing != null,
+    section,
+    onPaper: inLayout,
+    workspace: wsId,
+    styles,
+    layout,
+    language: preference,
+    showLeft: ws.showLeft,
+    showRight: ws.showRight,
+    leftTabs: leftTabs(wsId),
+    desktop: inTauri,
+    file: {
+      new: file.new,
+      open: file.open,
+      save: (as) => file.save(as),
+      import: file.import,
+      upload: () => fileRef.current?.click(),
+      export: (k) => file.export(k as Parameters<typeof file.export>[0]),
+      section: (k) => file.section(k),
+      png: file.render,
+      tour: file.animation,
+      blueprint: file.blueprint,
+      report: file.report,
+    },
+    edit: {
+      undo: () => void run({ cmd: "undo" }),
+      redo: () => void run({ cmd: "redo" }),
+      cut: () => void copySelection(true),
+      copy: () => void copySelection(false),
+      paste: (inPlace) => void paste(inPlace),
+      delete: () => void deleteSelection(),
+      selectAll: selectAll,
+      selectNone: () => setSel(EMPTY),
+      group: () => void groupSelection(),
+      component: () => void makeComponent(),
+      explode: () => void explodeSelection(),
+      hide: () => void hideSelection(),
+      unhide: () => void run({ cmd: "unhide" }),
+      clearGuides: () => void run({ cmd: "clear_guides" }),
+      resetAxes: () => void run({ cmd: "set_axes", reset: true }),
+    },
+    tool: chooseTool,
+    view: (v) => api.current?.view(v),
+    fit: () => api.current?.fit(),
+    previousView: () => api.current?.previousView(),
+    nextView: () => api.current?.nextView(),
+    plan: () => {
+      api.current?.planCut(1.22);
+      api.current?.view("top");
+    },
+    clearSection: () => {
+      api.current?.clearSection();
+      setSection(false);
+    },
+    toggleStyle: (k) =>
+      setStyles((s) => (k === "backEdges" ? { ...s, backEdges: !s.backEdges, xray: false } : k === "notes" || k === "help" ? { ...s, [k]: s[k] === false } : { ...s, [k]: !s[k] })),
+    setStyles: (patch) => setStyles((s) => ({ ...s, ...patch })),
+    workspaceTo: (id) => switchWs(id as Parameters<typeof switchWs>[0]),
+    showTab: (t) => {
+      if (!ws.showLeft) editWs({ showLeft: true });
+      setTab(t);
+    },
+    showRightPanel: () => ws.showRight || editWs({ showRight: true }),
+    togglePanel: (side) => (side === "left" ? editWs({ showLeft: !ws.showLeft }) : editWs({ showRight: !ws.showRight })),
+    setLayout,
+    setLanguage: setPreference,
+    open: {
+      restore: () => setShowRestore(true),
+      render: () => setShowRender(true),
+      sheets: () => setShowSheets(true),
+      layout: openLayout,
+      timeline: () => setShowTimeline(true),
+      location: () => setShowLocation(true),
+      text3d: () => setShowText3d(true),
+      plugins: () => (reloadPlugins(), setShowPlugins(true)),
+      themes: () => setShowSkins(true),
+      keys: () => setShowKeys(true),
+      keyEditor: () => setShowKeyEditor(true),
+      palette: () => setShowPalette(true),
+      learn: () => setShowLearn(true),
+      about: () => setShowAbout(true),
+      customize: () => setShowWs(true),
+    },
+    checkForUpdates: checkForUpdatesNow,
+    openLink,
+  };
+  const menuActions = buildMenuActions(menuCtx);
+  const pluginEntries: PluginEntry[] = [
+    ...livePlugins.flatMap((pl) => pl.commands.map((c) => ({ key: `${pl.id}:${c.id}`, label: c.label, title: c.hint ?? pl.description, run: () => void runPluginCommand(pl, c.id) }))),
+    ...plugins.problems.map((p) => ({ key: `x${p.id}`, label: `${p.id}: ${p.error}`, title: p.error, disabled: true, run: () => {} })),
+  ];
+
   const learnCtx = useLearnCtx(scene, wsId, section, !!styles.byTag, { theme: skin.id, layout, pluginRuns, figure });
   const docName = currentFile ? currentFile.split("/").pop()!.replace(/\.sketchcraft$/, "") : "Untitled";
   const selCount = selIds(sel).length;
@@ -587,17 +703,7 @@ function ModelingApp() {
           <Logo />
           <span className="brand-name">SketchCraft</span>
           <span className="sep">/</span>
-          <FileMenu
-            file={file}
-            section={section}
-            plugins={plugins}
-            livePlugins={livePlugins}
-            setPlugins={setPlugins}
-            runPluginCommand={runPluginCommand}
-            reloadPlugins={reloadPlugins}
-            fileRef={fileRef}
-            open={{ restore: () => setShowRestore(true), plugins: () => setShowPlugins(true), sheets: () => setShowSheets(true), layout: openLayout, timeline: () => setShowTimeline(true), location: () => setShowLocation(true), text3d: () => setShowText3d(true), keys: () => setShowKeys(true), keyEditor: () => setShowKeyEditor(true) }}
-          />
+          <MenuBar menus={MENUS} actions={menuActions} plugins={pluginEntries} onOpenPlugins={() => void loadPlugins().then(setPlugins, () => {})} />
           <span className="doc">{docName}</span>
           <span className="live" title="Claude can edit this model over MCP; changes show up here">
             <i /> Live
@@ -912,6 +1018,7 @@ function ModelingApp() {
             onClose={() => setSubdividing(null)}
           />
         )}
+        {showAbout && <AboutDialog onClose={() => setShowAbout(false)} />}
         {showKeys && <ShortcutSheet onClose={() => setShowKeys(false)} onCustomize={() => (setShowKeys(false), setShowKeyEditor(true))} />}
         {showKeyEditor && <ShortcutEditor onClose={() => setShowKeyEditor(false)} />}
         {showPalette && <CommandPalette commands={commands()} onClose={() => setShowPalette(false)} />}
@@ -1069,7 +1176,7 @@ function ModelingApp() {
             <div className="section-title">Arrange</div>
             <div className="btn-grid">
               {(sel.faces.length > 0 || sel.groups.length + sel.instances.length > 1) && (
-                <button className="btn small" title="Groups and components selected go inside the new group" onClick={() => run({ cmd: "group", ids: [...sel.faces, ...sel.groups, ...sel.instances] }).then((r) => r.ok && setSel({ ...EMPTY, groups: [r.group as number] }))}>
+                <button className="btn small" title="Groups and components selected go inside the new group" onClick={() => void groupSelection()}>
                   Make group
                 </button>
               )}
@@ -1085,11 +1192,11 @@ function ModelingApp() {
                 </button>
               )}
               {sel.instances.length > 0 && (
-                <button className="btn small" onClick={() => Promise.all(sel.instances.map((id) => run({ cmd: "explode", id }))).then(() => setSel(EMPTY))}>
+                <button className="btn small" onClick={() => void explodeSelection()}>
                   Explode
                 </button>
               )}
-              <button className="btn small ghost" onClick={() => run({ cmd: "hide", ids: selIds(sel) }).then(() => setSel(EMPTY))}>
+              <button className="btn small ghost" onClick={() => void hideSelection()}>
                 Hide
               </button>
               <button className="btn small danger" onClick={deleteSelection}>

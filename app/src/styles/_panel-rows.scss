@@ -10,31 +10,6 @@
   overscroll-behavior: contain;
 }
 
-.file-menu {
-  max-height: calc(100vh - 64px);
-
-  .submenu-btn .caret {
-    color: var(--faint);
-    font-size: $font-xs;
-  }
-
-  .submenu {
-    margin: 0 0 2px 10px;
-    padding-left: 6px;
-    border-left: 1px solid var(--line);
-
-    button {
-      padding: 6px 10px;
-    }
-  }
-}
-
-.menu-version {
-  padding: 6px 10px 3px;
-  color: var(--faint);
-  font-size: $font-s;
-  user-select: text;
-}
 /* label / value rows in the side panels: the value column takes the room
    left after the label, and a dropdown never grows past it (it used to size
    itself to its longest option and run off the panel) */

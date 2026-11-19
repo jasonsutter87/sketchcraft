@@ -64,38 +64,6 @@
   font-size: $font-m;
 }
 
-.file-btn {
-  height: 28px;
-  padding: 0 10px;
-  margin-left: 4px;
-  border-radius: 7px;
-  color: var(--text);
-  font-weight: 560;
-
-  &:hover {
-    background: var(--bg);
-  }
-}
-
-.file-menu {
-  left: 0;
-  right: auto;
-  top: 34px;
-  min-width: 260px;
-
-  hr {
-    margin: 5px 6px;
-    border: none;
-    border-top: 1px solid var(--line);
-  }
-
-  kbd {
-    color: var(--faint);
-    font: inherit;
-    font-size: $font-xs;
-  }
-}
-
 .topbar .menu-scrim {
   position: fixed;
 }

@@ -80,6 +80,23 @@ fn open_url(url: &str) -> bool {
     r.is_ok()
 }
 
+/// The few pages the About and Help menus link to. The address is chosen here by name, never taken from the page.
+fn link_url(which: &str) -> Option<&'static str> {
+    Some(match which {
+        "repo" => "https://github.com/jasonsutter87/sketchcraft",
+        "license" => "https://github.com/jasonsutter87/sketchcraft/blob/main/LICENSE",
+        "changelog" => "https://github.com/jasonsutter87/sketchcraft/blob/main/CHANGELOG.md",
+        "issues" => "https://github.com/jasonsutter87/sketchcraft/issues",
+        _ => return None,
+    })
+}
+
+/// Open one of those pages in the browser (Help > Report a bug, About's links).
+#[tauri::command]
+fn open_link(which: &str) -> bool {
+    link_url(which).is_some_and(open_url)
+}
+
 /// Open the download page in the browser (for installs the updater can't
 /// replace, like a .deb or .rpm). The address is fixed, never from the page.
 #[tauri::command]
@@ -120,6 +137,15 @@ mod tests {
     use super::*;
 
     #[test]
+    fn links_open_only_the_named_pages() {
+        for k in ["repo", "license", "changelog", "issues"] {
+            assert!(link_url(k).is_some_and(|u| u.starts_with("https://github.com/jasonsutter87/sketchcraft")), "{k}");
+        }
+        assert_eq!(link_url("https://example.com"), None);
+        assert_eq!(link_url(""), None);
+    }
+
+    #[test]
     fn downloads_come_from_their_own_release() {
         assert!(release_url_ok("0.3.6", "https://github.com/jasonsutter87/sketchcraft/releases/download/v0.3.6/SketchCraft.app.tar.gz"));
         assert!(!release_url_ok("0.3.6", "https://github.com/jasonsutter87/sketchcraft/releases/download/v0.2.0/SketchCraft.app.tar.gz"));
@@ -152,7 +178,7 @@ fn main() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![exec, scene, sync, open_releases, portable, open_guide])
+        .invoke_handler(tauri::generate_handler![exec, scene, sync, open_releases, portable, open_guide, open_link])
         .build(tauri::generate_context!())
         .expect("error while building SketchCraft")
         .run(|_, event| {

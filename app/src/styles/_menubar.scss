@@ -1,0 +1,225 @@
+@use "variables" as *;
+@use "mixins" as *;
+
+/* ---------- the menu bar: File Edit View Camera Draw Tools Window Help ---------- */
+
+.menubar-wrap {
+  position: relative;
+  z-index: 31; /* above the click-away scrim */
+  margin-left: 2px;
+}
+
+.menubar {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+}
+
+.menubar-item {
+  position: relative;
+
+  > button {
+    height: 28px;
+    padding: 0 9px;
+    border-radius: 7px;
+    color: var(--text);
+    font-weight: 560;
+
+    &:hover,
+    &.on {
+      background: var(--bg);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: -2px;
+    }
+  }
+}
+
+.menubar-menu {
+  z-index: 32;
+  min-width: 220px;
+  padding: 5px;
+  border-radius: 11px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+  overscroll-behavior: contain;
+
+  &.top {
+    position: absolute;
+    left: 0;
+    top: 34px;
+    max-height: calc(100vh - 64px);
+    overflow-y: auto;
+  }
+
+  &.sub {
+    position: fixed;
+    overflow-y: auto;
+  }
+
+  hr {
+    margin: 5px 6px;
+    border: none;
+    border-top: 1px solid var(--line);
+  }
+
+  .mi {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 6px 10px 6px 6px;
+    border-radius: 7px;
+    text-align: left;
+    white-space: nowrap;
+    color: var(--text);
+
+    &:hover:not(:disabled),
+    &:focus-visible:not(:disabled),
+    &.on {
+      @include accent-on;
+      outline: none;
+    }
+
+    &:disabled {
+      color: var(--faint);
+      cursor: default;
+    }
+  }
+
+  .mi-mark {
+    flex: none;
+    width: 14px;
+    text-align: center;
+    font-size: $font-m;
+  }
+
+  .mi-label {
+    flex: 1;
+  }
+
+  .mi-caret {
+    color: var(--faint);
+    font-size: $font-xs;
+  }
+
+  kbd {
+    margin-left: 18px;
+    color: var(--faint);
+    font: inherit;
+    font-size: $font-xs;
+  }
+}
+
+/* on narrower windows the Live badge, then the name, give way to the menus */
+@media (max-width: 1500px) {
+  .topbar .live {
+    display: none;
+  }
+}
+
+@media (max-width: 1280px) {
+  .topbar .brand-name,
+  .topbar .brand > .sep {
+    display: none;
+  }
+
+  .menubar-item > button {
+    padding: 0 7px;
+  }
+}
+
+/* About */
+
+.about {
+  text-align: center;
+
+  .about-head {
+    padding-top: 6px;
+  }
+
+  .about-logo svg {
+    width: 64px;
+    height: 64px;
+  }
+
+  .about-name {
+    margin: 8px 0 0;
+    font-size: 22px;
+    letter-spacing: -0.01em;
+  }
+
+  .about-version {
+    margin: 2px 0 0;
+    color: var(--muted);
+    font-size: $font-m;
+  }
+
+  .about-tagline {
+    margin: 12px 0 0;
+    font-size: 15px;
+    font-weight: 650;
+  }
+
+  .about-promise {
+    margin: 2px 0 0;
+    color: var(--muted);
+    font-size: $font-s;
+  }
+
+  .about-links {
+    display: flex;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 6px 16px;
+    margin: 16px 0 0;
+    padding: 0;
+    list-style: none;
+
+    a {
+      color: var(--accent-ink);
+    }
+  }
+
+  .about-thanks {
+    margin-top: 18px;
+    padding-top: 14px;
+    border-top: 1px solid var(--line);
+
+    h3 {
+      margin: 0;
+      font-size: $font-xl;
+    }
+
+    p {
+      margin: 4px 0 8px;
+      color: var(--muted);
+      font-size: $font-m;
+    }
+
+    ul {
+      display: flex;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    li {
+      padding: 3px 10px;
+      border-radius: $radius-pill;
+      background: var(--bg);
+      box-shadow: inset 0 0 0 1px var(--line);
+      font-size: $font-l;
+    }
+  }
+
+  .about-foot {
+    margin-top: 18px;
+  }
+}
