@@ -27,6 +27,15 @@ What changed in each SketchCraft release, newest first. The format follows
   a promise.", links to the source on GitHub, the MIT license and the changelog, and a **Thank you** to everyone who has
   written code for SketchCraft. That list is made when the app is built, from the authors in the project's git history
   (bots are left out), so it never needs updating by hand.
+- **Fixtures & furniture for your rooms.** The Library has a new "Fixtures & furniture" section with 26 ready-made pieces
+  at common US/EU sizes, in five rooms: Bath (toilet, 0.6 m and 1.2 m vanities with sinks, bathtub, shower stall, towel
+  bar), Kitchen (base cabinet, sink base, wall cabinet, pantry, fridge, range, dishwasher, island), Bedroom (queen, king
+  and twin beds, nightstand, dresser), Living & dining (3-seat sofa, armchair, coffee table, TV stand, dining table with
+  four chairs) and Laundry (washer, dryer). Each shows its name and size (metric and inches) when you hover it, shows a
+  thumbnail, and is found by searching for its name or its room. Each stands on the floor with the middle of its back edge
+  at its origin, so it can sit against a wall. While you place one, bring the cursor within about 40 cm of a wall and it
+  turns to face into the room and slides back flush against the wall ("Against the wall"); hold Shift to place it freely.
+  One click is one Undo step. Italian wording is included; a review by Kad26 is welcome.
 - **Room mode: draw a room by dragging it out, like in The Sims.** Pick **Room** in the Build panel (or on the Arch
   toolbar), press on the ground, drag a rectangle and let go: you get four walls of the usual height and thickness and a
   floor, snapped to a 0.1 m grid (6 in in feet and inches). While you drag, the inside width, depth and area show in

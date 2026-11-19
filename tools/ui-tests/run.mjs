@@ -32,6 +32,7 @@ const SUITES = [
   ['subdivide', 'tools/ui-tests/subdivide.mjs', 300],
   ['wall-pull', 'tools/ui-tests/wall-pull.mjs', 300],
   ['room-mode', 'tools/ui-tests/room-mode.mjs', 300],
+  ['fixtures', 'tools/ui-tests/fixtures.mjs', 300],
   ['shortcuts', 'tools/ui-tests/shortcuts.mjs', 300],
   ['menu-bar', 'tools/ui-tests/menu-bar.mjs', 420],
   ['tools', 'tools/ui-tests/tools.mjs', 900],
