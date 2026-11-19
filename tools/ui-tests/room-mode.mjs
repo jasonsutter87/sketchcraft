@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Room mode, in a real browser: drag two rooms side by side (they share a wall, no double wall), read the live size while
 // dragging and the labels afterwards, pull the shared wall and watch both areas change, place a door, rename a room, turn
-// walls down (a view setting only), get refused when rooms overlap, and Undo each action in one step.
+// walls down (a view setting only), combine with or Alt-subtract from a room it is dragged over, get refused when a drag spans two rooms, and Undo each action in one step.
 //   node tools/ui-tests/run.mjs room-mode
 // Like the other suites it runs on a scratch model, in a browser pinned to en-US, with real pointer and key events.
 import fs from 'node:fs';
@@ -214,12 +214,65 @@ if (await choice.count()) {
   await until((st) => st.instances.length === 0);
 } else check(false, 'the Room options have a Door / Window choice');
 
-// ---- an overlap is refused, with a reason, and nothing changes -----------------------------------------------------
-await drag([[7, 1, 0], [8.5, 1.5, 0], [10, 2, 0]]);
+// ---- a drag over two rooms is refused, with a reason, and nothing changes ---------------------------------------------
+await drag([[7, 1, 0], [4.5, 1.5, 0], [2, 2, 0]]);
 await wait(300);
 const why = await toast();
-check(/overlap/i.test(why), `a room dragged over another is refused with a reason (${why.replace(/\s+/g, ' ').slice(0, 110)})`);
+check(/one room at a time/i.test(why), `a room dragged over two rooms is refused with a reason (${why.replace(/\s+/g, ' ').slice(0, 110)})`);
 check(shape(await scene()) === two, 'and the model is unchanged');
+
+// ---- dragged over ONE room it combines (the default): the preview shows the result, the label says so -----------------
+/** upright wall faces whose plane is near x = at and that are at least minLen long (along y) */
+const wallsAtX = (st, at, minLen = 0.5) => st.faces.filter((f) => f.normal && Math.abs(f.normal[0]) > 0.99 && Math.abs(f.outer[0][0] - at) < 0.02 && Math.max(...f.outer.map((v) => v[1])) - Math.min(...f.outer.map((v) => v[1])) > minLen).length;
+const roomArea = async (name) => {
+  const r = (await X({ cmd: 'rooms' })).rooms.find((x) => x.name === name);
+  return r ? { area: r.area, corners: r.outline.length } : { area: NaN, corners: 0 };
+};
+const wallFaces = (st) => st.faces.filter((f) => f.normal && Math.abs(f.normal[2]) < 0.01).length;
+const before2 = await roomArea('Room 2');
+const wallsBefore = wallFaces(await scene());
+await drag([[7, 1, 0], [8.5, 1.5, 0], [10, 2, 0]], { release: false });
+let liveText = (await p.locator('.label.live span').allInnerTexts()).join(' | ');
+check(/Combine with Room 2 · 16\.0 m²/.test(liveText), `while dragging over a room the label says what will happen, with the result's area (${liveText})`);
+check(/Alt/.test(await coach()), `and the step hint explains the Alt modifier (${(await coach()).replace(/\s+/g, ' ').slice(0, 130)})`);
+await p.mouse.up();
+await wait(450);
+s = await until((st) => wallsAtX(st, 10.1) > 0);
+const after2 = await roomArea('Room 2');
+check(rooms(s).length === 2, 'combining keeps two rooms (it joined one of them, it did not add a third)');
+check(near(before2.area, 14.44, 0.02) && near(after2.area, 16.04, 0.02) && after2.corners === 8, `Room 2 became an 8-cornered compound room: ${before2.area.toFixed(2)} -> ${after2.area.toFixed(2)} m², ${after2.corners} corners`);
+check(wallsAtX(s, 10.1) >= 1 && wallsAtX(s, 9.9) >= 1 && wallFaces(s) > wallsBefore, `its outline has walls round the new bay (${wallsBefore} -> ${wallFaces(s)} upright wall faces)`);
+l = await untilLabels((x) => near(areaOf(x, 'Room 2'), 16.04, 0.06));
+check(near(areaOf(l, 'Room 2'), 16.04, 0.06) && near(areaOf(l, 'Room 1'), a1, 0.06), `the labels follow (${l.join(', ')})`);
+await key('Control+z');
+s = await until((st) => shape(st) === two);
+check(shape(s) === two, 'one Undo takes the combine back completely');
+
+// ---- hold Alt (Option) and it subtracts: a notch out of the room --------------------------------------------------------
+await p.keyboard.down('Alt');
+await drag([[7, 1, 0], [8.5, 1.5, 0], [10, 2, 0]], { release: false });
+liveText = (await p.locator('.label.live span').allInnerTexts()).join(' | ');
+check(/Subtract from Room 2 · 13\.2 m²/.test(liveText), `with Alt held the label says Subtract, with the result's area (${liveText})`);
+await p.mouse.up();
+await wait(450);
+await p.keyboard.up('Alt');
+s = await until((st) => wallsAtX(st, 7.1, 0.5) > 0 && shape(st) !== two);
+const cut2 = await roomArea('Room 2');
+check(rooms(s).length === 2 && near(cut2.area, 13.24, 0.02) && cut2.corners === 8, `Room 2 now has a notch: ${before2.area.toFixed(2)} -> ${cut2.area.toFixed(2)} m², ${cut2.corners} corners`);
+check(wallsAtX(s, 7.1, 0.5) >= 1 && wallsAtX(s, 6.9, 0.5) >= 1, 'with walls along the notch');
+check(near((await roomArea('Room 1')).area, a1, 0.06), 'and Room 1 is untouched');
+l = await untilLabels((x) => near(areaOf(x, 'Room 2'), 13.24, 0.06));
+check(near(areaOf(l, 'Room 2'), 13.24, 0.06), `the label follows (${l.join(', ')})`);
+await key('Control+z');
+s = await until((st) => shape(st) === two);
+check(shape(s) === two, 'one Undo fills the notch in again');
+
+// ---- Esc cancels a drag --------------------------------------------------------------------------------------------------
+await drag([[7, 1, 0], [8.5, 1.5, 0], [10, 2, 0]], { release: false });
+await key('Escape');
+await p.mouse.up();
+await wait(300);
+check(shape(await scene()) === two, 'Esc cancels a drag over a room, nothing changes');
 
 // ---- rename ---------------------------------------------------------------------------------------------------------
 const nameBox = p.locator('.room-list input').first();

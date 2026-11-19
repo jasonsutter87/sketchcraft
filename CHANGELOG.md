@@ -48,6 +48,16 @@ What changed in each SketchCraft release, newest first. The format follows
   window (your choice in the Room options). **Walls down** shows the walls low so you can see inside; it only changes
   the view, never the model. Agents can use `room_rect`, `room_preview` and `rooms`. Italian wording for the new tool
   is welcome from Italian speakers.
+- **Drag a room over another room to combine with it, or hold Alt (Option) to cut a notch out of it.** Rooms are no
+  longer only rectangles. Drag a new room so it overlaps an existing one and the two become one room with an L-shaped
+  (or T-shaped, or any square-cornered) outline: the walls inside the overlap disappear and walls run round the new
+  outline. Hold Alt (Option) while you drag and the box is cut out of the room instead, leaving a notch. The preview
+  shows the result, not the box you are dragging, the floating label says what will happen ("Combine with Kitchen",
+  "Subtract from Kitchen") with the new area, and the step hint explains the Alt key. The room keeps its name, its other
+  neighbours' walls are left alone, and doors and windows on walls that still exist are put back in the new walls (the
+  ones whose wall is gone are removed, and you are told how many). A cut that would split the room in two or leave a
+  hole in it is refused with a reason, and one Undo takes back the whole change. Room labels now sit inside L-shaped
+  rooms instead of in the notch. Agents can pass `mode: "combine"` or `"subtract"` to `room_rect` and `room_preview`.
 - **Pull a whole wall, like in The Sims.** The new **Pull wall** tool (in the Build panel) lights up a wall as one piece
   when you point at it, and drags it sideways; type a distance and press Enter for an exact pull, or Esc to cancel. The
   wall keeps its thickness, the walls joined to it at corners and T-junctions stretch or shrink to stay joined (so a
