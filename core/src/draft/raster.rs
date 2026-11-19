@@ -28,11 +28,33 @@ struct Canvas {
     cov: Vec<f32>,
 }
 
-/// Draw one page `px` pixels wide (clamped to `MIN_PX..=MAX_PX`; the height keeps the paper's proportions).
+/// The tallest picture `page` makes, in pixels.
+pub const MAX_SIDE: u32 = MAX_PX * 4;
+/// The most pixels in one picture (a tall, narrow page is drawn narrower so it stays under this).
+pub const MAX_PIXELS: u64 = 24_000_000;
+
+/// The picture's size for a page `w` by `h` mm drawn `px` wide: `px` clamped to `MIN_PX..=MAX_PX`, the height keeping
+/// the paper's proportions, and both made smaller together when the height would pass `MAX_SIDE` or the picture
+/// `MAX_PIXELS`. Returns (width, height, pixels per mm).
+pub fn size(w: f64, h: f64, px: u32) -> (u32, u32, f64) {
+    let (w, h) = (if w.is_finite() { w.max(1.0) } else { 1.0 }, if h.is_finite() { h.max(1.0) } else { 1.0 });
+    let mut k = px.clamp(MIN_PX, MAX_PX) as f64 / w;
+    if h * k > MAX_SIDE as f64 {
+        k = MAX_SIDE as f64 / h;
+    }
+    let area = (w * k) * (h * k);
+    if area > MAX_PIXELS as f64 {
+        k *= (MAX_PIXELS as f64 / area).sqrt();
+    }
+    let pw = ((w * k).round() as u32).clamp(1, MAX_PX);
+    let ph = ((h * k).round() as u32).clamp(1, MAX_SIDE);
+    (pw, ph, k)
+}
+
+/// Draw one page about `px` pixels wide (see `size`: the height keeps the paper's proportions, and the picture is
+/// never more than `MAX_SIDE` tall or `MAX_PIXELS` in all).
 pub fn page(p: &Page, px: u32) -> RgbImage {
-    let px = px.clamp(MIN_PX, MAX_PX);
-    let k = px as f64 / p.w.max(1.0);
-    let h = ((p.h * k).round() as u32).clamp(1, MAX_PX * 4);
+    let (px, h, k) = size(p.w, p.h, px);
     let bg = p.bg.unwrap_or(WHITE);
     let img = RgbImage::from_pixel(px, h, image::Rgb(bg));
     let mut c = Canvas { img, k, cov: vec![0.0; px as usize + 2] };
