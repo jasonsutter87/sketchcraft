@@ -148,6 +148,12 @@ export const Icons = {
       <path d="M3 19l6-3M21 13v-0" />
     </Svg>
   ),
+  room: () => (
+    <Svg>
+      <path d="M4 5h16v14H4zM4 12h7M15 12h5" />
+      <path d="M11 9v6" />
+    </Svg>
+  ),
   wallpull: () => (
     <Svg>
       <path d="M3 19V7l5-2v12M8 17l8-2V5L8 5" />

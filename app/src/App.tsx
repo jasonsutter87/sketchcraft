@@ -49,6 +49,8 @@ import { TimelinePanel } from "./timeline";
 import { LearnCenter, LessonCard, lessonsDone, useLearnCtx } from "./learn";
 
 const DEFAULT_BUILD: BuildSettings = {
+  roomOpening: "door",
+  wallsDown: false,
   wallThickness: 0.2,
   wallHeight: 2.7,
   stairWidth: 1.0,
@@ -68,7 +70,7 @@ const DEFAULT_BUILD: BuildSettings = {
 };
 
 function loadBuild(): BuildSettings {
-  return savedSettings("sketchcraft.build", DEFAULT_BUILD, { roofKind: ["gable", "hip", "shed"] });
+  return savedSettings("sketchcraft.build", DEFAULT_BUILD, { roofKind: ["gable", "hip", "shed"], roomOpening: ["door", "window"] });
 }
 
 /** One-click looks, like SketchUp's style collections. */
@@ -664,7 +666,7 @@ function ModelingApp() {
               />
               <details className="panel-fold" open>
                 <summary>Build</summary>
-                <BuildTools tool={tool} setTool={chooseTool} build={build} setBuild={setBuild} units={scene.units || "m"} />
+                <BuildTools tool={tool} setTool={chooseTool} build={build} setBuild={setBuild} units={scene.units || "m"} scene={scene} run={run} />
               </details>
               <details className="panel-fold">
                 <summary>Smooth shapes (SubD)</summary>

@@ -304,7 +304,7 @@ export function WorkspaceDialog({ ws, onChange, onReset, onClose }: { ws: Worksp
   const on = new Set(ws.tools.flat());
   const base = WORKSPACES.find((w) => w.id === ws.id)!;
   // toggling keeps each tool in its family's group, in the standard order
-  const ORDER: Tool[][] = [["select"], ["wall", "wallpull", "stairs", "roof", "column"], ["line", "freehand", "arc", "arccenter", "arc3", "pie", "rect", "rrect", "circle", "polygon"], ["push", "offset", "followme"], ["move", "rotate", "scale"], ["tape", "protractor", "axes", "dimension", "text", "paint", "erase"], ["smoove", "stamp", "drape", "flipedge"], ["orbit", "pan", "zoom", "zoomwindow", "position", "lookaround", "walk", "section"]];
+  const ORDER: Tool[][] = [["select"], ["room", "wall", "wallpull", "stairs", "roof", "column"], ["line", "freehand", "arc", "arccenter", "arc3", "pie", "rect", "rrect", "circle", "polygon"], ["push", "offset", "followme"], ["move", "rotate", "scale"], ["tape", "protractor", "axes", "dimension", "text", "paint", "erase"], ["smoove", "stamp", "drape", "flipedge"], ["orbit", "pan", "zoom", "zoomwindow", "position", "lookaround", "walk", "section"]];
   const toggle = (t: Tool) => {
     const next = new Set(on);
     if (next.has(t)) next.delete(t);

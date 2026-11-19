@@ -8,12 +8,15 @@ export type Tool =
   | "push" | "offset" | "followme" | "move" | "rotate" | "scale"
   | "tape" | "dimension" | "text" | "paint" | "erase" | "orbit" | "pan" | "zoom" | "section" | "place"
   | "position" | "lookaround" | "walk" | "zoomwindow" | "protractor"
-  | "wall" | "wallpull" | "stairs" | "roof" | "column"
+  | "wall" | "wallpull" | "room" | "stairs" | "roof" | "column"
   | "smoove" | "stamp" | "drape" | "flipedge"
   | "plugin";
 
 /** Settings for the building-block tools (lengths in meters). */
 export interface BuildSettings {
+  /** Room mode: what a click on a wall adds, and whether the walls are shown low (a view setting only) */
+  roomOpening: "door" | "window";
+  wallsDown: boolean;
   wallThickness: number;
   wallHeight: number;
   stairWidth: number;
@@ -160,6 +163,28 @@ export interface WallPlan {
   moves: { v: number; at: [number, number, number]; per_m: [number, number, number] }[];
 }
 
+/** What `room_preview` tells the app about a dragged room (or why it can't be there). */
+export interface RoomPreview {
+  ok: boolean;
+  error?: string;
+  rect?: [number, number, number, number];
+  inside?: [number, number, number, number];
+  width?: number;
+  depth?: number;
+  area?: number;
+  thickness?: number;
+  shared?: { room: number; name: string | null; side: string }[];
+  snapped?: boolean;
+}
+
+/** A room as `rooms` lists it. */
+export interface RoomRow {
+  id: number;
+  name: string;
+  area: number;
+  center: [number, number, number];
+}
+
 export type Op =
   | { t: "line"; p0: THREE.Vector3; start: THREE.Vector3; cur: THREE.Vector3 }
   | { t: "rect"; p0: THREE.Vector3; n: THREE.Vector3; u: THREE.Vector3; v: THREE.Vector3; a: number; b: number }
@@ -178,6 +203,8 @@ export type Op =
   | { t: "push"; face: FaceInfo; origin: THREE.Vector3; n: THREE.Vector3; d: number; dragged: boolean }
   | { t: "offset"; face: FaceInfo; start: THREE.Vector3; d: number }
   /** Wall pull: the wall the picked face belongs to, and what the engine says moves with it */
+  /** Room mode: dragging a room out between two ground corners (a, b); what the engine says about it (null: not asked yet) */
+  | { t: "room"; a: THREE.Vector3; b: THREE.Vector3; preview: RoomPreview | null; asked: string; pending: boolean }
   | { t: "wallpull"; face: number; plan: WallPlan; origin: THREE.Vector3; n: THREE.Vector3; d: number; dragged: boolean }
   | { t: "move"; base: THREE.Vector3; ids: number[]; delta: THREE.Vector3; copy: boolean; vertex?: { far: THREE.Vector3[] } }
   | { t: "rotate"; center: THREE.Vector3; n: THREE.Vector3; ref: THREE.Vector3 | null; angle: number; ids: number[]; copy?: boolean }

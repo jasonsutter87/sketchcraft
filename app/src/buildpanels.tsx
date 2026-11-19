@@ -1,11 +1,15 @@
 // The Build and Sandbox panels: settings for the building-block and terrain tools.
+import { useEffect, useState } from "react";
+import { exec, type Scene } from "./engine";
 import { Icons } from "./icons";
 import { useLocale } from "./locale";
+import { areaText } from "./viewport/rooms";
 import { type Sel } from "./selection";
 import type { BuildSettings, Tool } from "./Viewport";
 import { LengthInput, type Run } from "./panelkit";
 
 const BUILD_TOOLS: { id: Tool; name: string; how: string }[] = [
+  { id: "room", name: "Room", how: "Press and drag on the ground to draw a room: four walls and a floor. Rooms drawn next to each other share a wall." },
   { id: "wall", name: "Wall", how: "Click points along the wall. Double-click or Enter to finish; click the first point to close a room." },
   { id: "wallpull", name: "Pull wall", how: "Hover a wall, then drag it (or click, move, click). It slides sideways and the walls joined to it stretch. Type a distance, then Enter. Esc cancels." },
   { id: "stairs", name: "Stairs", how: "Click where the bottom step starts, then the direction it climbs." },
@@ -13,11 +17,59 @@ const BUILD_TOOLS: { id: Tool; name: string; how: string }[] = [
   { id: "column", name: "Column", how: "Click to drop a column." },
 ];
 
-export function BuildTools({ tool, setTool, build, setBuild, units }: { tool: Tool; setTool: (t: Tool) => void; build: BuildSettings; setBuild: (b: BuildSettings) => void; units: string }) {
+/** Room mode's panel: what a click on a wall adds, walls down, and the rooms by name (rename here). */
+function RoomOptions({ build, set, units, scene, run }: { build: BuildSettings; set: (k: keyof BuildSettings) => (v: unknown) => void; units: string; scene: Scene | null; run: Run }) {
+  const { t } = useLocale();
+  const [rooms, setRooms] = useState<{ id: number; name: string; area: number }[]>([]);
+  useEffect(() => {
+    let current = true;
+    void exec({ cmd: "rooms" }).then((r) => {
+      if (current && r.ok) setRooms((r as unknown as { rooms: { id: number; name: string; area: number }[] }).rooms ?? []);
+    });
+    return () => {
+      current = false;
+    };
+  }, [scene]);
+  return (
+    <>
+      <label className="field">
+        <span>{t("room.opening")}</span>
+        <select value={build.roomOpening} onChange={(e) => set("roomOpening")(e.target.value)}>
+          <option value="door">{t("room.opening.door")}</option>
+          <option value="window">{t("room.opening.window")}</option>
+        </select>
+      </label>
+      <label className="field">
+        <span>{t("room.walls_down")}</span>
+        <input type="checkbox" checked={build.wallsDown} onChange={(e) => set("wallsDown")(e.target.checked)} />
+      </label>
+      <div className="room-list" aria-label={t("room.list")}>
+        {rooms.length === 0 && <p>{t("room.none")}</p>}
+        {rooms.map((r) => (
+          <label className="field" key={`${r.id}:${r.name}`}>
+            <input
+              defaultValue={r.name}
+              aria-label={r.name}
+              onBlur={(e) => {
+                const name = e.target.value.trim();
+                if (name && name !== r.name) void run({ cmd: "rename", id: r.id, name });
+                else e.target.value = r.name;
+              }}
+              onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+            />
+            <span>{areaText(r.area, units)}</span>
+          </label>
+        ))}
+      </div>
+    </>
+  );
+}
+
+export function BuildTools({ tool, setTool, build, setBuild, units, scene, run }: { tool: Tool; setTool: (t: Tool) => void; build: BuildSettings; setBuild: (b: BuildSettings) => void; units: string; scene: Scene | null; run: Run }) {
   const { t } = useLocale();
   // the labels the app translates; the rest of this panel is still English
-  const name = (b: (typeof BUILD_TOOLS)[number]) => (b.id === "wallpull" ? t("build.wallpull") : b.name);
-  const how = (b: (typeof BUILD_TOOLS)[number]) => (b.id === "wallpull" ? t("build.wallpull.how") : b.how);
+  const name = (b: (typeof BUILD_TOOLS)[number]) => (b.id === "wallpull" ? t("build.wallpull") : b.id === "room" ? t("build.room") : b.name);
+  const how = (b: (typeof BUILD_TOOLS)[number]) => (b.id === "wallpull" ? t("build.wallpull.how") : b.id === "room" ? t("build.room.how") : b.how);
   const active = BUILD_TOOLS.find((b) => b.id === tool);
   const set = (k: keyof BuildSettings) => (v: unknown) => setBuild({ ...build, [k]: v });
   return (
@@ -33,6 +85,13 @@ export function BuildTools({ tool, setTool, build, setBuild, units }: { tool: To
       {active && (
         <div className="build-options">
           <p>{how(active)}</p>
+          {tool === "room" && (
+            <>
+              <LengthInput label="Thickness" value={build.wallThickness} units={units} onChange={set("wallThickness")} />
+              <LengthInput label="Height" value={build.wallHeight} units={units} onChange={set("wallHeight")} />
+              <RoomOptions build={build} set={set} units={units} scene={scene} run={run} />
+            </>
+          )}
           {tool === "wall" && (
             <>
               <LengthInput label="Thickness" value={build.wallThickness} units={units} onChange={set("wallThickness")} />

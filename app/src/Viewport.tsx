@@ -32,7 +32,8 @@ import { profileMaterial, textureFor } from "./viewport/materials";
 import { UP, r4, arr, circleThrough, bulgeThrough, basis, arcPoints, offsetOutline } from "./viewport/geometry";
 import { selectMarquee } from "./viewport/marquee";
 import { isTypingTarget } from "./keymap";
-import type { Tool, BuildSettings, FaceStyle, Backdrop, Styles, Cam, ViewportApi, PluginPoint, Props, Op, LabelSpec, Last, WallPlan } from "./viewport/types";
+import type { Tool, BuildSettings, FaceStyle, Backdrop, Styles, Cam, ViewportApi, PluginPoint, Props, Op, LabelSpec, Last, WallPlan, RoomPreview, RoomRow } from "./viewport/types";
+import { dragLabel, gridStep, roomLabel, snapGrid } from "./viewport/rooms";
 export { autoTagColor };
 export type { Tool, BuildSettings, FaceStyle, Backdrop, Styles, Cam, ViewportApi, PluginPoint };
 
@@ -146,6 +147,9 @@ export default function Viewport(props: Props) {
     hoverEdge: number | null;
     /** Wall pull: the wall under the cursor (plan null: asking the engine, or it isn't a wall that can be pulled) */
     wall: { face: number; plan: WallPlan | null; scene: Scene; at: THREE.Vector3 } | null;
+    /** Room mode: the rooms (for their labels), and the low-walls clip, a view setting that never reaches the model */
+    rooms: RoomRow[];
+    cutaway: THREE.Plane | null;
     /** last inference shown (Shift locks to it) */
     snap: Snap | null;
     /** the lock came from holding Shift (released with it) */
@@ -164,7 +168,7 @@ export default function Viewport(props: Props) {
     labels: LabelSpec[];
     liveLabels: LabelSpec[];
     labelEls: Map<string, HTMLDivElement>;
-  }>({ press: null, labels: [], liveLabels: [], labelEls: new Map(), op: null, last: null, lock: null, hover: null, hoverEdge: null, wall: null, snap: null, shiftLock: false, zoomY: null, space: false, spaceUsed: false, fitted: false, fitNext: false, section: null, segs: { circle: 24, polygon: 6 }, rightDown: null, selOverride: null });
+  }>({ press: null, labels: [], liveLabels: [], labelEls: new Map(), op: null, last: null, lock: null, hover: null, hoverEdge: null, wall: null, rooms: [], cutaway: null, snap: null, shiftLock: false, zoomY: null, space: false, spaceUsed: false, fitted: false, fitNext: false, section: null, segs: { circle: 24, polygon: 6 }, rightDown: null, selOverride: null });
 
   // dev builds: inspect the tool state from the console (window.__sketchcraft)
   if (import.meta.env.DEV) Object.assign(window as unknown as Record<string, unknown>, { __sketchcraft: st, __sketchcraftView: t });
@@ -490,6 +494,12 @@ export default function Viewport(props: Props) {
     );
   }
 
+  /** Room mode: each room's name and area, standing on its floor. */
+  function roomSpecs(): LabelSpec[] {
+    if (live.current.tool !== "room") return [];
+    return st.current.rooms.map((r) => ({ key: `room${r.id}`, p: V(r.center).add(new THREE.Vector3(0, 0, 0.02)), text: roomLabel(r.name, r.area, units) }));
+  }
+
   /** Per-triangle colors from each thing's tag (its own, or the nearest
    *  group it sits in that has one); untagged stays a quiet gray. */
   function tagColors(s: Scene): number[] {
@@ -679,7 +689,7 @@ export default function Viewport(props: Props) {
     T.model.children.forEach((c) => (c as THREE.Mesh).geometry?.dispose());
     T.model.clear();
     const xray = live.current.styles.xray;
-    const clip = st.current.section ? [st.current.section] : [];
+    const clip = st.current.section ? [st.current.section] : st.current.cutaway ? [st.current.cutaway] : [];
 
     // in SubD mode the object being shaped is drawn by its cage editor instead
     const shaping = cageEd.current?.o.group ?? null;
@@ -944,7 +954,7 @@ export default function Viewport(props: Props) {
     }
     addGuides(T, s);
     addAnnotationLines(T, s);
-    st.current.labels = annotationSpecs();
+    st.current.labels = [...annotationSpecs(), ...roomSpecs()];
     syncLabels();
     T.pickMesh = front;
 
@@ -990,6 +1000,40 @@ export default function Viewport(props: Props) {
     drawOverlay();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.sel]);
+
+  // Room mode: the rooms' labels follow the model (a pulled wall changes an area), and the walls can be shown low
+  useEffect(() => {
+    if (!t.current || !scene) return;
+    if (tool !== "room") {
+      if (st.current.rooms.length) {
+        st.current.rooms = [];
+        st.current.labels = annotationSpecs();
+        syncLabels();
+      }
+      return;
+    }
+    let current = true;
+    void exec({ cmd: "rooms" }).then((r) => {
+      if (!current || !r.ok) return;
+      st.current.rooms = ((r as unknown as { rooms: RoomRow[] }).rooms ?? []).map((x) => ({ id: x.id, name: x.name, area: x.area, center: x.center }));
+      st.current.labels = [...annotationSpecs(), ...roomSpecs()];
+      syncLabels();
+      placeLabels();
+    });
+    return () => {
+      current = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scene, tool]);
+
+  useEffect(() => {
+    if (!t.current) return;
+    const want = tool === "room" && !!props.build.wallsDown;
+    if (want === (st.current.cutaway != null)) return;
+    st.current.cutaway = want ? new THREE.Plane(new THREE.Vector3(0, 0, -1), 1.0) : null;
+    if (live.current.scene) buildModel();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tool, props.build.wallsDown]);
 
   useEffect(() => {
     if (!t.current) return;
@@ -1127,6 +1171,7 @@ export default function Viewport(props: Props) {
     mat.side = side;
     // ignore what the section plane cut away
     if (st.current.section) hits = hits.filter((h) => st.current.section!.distanceToPoint(h.point) >= -1e-4);
+    else if (st.current.cutaway) hits = hits.filter((h) => st.current.cutaway!.distanceToPoint(h.point) >= -1e-4);
     const hit = hits[0];
     if (!hit || hit.faceIndex == null) return null;
     const owner = hit.object.userData.owner != null ? (hit.object.userData.owner as number) : hit.object === T.editMesh ? s.editTriFace[hit.faceIndex] : s.triFace[hit.faceIndex];
@@ -1338,7 +1383,7 @@ export default function Viewport(props: Props) {
     }
     // Wall pull: the whole wall under the cursor, both sides, caps, top and bottom
     const wl = st.current.wall;
-    if (tool === "wallpull" && wl?.plan && wl.scene === s && !st.current.op) T.overlay.add(overlayMesh(wallTriangles(wl.plan), 0.3));
+    if ((tool === "wallpull" || tool === "room") && wl?.plan && wl.scene === s && !st.current.op) T.overlay.add(overlayMesh(wallTriangles(wl.plan), 0.3));
     const he = st.current.hoverEdge;
     if (he != null) {
       const seg: number[] = [];
@@ -2132,6 +2177,69 @@ export default function Viewport(props: Props) {
     await run({ cmd: "wall_pull", face: op.face, by: r4(op.d) });
   }
 
+  /** The dragged room: its wall lines, its inside, and its size and area (or why it can't go there). */
+  function drawRoomPreview(op: Extract<Op, { t: "room" }>) {
+    const T = t.current;
+    if (!T) return;
+    T.preview.children.forEach((c) => (c as THREE.Mesh).geometry?.dispose());
+    T.preview.clear();
+    const th = live.current.build.wallThickness;
+    const p = op.preview;
+    const bad = !!p && !p.ok;
+    const r = p?.ok && p.rect ? p.rect : [Math.min(op.a.x, op.b.x), Math.min(op.a.y, op.b.y), Math.max(op.a.x, op.b.x), Math.max(op.a.y, op.b.y)];
+    const ins = p?.ok && p.inside ? p.inside : [r[0] + th / 2, r[1] + th / 2, r[2] - th / 2, r[3] - th / 2];
+    const z = 0.01;
+    const color = bad ? 0xd64545 : ACCENT;
+    T.preview.add(polyline([new THREE.Vector3(r[0], r[1], z), new THREE.Vector3(r[2], r[1], z), new THREE.Vector3(r[2], r[3], z), new THREE.Vector3(r[0], r[3], z)], color, true));
+    if (ins[2] > ins[0] && ins[3] > ins[1]) {
+      const q = (x: number, y: number) => [x, y, z];
+      T.preview.add(overlayMesh([...q(ins[0], ins[1]), ...q(ins[2], ins[1]), ...q(ins[2], ins[3]), ...q(ins[0], ins[1]), ...q(ins[2], ins[3]), ...q(ins[0], ins[3])], bad ? 0.35 : 0.25, color));
+    }
+    const w = Math.max(0, ins[2] - ins[0]);
+    const d = Math.max(0, ins[3] - ins[1]);
+    const mid = new THREE.Vector3((r[0] + r[2]) / 2, (r[1] + r[3]) / 2, z);
+    setLive([{ p: mid, text: dragLabel(w, d, units) }]);
+    if (bad) live.current.onMeasure("Can't draw a room here", p?.error ?? "");
+    else if (p?.shared?.length) live.current.onMeasure("Room", `${dragLabel(w, d, units)}, shares a wall with ${p.shared.map((s) => s.name ?? "a room").filter((x, i, a) => a.indexOf(x) === i).join(", ")}`);
+    else live.current.onMeasure("Room", dragLabel(w, d, units));
+  }
+
+  /** The ground point under the mouse, snapped to the room grid (0.1 m, or 6 in). */
+  function groundCorner(e: { clientX: number; clientY: number }): THREE.Vector3 | null {
+    const q = ray(e).intersectPlane(new THREE.Plane(UP, 0), new THREE.Vector3());
+    if (!q) return null;
+    const step = gridStep(units);
+    return new THREE.Vector3(snapGrid(q.x, step), snapGrid(q.y, step), 0);
+  }
+
+  async function commitRoom() {
+    const op = st.current.op;
+    if (op?.t !== "room") return;
+    st.current.op = null;
+    clearPreview();
+    live.current.onMeasure("", "");
+    if (Math.abs(op.b.x - op.a.x) < 1e-6 && Math.abs(op.b.y - op.a.y) < 1e-6) return;
+    const b = live.current.build;
+    await run({ cmd: "room_rect", from: arr(op.a), to: arr(op.b), thickness: b.wallThickness, height: b.wallHeight });
+  }
+
+  /** A click on a wall in Room mode: a door or a window there (the same command the Place tool sends). */
+  async function placeOpening(plan: WallPlan, point: THREE.Vector3) {
+    const f = faceById(plan.face);
+    if (!f) return;
+    const n = V(plan.normal);
+    const base = Math.min(...f.outer.map((q) => q[2]));
+    const w = n.dot(V(f.outer[0]));
+    const kind = live.current.build.roomOpening;
+    const at = point.clone().addScaledVector(n, w - n.dot(point)); // onto the wall's face
+    at.z = kind === "door" ? base : Math.min(Math.max(point.z, base + 0.6), base + 1.6);
+    if (kind === "window" && Math.abs(point.z - base) < 0.05) at.z = base + 1.0;
+    const rot = THREE.MathUtils.radToDeg(Math.atan2(n.y, n.x)) + 90;
+    const r = await run({ cmd: "insert", asset: kind, at: arr(at), rotate: r4(rot), host: plan.face });
+    const op = r.ok ? (r.opening as { error?: string } | null | undefined) : null;
+    if (op?.error) live.current.onToast(`Placed, but no opening: ${op.error}`, true);
+  }
+
   async function commitOffset() {
     const op = st.current.op;
     if (op?.t !== "offset") return;
@@ -2489,6 +2597,26 @@ export default function Viewport(props: Props) {
       L.onMeasure("Distance", fmt(op.d));
       return;
     };
+    const moveRoom = ({ e, L, op }: MoveArgs<"room">) => {
+      const c = groundCorner(e);
+      if (!c) return;
+      op.b = c;
+      setHint(null);
+      const key = `${op.a.x},${op.a.y},${c.x},${c.y}`;
+      // ask the engine what the room would be here (snapped to a neighbour's wall, or refused), once per grid step
+      if (op.asked !== key && !op.pending) {
+        op.asked = key;
+        op.pending = true;
+        const th = live.current.build.wallThickness;
+        void exec({ cmd: "room_preview", from: arr(op.a), to: arr(c), thickness: th }).then((r) => {
+          op.pending = false;
+          op.preview = r.ok ? (r as unknown as RoomPreview) : { ok: false, error: r.error };
+          if (st.current.op === op) drawRoomPreview(op);
+        });
+      }
+      drawRoomPreview(op);
+      return;
+    };
     const moveOffset = ({ e, L, op }: MoveArgs<"offset">) => {
       const n = V(op.face.normal);
       const q = ray(e).intersectPlane(new THREE.Plane().setFromNormalAndCoplanarPoint(n, op.start), new THREE.Vector3());
@@ -2644,6 +2772,8 @@ export default function Viewport(props: Props) {
           return moveOffset({ e, L: L as Live, E, op, lock });
         case "wallpull":
           return moveWallPull({ e, L: L as Live, E, op, lock });
+        case "room":
+          return moveRoom({ e, L: L as Live, E, op, lock });
         case "move":
           return moveMove({ e, L: L as Live, E, op, lock });
         case "rotate":
@@ -2655,11 +2785,16 @@ export default function Viewport(props: Props) {
       // nothing in progress: show what a click would hit
       if (["axes", "line", "freehand", "arc", "arccenter", "arc3", "pie", "rect", "rrect", "circle", "polygon", "tape", "dimension", "text", "move", "rotate", "scale", "place", "wall", "stairs", "column", "protractor"].includes(L.tool)) showSnap(infer(E, e, {}));
       else setHint(null);
-      if (["select", "erase", "paint", "push", "offset", "followme", "section", "move", "rotate", "scale", "roof", "wallpull"].includes(L.tool)) {
+      if (["select", "erase", "paint", "push", "offset", "followme", "section", "move", "rotate", "scale", "roof", "wallpull", "room"].includes(L.tool)) {
         const he = ["select", "erase", "move"].includes(L.tool) ? pickEdge(e) : null;
         const h = he == null ? pick(e) : null;
         const id = h ? h.owner : null;
-        if (L.tool === "wallpull") lookAtWall(h?.face ? h.owner : null, h?.point);
+        if (L.tool === "wallpull" || L.tool === "room") lookAtWall(h?.face ? h.owner : null, h?.point);
+        if (L.tool === "room") {
+          const c = groundCorner(e);
+          if (c && !h?.face) setHint({ ...toScreen2(c), label: "Corner", kind: "endpoint" });
+          else setHint(null);
+        }
         if (id !== st.current.hover || he !== st.current.hoverEdge) {
           st.current.hover = id;
           st.current.hoverEdge = he;
@@ -2843,6 +2978,28 @@ export default function Viewport(props: Props) {
       const plan = r as unknown as WallPlan;
       st.current.op = { t: "wallpull", face: plan.face, plan, origin: h.point.clone(), n: V(plan.normal), d: 0, dragged: false };
       el.setPointerCapture(e.pointerId);
+      return;
+    };
+    const downRoom = async (args: DownArgs) => {
+      const { e, L, op } = args;
+      if (op?.t === "room") return void (await commitRoom()); // click, move, click
+      if (op) return void (await downWallPull(args));
+      // on a wall: drag it (Wall pull), or just click to add a door or window; on the ground: start a room
+      const h = pick(e);
+      if (h?.face) {
+        const r = await exec({ cmd: "wall_info", face: h.face.id, at: arr(h.point) });
+        if (r.ok) {
+          const plan = r as unknown as WallPlan;
+          if (!st.current.press) return void (await placeOpening(plan, h.point)); // already let go: it was a click
+          st.current.op = { t: "wallpull", face: plan.face, plan, origin: h.point.clone(), n: V(plan.normal), d: 0, dragged: false };
+          el.setPointerCapture(e.pointerId);
+          return;
+        }
+      }
+      const c = groundCorner(e);
+      if (!c) return;
+      st.current.op = { t: "room", a: c, b: c.clone(), preview: null, asked: "", pending: false };
+      L.onMeasure("Room", "drag to size it");
       return;
     };
     const downOffset = async ({ e, op }: DownArgs) => {
@@ -3156,7 +3313,7 @@ export default function Viewport(props: Props) {
       const sel = selNow();
       // remember the press: dragging and releasing finishes the shape (click-drag drawing)
       st.current.press = { x: e.clientX, y: e.clientY, fresh: !op };
-      if (["line", "rect", "circle", "polygon", "tape", "dimension", "move"].includes(L.tool)) el.setPointerCapture(e.pointerId);
+      if (["line", "rect", "circle", "polygon", "tape", "dimension", "move", "room"].includes(L.tool)) el.setPointerCapture(e.pointerId);
 
       switch (L.tool) {
         case "select":
@@ -3187,6 +3344,8 @@ export default function Viewport(props: Props) {
           return downOffset({ e, L: L as Live, E, op, sel });
         case "wallpull":
           return downWallPull({ e, L: L as Live, E, op, sel });
+        case "room":
+          return downRoom({ e, L: L as Live, E, op, sel });
         case "followme":
           return downFollowme({ e, L: L as Live, E, op, sel });
         case "protractor":
@@ -3293,6 +3452,7 @@ export default function Viewport(props: Props) {
         if (op.t === "circle") return void (await commitCircle());
         if (op.t === "tape") return void (await commitTape(op.cur));
         if (op.t === "move") return void (await commitMove());
+        if (op.t === "room") return void (await commitRoom());
         if (op.t === "dim" && !op.b && op.cur.distanceTo(op.a) > 1e-4) {
           op.b = op.cur;
           return;
@@ -3317,6 +3477,14 @@ export default function Viewport(props: Props) {
         el.releasePointerCapture(e.pointerId);
         if (Math.abs(op.d) > 1e-3) await commitWallPull();
         else op.dragged = false;
+        return;
+      }
+      if (op?.t === "wallpull" && L.tool === "room" && !op.dragged) {
+        // in Room mode a click on a wall (no drag) adds a door or window, instead of the click-move-click pull
+        st.current.op = null;
+        st.current.wall = null;
+        clearPreview();
+        await placeOpening(op.plan, op.origin);
         return;
       }
       if (st.current.zoomY != null) {
