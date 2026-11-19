@@ -57,6 +57,24 @@ extrudes, C creases; Tab switches between the cage and the smooth surface.
 
 ![SubD mode](../demos/subd-mode.gif)
 
+## Pictures on shapes (projection mapping)
+
+Add a picture in the **Materials** panel (the **+** under Textures), select the faces, group or component it should go
+on, and choose **Tools › Project texture…** (also in the right-click menu and the command search). A small panel opens
+beside the model and the picture appears at once:
+
+- **Planar** shines the picture straight through the selection, like a slide projector (from where you are looking, or
+  from above, the front or the right).
+- **Box** gives every face the flat side of an imaginary box that fits it best: good for crates, dice and walls.
+- **Cylinder** wraps the picture once around, like the label on a can; the ends get it flat.
+- **Sphere** wraps it like a map on a globe.
+
+**Size** and **Turn** change it as you watch (on a cylinder or sphere, Turn moves the seam), **Fit once** makes the
+picture cover the selection exactly once instead of repeating at its own size, and **Axis and center…** moves the
+projection. **Apply** keeps it (one Undo takes it back), **Cancel** drops it, **Remove projection** goes back to the
+picture's own placement. The result is saved with the model and goes into glTF, OBJ and Collada exports. A model that
+uses it is saved so that older SketchCraft versions open it read-only rather than lose it.
+
 ## Terrain
 
 The Sandbox tools shape ground: **Smoove** raises and lowers it, **Stamp**
