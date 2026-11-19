@@ -1,0 +1,36 @@
+# Kitchen island, 1.80 x 0.90 x 0.92 m. Origin: on the floor at the middle of the BACK edge (back against a wall at y=0); the front faces -Y.
+{"cmd":"begin_group","name":"Kitchen island","as":"top"}
+{"cmd":"begin_group","name":"Plinth","as":"g1"}
+{"cmd":"rect","from":[-0.83,-0.8,0],"to":[0.83,-0.06,0],"as":"s2"}
+{"cmd":"pushpull","face":"@s2","distance":0.1}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@g1"],"color":[0.34,0.35,0.38]}
+{"cmd":"begin_group","name":"Carcass","as":"g3"}
+{"cmd":"rect","from":[-0.85,-0.86,0.1],"to":[0.85,-0.04,0.1],"as":"s4"}
+{"cmd":"pushpull","face":"@s4","distance":0.78}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@g3"],"color":[0.92,0.92,0.9]}
+{"cmd":"begin_group","name":"Doors","as":"g5"}
+{"cmd":"rect","from":[-0.84,-0.875,0.12],"to":[-0.3,-0.86,0.12],"as":"s6"}
+{"cmd":"pushpull","face":"@s6","distance":0.74}
+{"cmd":"rect","from":[-0.27,-0.875,0.12],"to":[0.27,-0.86,0.12],"as":"s7"}
+{"cmd":"pushpull","face":"@s7","distance":0.74}
+{"cmd":"rect","from":[0.3,-0.875,0.12],"to":[0.84,-0.86,0.12],"as":"s8"}
+{"cmd":"pushpull","face":"@s8","distance":0.74}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@g5"],"color":[0.35,0.42,0.5]}
+{"cmd":"begin_group","name":"Handles","as":"g9"}
+{"cmd":"rect","from":[-0.35,-0.88,0.7],"to":[-0.33,-0.875,0.7],"as":"s10"}
+{"cmd":"pushpull","face":"@s10","distance":0.12}
+{"cmd":"rect","from":[0.23,-0.88,0.7],"to":[0.25,-0.875,0.7],"as":"s11"}
+{"cmd":"pushpull","face":"@s11","distance":0.12}
+{"cmd":"rect","from":[0.33,-0.88,0.7],"to":[0.35,-0.875,0.7],"as":"s12"}
+{"cmd":"pushpull","face":"@s12","distance":0.12}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@g9"],"color":[0.82,0.84,0.86]}
+{"cmd":"begin_group","name":"Countertop","as":"g13"}
+{"cmd":"rect","from":[-0.9,-0.9,0.88],"to":[0.9,0,0.88],"as":"s14"}
+{"cmd":"pushpull","face":"@s14","distance":0.04}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@g13"],"color":[0.78,0.78,0.76]}
+{"cmd":"end_group"}

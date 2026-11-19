@@ -1,0 +1,20 @@
+# Bathtub, 1.50 x 0.70 x 0.60 m. Origin: on the floor at the middle of the BACK edge (back against a wall at y=0); the front faces -Y.
+{"cmd":"begin_group","name":"Bathtub","as":"top"}
+{"cmd":"begin_group","name":"Tub","as":"g1"}
+{"cmd":"rect","from":[-0.75,-0.7,0.1],"to":[0.75,0,0.1],"as":"s2"}
+{"cmd":"pushpull","face":"@s2","distance":0.45}
+{"cmd":"rect","from":[-0.68,-0.63,0.55],"to":[0.68,-0.07,0.55],"as":"c3"}
+{"cmd":"pushpull","face":"@c3","distance":-0.42}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@g1"],"color":[0.95,0.95,0.93]}
+{"cmd":"begin_group","name":"Skirt","as":"g4"}
+{"cmd":"rect","from":[-0.72,-0.67,0],"to":[0.72,-0.03,0],"as":"s5"}
+{"cmd":"pushpull","face":"@s5","distance":0.1}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@g4"],"color":[0.62,0.63,0.65]}
+{"cmd":"begin_group","name":"Tap","as":"g6"}
+{"cmd":"rect","from":[0.55,-0.07,0.55],"to":[0.65,-0.02,0.55],"as":"s7"}
+{"cmd":"pushpull","face":"@s7","distance":0.05}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@g6"],"color":[0.82,0.84,0.86]}
+{"cmd":"end_group"}

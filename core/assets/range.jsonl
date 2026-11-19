@@ -1,0 +1,57 @@
+# Range, 0.76 x 0.65 x 0.92 m. Origin: on the floor at the middle of the BACK edge (back against a wall at y=0); the front faces -Y.
+{"cmd":"begin_group","name":"Range","as":"top"}
+{"cmd":"begin_group","name":"Body","as":"g1"}
+{"cmd":"rect","from":[-0.38,-0.62,0],"to":[0.38,0,0],"as":"s2"}
+{"cmd":"pushpull","face":"@s2","distance":0.9}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@g1"],"color":[0.72,0.74,0.76]}
+{"cmd":"begin_group","name":"Cooktop","as":"g3"}
+{"cmd":"rect","from":[-0.38,-0.62,0.9],"to":[0.38,0,0.9],"as":"s4"}
+{"cmd":"pushpull","face":"@s4","distance":0.01}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@g3"],"color":[0.13,0.13,0.14]}
+{"cmd":"begin_group","name":"Burners","as":"g5"}
+{"cmd":"circle","center":[-0.18,-0.17,0.91],"radius":0.08,"segments":14,"as":"s6"}
+{"cmd":"pushpull","face":"@s6","distance":0.01}
+{"cmd":"circle","center":[0.18,-0.17,0.91],"radius":0.06,"segments":14,"as":"s7"}
+{"cmd":"pushpull","face":"@s7","distance":0.01}
+{"cmd":"circle","center":[-0.18,-0.45,0.91],"radius":0.06,"segments":14,"as":"s8"}
+{"cmd":"pushpull","face":"@s8","distance":0.01}
+{"cmd":"circle","center":[0.18,-0.45,0.91],"radius":0.09,"segments":14,"as":"s9"}
+{"cmd":"pushpull","face":"@s9","distance":0.01}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@g5"],"color":[0.34,0.35,0.38]}
+{"cmd":"begin_group","name":"Oven door","as":"g10"}
+{"cmd":"rect","from":[-0.34,-0.64,0.1],"to":[0.34,-0.62,0.1],"as":"s11"}
+{"cmd":"pushpull","face":"@s11","distance":0.52}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@g10"],"color":[0.62,0.64,0.66]}
+{"cmd":"begin_group","name":"Oven window","as":"g12"}
+{"cmd":"rect","from":[-0.26,-0.645,0.2],"to":[0.26,-0.64,0.2],"as":"s13"}
+{"cmd":"pushpull","face":"@s13","distance":0.32}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@g12"],"color":[0.13,0.13,0.14]}
+{"cmd":"begin_group","name":"Handle","as":"g14"}
+{"cmd":"rect","from":[-0.3,-0.65,0.6],"to":[0.3,-0.64,0.6],"as":"s15"}
+{"cmd":"pushpull","face":"@s15","distance":0.04}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@g14"],"color":[0.82,0.84,0.86]}
+{"cmd":"begin_group","name":"Control panel","as":"g16"}
+{"cmd":"rect","from":[-0.36,-0.64,0.66],"to":[0.36,-0.62,0.66],"as":"s17"}
+{"cmd":"pushpull","face":"@s17","distance":0.24}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@g16"],"color":[0.34,0.35,0.38]}
+{"cmd":"begin_group","name":"Knobs","as":"g18"}
+{"cmd":"circle","center":[-0.28,-0.64,0.78],"normal":[0,-1,0],"radius":0.02,"segments":8,"as":"s19"}
+{"cmd":"pushpull","face":"@s19","distance":0.01}
+{"cmd":"circle","center":[-0.14,-0.64,0.78],"normal":[0,-1,0],"radius":0.02,"segments":8,"as":"s20"}
+{"cmd":"pushpull","face":"@s20","distance":0.01}
+{"cmd":"circle","center":[0,-0.64,0.78],"normal":[0,-1,0],"radius":0.02,"segments":8,"as":"s21"}
+{"cmd":"pushpull","face":"@s21","distance":0.01}
+{"cmd":"circle","center":[0.14,-0.64,0.78],"normal":[0,-1,0],"radius":0.02,"segments":8,"as":"s22"}
+{"cmd":"pushpull","face":"@s22","distance":0.01}
+{"cmd":"circle","center":[0.28,-0.64,0.78],"normal":[0,-1,0],"radius":0.02,"segments":8,"as":"s23"}
+{"cmd":"pushpull","face":"@s23","distance":0.01}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@g18"],"color":[0.13,0.13,0.14]}
+{"cmd":"end_group"}

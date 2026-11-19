@@ -1,0 +1,23 @@
+# Dishwasher, 0.60 x 0.60 x 0.84 m. Origin: on the floor at the middle of the BACK edge (back against a wall at y=0); the front faces -Y.
+{"cmd":"begin_group","name":"Dishwasher","as":"top"}
+{"cmd":"begin_group","name":"Body","as":"g1"}
+{"cmd":"rect","from":[-0.3,-0.56,0],"to":[0.3,0,0],"as":"s2"}
+{"cmd":"pushpull","face":"@s2","distance":0.84}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@g1"],"color":[0.72,0.74,0.76]}
+{"cmd":"begin_group","name":"Door","as":"g3"}
+{"cmd":"rect","from":[-0.29,-0.58,0.02],"to":[0.29,-0.56,0.02],"as":"s4"}
+{"cmd":"pushpull","face":"@s4","distance":0.8}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@g3"],"color":[0.78,0.8,0.82]}
+{"cmd":"begin_group","name":"Controls","as":"g5"}
+{"cmd":"rect","from":[-0.27,-0.59,0.74],"to":[0.27,-0.58,0.74],"as":"s6"}
+{"cmd":"pushpull","face":"@s6","distance":0.06}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@g5"],"color":[0.13,0.13,0.14]}
+{"cmd":"begin_group","name":"Handle","as":"g7"}
+{"cmd":"rect","from":[-0.22,-0.6,0.66],"to":[0.22,-0.59,0.66],"as":"s8"}
+{"cmd":"pushpull","face":"@s8","distance":0.03}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@g7"],"color":[0.82,0.84,0.86]}
+{"cmd":"end_group"}

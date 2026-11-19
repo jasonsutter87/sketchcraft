@@ -1,0 +1,27 @@
+# Pantry cabinet, 0.60 x 0.60 x 2.10 m. Origin: on the floor at the middle of the BACK edge (back against a wall at y=0); the front faces -Y.
+{"cmd":"begin_group","name":"Pantry cabinet","as":"top"}
+{"cmd":"begin_group","name":"Plinth","as":"g1"}
+{"cmd":"rect","from":[-0.28,-0.52,0],"to":[0.28,-0.02,0],"as":"s2"}
+{"cmd":"pushpull","face":"@s2","distance":0.1}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@g1"],"color":[0.34,0.35,0.38]}
+{"cmd":"begin_group","name":"Carcass","as":"g3"}
+{"cmd":"rect","from":[-0.3,-0.58,0.1],"to":[0.3,0,0.1],"as":"s4"}
+{"cmd":"pushpull","face":"@s4","distance":2.0}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@g3"],"color":[0.92,0.92,0.9]}
+{"cmd":"begin_group","name":"Doors","as":"g5"}
+{"cmd":"rect","from":[-0.29,-0.595,0.12],"to":[0.29,-0.58,0.12],"as":"s6"}
+{"cmd":"pushpull","face":"@s6","distance":0.92}
+{"cmd":"rect","from":[-0.29,-0.595,1.06],"to":[0.29,-0.58,1.06],"as":"s7"}
+{"cmd":"pushpull","face":"@s7","distance":1.02}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@g5"],"color":[0.88,0.88,0.86]}
+{"cmd":"begin_group","name":"Handles","as":"g8"}
+{"cmd":"rect","from":[0.22,-0.6,0.8],"to":[0.24,-0.595,0.8],"as":"s9"}
+{"cmd":"pushpull","face":"@s9","distance":0.2}
+{"cmd":"rect","from":[0.22,-0.6,1.1],"to":[0.24,-0.595,1.1],"as":"s10"}
+{"cmd":"pushpull","face":"@s10","distance":0.2}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@g8"],"color":[0.82,0.84,0.86]}
+{"cmd":"end_group"}

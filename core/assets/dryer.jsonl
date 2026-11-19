@@ -1,0 +1,44 @@
+# Dryer, 0.69 x 0.74 x 0.98 m. Origin: on the floor at the middle of the BACK edge (back against a wall at y=0); the front faces -Y.
+{"cmd":"begin_group","name":"Dryer","as":"top"}
+{"cmd":"begin_group","name":"Feet","as":"g1"}
+{"cmd":"rect","from":[-0.33,-0.11,0],"to":[-0.27,-0.05,0],"as":"s2"}
+{"cmd":"pushpull","face":"@s2","distance":0.02}
+{"cmd":"rect","from":[-0.33,-0.65,0],"to":[-0.27,-0.59,0],"as":"s3"}
+{"cmd":"pushpull","face":"@s3","distance":0.02}
+{"cmd":"rect","from":[0.27,-0.11,0],"to":[0.33,-0.05,0],"as":"s4"}
+{"cmd":"pushpull","face":"@s4","distance":0.02}
+{"cmd":"rect","from":[0.27,-0.65,0],"to":[0.33,-0.59,0],"as":"s5"}
+{"cmd":"pushpull","face":"@s5","distance":0.02}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@g1"],"color":[0.34,0.35,0.38]}
+{"cmd":"begin_group","name":"Body","as":"g6"}
+{"cmd":"rect","from":[-0.345,-0.7,0.02],"to":[0.345,0,0.02],"as":"s7"}
+{"cmd":"pushpull","face":"@s7","distance":0.96}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@g6"],"color":[0.92,0.92,0.9]}
+{"cmd":"begin_group","name":"Panel","as":"g8"}
+{"cmd":"rect","from":[-0.33,-0.72,0.84],"to":[0.33,-0.7,0.84],"as":"s9"}
+{"cmd":"pushpull","face":"@s9","distance":0.12}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@g8"],"color":[0.34,0.35,0.38]}
+{"cmd":"begin_group","name":"Door ring","as":"g10"}
+{"cmd":"circle","center":[0,-0.7,0.45],"normal":[0,-1,0],"radius":0.27,"segments":20,"as":"s11"}
+{"cmd":"pushpull","face":"@s11","distance":0.02}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@g10"],"color":[0.62,0.63,0.65]}
+{"cmd":"begin_group","name":"Door glass","as":"g12"}
+{"cmd":"circle","center":[0,-0.72,0.45],"normal":[0,-1,0],"radius":0.2,"segments":20,"as":"s13"}
+{"cmd":"pushpull","face":"@s13","distance":0.02}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@g12"],"color":[0.4,0.41,0.43]}
+{"cmd":"begin_group","name":"Knob","as":"g14"}
+{"cmd":"circle","center":[0.22,-0.72,0.9],"normal":[0,-1,0],"radius":0.03,"segments":10,"as":"s15"}
+{"cmd":"pushpull","face":"@s15","distance":0.02}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@g14"],"color":[0.13,0.13,0.14]}
+{"cmd":"begin_group","name":"Display","as":"g16"}
+{"cmd":"rect","from":[-0.12,-0.725,0.88],"to":[0.12,-0.72,0.88],"as":"s17"}
+{"cmd":"pushpull","face":"@s17","distance":0.05}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@g16"],"color":[0.13,0.13,0.14]}
+{"cmd":"end_group"}

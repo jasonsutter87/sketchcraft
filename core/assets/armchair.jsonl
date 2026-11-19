@@ -1,0 +1,41 @@
+# Armchair, 0.90 x 0.88 x 0.85 m. Origin: on the floor at the middle of the BACK edge (back against a wall at y=0); the front faces -Y.
+{"cmd":"begin_group","name":"Armchair","as":"top"}
+{"cmd":"begin_group","name":"Feet","as":"g1"}
+{"cmd":"rect","from":[-0.41,-0.15,0],"to":[-0.35,-0.09,0],"as":"s2"}
+{"cmd":"pushpull","face":"@s2","distance":0.12}
+{"cmd":"rect","from":[-0.41,-0.79,0],"to":[-0.35,-0.73,0],"as":"s3"}
+{"cmd":"pushpull","face":"@s3","distance":0.12}
+{"cmd":"rect","from":[0.35,-0.15,0],"to":[0.41,-0.09,0],"as":"s4"}
+{"cmd":"pushpull","face":"@s4","distance":0.12}
+{"cmd":"rect","from":[0.35,-0.79,0],"to":[0.41,-0.73,0],"as":"s5"}
+{"cmd":"pushpull","face":"@s5","distance":0.12}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@g1"],"color":[0.58,0.42,0.27]}
+{"cmd":"begin_group","name":"Base","as":"g6"}
+{"cmd":"rect","from":[-0.45,-0.88,0.12],"to":[0.45,0,0.12],"as":"s7"}
+{"cmd":"pushpull","face":"@s7","distance":0.18}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@g6"],"color":[0.42,0.47,0.55]}
+{"cmd":"begin_group","name":"Arms","as":"g8"}
+{"cmd":"rect","from":[-0.45,-0.88,0.3],"to":[-0.28,0,0.3],"as":"s9"}
+{"cmd":"pushpull","face":"@s9","distance":0.32}
+{"cmd":"rect","from":[0.28,-0.88,0.3],"to":[0.45,0,0.3],"as":"s10"}
+{"cmd":"pushpull","face":"@s10","distance":0.32}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@g8"],"color":[0.42,0.47,0.55]}
+{"cmd":"begin_group","name":"Back","as":"g11"}
+{"cmd":"rect","from":[-0.28,-0.2,0.3],"to":[0.28,0,0.3],"as":"s12"}
+{"cmd":"pushpull","face":"@s12","distance":0.5}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@g11"],"color":[0.42,0.47,0.55]}
+{"cmd":"begin_group","name":"Seat cushions","as":"g13"}
+{"cmd":"rect","from":[-0.28,-0.86,0.3],"to":[0.28,-0.38,0.3],"as":"s14"}
+{"cmd":"pushpull","face":"@s14","distance":0.16}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@g13"],"color":[0.5,0.56,0.64]}
+{"cmd":"begin_group","name":"Back cushions","as":"g15"}
+{"cmd":"rect","from":[-0.28,-0.38,0.46],"to":[0.28,-0.2,0.46],"as":"s16"}
+{"cmd":"pushpull","face":"@s16","distance":0.39}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@g15"],"color":[0.5,0.56,0.64]}
+{"cmd":"end_group"}

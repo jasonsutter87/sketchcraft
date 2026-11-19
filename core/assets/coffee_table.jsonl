@@ -1,0 +1,24 @@
+# Coffee table, 1.10 x 0.60 x 0.45 m. Origin: on the floor at the middle of the BACK edge (back against a wall at y=0); the front faces -Y.
+{"cmd":"begin_group","name":"Coffee table","as":"top"}
+{"cmd":"begin_group","name":"Top","as":"g1"}
+{"cmd":"rect","from":[-0.55,-0.6,0.4],"to":[0.55,0,0.4],"as":"s2"}
+{"cmd":"pushpull","face":"@s2","distance":0.05}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@g1"],"color":[0.74,0.6,0.42]}
+{"cmd":"begin_group","name":"Legs","as":"g3"}
+{"cmd":"rect","from":[-0.525,-0.095,0],"to":[-0.475,-0.045,0],"as":"s4"}
+{"cmd":"pushpull","face":"@s4","distance":0.4}
+{"cmd":"rect","from":[-0.525,-0.555,0],"to":[-0.475,-0.505,0],"as":"s5"}
+{"cmd":"pushpull","face":"@s5","distance":0.4}
+{"cmd":"rect","from":[0.475,-0.095,0],"to":[0.525,-0.045,0],"as":"s6"}
+{"cmd":"pushpull","face":"@s6","distance":0.4}
+{"cmd":"rect","from":[0.475,-0.555,0],"to":[0.525,-0.505,0],"as":"s7"}
+{"cmd":"pushpull","face":"@s7","distance":0.4}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@g3"],"color":[0.58,0.42,0.27]}
+{"cmd":"begin_group","name":"Shelf","as":"g8"}
+{"cmd":"rect","from":[-0.47,-0.52,0.12],"to":[0.47,-0.08,0.12],"as":"s9"}
+{"cmd":"pushpull","face":"@s9","distance":0.02}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@g8"],"color":[0.74,0.6,0.42]}
+{"cmd":"end_group"}

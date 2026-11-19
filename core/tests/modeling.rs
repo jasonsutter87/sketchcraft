@@ -557,6 +557,63 @@ fn scale_figures_stand_on_the_ground_at_their_size() {
 }
 
 #[test]
+fn fixtures_build_as_one_group_at_their_size_with_the_back_on_the_wall() {
+    // (key, group name, width x, depth y, height z, height off the floor), metres
+    let fixtures = [
+        ("toilet", "Toilet", 0.38, 0.7, 0.78, 0.0),
+        ("vanity_60", "Vanity 0.6 m", 0.6, 0.5, 0.95, 0.0),
+        ("vanity_120", "Vanity 1.2 m", 1.2, 0.5, 0.95, 0.0),
+        ("bathtub", "Bathtub", 1.5, 0.7, 0.6, 0.0),
+        ("shower", "Shower stall", 0.9, 0.9, 2.0, 0.0),
+        ("towel_bar", "Towel bar", 0.6, 0.08, 0.06, 0.97),
+        ("base_cabinet", "Base cabinet", 0.6, 0.6, 0.9, 0.0),
+        ("sink_base", "Sink base", 0.8, 0.6, 1.1, 0.0),
+        ("wall_cabinet", "Wall cabinet", 0.6, 0.32, 0.72, 1.4),
+        ("pantry", "Pantry cabinet", 0.6, 0.6, 2.1, 0.0),
+        ("fridge", "Fridge", 0.76, 0.7, 1.78, 0.0),
+        ("range", "Range", 0.76, 0.65, 0.92, 0.0),
+        ("dishwasher", "Dishwasher", 0.6, 0.6, 0.84, 0.0),
+        ("island", "Kitchen island", 1.8, 0.9, 0.92, 0.0),
+        ("queen_bed", "Queen bed", 1.62, 2.13, 1.1, 0.0),
+        ("king_bed", "King bed", 2.03, 2.13, 1.1, 0.0),
+        ("twin_bed", "Twin bed", 1.09, 2.0, 0.95, 0.0),
+        ("nightstand", "Nightstand", 0.5, 0.4, 0.55, 0.0),
+        ("dresser", "Dresser", 1.2, 0.5, 0.85, 0.0),
+        ("sofa", "Sofa, 3-seat", 2.1, 0.92, 0.85, 0.0),
+        ("armchair", "Armchair", 0.9, 0.88, 0.85, 0.0),
+        ("coffee_table", "Coffee table", 1.1, 0.6, 0.45, 0.0),
+        ("tv_stand", "TV stand", 1.5, 0.4, 0.5, 0.0),
+        ("dining_set", "Dining table with 4 chairs", 1.5, 1.62, 0.9, 0.0),
+        ("washer", "Washer", 0.69, 0.74, 0.98, 0.0),
+        ("dryer", "Dryer", 0.69, 0.74, 0.98, 0.0),
+    ];
+    for (key, name, w, d, h, z0) in fixtures {
+        let a = sketchcraft::assets::find(key).unwrap_or_else(|| panic!("no asset {key}"));
+        assert_eq!(a.name, name, "{key}");
+        assert!(!a.face_me, "{key}");
+        let m = sketchcraft::assets::build(a).unwrap_or_else(|e| panic!("{key}: {e}"));
+        let tops: Vec<_> = m.groups.values().filter(|g| g.parent.is_none()).collect();
+        assert_eq!(tops.len(), 1, "{key}: one top-level group");
+        assert_eq!(tops[0].name, name, "{key}");
+        assert!(m.groups.values().filter(|g| g.parent.is_some()).count() >= 2, "{key}: built from sub-groups");
+        assert!(m.faces.values().all(|f| f.group.is_some()), "{key}: nothing loose outside its groups");
+        let (lo, hi) = m.bounds().unwrap();
+        let near = |a: f64, b: f64| (a - b).abs() <= 0.01;
+        assert!(near(hi.x - lo.x, w) && near(lo.x, -w / 2.0), "{key}: {w} m wide, centred on x=0: {lo} {hi}");
+        assert!(near(hi.y, 0.0) && near(lo.y, -d), "{key}: back edge on y=0, {d} m deep toward -Y: {lo} {hi}");
+        assert!(near(lo.z, z0) && near(hi.z, z0 + h), "{key}: {h} m tall from {z0} m: {lo} {hi}");
+    }
+    // each shows up in the asset list with its size and places like any other asset
+    let mut e = Engine::new();
+    let list = run(&mut e, json!({"cmd":"assets"}))["assets"].as_array().unwrap().clone();
+    for key in ["toilet", "queen_bed", "dining_set", "dryer"] {
+        let a = list.iter().find(|a| a["key"] == key).unwrap_or_else(|| panic!("{key} listed"));
+        assert!(a["about"].as_str().unwrap().contains(" m"), "{key} says its size");
+        run(&mut e, json!({"cmd":"insert","asset":key,"at":[1.0, 2.0, 0.0],"rotate":90}));
+    }
+}
+
+#[test]
 fn glb_stl_and_obj_round_trip() {
     let dir = std::env::temp_dir().join(format!("sketchcraft-io-{}", std::process::id()));
     let p = |n: &str| dir.join(n).to_string_lossy().to_string();

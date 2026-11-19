@@ -1,0 +1,33 @@
+# Twin bed, 1.09 x 2.00 x 0.95 m. Origin: on the floor at the middle of the BACK edge (back against a wall at y=0); the front faces -Y.
+{"cmd":"begin_group","name":"Twin bed","as":"top"}
+{"cmd":"begin_group","name":"Headboard","as":"g1"}
+{"cmd":"rect","from":[-0.545,-0.06,0],"to":[0.545,0,0],"as":"s2"}
+{"cmd":"pushpull","face":"@s2","distance":0.95}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@g1"],"color":[0.74,0.6,0.42]}
+{"cmd":"begin_group","name":"Base","as":"g3"}
+{"cmd":"rect","from":[-0.545,-1.96,0.15],"to":[0.545,-0.06,0.15],"as":"s4"}
+{"cmd":"pushpull","face":"@s4","distance":0.18}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@g3"],"color":[0.74,0.6,0.42]}
+{"cmd":"begin_group","name":"Footboard","as":"g5"}
+{"cmd":"rect","from":[-0.545,-2.0,0],"to":[0.545,-1.96,0],"as":"s6"}
+{"cmd":"pushpull","face":"@s6","distance":0.45}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@g5"],"color":[0.74,0.6,0.42]}
+{"cmd":"begin_group","name":"Mattress","as":"g7"}
+{"cmd":"rect","from":[-0.495,-1.96,0.33],"to":[0.495,-0.06,0.33],"as":"s8"}
+{"cmd":"pushpull","face":"@s8","distance":0.22}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@g7"],"color":[0.94,0.93,0.89]}
+{"cmd":"begin_group","name":"Pillows","as":"g9"}
+{"cmd":"rect","from":[-0.275,-0.42,0.55],"to":[0.275,-0.1,0.55],"as":"s10"}
+{"cmd":"pushpull","face":"@s10","distance":0.11}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@g9"],"color":[0.92,0.92,0.9]}
+{"cmd":"begin_group","name":"Duvet","as":"g11"}
+{"cmd":"rect","from":[-0.515,-1.94,0.55],"to":[0.515,-0.55,0.55],"as":"s12"}
+{"cmd":"pushpull","face":"@s12","distance":0.04}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@g11"],"color":[0.52,0.62,0.74]}
+{"cmd":"end_group"}
