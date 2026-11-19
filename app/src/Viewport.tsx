@@ -34,7 +34,7 @@ import { UP, r4, arr, circleThrough, bulgeThrough, basis, arcPoints, offsetOutli
 import { selectMarquee } from "./viewport/marquee";
 import { isTypingTarget } from "./keymap";
 import type { Tool, BuildSettings, FaceStyle, Backdrop, Styles, Cam, ViewportApi, PluginPoint, Props, Op, LabelSpec, Last, WallPlan, RoomPreview, RoomRow } from "./viewport/types";
-import { dragLabel, gridStep, roomLabel, snapGrid } from "./viewport/rooms";
+import { areaText, dragLabel, fillRects, gridStep, modeLabel, roomLabel, roomMode, roomModeKey, snapGrid, type Rect, type RoomMode } from "./viewport/rooms";
 export { autoTagColor };
 export type { Tool, BuildSettings, FaceStyle, Backdrop, Styles, Cam, ViewportApi, PluginPoint };
 
@@ -2209,18 +2209,30 @@ export default function Viewport(props: Props) {
     const ins = p?.ok && p.inside ? p.inside : [r[0] + th / 2, r[1] + th / 2, r[2] - th / 2, r[3] - th / 2];
     const z = 0.01;
     const color = bad ? 0xd64545 : ACCENT;
-    T.preview.add(polyline([new THREE.Vector3(r[0], r[1], z), new THREE.Vector3(r[2], r[1], z), new THREE.Vector3(r[2], r[3], z), new THREE.Vector3(r[0], r[3], z)], color, true));
-    if (ins[2] > ins[0] && ins[3] > ins[1]) {
-      const q = (x: number, y: number) => [x, y, z];
-      T.preview.add(overlayMesh([...q(ins[0], ins[1]), ...q(ins[2], ins[1]), ...q(ins[2], ins[3]), ...q(ins[0], ins[1]), ...q(ins[2], ins[3]), ...q(ins[0], ins[3])], bad ? 0.35 : 0.25, color));
-    }
+    const rectLoop: [number, number][] = [[r[0], r[1]], [r[2], r[1]], [r[2], r[3]], [r[0], r[3]]];
+    // a combine / subtract shows its result: the new outline and its floor (an L, a notch...), not the dragged box
+    const result = p?.ok && p.target && p.mode && p.mode !== "new";
+    const loop = p?.ok && p.centre_outline ? p.centre_outline : rectLoop;
+    T.preview.add(polyline(loop.map(([x, y]) => new THREE.Vector3(x, y, z)), color, true));
+    if (result) T.preview.add(polyline(rectLoop.map(([x, y]) => new THREE.Vector3(x, y, z + 0.005)), color, true, true));
+    const q = (x: number, y: number) => [x, y, z];
+    const fill: Rect[] = p?.ok && p.outline ? fillRects(p.outline) : ins[2] > ins[0] && ins[3] > ins[1] ? [[ins[0], ins[1], ins[2], ins[3]]] : [];
+    for (const c of fill) T.preview.add(overlayMesh([...q(c[0], c[1]), ...q(c[2], c[1]), ...q(c[2], c[3]), ...q(c[0], c[1]), ...q(c[2], c[3]), ...q(c[0], c[3])], bad ? 0.35 : 0.25, color));
     const w = Math.max(0, ins[2] - ins[0]);
     const d = Math.max(0, ins[3] - ins[1]);
-    const mid = new THREE.Vector3((r[0] + r[2]) / 2, (r[1] + r[3]) / 2, z);
+    const lp = p?.ok && p.label ? p.label : [(r[0] + r[2]) / 2, (r[1] + r[3]) / 2];
+    const mid = new THREE.Vector3(lp[0], lp[1], z);
+    const loc = localeRef.current;
+    if (result && p?.target) {
+      const text = `${modeLabel(p.mode as RoomMode, p.target.name, translate(loc, roomModeKey(p.mode as RoomMode)))} · ${areaText(p.area ?? 0, units)}`;
+      setLive([{ p: mid, text }]);
+      live.current.onMeasure("Room", `${text}. ${translate(loc, p.mode === "subtract" ? "room.hint.subtract" : "room.hint.combine")}`);
+      return;
+    }
     setLive([{ p: mid, text: dragLabel(w, d, units) }]);
     if (bad) live.current.onMeasure("Can't draw a room here", p?.error ?? "");
     else if (p?.shared?.length) live.current.onMeasure("Room", `${dragLabel(w, d, units)}, shares a wall with ${p.shared.map((s) => s.name ?? "a room").filter((x, i, a) => a.indexOf(x) === i).join(", ")}`);
-    else live.current.onMeasure("Room", dragLabel(w, d, units));
+    else live.current.onMeasure("Room", `${dragLabel(w, d, units)}. ${translate(loc, "room.hint.over")}`);
   }
 
   /** The ground point under the mouse, snapped to the room grid (0.1 m, or 6 in). */
@@ -2239,7 +2251,9 @@ export default function Viewport(props: Props) {
     live.current.onMeasure("", "");
     if (Math.abs(op.b.x - op.a.x) < 1e-6 && Math.abs(op.b.y - op.a.y) < 1e-6) return;
     const b = live.current.build;
-    await run({ cmd: "room_rect", from: arr(op.a), to: arr(op.b), thickness: b.wallThickness, height: b.wallHeight });
+    const r = await run({ cmd: "room_rect", from: arr(op.a), to: arr(op.b), thickness: b.wallThickness, height: b.wallHeight, mode: roomMode(op.alt) });
+    const gone = r.ok ? Number((r as unknown as { removed_openings?: number }).removed_openings ?? 0) : 0;
+    if (gone > 0) live.current.onToast(translate(localeRef.current, "room.openings_removed").replace("{n}", String(gone)), false);
   }
 
   /** A click on a wall in Room mode: a door or a window there (the same command the Place tool sends). */
@@ -2621,13 +2635,15 @@ export default function Viewport(props: Props) {
       if (!c) return;
       op.b = c;
       setHint(null);
-      const key = `${op.a.x},${op.a.y},${c.x},${c.y}`;
+      op.alt = e.altKey;
+      const mode = roomMode(op.alt);
+      const key = `${op.a.x},${op.a.y},${c.x},${c.y},${mode}`;
       // ask the engine what the room would be here (snapped to a neighbour's wall, or refused), once per grid step
       if (op.asked !== key && !op.pending) {
         op.asked = key;
         op.pending = true;
         const th = live.current.build.wallThickness;
-        void exec({ cmd: "room_preview", from: arr(op.a), to: arr(c), thickness: th }).then((r) => {
+        void exec({ cmd: "room_preview", from: arr(op.a), to: arr(c), thickness: th, mode }).then((r) => {
           op.pending = false;
           op.preview = r.ok ? (r as unknown as RoomPreview) : { ok: false, error: r.error };
           if (st.current.op === op) drawRoomPreview(op);
@@ -3026,7 +3042,7 @@ export default function Viewport(props: Props) {
       }
       const c = groundCorner(e);
       if (!c) return;
-      st.current.op = { t: "room", a: c, b: c.clone(), preview: null, asked: "", pending: false };
+      st.current.op = { t: "room", a: c, b: c.clone(), preview: null, asked: "", pending: false, alt: e.altKey };
       L.onMeasure("Room", "drag to size it");
       return;
     };

@@ -175,6 +175,13 @@ export interface RoomPreview {
   thickness?: number;
   shared?: { room: number; name: string | null; side: string }[];
   snapped?: boolean;
+  /** what really happens: a new room, or a combine / subtract on `target` */
+  mode?: "new" | "combine" | "subtract";
+  target?: { room: number; name: string } | null;
+  /** the inside outline and the wall centre-line outline (counter-clockwise), and a point inside to label */
+  outline?: [number, number][];
+  centre_outline?: [number, number][];
+  label?: [number, number];
 }
 
 /** A room as `rooms` lists it. */
@@ -204,7 +211,7 @@ export type Op =
   | { t: "offset"; face: FaceInfo; start: THREE.Vector3; d: number }
   /** Wall pull: the wall the picked face belongs to, and what the engine says moves with it */
   /** Room mode: dragging a room out between two ground corners (a, b); what the engine says about it (null: not asked yet) */
-  | { t: "room"; a: THREE.Vector3; b: THREE.Vector3; preview: RoomPreview | null; asked: string; pending: boolean }
+  | { t: "room"; a: THREE.Vector3; b: THREE.Vector3; preview: RoomPreview | null; asked: string; pending: boolean; alt: boolean }
   | { t: "wallpull"; face: number; plan: WallPlan; origin: THREE.Vector3; n: THREE.Vector3; d: number; dragged: boolean }
   | { t: "move"; base: THREE.Vector3; ids: number[]; delta: THREE.Vector3; copy: boolean; vertex?: { far: THREE.Vector3[] } }
   | { t: "rotate"; center: THREE.Vector3; n: THREE.Vector3; ref: THREE.Vector3 | null; angle: number; ids: number[]; copy?: boolean }
