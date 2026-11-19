@@ -20,6 +20,9 @@ export function ProjectionPanel({ scene, sel, run, camera, onClose, onToast }: {
   const [s, setS] = useState<ProjState>(() => initialState("box", pickMaterial(scene.materials, faceMaterials, null)));
   const [more, setMore] = useState(false);
   const [busy, setBusy] = useState(false);
+  // the app hands a new function every render: read it through a ref so the preview timer is not restarted by every redraw
+  const cam = useRef(camera);
+  cam.current = camera;
 
   // live preview: the newest state wins; each try takes the one before back (one undo step in the end)
   const applied = useRef(false);
@@ -49,14 +52,14 @@ export function ProjectionPanel({ scene, sel, run, camera, onClose, onToast }: {
   }, [run]);
   useEffect(() => {
     if (!s.material || !ids.length) return;
-    const c = projectCommand(s, ids, camera());
+    const c = projectCommand(s, ids, cam.current());
     if (!c) return;
     const h = window.setTimeout(() => {
       pending.current = c;
       void pump();
     }, 140);
     return () => window.clearTimeout(h);
-  }, [s, ids, camera, pump]);
+  }, [s, ids, pump]);
 
   const settle = async () => {
     while (working.current) await working.current;
