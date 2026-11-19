@@ -115,10 +115,13 @@ export function useLayout({ active, scene, run, say }: { active: boolean; scene:
   }, [setViewport]);
 
   const add = async () => {
-    const last = ordered[ordered.length - 1];
+    // ask the engine, not the last render: a quick second click must not see the list from before the first
+    const fresh = await exec({ cmd: "sheets_info" });
+    const now = fresh.ok ? inOrder((fresh.sheets as SheetInfo[]) ?? []) : ordered;
+    const last = now[now.length - 1];
     const paper = last ? (last.paper.name ? last.paper.name : { w_mm: last.paper.w_mm, h_mm: last.paper.h_mm }) : "a3";
     const project = last?.fields?.project;
-    const r = await run({ cmd: "sheet_add", name: newPageName(ordered), paper, ...(project ? { fields: { project } } : {}) });
+    const r = await run({ cmd: "sheet_add", name: newPageName(now), paper, ...(project ? { fields: { project } } : {}) });
     if (r.ok && typeof r.sheet === "number") setPage(r.sheet);
   };
   const duplicate = async (id: number) => {
