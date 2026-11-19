@@ -311,6 +311,13 @@
     stroke-width: 1.5;
   }
 
+  .ed-cell {
+    fill: color-mix(in srgb, var(--accent) 10%, transparent);
+    stroke: var(--accent);
+    stroke-width: 2;
+    pointer-events: none;
+  }
+
   .ed-draw {
     fill: none;
     stroke: var(--accent);
@@ -387,6 +394,23 @@
       stroke: #e0368c;
     }
   }
+}
+
+.paper-cellbox {
+  position: absolute;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 1px 3px;
+  border: 2px solid var(--accent);
+  border-radius: 1px;
+  background: rgba(255, 255, 255, 0.96);
+  color: #111;
+  font-family: "SketchCraft Paper", sans-serif;
+  line-height: 1.25;
+  resize: none;
+  overflow: hidden;
+  outline: none;
+  z-index: 3;
 }
 
 .paper-textbox {

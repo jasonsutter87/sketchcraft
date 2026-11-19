@@ -328,7 +328,7 @@ describe("tools", () => {
     expect(play("offset", [down(5, 0, { hit: 9 }), down(5, 0, { dist: 0 })]).said[0]).toMatch(/Move away/);
   });
   it("text: a click places it (typing is in the text box)", () => {
-    expect(play("text", [down(30, 40)]).s).toEqual({ t: "text", at: [30, 40], text: "" });
+    expect(play("text", [down(30, 40), up(30, 40)]).s).toEqual({ t: "text", at: [30, 40], text: "" });
   });
   it("hints say what to do next", () => {
     expect(stepHint("line", { t: "pts", pts: [[0, 0]], at: [0, 0] })).toMatch(/Click the end/);

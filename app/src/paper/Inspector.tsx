@@ -4,7 +4,7 @@
 
 import { useEffect, useState } from "react";
 import type { Reply, Scene } from "../engine";
-import { describe, isDim, isShape, isText, paperItems, type PaperItem } from "./items";
+import { describe, isDim, isShape, isTable, isText, paperItems, type Align, type Border, type PaperItem, type TableItem } from "./items";
 import { opacityOf, paperId, PAPERS, parseScale, percentOf, scaleText, STANDARD_VIEWS, viewArgs, viewName, viewportsOf, type SheetInfo, type ViewportItem } from "./pages";
 
 type Run = (cmd: Record<string, unknown>) => Promise<Reply>;
@@ -135,6 +135,107 @@ function ViewportInspector({ v, scene, run, onDone }: { v: ViewportItem; scene: 
   );
 }
 
+const ALIGNS: [Align, string][] = [
+  ["left", "Left"],
+  ["center", "Centre"],
+  ["right", "Right"],
+];
+function AlignPick({ value, label, onPick }: { value: Align; label: string; onPick: (a: Align) => void }) {
+  return (
+    <select aria-label={label} value={value} onChange={(e) => onPick(e.target.value as Align)}>
+      {ALIGNS.map(([a, l]) => (
+        <option key={a} value={a}>
+          {l}
+        </option>
+      ))}
+    </select>
+  );
+}
+const BORDERS: [Border, string][] = [
+  ["grid", "Grid (every cell boxed)"],
+  ["rules", "Rules (a line under each row)"],
+  ["outer", "Outline only"],
+  ["none", "None"],
+];
+
+/** A table's settings: title, rows and columns, header, borders, text, widths, alignment; a drawing index link. */
+function TableFields({ t, run }: { t: TableItem; run: Run }) {
+  const rows = t.layout?.rows ?? t.rows;
+  const nr = rows.length;
+  const nc = Math.max(1, ...rows.map((r) => r.length));
+  const linked = !!t.source;
+  const widths = (t.layout ? t.layout.xs.slice(1).map((x, i) => x - t.layout!.xs[i]) : (t.cols_mm ?? [])).map((w) => Math.round(w * 10) / 10);
+  const allAlign = (t.align ?? []).length && (t.align ?? []).every((a) => a === t.align![0]) && (t.align ?? []).length >= nc ? t.align![0] : "left";
+  return (
+    <>
+      <Field label="Title" value={t.title ?? ""} placeholder="(no title)" hint="A caption above the table, like DOOR SCHEDULE" onCommit={(v) => void run({ cmd: "sheet_table", id: t.id, title: v })} />
+      <span>Rows</span>
+      <span className="row gap">
+        <span aria-live="polite">{nr}</span>
+        <button className="btn small ghost" disabled={linked} title="Add a row at the bottom" aria-label="Add a row" onClick={() => void run({ cmd: "sheet_table", id: t.id, insert_rows: { at: nr, n: 1 } })}>
+          +
+        </button>
+        <button className="btn small ghost" disabled={linked || nr <= 1} title="Remove the bottom row" aria-label="Remove the last row" onClick={() => void run({ cmd: "sheet_table", id: t.id, delete_rows: { at: nr - 1, n: 1 } })}>
+          −
+        </button>
+      </span>
+      <span>Columns</span>
+      <span className="row gap">
+        <span aria-live="polite">{nc}</span>
+        <button className="btn small ghost" disabled={linked} title="Add a column at the right" aria-label="Add a column" onClick={() => void run({ cmd: "sheet_table", id: t.id, insert_cols: { at: nc, n: 1 } })}>
+          +
+        </button>
+        <button className="btn small ghost" disabled={linked || nc <= 1} title="Remove the right-hand column" aria-label="Remove the last column" onClick={() => void run({ cmd: "sheet_table", id: t.id, delete_cols: { at: nc - 1, n: 1 } })}>
+          −
+        </button>
+      </span>
+      <span>Header</span>
+      <select aria-label="Header rows" value={String(t.header_rows ?? 1)} onChange={(e) => void run({ cmd: "sheet_table", id: t.id, header_rows: Number(e.target.value) })} title="Rows at the top printed bold, with a heavy rule under them">
+        <option value="0">No header row</option>
+        <option value="1">1 header row</option>
+        <option value="2">2 header rows</option>
+      </select>
+      <span>First column</span>
+      <label className="field check">
+        <input type="checkbox" checked={(t.header_cols ?? 0) > 0} onChange={(e) => void run({ cmd: "sheet_table", id: t.id, header_cols: e.target.checked ? 1 : 0 })} />
+        <span>Bold (heads its row)</span>
+      </label>
+      <span>Borders</span>
+      <select aria-label="Table borders" value={t.border ?? "grid"} onChange={(e) => void run({ cmd: "sheet_table", id: t.id, border: e.target.value })}>
+        {BORDERS.map(([b, l]) => (
+          <option key={b} value={b}>
+            {l}
+          </option>
+        ))}
+      </select>
+      <Field label="Text (mm)" value={String(t.text_mm ?? 2.5)} hint="The cells' capital letters' height on paper, 1 to 50 mm" onCommit={(v) => Number(v) > 0 && void run({ cmd: "sheet_table", id: t.id, text_mm: Number(v) })} />
+      <Field
+        label="Widths (mm)"
+        value={widths.join(", ")}
+        hint="Each column's width, comma separated; 0 or 'auto' fits the column to its text"
+        onCommit={(v) => {
+          const ws = v.split(/[,\s]+/).filter(Boolean).map((x) => (/^auto$/i.test(x) ? 0 : Number(x)));
+          if (ws.every((x) => Number.isFinite(x) && x >= 0)) void run({ cmd: "sheet_table", id: t.id, cols_mm: ws });
+        }}
+      />
+      <span>Align</span>
+      <AlignPick value={allAlign as Align} label="Column alignment (all columns)" onPick={(a) => void run({ cmd: "sheet_table", id: t.id, align: Array(nc).fill(a) })} />
+      <span>Fill</span>
+      {linked ? (
+        <button className="btn small ghost" title="Stop filling it from the sheets; it keeps what it shows now, and you can type in it" onClick={() => void run({ cmd: "sheet_table", id: t.id, source: "" })}>
+          Unlink drawing index
+        </button>
+      ) : (
+        <button className="btn small ghost" title="Fill it with every sheet's number and name, kept up to date (a drawing index)" onClick={() => void run({ cmd: "sheet_table", id: t.id, source: "sheets" })}>
+          Drawing index
+        </button>
+      )}
+      <span />
+      <span className="hint">Double-click a cell to type in it. Paste a grid copied from a spreadsheet to fill it from the cell you clicked.</span>
+    </>
+  );
+}
+
 const WEIGHTS: [number, string][] = [
   [0.13, "Hair 0.13 mm"],
   [0.18, "Thin 0.18 mm"],
@@ -146,7 +247,7 @@ const WEIGHTS: [number, string][] = [
 
 /** A picked line, text or dimension: what it is, its few settings, and Delete. */
 function ItemInspector({ it, run, onDone }: { it: PaperItem; run: Run; onDone: () => void }) {
-  const title = isShape(it) ? (it.kind === "rect" ? "Rectangle" : it.kind === "arc" ? "Arc" : it.kind === "polyline" ? "Polyline" : "Line") : isText(it) ? "Text" : "Dimension";
+  const title = isShape(it) ? (it.kind === "rect" ? "Rectangle" : it.kind === "arc" ? "Arc" : it.kind === "polyline" ? "Polyline" : "Line") : isText(it) ? (it.box_mm ? "Text block" : "Text") : isTable(it) ? "Table" : "Dimension";
   return (
     <div className="section layout-inspector" aria-label={title}>
       <div className="section-title">{title}</div>
@@ -174,8 +275,12 @@ function ItemInspector({ it, run, onDone }: { it: PaperItem; run: Run; onDone: (
           <>
             <Field label="Text" multiline value={it.paragraphs.join("\n")} hint="The words, one line per line" onCommit={(t) => t.trim() && void run({ cmd: "sheet_text", id: it.id, text: t })} />
             <Field label="Height (mm)" value={String(it.height_mm ?? 3.5)} hint="Capital letters' height on paper, 1 to 50 mm" onCommit={(t) => Number(t) > 0 && void run({ cmd: "sheet_text", id: it.id, height_mm: Number(t) })} />
+            <Field label="Width (mm)" value={it.box_mm ? String(it.box_mm[0]) : ""} placeholder="(one line per line)" hint="A text block's width: its paragraphs wrap to it. Empty or 0: plain text" onCommit={(t) => void run({ cmd: "sheet_text", id: it.id, width_mm: Number(t) || 0 })} />
+            <span>Align</span>
+            <AlignPick value={it.align ?? "left"} label="Text alignment" onPick={(a) => void run({ cmd: "sheet_text", id: it.id, align: a })} />
           </>
         )}
+        {isTable(it) && <TableFields t={it} run={run} />}
         {isDim(it) && (
           <>
             <span>Measures</span>

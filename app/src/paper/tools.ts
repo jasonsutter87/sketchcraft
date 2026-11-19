@@ -3,10 +3,10 @@
 // snapped, a move, Enter, Escape...) and answers its next state and, when a gesture is done, the one engine command
 // it makes. PaperView feeds it and runs the command; app/tests/sheeteditor.test.ts drives it directly.
 
-import { dimModeFor, dimOffsetAt } from "./items";
+import { dimModeFor, dimOffsetAt, tableFromFrame, TEXT_HEIGHT } from "./items";
 import { MIN_SIZE, rectOf, roundP, roundRect, type P, type Rect } from "./snap";
 
-export type PaperTool = "select" | "viewport" | "line" | "polyline" | "rect" | "arc" | "text" | "dimension" | "trim" | "extend" | "offset" | "erase";
+export type PaperTool = "select" | "viewport" | "line" | "polyline" | "rect" | "arc" | "text" | "table" | "dimension" | "trim" | "extend" | "offset" | "erase";
 
 /** Icons, 24×24 strokes: the tool bar's buttons and the cursor's badge. */
 const ICON: Record<PaperTool, string> = {
@@ -17,6 +17,7 @@ const ICON: Record<PaperTool, string> = {
   rect: "M4 6h16v12H4z",
   arc: "M4 18a9 9 0 0 1 16 0",
   text: "M5 5h14M12 5v14M9 19h6",
+  table: "M3 5h18v14H3zM3 9.5h18M3 14h18M9.5 5v14M15.5 5v14",
   dimension: "M3 8v8M21 8v8M3 12h18M6 9l-3 3 3 3M18 9l3 3-3 3",
   trim: "M6 6a2.5 2.5 0 1 0 0.1 0M6 18a2.5 2.5 0 1 0 0.1 0M8 8l12 9M8 16l12-9",
   extend: "M3 12h11M14 12l-3-3M14 12l-3 3M20 4v16",
@@ -41,7 +42,8 @@ export const PAPER_TOOL_INFO: Record<PaperTool, ToolInfo> = {
   polyline: { name: "Polyline", key: "p", tip: "Click points; double-click or Enter to finish, click the first to close", icon: ICON.polyline },
   rect: { name: "Rectangle", key: "r", tip: "Drag (or click two corners)", icon: ICON.rect },
   arc: { name: "Arc", key: "a", tip: "Click its start, its end, then how far it bends", icon: ICON.arc },
-  text: { name: "Text", key: "t", tip: "Click to place, then type; double-click text to change it", icon: ICON.text },
+  text: { name: "Text", key: "t", tip: "Click to place, then type; drag a width for a text block that wraps; double-click text to change it", icon: ICON.text },
+  table: { name: "Table", key: "b", tip: "Click (or drag a frame) for a table, then type in its cells; paste from a spreadsheet", icon: ICON.table },
   dimension: { name: "Dimension", key: "d", tip: "Click points of the model; keep clicking to chain; Shift for baseline", icon: ICON.dimension },
   trim: { name: "Trim", key: "x", tip: "Click the piece of a line to cut away (Shift extends instead)", icon: ICON.trim },
   extend: { name: "Extend", key: "e", tip: "Click near the end of a line to run it on to the next line", icon: ICON.extend },
@@ -50,7 +52,7 @@ export const PAPER_TOOL_INFO: Record<PaperTool, ToolInfo> = {
 };
 export const PAPER_TOOLS = Object.keys(PAPER_TOOL_INFO) as PaperTool[];
 /** The tool bar's groups (a gap between each). */
-export const TOOL_GROUPS: PaperTool[][] = [["select", "viewport"], ["line", "polyline", "rect", "arc"], ["text", "dimension"], ["trim", "extend", "offset", "erase"]];
+export const TOOL_GROUPS: PaperTool[][] = [["select", "viewport"], ["line", "polyline", "rect", "arc"], ["text", "table", "dimension"], ["trim", "extend", "offset", "erase"]];
 
 export const toolForKey = (key: string): PaperTool | null => PAPER_TOOLS.find((t) => PAPER_TOOL_INFO[t].key === key.toLowerCase()) ?? null;
 
@@ -85,8 +87,10 @@ export type ToolState =
   | { t: "offset"; item: number; at: P; typed: string }
   /** a viewport frame drawn: which view goes in it is being chosen */
   | { t: "choose"; rect: Rect }
-  /** typing a text in place (new, or `id` being changed) */
-  | { t: "text"; at: P; id?: number; text: string };
+  /** typing a text in place (new, or `id` being changed); `width`: a text block wrapped to it */
+  | { t: "text"; at: P; id?: number; text: string; width?: number }
+  /** typing in a table's cell */
+  | { t: "cell"; id: number; row: number; col: number; text: string };
 
 export const IDLE: ToolState = { t: "idle" };
 
@@ -117,6 +121,9 @@ export interface ToolOut {
   /** something to tell the person (a refused click) */
   say?: string;
 }
+
+/** The narrowest text block a drag makes (narrower: a click, plain text). */
+export const MIN_BLOCK = 5;
 
 const near = (a: P, b: P, tol: number) => Math.hypot(a[0] - b[0], a[1] - b[1]) <= tol;
 
@@ -229,9 +236,28 @@ export function toolStep(tool: PaperTool, s: ToolState, e: ToolEvent, c: ToolCtx
       return { s };
     }
     case "text": {
-      // typing itself is in the text box PaperView shows; the tool only places it
-      if (s.t === "text") return { s };
-      if (e.type === "down" && p) return { s: { t: "text", at: p, text: "" } };
+      // typing itself is in the text box PaperView shows; the tool only places it: a click for plain text, a drag
+      // across for a text block (its width; the first line's baseline one letter below the top)
+      if (s.t === "text" || s.t === "cell") return { s };
+      if (e.type === "down" && p) return { s: { t: "drag", from: p, to: p, click: false } };
+      if (e.type === "move" && p && s.t === "drag") return { s: { ...s, to: p } };
+      if (e.type === "up" && p && s.t === "drag") {
+        const r = rectOf(s.from, p);
+        if (r[2] < MIN_BLOCK) return { s: { t: "text", at: s.from, text: "" } };
+        return { s: { t: "text", at: [Math.round(r[0] * 100) / 100, Math.round((r[1] + TEXT_HEIGHT) * 100) / 100], text: "", width: Math.round(r[2] * 10) / 10 } };
+      }
+      return { s };
+    }
+    case "table": {
+      if (s.t === "cell") return { s };
+      if (e.type === "down" && p) return { s: { t: "drag", from: p, to: p, click: false } };
+      if (e.type === "move" && p && s.t === "drag") return { s: { ...s, to: p } };
+      if (e.type === "up" && p && s.t === "drag") {
+        const r = rectOf(s.from, p);
+        // a click: a 5 by 3 table there; a frame: as many 25 mm columns and 6 mm rows as fit it
+        const made = r[2] < MIN_SIZE || r[3] < MIN_SIZE ? { size: [5, 3], cols_mm: [25, 25, 25] } : tableFromFrame(r);
+        return { s: IDLE, cmd: { cmd: "sheet_table", sheet: c.sheet, at_mm: roundP([r[0], r[1]]), ...made } };
+      }
       return { s };
     }
     default:
@@ -261,7 +287,8 @@ export function stepHint(tool: PaperTool, s: ToolState): string {
   const esc = " · Esc cancels";
   switch (tool) {
     case "select":
-      return "Click to select · drag a view to move it, its handles to resize · arrows nudge · double-click text or the title block to edit";
+      if (s.t === "cell") return "Type in the cell · Tab next cell, Enter the cell below · paste a grid from a spreadsheet · Esc stops";
+      return "Click to select · drag a view to move it, its handles to resize · arrows nudge · double-click text, a table's cell or the title block to edit";
     case "viewport":
       if (s.t === "drag") return s.click ? `Click the opposite corner${esc}` : `Let go to finish the frame${esc}`;
       if (s.t === "choose") return `Pick the view this frame shows${esc}`;
@@ -281,7 +308,12 @@ export function stepHint(tool: PaperTool, s: ToolState): string {
       if (s.t !== "dim" || !s.picks.length) return "Click a point of the model (a marker shows on corners and middles)";
       return s.picks.length === 1 ? `Click the next point${esc}` : `Click more points to chain · Enter or double-click finishes where the mouse is · Shift+Enter for baseline${esc}`;
     case "text":
-      return s.t === "text" ? "Type · Enter finishes, Shift+Enter starts a new line · Esc cancels" : "Click where the text starts · double-click text to change it";
+      if (s.t === "drag") return `Let go where the block's right edge goes (a click makes plain text)${esc}`;
+      return s.t === "text" ? (s.width ? "Type · Enter finishes, Shift+Enter starts a new paragraph · lines wrap to the block · Esc cancels" : "Type · Enter finishes, Shift+Enter starts a new line · Esc cancels") : "Click where the text starts, or drag across for a text block that wraps · double-click text to change it";
+    case "table":
+      if (s.t === "drag") return `Let go to make the table (about 25 mm columns, 6 mm rows)${esc}`;
+      if (s.t === "cell") return "Type in the cell · Tab next cell, Enter the cell below · paste a grid from a spreadsheet · Esc stops";
+      return "Click for a table, or drag its size · double-click a cell to type · paste from a spreadsheet";
     case "trim":
       return "Click the piece of a line to cut away (red shows what goes) · Shift+click extends instead";
     case "extend":

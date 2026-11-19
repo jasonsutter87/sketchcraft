@@ -6,7 +6,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { exec, type Reply, type Scene } from "../engine";
 import { PAPER_FONT } from "./draw";
-import { cutPath, describe, dimLines, distToItem, isDim, isShape, isText, itemAt, itemPoints, movedItem, polylineOf, textBox, titleBlock, type PaperItem, type TextItem } from "./items";
+import { cellAt, cellRect, cutPath, describe, dimLines, distToItem, isDim, isShape, isTable, isText, itemAt, itemPoints, movedItem, nextCell, pasteCommand, polylineOf, tableRect, textBox, titleBlock, type PaperItem, type TableItem, type TextItem } from "./items";
 import { STANDARD_VIEWS, viewArgs, type SheetInfo, type ViewportItem } from "./pages";
 import { handlePoints, HANDLE_CURSORS, mergeGuides, nudge, ortho, pageGuides, rectGuides, rectOf, roundRect, snapMove, snapPoint, snapResize, SNAP_PX, type Guides, type Marker, type P, type Rect, type SnapOpts } from "./snap";
 import { cursorFor, dimCommand, IDLE, stepHint, toolForKey, toolStep, type DimChoice, type PaperTool, type ToolEvent, type ToolState } from "./tools";
@@ -157,9 +157,22 @@ export function useEditor(P: EditorProps) {
       setHoverItem(null);
     }
     if (r.ok && (cmd.cmd === "sheet_text" || cmd.cmd === "sheet_line") && typeof r.item === "number" && tool === "select") setItem(r.item);
+    // a new table is picked, and typing starts in its first cell; a pasted one is picked
+    if (r.ok && (cmd.cmd === "sheet_table" || cmd.cmd === "sheet_table_paste") && cmd.id == null && typeof r.item === "number") {
+      setItem(r.item);
+      onPick(null);
+      if (cmd.cmd === "sheet_table") {
+        stRef.current = { t: "cell", id: r.item, row: 0, col: 0, text: "" };
+        setSt(stRef.current);
+      }
+    }
+    if (!r.ok && r.error) setNote(r.error);
     setPreview(null);
     return r;
   };
+  /** the cell last clicked in a picked table: where a paste goes */
+  const cellPick = useRef<{ id: number; cell: [number, number] } | null>(null);
+  const lastPaper = useRef<P | null>(null);
 
   /** the point a drawing tool uses: snapped to points, lines and the grid; Shift keeps a line straight */
   const drawPoint = (raw: P, from?: P): { p: P; marker: Marker | null; anchor: { anchor: unknown; viewport?: number } | null } => {
@@ -218,7 +231,11 @@ export function useEditor(P: EditorProps) {
         const found = items.find((i) => i.id === it)!;
         setItem(it);
         onPick(null);
-        if (isShape(found) || isText(found)) {
+        if (isTable(found)) {
+          const c = cellAt(found, raw);
+          cellPick.current = c ? { id: found.id, cell: c } : { id: found.id, cell: [0, 0] };
+        }
+        if (isShape(found) || isText(found) || isTable(found)) {
           const d: Drag = { kind: "item", id: it, start: raw, rect: [0, 0, 0, 0], handle: -1, moved: false, live: [0, 0, 0, 0], item: found, delta: [0, 0] };
           dragRef.current = d;
           setDrag(d);
@@ -257,6 +274,7 @@ export function useEditor(P: EditorProps) {
     if (!cam) return false;
     shift.current = ev.shiftKey;
     const raw = paperAt(s);
+    lastPaper.current = raw;
     const d = dragRef.current;
     if (d) {
       const dx = raw[0] - d.start[0];
@@ -277,7 +295,7 @@ export function useEditor(P: EditorProps) {
         setMarkers(r.markers);
       } else {
         // line work and text move with their first point snapped
-        const anchor = d.item && isShape(d.item) ? d.item.pts_mm[0] : d.item && isText(d.item) ? d.item.at_mm : d.start;
+        const anchor = d.item && isShape(d.item) ? d.item.pts_mm[0] : d.item && (isText(d.item) || isTable(d.item)) ? d.item.at_mm : d.start;
         const sp = snapPoint([anchor[0] + dx, anchor[1] + dy], pointGuides, so);
         const nd = { ...d, moved: true, delta: [sp.p[0] - anchor[0], sp.p[1] - anchor[1]] as P };
         dragRef.current = nd;
@@ -331,20 +349,43 @@ export function useEditor(P: EditorProps) {
       return true;
     }
     if (tool === "select") return false;
-    if (tool === "rect" || tool === "viewport") {
+    if (tool === "rect" || tool === "viewport" || tool === "text" || tool === "table") {
       const at = drawPoint(paperAt(s), lastPt(stRef.current));
       feed({ type: "up", p: at.p, shift: ev.shiftKey });
     }
     return true;
   };
 
+  /** start typing in a table's cell */
+  const editCell = (t: TableItem, r: number, c: number) => {
+    const rows = t.layout?.rows ?? t.rows;
+    if (t.source) {
+      setNote("This table is filled from the document's sheets: unlink it in the inspector to type in it");
+      return;
+    }
+    setItem(t.id);
+    onPick(null);
+    cellPick.current = { id: t.id, cell: [r, c] };
+    stRef.current = { t: "cell", id: t.id, row: r, col: c, text: rows[r]?.[c] ?? "" };
+    setSt(stRef.current);
+  };
+
   const dbl = (ev: React.MouseEvent, s: [number, number]) => {
     if (!cam) return;
     const raw = paperAt(s);
+    if (tool === "select" || tool === "table") {
+      const tb = items.find((i) => i.id === hitItem(raw, isTable));
+      const c = tb && isTable(tb) ? cellAt(tb, raw) : null;
+      if (tb && isTable(tb) && c) {
+        editCell(tb, c[0], c[1]);
+        return;
+      }
+      if (tool === "table") return;
+    }
     if (tool === "select" || tool === "text") {
       const it = items.find((i) => i.id === hitItem(raw, isText));
       if (it && isText(it)) {
-        stRef.current = { t: "text", at: it.at_mm, id: it.id, text: it.paragraphs.join("\n") };
+        stRef.current = { t: "text", at: it.at_mm, id: it.id, text: it.paragraphs.join("\n"), width: it.box_mm?.[0] };
         setSt(stRef.current);
         return;
       }
@@ -434,8 +475,53 @@ export function useEditor(P: EditorProps) {
       const old = items.find((i) => i.id === s.id) as TextItem | undefined;
       if (!words.trim()) await send({ cmd: "sheet_item_delete", ids: [s.id] });
       else if (old && old.paragraphs.join("\n") !== words) await send({ cmd: "sheet_text", id: s.id, text: words });
-    } else if (words.trim()) await send({ cmd: "sheet_text", sheet: page.id, at_mm: [Math.round(s.at[0] * 100) / 100, Math.round(s.at[1] * 100) / 100], text: words });
+    } else if (words.trim()) await send({ cmd: "sheet_text", sheet: page.id, at_mm: [Math.round(s.at[0] * 100) / 100, Math.round(s.at[1] * 100) / 100], text: words, ...(s.width ? { width_mm: s.width } : {}) });
   };
+
+  // ---- a table's cell in place ----------------------------------------------------------------------------------
+  /** the cell's text is saved (one undo step when it changed); `go` moves on to the next cell */
+  const commitCell = async (text: string, go: "tab" | "back" | "down" | null) => {
+    const s = stRef.current;
+    if (s.t !== "cell") return;
+    const t = items.find((i) => i.id === s.id);
+    const was = t && isTable(t) ? ((t.layout?.rows ?? t.rows)[s.row]?.[s.col] ?? "") : "";
+    const next = go && t && isTable(t) ? nextCell(t, s.row, s.col, go) : null;
+    // the next cell's text, as it is now (this cell's change doesn't touch it)
+    const nextText = next && t && isTable(t) ? ((t.layout?.rows ?? t.rows)[next[0]]?.[next[1]] ?? "") : "";
+    stRef.current = next ? { t: "cell", id: s.id, row: next[0], col: next[1], text: nextText } : IDLE;
+    setSt(stRef.current);
+    if (next) cellPick.current = { id: s.id, cell: next };
+    if (text !== was) await send({ cmd: "sheet_table", id: s.id, cells: [{ row: s.row, col: s.col, text }] });
+  };
+  /** a grid pasted into a cell fills the table from there */
+  const pasteInCell = (text: string): boolean => {
+    const s = stRef.current;
+    if (s.t !== "cell") return false;
+    const cmd = pasteCommand(text, { table: s.id, cell: [s.row, s.col] }, page.id, [0, 0]);
+    if (!cmd) return false;
+    stRef.current = IDLE;
+    setSt(IDLE);
+    void send(cmd);
+    return true;
+  };
+  // a grid pasted on the paper: into the picked table at its clicked cell, else a new table where the mouse is
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const a = document.activeElement;
+      if (a && a !== document.body && !a.closest?.(".paper-view")) return;
+      if (a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA")) return;
+      const text = e.clipboardData?.getData("text/plain") ?? "";
+      const picked = item != null ? items.find((i) => i.id === item) : undefined;
+      const into = picked && isTable(picked) && !picked.source ? { table: picked.id, cell: cellPick.current?.id === picked.id ? cellPick.current.cell : ([0, 0] as [number, number]) } : null;
+      const at = lastPaper.current && lastPaper.current[0] >= 0 && lastPaper.current[1] >= 0 && lastPaper.current[0] < w && lastPaper.current[1] < h ? lastPaper.current : ([20, 30] as P);
+      const cmd = pasteCommand(text, into, page.id, at);
+      if (!cmd) return;
+      e.preventDefault();
+      void send(cmd);
+    };
+    document.addEventListener("paste", onPaste);
+    return () => document.removeEventListener("paste", onPaste);
+  }); // eslint-disable-line react-hooks/exhaustive-deps
   const cancelText = () => {
     stRef.current = IDLE;
     setSt(IDLE);
@@ -481,6 +567,9 @@ export function useEditor(P: EditorProps) {
         else if (isText(i)) {
           const [x, y, ww, hh] = textBox(i, paperWidth);
           d = pathOf([[x, y], [x + ww, y], [x + ww, y + hh], [x, y + hh], [x, y]]);
+        } else if (isTable(i)) {
+          const [x, y, ww, hh] = tableRect(i);
+          d = pathOf([[x, y], [x + ww, y], [x + ww, y + hh], [x, y + hh], [x, y]]);
         } else if (isDim(i) && i.paper_mm) d = dimLines(i.paper_mm, i.mode, i.offset_mm ?? 8).spans.map(([a, b]) => pathOf([a, b])).join("");
         if (!d) return null;
         const moving = drag?.kind === "item" && drag.id === i.id && drag.moved;
@@ -518,6 +607,15 @@ export function useEditor(P: EditorProps) {
             const [hx, hy] = scr(p);
             return <rect key={i} className="ed-handle" data-handle={i} x={hx - 6} y={hy - 6} width={12} height={12} style={{ cursor: HANDLE_CURSORS[i] }} aria-hidden="true" />;
           });
+        })()}
+      {/* the cell being typed in */}
+      {st.t === "cell" &&
+        (() => {
+          const t = items.find((i) => i.id === st.id);
+          const r = t && isTable(t) ? cellRect(t, st.row, st.col) : null;
+          if (!r) return null;
+          const [x, y] = scr([r[0], r[1]]);
+          return <rect className="ed-cell" x={x} y={y} width={r[2] * cam.k} height={r[3] * cam.k} />;
         })()}
       {/* what the tool is making */}
       {toolPreview()}
@@ -639,11 +737,19 @@ export function useEditor(P: EditorProps) {
           at={scr(st.at)}
           k={cam.k}
           height={(st.id != null ? (items.find((i) => i.id === st.id) as TextItem | undefined)?.height_mm : undefined) ?? 3.5}
+          width={st.width}
           initial={st.text}
           onCommit={commitText}
           onCancel={cancelText}
         />
       )}
+      {st.t === "cell" &&
+        (() => {
+          const t = items.find((i) => i.id === st.id);
+          const r = t && isTable(t) ? cellRect(t, st.row, st.col) : null;
+          if (!r || !t || !isTable(t)) return null;
+          return <CellBox key={`${st.id}:${st.row}:${st.col}`} rect={r} scr={scr} k={cam.k} textMm={t.layout?.text_mm ?? t.text_mm ?? 2.5} header={st.row < (t.layout?.header_rows ?? t.header_rows ?? 1)} label={`Row ${st.row + 1}, column ${st.col + 1}`} initial={st.text} onDone={commitCell} onPaste={pasteInCell} onCancel={cancelText} />;
+        })()}
       {st.t === "choose" && <ViewChooser at={scr([st.rect[0], st.rect[1] + st.rect[3]])} views={P.scene?.views.map((v) => v.name) ?? []} onPick={chooseView} onCancel={() => feed({ type: "esc" })} />}
       {editField && (
         <FieldBox
@@ -680,8 +786,66 @@ export function focusNext(from: Element, k: number) {
   all[(i + k + all.length) % all.length]?.focus();
 }
 
-/** Typing a paper text where it goes: Enter finishes, Shift+Enter is a new line, Escape cancels. */
-function TextBox({ at, k, height, initial, onCommit, onCancel }: { at: [number, number]; k: number; height: number; initial: string; onCommit: (t: string) => void; onCancel: () => void }) {
+/** Typing in a table's cell where it is: Tab goes across, Enter down (Shift goes back), Escape stops; a grid pasted
+ * from a spreadsheet fills the table from this cell. */
+function CellBox({ rect, scr, k, textMm, header, label, initial, onDone, onPaste, onCancel }: { rect: Rect; scr: (p: P) => P; k: number; textMm: number; header: boolean; label: string; initial: string; onDone: (t: string, go: "tab" | "back" | "down" | null) => void; onPaste: (t: string) => boolean; onCancel: () => void }) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  const done = useRef(false);
+  const [text, setText] = useState(initial);
+  useEffect(() => {
+    ref.current?.focus();
+    ref.current?.select();
+  }, []);
+  const [x, y] = scr([rect[0], rect[1]]);
+  const finish = (go: "tab" | "back" | "down" | null) => {
+    if (done.current) return;
+    done.current = true;
+    onDone(text, go);
+  };
+  return (
+    <textarea
+      ref={ref}
+      className="paper-cellbox"
+      aria-label={`Table cell, ${label}: Tab next cell, Enter the cell below, Alt+Enter a new line, Escape stops`}
+      value={text}
+      spellCheck
+      style={{ left: x, top: y, width: Math.max(40, rect[2] * k), height: Math.max(18, rect[3] * k), fontSize: `${Math.max(9, (textMm / 0.73) * k)}px`, fontWeight: header ? 600 : 400 }}
+      onChange={(e) => setText(e.target.value)}
+      onPointerDown={(e) => e.stopPropagation()}
+      onPaste={(e) => {
+        if (onPaste(e.clipboardData.getData("text/plain"))) {
+          e.preventDefault();
+          done.current = true;
+        }
+      }}
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.key === "Tab") {
+          e.preventDefault();
+          finish(e.shiftKey ? "back" : "tab");
+        } else if (e.key === "Enter" && e.altKey) {
+          // a new line inside the cell (as in a spreadsheet)
+          e.preventDefault();
+          const el = e.currentTarget;
+          const at = el.selectionStart ?? text.length;
+          setText(text.slice(0, at) + "\n" + text.slice(el.selectionEnd ?? at));
+        } else if (e.key === "Enter") {
+          e.preventDefault();
+          finish(e.shiftKey ? null : "down");
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          done.current = true;
+          onCancel();
+        }
+      }}
+      onBlur={() => finish(null)}
+    />
+  );
+}
+
+/** Typing a paper text where it goes: Enter finishes, Shift+Enter is a new line, Escape cancels. A text block
+ * (`width`, mm) wraps as the page will. */
+function TextBox({ at, k, height, width, initial, onCommit, onCancel }: { at: [number, number]; k: number; height: number; width?: number; initial: string; onCommit: (t: string) => void; onCancel: () => void }) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const done = useRef(false);
   const [text, setText] = useState(initial);
@@ -698,10 +862,10 @@ function TextBox({ at, k, height, initial, onCommit, onCancel }: { at: [number, 
       className="paper-textbox"
       aria-label="Text on the page: Enter finishes, Shift+Enter starts a new line, Escape cancels"
       value={text}
-      rows={lines}
+      rows={width ? Math.max(lines, Math.ceil(text.length / Math.max(8, (width * k) / (size * 0.5)))) : lines}
       cols={cols}
       spellCheck
-      style={{ left: at[0], top: at[1] - size * 0.95, fontSize: `${Math.max(8, size)}px`, lineHeight: 1.25 }}
+      style={{ left: at[0], top: at[1] - size * 0.95, fontSize: `${Math.max(8, size)}px`, lineHeight: 1.25, ...(width ? { width: width * k, whiteSpace: "pre-wrap" as const } : {}) }}
       onChange={(e) => setText(e.target.value)}
       onPointerDown={(e) => e.stopPropagation()}
       onKeyDown={(e) => {

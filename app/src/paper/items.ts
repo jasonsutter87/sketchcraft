@@ -14,13 +14,38 @@ export interface ShapeItem {
   pen?: { w_mm?: number; color?: string; dash_mm?: number[] };
   z?: number;
 }
+export type Align = "left" | "center" | "right";
 export interface TextItem {
   id: number;
   kind: "text";
   at_mm: P;
   paragraphs: string[];
   height_mm?: number;
+  /** a text block: [width, 0]; its paragraphs wrap to the width */
+  box_mm?: [number, number];
+  align?: Align;
   z?: number;
+  /** from sheets_info: the box around the text as the engine lays it out (x, y, w, h), and its line count */
+  layout?: { rect: Rect; lines: number };
+}
+export type Border = "grid" | "rules" | "outer" | "none";
+export interface TableItem {
+  id: number;
+  kind: "table";
+  at_mm: P;
+  rows: string[][];
+  cols_mm?: number[];
+  header_rows?: number;
+  header_cols?: number;
+  title?: string;
+  text_mm?: number;
+  border?: Border;
+  align?: Align[];
+  /** "sheets": a drawing index, filled from the document's sheets */
+  source?: string;
+  z?: number;
+  /** from sheets_info: column and row edges (paper mm), where the title is, the rows as drawn (a linked table's live ones) */
+  layout?: { xs: number[]; ys: number[]; title_at?: P | null; rows: string[][]; text_mm: number; header_rows: number; pad_mm: number };
 }
 export interface DimItem {
   id: number;
@@ -31,18 +56,19 @@ export interface DimItem {
   viewport?: number;
   measured?: { spans?: { from: number; to: number; text: string }[]; attached?: boolean };
 }
-export type PaperItem = ShapeItem | TextItem | DimItem;
+export type PaperItem = ShapeItem | TextItem | DimItem | TableItem;
 
 const SHAPES = new Set(["line", "polyline", "arc", "rect"]);
 export const isShape = (i: SheetItemInfo | PaperItem): i is ShapeItem => SHAPES.has(i.kind) && Array.isArray((i as ShapeItem).pts_mm);
 export const isText = (i: SheetItemInfo | PaperItem): i is TextItem => i.kind === "text" && Array.isArray((i as TextItem).at_mm);
 export const isDim = (i: SheetItemInfo | PaperItem): i is DimItem => i.kind === "dimension";
+export const isTable = (i: SheetItemInfo | PaperItem): i is TableItem => i.kind === "table" && Array.isArray((i as TableItem).at_mm) && Array.isArray((i as TableItem).rows);
 
 /** The page's line work, text and dimensions, in drawing order. */
 export function paperItems(s: SheetInfo | undefined): PaperItem[] {
   const all = (s?.items ?? []) as unknown as PaperItem[];
   const z = (i: PaperItem) => ("z" in i ? (i.z ?? 0) : 0);
-  return all.filter((i) => isShape(i) || isText(i) || isDim(i)).sort((a, b) => z(a) - z(b) || a.id - b.id);
+  return all.filter((i) => isShape(i) || isText(i) || isDim(i) || isTable(i)).sort((a, b) => z(a) - z(b) || a.id - b.id);
 }
 
 // ---- geometry ---------------------------------------------------------------------------------------------------
@@ -109,6 +135,8 @@ export const CAP_OF_SIZE = 0.73;
 export const TEXT_LEADING = 1.25;
 export const TEXT_HEIGHT = 3.5;
 export function textBox(t: TextItem, width: (s: string, sizeMm: number) => number): Rect {
+  // the engine's own layout (wrapped blocks, alignment) when sheets_info gave it
+  if (t.layout?.rect) return t.layout.rect;
   const h = t.height_mm ?? TEXT_HEIGHT;
   const size = h / CAP_OF_SIZE;
   const pitch = size * TEXT_LEADING;
@@ -117,6 +145,57 @@ export function textBox(t: TextItem, width: (s: string, sizeMm: number) => numbe
   const bottom = t.at_mm[1] + (t.paragraphs.length - 1) * pitch + size * 0.25;
   return [t.at_mm[0], top, w, bottom - top];
 }
+/** A table's outline (mm), its title left out: from the engine's layout, else a guess from its size. */
+export function tableRect(t: TableItem): Rect {
+  const l = t.layout;
+  if (l && l.xs.length >= 2 && l.ys.length >= 2) return [l.xs[0], l.ys[0], l.xs[l.xs.length - 1] - l.xs[0], l.ys[l.ys.length - 1] - l.ys[0]];
+  const cols = Math.max(1, ...t.rows.map((r) => r.length));
+  return [t.at_mm[0], t.at_mm[1], cols * 25, t.rows.length * 5.5];
+}
+/** The cell [row, column] under a paper point, or null outside the table. */
+export function cellAt(t: TableItem, p: P): [number, number] | null {
+  const l = t.layout;
+  if (!l) return null;
+  const find = (edges: number[], v: number) => {
+    for (let i = 0; i + 1 < edges.length; i++) if (v >= edges[i] && v <= edges[i + 1]) return i;
+    return -1;
+  };
+  const r = find(l.ys, p[1]);
+  const c = find(l.xs, p[0]);
+  return r < 0 || c < 0 ? null : [r, c];
+}
+/** A cell's rectangle (mm). */
+export function cellRect(t: TableItem, r: number, c: number): Rect | null {
+  const l = t.layout;
+  if (!l || r + 1 >= l.ys.length || c + 1 >= l.xs.length) return null;
+  return [l.xs[c], l.ys[r], l.xs[c + 1] - l.xs[c], l.ys[r + 1] - l.ys[r]];
+}
+/** The cell after [r, c] (Tab: across, then the next row; Enter: down), or null past the end. */
+export function nextCell(t: TableItem, r: number, c: number, how: "tab" | "back" | "down"): [number, number] | null {
+  const rows = (t.layout?.rows ?? t.rows).length;
+  const cols = Math.max(1, ...(t.layout?.rows ?? t.rows).map((x) => x.length));
+  if (how === "down") return r + 1 < rows ? [r + 1, c] : null;
+  const i = r * cols + c + (how === "tab" ? 1 : -1);
+  return i < 0 || i >= rows * cols ? null : [Math.floor(i / cols), i % cols];
+}
+/** What a paste makes: a grid copied from a spreadsheet (tabs, or commas across lines) into the picked table at
+ * its cell, or a new table at `at`; plain words (no tabs or line breaks) are null (they go into the cell typed). */
+export function pasteCommand(text: string, into: { table: number; cell: [number, number] } | null, sheet: number, at: P): Record<string, unknown> | null {
+  const t = text.replace(/\r\n?/g, "\n").replace(/\n$/, "");
+  if (!t.trim()) return null;
+  const grid = t.includes("\t") || (t.includes("\n") && t.split("\n").every((l) => l.includes(",")));
+  if (!grid) return null;
+  if (into) return { cmd: "sheet_table_paste", id: into.table, at: into.cell, text };
+  return { cmd: "sheet_table_paste", sheet, at_mm: [Math.round(at[0] * 100) / 100, Math.round(at[1] * 100) / 100], text };
+}
+/** A new table's size from the frame dragged for it: about 25 mm columns and one row per 6 mm (2 rows, 1 column at least). */
+export function tableFromFrame(r: Rect): { size: [number, number]; cols_mm: number[] } {
+  const cols = Math.max(1, Math.min(12, Math.round(r[2] / 25)));
+  const rows = Math.max(2, Math.min(60, Math.round(r[3] / 6)));
+  const w = Math.max(5, Math.round((r[2] / cols) * 10) / 10);
+  return { size: [rows, cols], cols_mm: Array(cols).fill(w) };
+}
+
 /** A rough text width (no canvas: tests, or before the font loads): Inter averages about 0.55 of its size. */
 export const roughWidth = (s: string, sizeMm: number) => s.length * sizeMm * 0.55;
 
@@ -204,6 +283,9 @@ export function itemPoints(items: PaperItem[], width = roughWidth): SnapPoint[] 
     } else if (isText(i)) {
       out.push({ p: i.at_mm, why: "text" });
       void width;
+    } else if (isTable(i)) {
+      const [x, y, w, h] = tableRect(i);
+      for (const p of [[x, y], [x + w, y], [x + w, y + h], [x, y + h]] as P[]) out.push({ p, why: "table corner" });
     }
   }
   return out;
@@ -214,6 +296,12 @@ export function distToItem(i: PaperItem, p: P, width = roughWidth): number {
   if (isShape(i)) return distToPolyline(p, polylineOf(i.kind, i.pts_mm));
   if (isText(i)) {
     const [x, y, w, h] = textBox(i, width);
+    const dx = Math.max(x - p[0], 0, p[0] - (x + w));
+    const dy = Math.max(y - p[1], 0, p[1] - (y + h));
+    return Math.hypot(dx, dy);
+  }
+  if (isTable(i)) {
+    const [x, y, w, h] = tableRect(i);
     const dx = Math.max(x - p[0], 0, p[0] - (x + w));
     const dy = Math.max(y - p[1], 0, p[1] - (y + h));
     return Math.hypot(dx, dy);
@@ -246,6 +334,7 @@ export function movedItem(i: PaperItem, d: P): Record<string, unknown> | null {
   const mv = (p: P): P => [Math.round((p[0] + d[0]) * 100) / 100, Math.round((p[1] + d[1]) * 100) / 100];
   if (isShape(i)) return { cmd: "sheet_line", id: i.id, pts_mm: i.pts_mm.map(mv) };
   if (isText(i)) return { cmd: "sheet_text", id: i.id, at_mm: mv(i.at_mm) };
+  if (isTable(i)) return { cmd: "sheet_table", id: i.id, at_mm: mv(i.at_mm) };
   return null;
 }
 
@@ -310,7 +399,12 @@ export function describe(i: PaperItem): string {
     }
     return `${i.kind === "line" ? "Line" : i.kind === "arc" ? "Arc" : `Polyline of ${i.pts_mm.length} points`}, ${mm(len)} long`;
   }
-  if (isText(i)) return `Text: ${i.paragraphs.join(" / ").slice(0, 80)}`;
+  if (isText(i)) return `${i.box_mm ? "Text block" : "Text"}: ${i.paragraphs.join(" / ").slice(0, 80)}`;
+  if (isTable(i)) {
+    const rows = i.layout?.rows ?? i.rows;
+    const cols = Math.max(0, ...rows.map((r) => r.length));
+    return `${i.source === "sheets" ? "Drawing index" : "Table"}${i.title ? ` "${i.title}"` : ""}, ${rows.length} rows by ${cols} columns`;
+  }
   if (isDim(i)) {
     const spans = i.measured?.spans ?? [];
     return `${spans.length > 1 ? `Chain dimension of ${spans.length}` : "Dimension"}: ${spans.map((s) => s.text).join(", ")}${i.measured?.attached === false ? " (broken: its geometry is gone)" : ""}`;
