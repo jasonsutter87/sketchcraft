@@ -1567,6 +1567,19 @@ impl Model {
         }
     }
 
+    /// Bring the drawing sheets a file holds (paper sizes, tables, paper texts, hatch scales, hatch patterns) within
+    /// what the commands make (see `drafting::clamp_to_limits`); a file within the limits is not touched. Sheets are
+    /// the root model's, so components' models are not looked at. Returns what was changed (at most 20), for a notice.
+    pub fn vet_sheets(&mut self) -> Vec<String> {
+        let mut out = crate::drafting::clamp_to_limits(&mut self.sheets, &mut self.sheet_items, &mut self.drafting);
+        if out.len() > 20 {
+            let more = out.len() - 20;
+            out.truncate(20);
+            out.push(format!("and {more} more"));
+        }
+        out
+    }
+
     fn drop_oversize_pictures(&mut self) -> Vec<String> {
         let mut out = vec![];
         let bad = |d: &str| crate::safety::picture_too_big(d);

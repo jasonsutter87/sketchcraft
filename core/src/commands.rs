@@ -238,6 +238,10 @@ pub enum BatchKind {
 /// away). A plugin run or an agent may think for longer, so those only have `BATCH_MAX`.
 pub const BATCH_IDLE_APP: std::time::Duration = std::time::Duration::from_secs(30);
 
+/// An agent's batch that has gone this long without a command from the agent is closed (what it did so far stays one
+/// undo step), so plugins are not kept waiting on an agent that has stopped.
+pub const BATCH_IDLE_AGENT: std::time::Duration = std::time::Duration::from_secs(60);
+
 /// A batch nobody closed (the app went away mid-run) is closed after this (a plugin run is
 /// limited to 60 s, a Ruby replay to the same).
 pub const BATCH_MAX: std::time::Duration = std::time::Duration::from_secs(150);
@@ -395,7 +399,27 @@ impl Engine {
     /// Is the open batch past its limit: too long since it began, or (an app-made one) too long since it was last used?
     fn batch_expired(&self) -> bool {
         let Some(b) = &self.batch else { return false };
-        b.2.elapsed() > BATCH_MAX || (matches!(self.batch_kind, BatchKind::Fresh | BatchKind::App) && self.batch_last.is_some_and(|t| t.elapsed() > BATCH_IDLE_APP))
+        b.2.elapsed() > BATCH_MAX || self.batch_idle_limit().is_some_and(|idle| self.batch_last.is_some_and(|t| t.elapsed() > idle))
+    }
+
+    /// How long the open batch may go without a command from its owner before it is closed (a plugin run has only
+    /// `BATCH_MAX`).
+    fn batch_idle_limit(&self) -> Option<std::time::Duration> {
+        match self.batch_kind {
+            BatchKind::Fresh | BatchKind::App => Some(BATCH_IDLE_APP),
+            BatchKind::Agent => Some(BATCH_IDLE_AGENT),
+            _ => None,
+        }
+    }
+
+    /// The longest the open batch can still stay open.
+    fn batch_left(&self) -> std::time::Duration {
+        let Some(b) = &self.batch else { return std::time::Duration::ZERO };
+        let total = BATCH_MAX.saturating_sub(b.2.elapsed());
+        match (self.batch_idle_limit(), self.batch_last) {
+            (Some(idle), Some(t)) => total.min(idle.saturating_sub(t.elapsed())),
+            _ => total,
+        }
     }
 
     /// Whose batch is open, if one is.
@@ -417,6 +441,10 @@ impl Engine {
         }
         let name = v.get("cmd").and_then(Value::as_str).unwrap_or("");
         if matches!(name, "begin_batch" | "end_batch" | "undo" | "redo") || !serde_json::from_value::<Command>(v.clone()).is_ok_and(|c| c.mutates()) {
+            // an agent that is still reading is still at work on its batch
+            if self.batch_kind == BatchKind::Agent && matches!(caller, Caller::Mcp(_)) {
+                self.batch_last = Some(std::time::Instant::now());
+            }
             return Ok(());
         }
         let mine = match caller {
@@ -431,7 +459,7 @@ impl Engine {
             // the person's edit into a plugin's or an agent's batch: the host closes that batch first (see `Live`)
             (BatchKind::Plugin | BatchKind::Agent, BatchKind::App) => {}
             (BatchKind::App, _) => return Err("The app is in the middle of its own change; try again in a moment.".into()),
-            _ => return Err("Another client's batch is open (a plugin run or an agent's changes); try again when it has finished.".into()),
+            _ => return Err(format!("Another client's batch is open (a plugin run or an agent's changes); try again when it has finished (at the latest in {} s).", self.batch_left().as_secs().max(1))),
         }
         self.batch_last = Some(std::time::Instant::now());
         Ok(())
@@ -447,6 +475,12 @@ impl Engine {
         if let Some(b) = self.batch.as_mut() {
             b.2 = std::time::Instant::now() - BATCH_MAX - std::time::Duration::from_secs(1);
         }
+    }
+
+    /// As if the open batch's owner sent its last command `secs` seconds ago.
+    #[doc(hidden)]
+    pub fn quiet_batch_for_test(&mut self, secs: u64) {
+        self.batch_last = Some(std::time::Instant::now() - std::time::Duration::from_secs(secs));
     }
 
     #[doc(hidden)]
@@ -554,6 +588,7 @@ impl Engine {
         let mut model = model;
         model.repair_ids();
         model.vet_pictures();
+        model.vet_sheets();
         // a model over the size limits is restored for viewing and cutting down, like Open: the limits never block getting work back
         model.check_sane_with(false)?;
         let over = model.over_limits();

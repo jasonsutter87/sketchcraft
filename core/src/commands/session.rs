@@ -35,6 +35,10 @@ impl Engine {
                 // an end that names a batch that is already over (closed by the timer or by the person's own edit, or
                 // replaced) leaves the current one alone; what that batch did is already its own undo step
                 let over = self.batch.is_none() || !current;
+                // an agent hears only about its own batch: what an earlier one did is not its business
+                if agent && !current {
+                    return Ok(json!({"already_ended": true}));
+                }
                 if current {
                     self.last_batch = None;
                     self.end_batch();

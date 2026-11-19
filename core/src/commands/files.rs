@@ -38,6 +38,7 @@ impl Engine {
                 // ids from outside: the counter must be above every id in the file, or the next drawing overwrites something
                 opened.repair_ids();
                 opened.vet_pictures();
+                let sheets_clamped = opened.vet_sheets();
                 if self.untrusted && opened.size_estimate() > crate::model::MAX_MODEL_BYTES_UNTRUSTED {
                     bail!("{path} is a model of about {} MB; an agent or a plugin can open models up to {} MB (the person can open larger ones)", opened.size_estimate() >> 20, crate::model::MAX_MODEL_BYTES_UNTRUSTED >> 20);
                 }
@@ -52,7 +53,11 @@ impl Engine {
                 self.batch = None;
                 self.ctx = None;
                 self.names.clear();
-                json!({"path": path, "faces": self.model.faces.len(), "read_only": self.read_only.as_ref().map(|r| r.reasons.clone())})
+                let mut v = json!({"path": path, "faces": self.model.faces.len(), "read_only": self.read_only.as_ref().map(|r| r.reasons.clone())});
+                if !sheets_clamped.is_empty() {
+                    v["sheets_clamped"] = json!(sheets_clamped);
+                }
+                v
             }
             Command::ExportGlb { path } => json!({"path": path, "triangles": export::write_glb(&self.model, &path)?}),
             Command::ExportStl { path, scale } => json!({"path": path, "triangles": export::write_stl(&self.model, &path, scale)?}),
@@ -137,7 +142,7 @@ impl Engine {
                         .unwrap_or_else(|| "SketchUp model".into())
                 });
                 let r = crate::skp::import(m, &bytes, v3(at), &label)?;
-                json!({"group": r.group, "version": r.version, "faces": r.faces, "components": r.components, "placed": r.placed, "dimensions": r.dimensions, "labels": r.labels, "skipped_annotations": r.skipped_annotations, "dimensions_attached": r.dimensions_attached, "dimensions_unattached": r.dimensions_unattached, "screen_texts": r.screen_texts, "skipped_labels": r.skipped_labels})
+                json!({"group": r.group, "version": r.version, "faces": r.faces, "components": r.components, "placed": r.placed, "dimensions": r.dimensions, "labels": r.labels, "skipped_annotations": r.skipped_annotations, "dimensions_attached": r.dimensions_attached, "dimensions_unattached": r.dimensions_unattached, "screen_texts": r.screen_texts, "skipped_labels": crate::policy::untrusted_text(&r.skipped_labels)})
             }
             Command::ImportCloud { path, units, max_points } => {
                 let scale = match units.as_deref().unwrap_or("m") {

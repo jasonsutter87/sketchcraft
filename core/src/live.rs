@@ -221,6 +221,10 @@ impl Live {
                     self.set_notice(format!("Another program saved this model. {}; the rest still work.", what.join(" and ")));
                 }
             }
+            let clamped: Vec<String> = r["sheets_clamped"].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect()).unwrap_or_default();
+            if !clamped.is_empty() {
+                self.set_notice(format!("Some drawing-sheet content in this file was over SketchCraft's limits and was trimmed to fit ({}). The file itself is unchanged until the model is saved.", clamped.join("; ")));
+            }
             let skipped: Vec<String> = r["skipped_pictures"].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect()).unwrap_or_default();
             if !skipped.is_empty() {
                 self.set_notice(skipped_text(&skipped));
