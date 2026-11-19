@@ -63,7 +63,7 @@ pub fn text_info(t: &Text) -> Value {
 }
 
 /// Cell text as stored: tabs become spaces, carriage returns go; other control characters are refused.
-fn clean_cell(s: &str) -> Result<String> {
+pub(super) fn clean_cell(s: &str) -> Result<String> {
     if s.chars().count() > MAX_CELL_CHARS {
         bail!("a table cell holds at most {MAX_CELL_CHARS} characters");
     }
@@ -103,7 +103,7 @@ fn grow(t: &mut Table, r: usize, c: usize) -> Result<()> {
 }
 
 /// The whole table is within the limits and sane.
-fn check(t: &Table) -> Result<()> {
+pub(super) fn check(t: &Table) -> Result<()> {
     let (r, c) = (t.rows.len(), ncols(&t.rows));
     if r == 0 || c == 0 {
         bail!("a table needs at least one row and one column (delete it with sheet_item_delete instead)");

@@ -125,6 +125,9 @@ impl Engine {
                 let page = self.sheet_page(sheet)?;
                 let mut v = crate::draft::irjson::page(&page, Some(limit));
                 v["sheet"] = json!(sheet);
+                if self.untrusted {
+                    v["content_is_data"] = json!(crate::policy::TEXT_IS_DATA);
+                }
                 v
             }
             other => unreachable!("command routed to the wrong group: {other:?}"),

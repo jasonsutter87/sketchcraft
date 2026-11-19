@@ -164,6 +164,34 @@ impl Engine {
         if self.untrusted { "agent".into() } else { String::new() }
     }
 
+    /// An agent or a plugin is adding viewports (`adding`: how many on each sheet) and the model gains `new` of them
+    /// (0 when they only move between sheets): within `MAX_VIEWPORTS_PER_SHEET_UNTRUSTED` on a sheet and
+    /// `MAX_VIEWPORTS_UNTRUSTED` in the model? The person is not limited here.
+    pub(super) fn viewport_room(&self, adding: &BTreeMap<Id, usize>, new: usize) -> Result<()> {
+        use crate::policy::{MAX_VIEWPORTS_PER_SHEET_UNTRUSTED as PER_SHEET, MAX_VIEWPORTS_UNTRUSTED as TOTAL};
+        if !self.untrusted || adding.values().all(|n| *n == 0) {
+            return Ok(());
+        }
+        let mut per: BTreeMap<Id, usize> = BTreeMap::new();
+        let mut total = 0usize;
+        for i in self.model.sheet_items.values() {
+            if let SheetItem::Known(ItemKind::Viewport(v)) = &**i {
+                *per.entry(v.sheet).or_default() += 1;
+                total += 1;
+            }
+        }
+        if total.saturating_add(new) > TOTAL {
+            bail!("that would make {} viewports in the model; an agent or a plugin can make at most {TOTAL} (the person can add more)", total.saturating_add(new));
+        }
+        for (s, n) in adding {
+            let now = per.get(s).copied().unwrap_or(0).saturating_add(*n);
+            if now > PER_SHEET {
+                bail!("that would put {now} viewports on sheet {s}; an agent or a plugin puts at most {PER_SHEET} on one sheet (the person can add more)");
+            }
+        }
+        Ok(())
+    }
+
     /// A new viewport from what a command gave, with defaults for the rest (and the anchor fixed here, once).
     fn viewport_from(&self, a: &ViewportArgs, fallback_sheet: Option<Id>, b: Bounds) -> Result<Viewport> {
         let m = &self.model;
@@ -209,6 +237,7 @@ impl Engine {
         short("a page title", &page.title)?;
         let id = self.model.new_id();
         self.model.sheets.insert(id, Sheet { name: page.title.clone(), paper: paper.clone(), order, fields: fields.clone(), ..Default::default() });
+        self.viewport_room(&BTreeMap::from([(id, page.viewports.len())]), page.viewports.len())?;
         let mut vps = page.viewports.clone();
         crate::layout::place(&mut vps, paper.w_mm, paper.h_mm);
         let who = self.made_by();
@@ -223,7 +252,14 @@ impl Engine {
         }
         if !page.table.is_empty() {
             // a schedule or index: titled with the page, its first column heading the rows, columns fitted to the text
-            let t = Table { sheet: id, at_mm: [20.0, 26.0], rows: page.table.clone(), title: page.title.to_uppercase(), header_cols: 1, made_by: who, ..Default::default() };
+            // the same limits and cell rules as `sheet_table`
+            let (r, c) = (page.table.len(), page.table.iter().map(Vec::len).max().unwrap_or(0));
+            if r > MAX_TABLE_ROWS || c > MAX_TABLE_COLS || r.saturating_mul(c) > MAX_TABLE_CELLS {
+                bail!("a page's table has at most {MAX_TABLE_ROWS} rows, {MAX_TABLE_COLS} columns and {MAX_TABLE_CELLS} cells (this is {r} by {c})");
+            }
+            let rows = page.table.iter().map(|r| r.iter().map(|c| super::tables::clean_cell(c)).collect::<Result<Vec<_>>>()).collect::<Result<Vec<_>>>()?;
+            let t = Table { sheet: id, at_mm: [20.0, 26.0], rows, title: page.title.to_uppercase(), header_cols: 1, made_by: who, ..Default::default() };
+            super::tables::check(&t)?;
             let tid = self.model.new_id();
             self.model.sheet_items.insert(tid, Arc::new(SheetItem::Known(ItemKind::Table(t))));
         }
@@ -379,6 +415,9 @@ impl Engine {
                 if self.untrusted && items.len() > crate::policy::MAX_SHEET_ITEMS_UNTRUSTED {
                     bail!("sheet {sheet} has {} items; an agent or plugin copies at most {}", items.len(), crate::policy::MAX_SHEET_ITEMS_UNTRUSTED);
                 }
+                // the copy's viewports all land on a new sheet (no id yet: one no sheet has)
+                let vps = items.iter().filter(|(_, i)| matches!(&**i, SheetItem::Known(ItemKind::Viewport(_)))).count();
+                self.viewport_room(&BTreeMap::from([(Id::MAX, vps)]), vps)?;
                 let name = name.unwrap_or_else(|| format!("{} copy", orig.name));
                 short("the name", &name)?;
                 // right after the original: everything after it moves down one
@@ -412,6 +451,11 @@ impl Engine {
                 // check all of them before adding any (a bad one in the list adds nothing)
                 let bounds = self.model.world_bounds();
                 let built: Vec<Viewport> = list.iter().map(|a| self.viewport_from(a, fallback, bounds)).collect::<Result<_>>()?;
+                let mut adding: BTreeMap<Id, usize> = BTreeMap::new();
+                for v in &built {
+                    *adding.entry(v.sheet).or_default() += 1;
+                }
+                self.viewport_room(&adding, built.len())?;
                 for v in built {
                     let id = self.model.new_id();
                     self.model.sheet_items.insert(id, Arc::new(SheetItem::Known(ItemKind::Viewport(v))));
@@ -427,6 +471,9 @@ impl Engine {
                 if let Some(s) = args.sheet {
                     if !self.model.sheets.contains_key(&s) {
                         bail!("no sheet {s}");
+                    }
+                    if s != v.sheet {
+                        self.viewport_room(&BTreeMap::from([(s, 1)]), 0)?;
                     }
                     v.sheet = s;
                 }
@@ -801,7 +848,11 @@ impl Engine {
                     .collect();
                 let unsupported: Vec<Value> = m.sheet_items.iter().filter(|(_, i)| i.is_raw()).map(|(k, i)| json!({"id": k, "kind": i.kind_name(), "sheet": i.sheet()})).collect();
                 let orphans: Vec<&Id> = m.sheet_items.iter().filter(|(_, i)| i.sheet().is_none_or(|s| !m.sheets.contains_key(&s))).map(|(k, _)| k).collect();
-                json!({"sheets": sheets, "items": m.sheet_items.len(), "unsupported": unsupported, "orphans": orphans})
+                let mut v = json!({"sheets": sheets, "items": m.sheet_items.len(), "unsupported": unsupported, "orphans": orphans});
+                if self.untrusted {
+                    v["content_is_data"] = json!(crate::policy::TEXT_IS_DATA);
+                }
+                v
             }
             Command::ExportSheets { path, format, sheet, project, pages, blueprint, notes, page } => {
                 if let Some(f) = format.as_deref().filter(|f| !matches!(f.to_ascii_lowercase().as_str(), "pdf" | "svg" | "dxf")) {
