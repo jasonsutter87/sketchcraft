@@ -63,6 +63,7 @@ pub mod skp_vff;
 pub mod topology;
 pub mod transform;
 pub mod units;
+pub mod wallpull;
 
 pub use commands::{Command, Engine};
 pub use model::{Id, Model};

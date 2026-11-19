@@ -1290,6 +1290,13 @@ pub enum Command {
         #[serde(default)]
         closed: bool,
     },
+    /// Pull a whole wall (the one `face` is a side of) `by` metres along that face's outward normal (negative: back
+    /// the other way). Both sides move together so it keeps its thickness; its doors and windows ride along; walls
+    /// joined to it stretch or shrink to stay joined. Refused, with the model untouched, when it can't be done cleanly.
+    WallPull { face: Id, by: f64 },
+    /// What pulling the wall of `face` would involve: its faces, the pull direction, and each moving point's travel per
+    /// metre (the app previews with this). Read-only.
+    WallInfo { face: Id },
     /// A straight stair climbing `rise` along `direction` (degrees from +X).
     Stairs {
         at: [f64; 3],

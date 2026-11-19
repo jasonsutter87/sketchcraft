@@ -163,6 +163,7 @@ impl Command {
                 | Command::ExportDxf { .. }
                 | Command::ExportPdf { .. }
                 | Command::Assets
+                | Command::WallInfo { .. }
         )
     }
 }
@@ -990,7 +991,8 @@ impl Engine {
                 Command::RaiseWalls { .. } | Command::DoorSwing { .. } | Command::TerrainFromContours { .. } |
                 Command::TerrainGrid { .. } | Command::Smoove { .. } | Command::Stamp { .. } |
                 Command::Drape { .. } | Command::Wall { .. } | Command::Stairs { .. } | Command::Roof { .. } |
-                Command::Column { .. } | Command::Insert { .. } | Command::Assets { .. }
+                Command::Column { .. } | Command::Insert { .. } | Command::Assets { .. } |
+                Command::WallPull { .. } | Command::WallInfo { .. }
             ) => self.run_build(c),
             c @ (
                 Command::BeginGroup { .. } | Command::EndGroup { .. } | Command::Group { .. } |
