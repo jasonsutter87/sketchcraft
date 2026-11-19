@@ -478,7 +478,9 @@ pub enum Command {
         lines: Vec<LineArgs>,
     },
     /// Paper text on a sheet: `text` (lines split on newlines) with its first line's baseline starting at `at_mm`
-    /// (paper mm from the sheet's top left), `height_mm` tall (1 to 50, default 3.5). With `id`, changes that text
+    /// (paper mm from the sheet's top left), `height_mm` tall (1 to 50, default 3.5). `width_mm` makes it a text
+    /// block: each line of `text` is a paragraph, wrapped to that width (0 makes it plain text again). `align`:
+    /// left, center or right (across the block, or about `at_mm` for plain text). With `id`, changes that text
     /// instead (only what is given). Delete with `sheet_item_delete`.
     SheetText {
         #[serde(default)]
@@ -492,7 +494,78 @@ pub enum Command {
         #[serde(default)]
         height_mm: Option<f64>,
         #[serde(default)]
+        width_mm: Option<f64>,
+        #[serde(default)]
+        align: Option<crate::drafting::Align>,
+        #[serde(default)]
         z: Option<i32>,
+    },
+    /// A table on a sheet (a door schedule, a drawing index). New: `sheet`, `at_mm` (its top left, paper mm) and
+    /// `rows` (cell text; a newline in a cell starts a new line in it) or `size: [rows, cols]` (an empty grid). With
+    /// `id`, changes that table (only what is given), in this order: `insert_rows`/`delete_rows`/`insert_cols`/
+    /// `delete_cols` (`{at, n}`), then `rows` (all of it), then `cells` (`[{row, col, text}]`; the table grows to
+    /// hold them). `cols_mm`: each column's width (0: fit its text). `header_rows` (default 1), `header_cols`
+    /// (default 0), `title`, `text_mm` (letter height, default 2.5), `border` (grid, rules, outer or none),
+    /// `align` (per column: left, center, right), `source: "sheets"` (a drawing index: filled from the document's
+    /// sheets, kept up to date; `""` unlinks it), `z`. One undo step.
+    SheetTable {
+        #[serde(default)]
+        id: Option<Id>,
+        #[serde(default)]
+        sheet: Option<Id>,
+        #[serde(default)]
+        at_mm: Option<[f64; 2]>,
+        #[serde(default)]
+        rows: Option<Vec<Vec<String>>>,
+        #[serde(default)]
+        size: Option<[usize; 2]>,
+        #[serde(default)]
+        cells: Vec<CellArg>,
+        #[serde(default)]
+        insert_rows: Option<SpanArg>,
+        #[serde(default)]
+        delete_rows: Option<SpanArg>,
+        #[serde(default)]
+        insert_cols: Option<SpanArg>,
+        #[serde(default)]
+        delete_cols: Option<SpanArg>,
+        #[serde(default)]
+        cols_mm: Option<Vec<f64>>,
+        #[serde(default)]
+        header_rows: Option<u32>,
+        #[serde(default)]
+        header_cols: Option<u32>,
+        #[serde(default)]
+        title: Option<String>,
+        #[serde(default)]
+        text_mm: Option<f64>,
+        #[serde(default)]
+        border: Option<crate::drafting::Border>,
+        #[serde(default)]
+        align: Option<Vec<crate::drafting::Align>>,
+        #[serde(default)]
+        source: Option<String>,
+        #[serde(default)]
+        z: Option<i32>,
+    },
+    /// Paste a grid copied from a spreadsheet: `text` is tab-separated (what spreadsheets copy) or comma-separated
+    /// (CSV, quotes allowed); `format`: auto (default), tsv, csv or ssv (semicolons). With `id`, writes into that
+    /// table from the cell `at: [row, col]` (default [0, 0]), growing it as needed; else a new table on `sheet` at
+    /// `at_mm`, its first `header_rows` (default 1) the header. One undo step.
+    SheetTablePaste {
+        #[serde(default)]
+        id: Option<Id>,
+        #[serde(default)]
+        sheet: Option<Id>,
+        #[serde(default)]
+        at_mm: Option<[f64; 2]>,
+        text: String,
+        #[serde(default)]
+        format: Option<String>,
+        #[serde(default)]
+        at: Option<[usize; 2]>,
+        #[serde(default)]
+        header_rows: Option<u32>,
     },
     /// Trim paper line work: cut away the span of `item` that holds `at_mm` (the point you pick on it), between the
     /// nearest places other things cross it. Boundaries are the other paper line work on the sheet, the lines the
@@ -1567,4 +1640,24 @@ pub struct HatchArgs {
     pub angle: Option<f64>,
     #[serde(default)]
     pub scale_mode: Option<String>,
+}
+
+/// One cell's new text (`sheet_table`).
+#[derive(Debug, Deserialize)]
+pub struct CellArg {
+    pub row: usize,
+    pub col: usize,
+    pub text: String,
+}
+
+/// Rows or columns from `at`, `n` of them (default 1).
+#[derive(Debug, Deserialize)]
+pub struct SpanArg {
+    pub at: usize,
+    #[serde(default = "one_usize")]
+    pub n: usize,
+}
+
+fn one_usize() -> usize {
+    1
 }

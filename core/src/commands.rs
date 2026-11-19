@@ -45,6 +45,7 @@ mod sections;
 mod session;
 mod shape;
 mod sheets;
+mod tables;
 mod autodraft;
 mod tags;
 
@@ -1014,7 +1015,7 @@ impl Engine {
                 Command::Sheets { .. } | Command::ExportSheets { .. } | Command::SheetAdd { .. } | Command::SheetEdit { .. } |
                 Command::SheetDelete { .. } | Command::ViewportAdd { .. } | Command::ViewportEdit { .. } |
                 Command::SheetItemDelete { .. } | Command::SheetsInfo { .. } | Command::SheetDim { .. } | Command::SheetReattach { .. } |
-                Command::SheetLine { .. } | Command::SheetText { .. } | Command::SheetTrim { .. } | Command::SheetExtend { .. } | Command::SheetOffset { .. } |
+                Command::SheetLine { .. } | Command::SheetText { .. } | Command::SheetTable { .. } | Command::SheetTablePaste { .. } | Command::SheetTrim { .. } | Command::SheetExtend { .. } | Command::SheetOffset { .. } |
                 Command::SheetDuplicate { .. } | Command::SheetOrder { .. }
             ) => self.run_sheets(c),
             c @ (Command::ViewportPoints { .. } | Command::DimensionAuto { .. } | Command::LayoutPreset { .. } | Command::SheetRender { .. } | Command::SheetIr { .. }) => self.run_autodraft(c),

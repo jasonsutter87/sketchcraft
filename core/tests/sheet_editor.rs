@@ -134,7 +134,7 @@ fn text_refuses_what_it_cannot_hold() {
     assert!(refused(&mut e, json!({"cmd": "sheet_text", "sheet": s, "text": "x"})).contains("at_mm"));
     assert!(refused(&mut e, json!({"cmd": "sheet_text", "sheet": s, "at_mm": [1, 1], "text": "  \n "})).contains("empty"));
     assert!(refused(&mut e, json!({"cmd": "sheet_text", "sheet": s, "at_mm": [1, 1], "text": "a\u{7}b"})).contains("control"));
-    assert!(refused(&mut e, json!({"cmd": "sheet_text", "sheet": s, "at_mm": [1, 1], "text": "x".repeat(4001)})).contains("4000"));
+    assert!(refused(&mut e, json!({"cmd": "sheet_text", "sheet": s, "at_mm": [1, 1], "text": "x".repeat(sketchcraft::drafting::MAX_TEXT_CHARS + 1)})).contains("20000"));
     assert!(refused(&mut e, json!({"cmd": "sheet_text", "sheet": s, "at_mm": [1, 1], "text": "x", "height_mm": 0.2})).contains("height_mm"));
     assert!(refused(&mut e, json!({"cmd": "sheet_text", "sheet": s, "at_mm": [1e9, 1], "text": "x"})).contains("at_mm"));
     let line = ok(&mut e, json!({"cmd": "sheet_line", "sheet": s, "pts_mm": [[0, 0], [10, 10]]}))["item"].as_u64().unwrap();

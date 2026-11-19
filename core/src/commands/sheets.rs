@@ -222,9 +222,8 @@ impl Engine {
             self.model.sheet_items.insert(vid, Arc::new(SheetItem::Known(ItemKind::Viewport(v))));
         }
         if !page.table.is_empty() {
-            let cols = page.table.iter().map(|r| r.len()).max().unwrap_or(0);
-            let cols_mm: Vec<f64> = (0..cols).map(|c| page.table.iter().map(|r| r.get(c).map_or(0, |s| s.chars().count())).max().unwrap_or(0) as f64 * 1.6 + 6.0).collect();
-            let t = Table { sheet: id, at_mm: [20.0, 24.0], cols_mm, rows: page.table.clone(), made_by: who, ..Default::default() };
+            // a schedule or index: titled with the page, its first column heading the rows, columns fitted to the text
+            let t = Table { sheet: id, at_mm: [20.0, 26.0], rows: page.table.clone(), title: page.title.to_uppercase(), header_cols: 1, made_by: who, ..Default::default() };
             let tid = self.model.new_id();
             self.model.sheet_items.insert(tid, Arc::new(SheetItem::Known(ItemKind::Table(t))));
         }
@@ -605,7 +604,8 @@ impl Engine {
                 }
                 json!({"item": made.first(), "items": made})
             }
-            Command::SheetText { id, sheet, at_mm, text, height_mm, z } => {
+            c @ (Command::SheetTable { .. } | Command::SheetTablePaste { .. }) => self.run_tables(c)?,
+            Command::SheetText { id, sheet, at_mm, text, height_mm, width_mm, align, z } => {
                 let mut t = match id {
                     Some(id) => {
                         let Some(item) = self.model.sheet_items.get(&id) else { bail!("no sheet item {id}") };
@@ -651,6 +651,15 @@ impl Engine {
                         bail!("height_mm is between {} and {} mm", TEXT_HEIGHT_RANGE.0, TEXT_HEIGHT_RANGE.1);
                     }
                     t.height_mm = (h != TEXT_HEIGHT).then_some(h);
+                }
+                if let Some(w) = width_mm {
+                    if !(w.is_finite() && (w == 0.0 || (BLOCK_WIDTH_RANGE.0..=BLOCK_WIDTH_RANGE.1).contains(&w))) {
+                        bail!("width_mm is 0 (plain text) or {} to {} mm (a text block wrapped to it)", BLOCK_WIDTH_RANGE.0, BLOCK_WIDTH_RANGE.1);
+                    }
+                    t.box_mm = (w > 0.0).then_some([w, 0.0]);
+                }
+                if let Some(a) = align {
+                    t.align = a;
                 }
                 if let Some(z) = z {
                     t.z = z;
@@ -773,6 +782,13 @@ impl Engine {
                                 o.insert("paper_mm".into(), json!(pts));
                             }
                         }
+                        // a table's rows and columns on the paper (and a linked one's live rows); a text's box
+                        if let SheetItem::Known(ItemKind::Table(t)) = i {
+                            o.insert("layout".into(), super::tables::table_info(m, t));
+                        }
+                        if let SheetItem::Known(ItemKind::Text(t)) = i {
+                            o.insert("layout".into(), super::tables::text_info(t));
+                        }
                     }
                     v
                 };
@@ -860,12 +876,15 @@ fn drop_legacy(v: &mut Viewport, key: &str) {
     }
 }
 
-/// A saved sheet as the page description the PDF writer takes: its viewports in stacking order, and its first table.
+/// A saved sheet as the page description the PDF writer takes: its viewports, line work, text, dimensions and tables
+/// in stacking order.
 pub(super) fn page_of(m: &Model, sheet: Id) -> PageSpec {
     let s = &m.sheets[&sheet];
     let mut vps: Vec<(i32, Id, &Viewport)> = m.sheet_items.iter().filter_map(|(id, i)| if let SheetItem::Known(ItemKind::Viewport(v)) = &**i { (v.sheet == sheet).then_some((v.z, *id, v)) } else { None }).collect();
     vps.sort_by_key(|(z, id, _)| (*z, *id));
-    let table = m.sheet_items.values().find_map(|i| if let SheetItem::Known(ItemKind::Table(t)) = &**i { (t.sheet == sheet).then(|| t.rows.clone()) } else { None }).unwrap_or_default();
+    let mut tables: Vec<(i32, Id, &Table)> = m.sheet_items.iter().filter_map(|(id, i)| if let SheetItem::Known(ItemKind::Table(t)) = &**i { (t.sheet == sheet).then_some((t.z, *id, t)) } else { None }).collect();
+    tables.sort_by_key(|(z, id, _)| (*z, *id));
+    let tables = tables.iter().map(|(_, _, t)| super::tables::table_draw(m, t)).collect();
     // dimensions are worked out against the model as it is now: a moved wall has moved them
     let mut dims: Vec<(i32, Id, &Dimension)> = m.sheet_items.iter().filter_map(|(id, i)| if let SheetItem::Known(ItemKind::Dimension(d)) = &**i { (d.sheet == sheet).then_some((d.z, *id, d)) } else { None }).collect();
     dims.sort_by_key(|(z, id, _)| (*z, *id));
@@ -875,8 +894,8 @@ pub(super) fn page_of(m: &Model, sheet: Id) -> PageSpec {
     let lines = shapes.iter().filter_map(|(_, _, k)| crate::draft::linework::draw(k)).collect();
     let mut texts: Vec<(i32, Id, &Text)> = m.sheet_items.iter().filter_map(|(id, i)| if let SheetItem::Known(ItemKind::Text(t)) = &**i { (t.sheet == sheet).then_some((t.z, *id, t)) } else { None }).collect();
     texts.sort_by_key(|(z, id, _)| (*z, *id));
-    let texts = texts.iter().map(|(_, _, t)| crate::layout::TextDraw { at_mm: t.at_mm, lines: t.paragraphs.clone(), height_mm: t.height_mm.unwrap_or(TEXT_HEIGHT) }).collect();
-    PageSpec { title: s.name.clone(), viewports: vps.iter().map(|(_, _, v)| viewport_to_spec(v)).collect(), table, dims, lines, texts }
+    let texts = texts.iter().map(|(_, _, t)| super::tables::text_draw(t)).collect();
+    PageSpec { title: s.name.clone(), viewports: vps.iter().map(|(_, _, v)| viewport_to_spec(v)).collect(), table: Vec::new(), dims, lines, texts, tables }
 }
 
 /// The page description of an old-style viewport becomes a saved viewport. What the saved form has no field for
