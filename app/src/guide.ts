@@ -98,7 +98,12 @@ export function guide(tool: Tool, c: GuideCtx, language: Language = "en"): Guide
     case "text":
       return busy ? g("Text", "Click where the label goes.", [ESC]) : g("Text", "Click the point the label is about.", []);
     case "paint":
-      return g("Paint Bucket", "Click a face or a group to paint it with the color (or texture) on the right.", [["⌘ / Option click", "pick up a color"], ["⇧ click", "paint every matching face"]]);
+      return g(translate(language, "tool.paint").split(" (")[0], translate(language, "guide.paint.step"), [
+        ["⌘ click", translate(language, "guide.paint.sample")],
+        ["Ctrl / Option click", translate(language, "guide.paint.connected")],
+        ["⇧ click", translate(language, "guide.paint.all")],
+        ["Ctrl ⇧ click", translate(language, "guide.paint.object")],
+      ]);
     case "erase":
       return g("Eraser", "Click an edge, face or group to delete it. Erasing an edge between two faces merges them.", [["⇧ click", "hide instead"], ["Option / Ctrl", "soften the edge"]]);
     case "orbit":

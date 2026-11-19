@@ -7,6 +7,29 @@ monochrome, hidden line or wireframe, on a sky, paper, blueprint or night
 background. Add profiles, sketchy edges, extensions or ambient occlusion. The
 **Preset** list has ready-made looks.
 
+## Painting (B)
+
+Pick a color or a texture on the right, then click a face or a group with the
+**Paint Bucket**. Modifier keys reach further, as in SketchUp:
+
+| Hold | What gets painted |
+| --- | --- |
+| nothing | the face (or group) you click |
+| **Ctrl** (Option on a Mac) | every face touching it that has the same material. The spread stops at a face with any other material and crosses hard and soft edges alike |
+| **Shift** | every face in the same group with the same material (a replace) |
+| **Ctrl + Shift** | every face with the same material on the whole connected object, even past faces of other materials |
+| **Alt** (Windows, Linux) or **Cmd** (Mac) | pick up the color or texture under the pointer |
+
+**Paint-through.** When a texture is painted across touching faces, it runs on
+as one sheet: around a corner or along a folded strip, each face's picture is
+unrolled from its neighbour's across the shared edge, with the same tile size,
+lined up on the edge, so bricks and wood grain keep going instead of restarting
+on every face. The clicked face keeps the texture's usual placement and the
+rest continue from it. A closed shape such as a box can't unroll flat, so the
+seam where the sheet meets itself again can still step. Plain colors just fill.
+Each click is one undo step. Agents reach the same thing with
+`paint {ids, material, scope: "connected" | "all" | "object", through}`.
+
 ## Scenes
 
 In the **Views** tab, name the view and click **Save**: it remembers the camera,

@@ -11,6 +11,11 @@ What changed in each SketchCraft release, newest first. The format follows
   globe on a stand, a wooden crate of separate planks, and a soccer ball with 12 pentagons and 20 hexagons. Open the
   Library's **Texturing test set** section and click one to place it at its real size (Italian names included). The
   coming texturing features are built and tested on them.
+- **Paint-through: a texture that carries on across faces.** Hold **Ctrl** (**Option** on a Mac) with the Paint Bucket
+  to paint every touching face that has the same material, and a texture now runs on across the corners and folds as
+  one sheet (same tile size, lined up on each edge) instead of restarting on every face. **Shift** paints every
+  face with the same material, and **Ctrl+Shift** every matching face on the whole connected object. One click is one
+  undo, the step hint beside the model lists the keys, and agents get the same reach with `scope` on the paint command.
 - **The Vertical layout has one sidebar with four full-height tabs.** Outliner, Library and Views are joined by
   **Properties** (Document, Style, Paint, Finish and the selection details), which used to sit in a fixed panel below
   and squeeze everything. Now every tab uses the whole height, so there is less scrolling. A dot on Properties shows

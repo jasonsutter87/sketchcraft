@@ -25,6 +25,6 @@ it("starts from the system locale and honors the selected language", () => {
 });
 
 it("keeps the modifier hints for the Italian paint and eraser tools", () => {
-  expect(translate("it", "tool.paint")).toMatch(/Opzione.*campiona.*Maiusc.*stesso materiale/);
+  expect(translate("it", "tool.paint")).toMatch(/campiona.*Ctrl.*Opzione.*collegate.*Maiusc.*stesso materiale/);
   expect(translate("it", "tool.erase")).toMatch(/Maiusc.*Ctrl.*ammorbidimento/);
 });

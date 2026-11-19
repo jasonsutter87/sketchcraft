@@ -793,6 +793,20 @@ await scenario('paint', ['paint'], async () => {
   const unpainted = [0.95, 0.94, 0.91];
   const fcolors = s.faces.map((f) => rgb(s, s.triFace.indexOf(f.id)));
   check(fcolors.length === 2 && fcolors.every((c) => c.some((v, i) => Math.abs(v - unpainted[i]) > 0.05)) && fcolors[0].every((v, i) => near(v, fcolors[1][i], 0.01)), `Shift-click paints every face with the same material: both squares are now ${fcolors.map((c) => c.map((v) => v.toFixed(2)))}`);
+  // Ctrl-click paints every connected face: one click on a box colors all six
+  await fresh(async (X) => {
+    const f = (await X(RECT(0, 0, 4, 4))).face;
+    await X({ cmd: 'pushpull', face: f, distance: 2 });
+  }, { view: 'iso' });
+  await iso([2, 2, 1]);
+  await tool('paint');
+  await p.locator('.swatch, .swatches button').nth(9).click().catch(() => {});
+  await holding(['Control'], () => click([2, 2, 2]));
+  s = await until((s) => s.faces.length === 6 && s.faces.every((f) => f.material));
+  const boxMats = new Set(s.faces.map((f) => f.material));
+  check(s.faces.length === 6 && s.faces.every((f) => f.material) && boxMats.size === 1, `Ctrl-click paints all six faces of a box with one material (${s.faces.length} faces, materials ${[...boxMats]})`);
+  const hint = await p.locator('.coach, [class*="coach"]').first().innerText({ timeout: 800 }).catch(() => '');
+  check(/Ctrl \/ Option click/.test(hint) && /touching faces/.test(hint), `the step hint explains the Ctrl/Option modifier (${hint.replace(/\s+/g, ' ').slice(0, 120)})`);
 });
 
 await scenario('erase', ['erase'], async () => {

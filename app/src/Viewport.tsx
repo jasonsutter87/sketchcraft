@@ -33,7 +33,8 @@ import { styledEdges, averagedNormals, smoothNormals } from "./viewport/edges";
 import { profileMaterial, textureFor } from "./viewport/materials";
 import { UP, r4, arr, circleThrough, bulgeThrough, basis, arcPoints, offsetOutline } from "./viewport/geometry";
 import { selectMarquee } from "./viewport/marquee";
-import { isTypingTarget } from "./keymap";
+import { isMac, isTypingTarget } from "./keymap";
+import { paintCommand, paintReach } from "./paintmods";
 import type { Tool, BuildSettings, FaceStyle, Backdrop, Styles, Cam, ViewportApi, PluginPoint, Props, Op, LabelSpec, Last, WallPlan, RoomPreview, RoomRow } from "./viewport/types";
 import { areaText, dragLabel, fillRects, gridStep, modeLabel, roomLabel, roomMode, roomModeKey, snapGrid, type Rect, type RoomMode } from "./viewport/rooms";
 export { autoTagColor };
@@ -3220,8 +3221,9 @@ export default function Viewport(props: Props) {
     const downPaint = async ({ e, L }: DownArgs) => {
       const h = pick(e);
       if (!h) return;
-      if (e.altKey || e.metaKey) {
-        // eyedropper (Option on Windows-style keys, Cmd on Mac, as in SketchUp): a texture if the face has one, else its color
+      const reach = paintReach(e, isMac());
+      if (reach === "sample") {
+        // eyedropper (Alt on Windows and Linux, Cmd on Mac, as in SketchUp): a texture if the face has one, else its color
         const s = L.scene;
         const i = s.triFace.indexOf(h.owner);
         if (i >= 0 && s.triTex?.[i] >= 0) return L.setPaintMaterial(s.textures[s.triTex[i]]);
@@ -3233,14 +3235,9 @@ export default function Viewport(props: Props) {
       }
       const ent = entityOf(h);
       if (ent.kind === "instances") return L.onToast("Double-click a component with Select to open it, then paint inside.", true);
-      let targets = [ent.id];
-      if (e.shiftKey && ent.kind === "faces") {
-        // Shift: every face here that has the same material (SketchUp's Replace)
-        const s = L.scene;
-        const f0 = s.faces.find((f) => f.id === ent.id);
-        if (f0) targets = s.faces.filter((f) => f.group === f0.group && f.material === f0.material && !f.hidden).map((f) => f.id);
-      }
-      await run(L.paintMaterial ? { cmd: "paint", ids: targets, material: L.paintMaterial } : { cmd: "paint", ids: targets, color: L.color });
+      // Ctrl/Option: connected faces, the picture running on across edges; Shift: every matching face; Ctrl+Shift: the whole object
+      // (the engine works out the reach; it only applies to faces, a group is painted whole as before)
+      await run(paintCommand(ent.kind === "faces" ? reach : "face", ent.id, { material: L.paintMaterial, color: L.color }));
       return;
     };
     const downErase = async ({ e }: DownArgs) => {
