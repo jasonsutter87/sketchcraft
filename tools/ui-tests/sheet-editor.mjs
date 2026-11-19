@@ -148,9 +148,12 @@ await p.waitForSelector('.paper-chooser');
 await p.locator('.paper-chooser').getByRole('button', { name: 'Front elevation' }).click();
 await until(async () => (await ofKind('viewport')).length === 2);
 const front = (await ofKind('viewport')).find((v) => v.id !== plan.id);
+// the page picks the new frame and goes back to Select a moment after the engine has it
+await until(async () => (await p.locator('.paper-tools .paper-tool.on').getAttribute('aria-label')) === 'Select' && (await p.locator('.layout-inspector[aria-label="Viewport"]').count()) === 1, 3000).catch(() => {});
 check(front?.view?.type === 'elevation' && JSON.stringify(front.rect_mm) === JSON.stringify([220, 20, 180, 140]), `a second viewport, a front elevation (${JSON.stringify(front?.rect_mm)})`);
 // a frame can be escaped before a view is chosen
 await tool('Viewport');
+await p.locator('.paper-tools .paper-tool.on[aria-label="Viewport"]').waitFor({ timeout: 5000 });
 release = await dragMm([30, 170], [80, 200]);
 await release();
 await p.waitForSelector('.paper-chooser');

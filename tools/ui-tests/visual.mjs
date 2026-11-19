@@ -246,12 +246,16 @@ const addItems = async (p, s, plan, bottom) => {
 const editorDraw = async (p, s, pts, ys, bottom) => {
   for (let i = 0; i < 80 && (await p.locator('.paper-overlay [data-item]').count()) < 5; i++) await wait(150);
   await p.locator('.paper-tools').getByRole('button', { name: 'Dimension', exact: true }).click();
+  await p.locator('.paper-tools .paper-tool.on[aria-label="Dimension"]').waitFor({ timeout: 5000 }).catch(() => {});
+  await wait(200);
   const e = await p.locator('.paper-overlay .paper-edge').boundingBox();
   const k = e.width / s.paper.w_mm;
   const at = (q) => [e.x + q[0] * k, e.y + q[1] * k];
   const top = pts.filter((q) => q.mm[1] === ys[ys.length - 1]).sort((a, b) => a.mm[0] - b.mm[0]);
   if (top.length >= 2) {
     await p.mouse.click(...at(top[0].mm));
+    // each click is waited for: a click that lands before the page has the tool or the first point is lost
+    await p.getByText(/Click the next point/).waitFor({ timeout: 5000 }).catch(() => {});
     await wait(150);
     await p.mouse.click(...at(top[top.length - 1].mm));
     // wait until the second point has registered (the hint moves on to chaining) instead of hoping 150 ms is enough
