@@ -47,7 +47,7 @@ townhouse, a row of houses, a retail center and the asset lineup.
 | Solids | `solid` (union, subtract, intersect, trim, split, outer shell), `intersect` |
 | Organize | `begin_group` / `end_group`, `group`, `ungroup`, `set_parent`, `lock`, `edit` / `close`, `make_component`, `place`, `explode`, `make_unique`, `components`, `rename`, `connected`, `same_as` |
 | Components | `component_cuts`, `component_face_me`, `set_attrs`, `options` |
-| Library | `insert` (door, window, garage_door, tree, palm, car, streetlight, bench, hydrant, person, beaver; scale figures walker, shopper, jogger, child, dog_walker, stroller, wheelchair, cyclist, car_flat, suv_flat), `assets`, `wall`, `stairs`, `roof`, `column`, `library`, `save_to_library` |
+| Library | `insert` (door, window, garage_door, tree, palm, car, streetlight, bench, hydrant, person, beaver; the texturing test set dice, can, globe, crate, soccer_ball; scale figures walker, shopper, jogger, child, dog_walker, stroller, wheelchair, cyclist, car_flat, suv_flat), `assets`, `wall`, `stairs`, `roof`, `column`, `library`, `save_to_library` |
 | Paint | `paint` (a color or material), `material` (color, texture, roughness, metalness, glass, emission), `texture`, `opacity`, `finish` |
 | Visibility | `hide`, `unhide`, `tag`, `tag_visible`, `tag_color`, `rename_tag`, `soften`, `weld`, `explode_curve` |
 | Notes and views | `dimension`, `text`, `guide`, `clear_guides`, `save_view`, `show_view`, `delete_view`, `section`, `section_plane`, `section_off`, `set_axes` |

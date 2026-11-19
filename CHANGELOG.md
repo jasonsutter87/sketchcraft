@@ -7,6 +7,10 @@ What changed in each SketchCraft release, newest first. The format follows
 ## [Unreleased]
 
 ### Added
+- **A texturing test set in the Library.** Six small models made to try textures on: the beaver, dice, a drinks can, a
+  globe on a stand, a wooden crate of separate planks, and a soccer ball with 12 pentagons and 20 hexagons. Open the
+  Library's **Texturing test set** section and click one to place it at its real size (Italian names included). The
+  coming texturing features are built and tested on them.
 - **The Vertical layout has one sidebar with four full-height tabs.** Outliner, Library and Views are joined by
   **Properties** (Document, Style, Paint, Finish and the selection details), which used to sit in a fixed panel below
   and squeeze everything. Now every tab uses the whole height, so there is less scrolling. A dot on Properties shows
