@@ -47,6 +47,7 @@ pub mod nesting;
 pub mod openings;
 pub mod photomodel;
 pub mod photoproject;
+pub mod projection;
 pub mod pt;
 pub mod render;
 pub mod rectpoly;

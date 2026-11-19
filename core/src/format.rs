@@ -20,8 +20,8 @@ use serde_json::Value;
 /// can still open it wherever that is possible.
 pub const FORMAT: u64 = 2;
 
-/// Features (the `needs` list) this build understands. "sheets": drawing sheets in the model (0.3.8).
-pub const KNOWN_NEEDS: &[&str] = &["sheets"];
+/// Features (the `needs` list) this build understands. "sheets": drawing sheets in the model (0.3.8). "face_uv": faces with their own texture coordinates (projection mapping, 0.3.9).
+pub const KNOWN_NEEDS: &[&str] = &["sheets", "face_uv"];
 
 /// Every top-level key this build knows: the serialized fields of `Model` (kept in step by the test
 /// `known_keys_match_the_model_struct`, which reads model.rs) and the two the guard adds.
@@ -125,9 +125,27 @@ fn has_sheets(m: &crate::model::Model) -> bool {
         || m.has_attached_dims()
 }
 
-/// The format number a file of this model is written with: 2 when it holds sheets, 1 otherwise.
+/// Does any face (here or in a component) carry its own texture coordinates? An older build would drop them on save.
+fn has_face_uv(m: &crate::model::Model) -> bool {
+    m.faces.values().any(|f| f.uv.is_some()) || m.definitions.values().any(|d| has_face_uv(&d.model))
+}
+
+/// The features a file of this model needs a reader to understand.
+fn needs_of(m: &crate::model::Model) -> Option<Vec<&'static str>> {
+    let mut v = Vec::new();
+    if has_sheets(m) {
+        v.push("sheets");
+    }
+    if has_face_uv(m) {
+        v.push("face_uv");
+    }
+    Some(v).filter(|v| !v.is_empty())
+}
+
+/// The format number a file of this model is written with: 2 when it holds sheets or per-face texture coordinates,
+/// 1 otherwise.
 pub fn format_of(m: &crate::model::Model) -> u64 {
-    if has_sheets(m) { 2 } else { 1 }
+    if needs_of(m).is_some() { 2 } else { 1 }
 }
 
 /// A model as a file: the model's own fields with `format` first (and `needs`, when it holds sheets).
@@ -135,17 +153,17 @@ pub fn format_of(m: &crate::model::Model) -> u64 {
 struct Stamped<'a> {
     format: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
-    needs: Option<[&'static str; 1]>,
+    needs: Option<Vec<&'static str>>,
     #[serde(flatten)]
     model: &'a crate::model::Model,
 }
 
 pub fn to_vec(m: &crate::model::Model) -> Result<Vec<u8>> {
-    Ok(serde_json::to_vec(&Stamped { format: format_of(m), needs: has_sheets(m).then_some(["sheets"]), model: m })?)
+    Ok(serde_json::to_vec(&Stamped { format: format_of(m), needs: needs_of(m), model: m })?)
 }
 
 pub fn to_string(m: &crate::model::Model) -> Result<String> {
-    Ok(serde_json::to_string(&Stamped { format: format_of(m), needs: has_sheets(m).then_some(["sheets"]), model: m })?)
+    Ok(serde_json::to_string(&Stamped { format: format_of(m), needs: needs_of(m), model: m })?)
 }
 
 #[cfg(test)]

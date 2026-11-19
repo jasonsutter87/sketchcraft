@@ -22,6 +22,8 @@ pub struct WFace {
     pub material: Option<String>,
     /// where its picture sits when painted through (root faces only)
     pub place: Option<crate::model::TexPlace>,
+    /// texture coordinates per corner of `outer` and of each hole, in the same order (None: the material's placement)
+    pub uv: Option<(Vec<[f32; 2]>, Vec<Vec<[f32; 2]>>)>,
     /// what a section groups this face's cut under (design §3.4): the innermost tagged owner around the face (its
     /// group or a parent group, else the nearest tagged placement or a group around it, outward), named by its own
     /// id when it is in the root model and by the top-level placement's id when it is inside a component; with no
@@ -164,7 +166,19 @@ impl Model {
                 Some((c, tag)) => (c, Some(tag)),
                 None => (if owner.is_none() { f.group.unwrap_or(id) } else { owner.unwrap_or(id) }, None),
             };
+            // corner coordinates follow the loops, reversed with them when a placement mirrors
+            let uv = f.uv.as_ref().filter(|u| u.fits(f)).map(|u| {
+                let fix = |v: &Vec<[f32; 2]>| {
+                    let mut v = v.clone();
+                    if mirrored {
+                        v.reverse();
+                    }
+                    v
+                };
+                (fix(&u.outer), u.holes.iter().map(fix).collect())
+            });
             out.push(WFace {
+                uv,
                 cut,
                 tag,
                 owner: owner.unwrap_or(id),
@@ -400,6 +414,7 @@ impl Model {
                 group: Some(gid),
                 hidden: false,
                 tex: None,
+                uv: f.uv.clone(),
             };
             if mirror {
                 nf.reverse();

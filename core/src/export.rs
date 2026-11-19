@@ -78,7 +78,7 @@ pub fn write_obj(m: &Model, path: &str) -> Result<usize> {
             }
             writeln!(obj, "vn {:.6} {:.6} {:.6}", n.x, n.y, n.z)?;
             vn += 1;
-            let map = tex.as_ref().map(|(_, t)| crate::texmap::Mapping::of_face(t, &f));
+            let map = tex.as_ref().map(|(_, t)| crate::texmap::FaceMap::of(t, &f));
             for t in geom::triangulate(&f.outer, &f.holes, n) {
                 for p in t {
                     writeln!(obj, "v {:.6} {:.6} {:.6}", p.x, p.y, p.z)?;
@@ -146,7 +146,7 @@ pub fn write_glb(m: &Model, path: &str) -> Result<usize> {
         let e = by_key.entry(key).or_insert(Prim { color: c, tex, pbr, pos: vec![], nor: vec![], uv: vec![] });
         let n = f.normal;
         let ny = [n.x as f32, n.z as f32, -n.y as f32];
-        let map = tex.map(|(_, t)| crate::texmap::Mapping::of_face(t, &f));
+        let map = tex.map(|(_, t)| crate::texmap::FaceMap::of(t, &f));
         for t in geom::triangulate(&f.outer, &f.holes, n) {
             for p in t {
                 e.pos.push([p.x as f32, p.z as f32, -p.y as f32]);

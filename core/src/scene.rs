@@ -50,7 +50,7 @@ pub fn build(root: &Model, ctx: Option<u32>) -> Value {
             None => -1,
         };
         // tile axes: along the face, or along the projection direction
-        let map = tex.as_ref().map(|(_, t)| crate::texmap::Mapping::of_face(t, &f));
+        let map = tex.as_ref().map(|(_, t)| crate::texmap::FaceMap::of(t, &f));
         let color = f.color.unwrap_or(DEFAULT_COLOR);
         let (rough, metal) = f.material.as_ref().and_then(|n| root.find_material(n).map(|m| m.pbr(n))).unwrap_or((0.7, 0.0));
         // painted faces show paint on both sides; bare backs are blue
@@ -62,7 +62,7 @@ pub fn build(root: &Model, ctx: Option<u32>) -> Value {
             pbr.extend([rough, metal]);
             for p in t {
                 positions.extend([p.x as f32, p.y as f32, p.z as f32]);
-                let uv = map.map(|mp| mp.uv(p)).unwrap_or([p.x, p.y]);
+                let uv = map.as_ref().map(|mp| mp.uv(p)).unwrap_or([p.x, p.y]);
                 uvs.extend([uv[0] as f32, uv[1] as f32]);
             }
             tri_face.push(f.owner);

@@ -1388,6 +1388,33 @@ pub enum Command {
     },
     /// List the built-in assets.
     Assets,
+    /// Projection mapping: lay a material's picture on faces (`faces`, or every face of the group `entity`) with a
+    /// projection: planar | box | cylinder | sphere, or `clear` to go back to the material's own placement.
+    /// `material` paints them with it first. `origin` [x,y,z]; `axis` [x,y,z] (planar: the direction the projector
+    /// shines; box, cylinder, sphere: the up axis); `scale` (size factor, 1); `rotation` (degrees); `fit` (cover the
+    /// selection once: default for cylinder and sphere). One undo step.
+    TextureProject {
+        #[serde(default)]
+        faces: Option<Vec<Id>>,
+        #[serde(default)]
+        entity: Option<Id>,
+        mode: String,
+        #[serde(default)]
+        material: Option<String>,
+        #[serde(default)]
+        origin: Option<[f64; 3]>,
+        #[serde(default)]
+        axis: Option<[f64; 3]>,
+        #[serde(default)]
+        scale: Option<f64>,
+        #[serde(default)]
+        rotation: Option<f64>,
+        #[serde(default)]
+        fit: Option<bool>,
+    },
+    /// The texture coordinates projection mapping gave these faces: per face, one [u, v] per corner of its outer loop
+    /// (null: the face has none). Read-only.
+    TextureUv { faces: Vec<Id> },
 }
 
 #[derive(Debug, Deserialize)]

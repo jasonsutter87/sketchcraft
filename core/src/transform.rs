@@ -171,7 +171,7 @@ impl Model {
         let f = self.faces.remove(&fid).unwrap();
         let boundary: BTreeSet<_> = f.loops().flat_map(|l| pairs(l)).map(|(a, b)| (a.min(b), a.max(b))).collect();
         for tri in triangles {
-            self.insert_face(Face { outer: tri.to_vec(), holes: Vec::new(), ..f.clone() });
+            self.insert_face(Face { outer: tri.to_vec(), holes: Vec::new(), uv: None, ..f.clone() });
             for (a, b) in pairs(&tri) {
                 if !boundary.contains(&(a.min(b), a.max(b))) {
                     if let Some(e) = self.find_edge(a, b) {

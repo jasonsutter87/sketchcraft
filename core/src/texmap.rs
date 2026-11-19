@@ -54,6 +54,56 @@ impl Mapping {
     }
 }
 
+/// Where a face's picture lands: the material's plane placement, or the face's own corner coordinates (projection
+/// mapping), which win when the face has them.
+#[derive(Clone, Debug)]
+pub struct FaceMap {
+    plane: Mapping,
+    corners: Option<Vec<(DVec3, [f64; 2])>>,
+}
+
+impl FaceMap {
+    pub fn of(t: &Texture, f: &WFace) -> FaceMap {
+        let corners = f.uv.as_ref().map(|(o, h)| {
+            let mut c: Vec<(DVec3, [f64; 2])> = f.outer.iter().zip(o).map(|(p, u)| (*p, [u[0] as f64, u[1] as f64])).collect();
+            for (ring, uv) in f.holes.iter().zip(h) {
+                c.extend(ring.iter().zip(uv).map(|(p, u)| (*p, [u[0] as f64, u[1] as f64])));
+            }
+            c
+        });
+        FaceMap { plane: Mapping::of_face(t, f), corners }
+    }
+
+    /// Does the face carry its own coordinates?
+    pub fn has_corners(&self) -> bool {
+        self.corners.is_some()
+    }
+
+    fn corner(&self, p: DVec3) -> Option<[f64; 2]> {
+        self.corners.as_ref()?.iter().find(|(q, _)| *q == p).map(|(_, u)| *u)
+    }
+
+    /// (u, v) at a corner of the face's own triangulation (exactly one of its points), v up the image.
+    pub fn uv(&self, p: DVec3) -> [f64; 2] {
+        self.corner(p).unwrap_or_else(|| self.plane.uv(p))
+    }
+
+    /// (u, v) at any point `p` inside the triangle `tri` (made from the face's points): interpolated between the corners.
+    pub fn uv_in(&self, tri: [DVec3; 3], p: DVec3) -> [f64; 2] {
+        let (Some(a), Some(b), Some(c)) = (self.corner(tri[0]), self.corner(tri[1]), self.corner(tri[2])) else {
+            return self.plane.uv(p);
+        };
+        let (e1, e2, q) = (tri[1] - tri[0], tri[2] - tri[0], p - tri[0]);
+        let (d11, d12, d22, d1, d2) = (e1.dot(e1), e1.dot(e2), e2.dot(e2), q.dot(e1), q.dot(e2));
+        let den = d11 * d22 - d12 * d12;
+        if den.abs() < 1e-18 {
+            return a;
+        }
+        let (s, t) = ((d22 * d1 - d12 * d2) / den, (d11 * d2 - d12 * d1) / den);
+        [a[0] + s * (b[0] - a[0]) + t * (c[0] - a[0]), a[1] + s * (b[1] - a[1]) + t * (c[1] - a[1])]
+    }
+}
+
 /// A face's texture (the material may live in a component's definition).
 pub fn of_face<'a>(m: &'a Model, f: &WFace) -> Option<(&'a str, &'a Texture)> {
     let name = f.material.as_deref()?;

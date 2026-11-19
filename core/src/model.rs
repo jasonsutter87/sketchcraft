@@ -66,6 +66,9 @@ pub struct Face {
     /// where this face's picture sits when it was painted through from a neighbour (none: the material's own rule)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tex: Option<TexPlace>,
+    /// where the face's texture lands, per corner (set by projection mapping); None: the material's own placement
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub uv: Option<FaceUv>,
 }
 
 /// A picture's placement on one face: unit axes lying in the face plane and the point the image corner sits on.
@@ -76,6 +79,22 @@ pub struct TexPlace {
     pub u: [f64; 3],
     pub v: [f64; 3],
     pub origin: [f64; 3],
+}
+
+/// Texture coordinates for a face's corners, in tiles (1 = one whole picture), v up the picture. One entry per vertex
+/// of each loop, in the loop's order. A face whose loops have changed size since ignores them.
+#[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize)]
+pub struct FaceUv {
+    pub outer: Vec<[f32; 2]>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub holes: Vec<Vec<[f32; 2]>>,
+}
+
+impl FaceUv {
+    /// Do the coordinates still fit the face's loops?
+    pub fn fits(&self, f: &Face) -> bool {
+        self.outer.len() == f.outer.len() && self.holes.len() == f.holes.len() && self.holes.iter().zip(&f.holes).all(|(a, b)| a.len() == b.len())
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize)]
@@ -419,6 +438,12 @@ impl Face {
         self.outer.reverse();
         for h in &mut self.holes {
             h.reverse();
+        }
+        if let Some(uv) = &mut self.uv {
+            uv.outer.reverse();
+            for h in &mut uv.holes {
+                h.reverse();
+            }
         }
     }
 }
@@ -1182,6 +1207,7 @@ impl Model {
                 group: Some(new),
                 hidden: f.hidden,
                 tex: None,
+                uv: f.uv.clone(),
             };
             self.faces.insert(id, face);
         }

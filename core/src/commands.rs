@@ -40,6 +40,7 @@ mod groups;
 mod library;
 mod media;
 mod paint;
+mod projection;
 mod rendering;
 mod sections;
 mod session;
@@ -167,6 +168,7 @@ impl Command {
                 | Command::WallInfo { .. }
                 | Command::RoomPreview { .. }
                 | Command::Rooms
+                | Command::TextureUv { .. }
         )
     }
 }
@@ -1018,6 +1020,7 @@ impl Engine {
                 Command::DeleteMaterial { .. } | Command::PurgeMaterials { .. } | Command::Skins { .. } |
                 Command::SaveSkin { .. } | Command::Material { .. }
             ) => self.run_paint(c),
+            c @ (Command::TextureProject { .. } | Command::TextureUv { .. }) => self.run_projection(c),
             c @ (
                 Command::Photoreal { .. } | Command::Render { .. } | Command::Environment { .. } |
                 Command::Sun { .. } | Command::AddLocation { .. } | Command::Thumbnail { .. } |

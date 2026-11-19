@@ -1514,6 +1514,7 @@ fn merge_into(m: &mut Model, src: &Model, gid: Id, t: DMat4) {
             group: Some(gid),
             hidden: false,
             tex: None,
+            uv: None,
         });
     }
 }

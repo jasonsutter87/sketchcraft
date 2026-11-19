@@ -128,7 +128,7 @@ impl Canvas {
 
     /// A textured triangle: the image sampled per pixel (perspective-correct),
     /// lit by `k` (the face's shading factor).
-    fn triangle_tex(&mut self, tri: [DVec3; 3], map: &crate::texmap::Mapping, img: &image::RgbImage, k: f32) {
+    fn triangle_tex(&mut self, tri: [DVec3; 3], orig: [DVec3; 3], map: &crate::texmap::FaceMap, img: &image::RgbImage, k: f32) {
         let clip: Vec<DVec4> = tri.iter().map(|p| self.vp * p.extend(1.0)).collect();
         let poly = clip_near(&clip);
         if poly.len() < 3 {
@@ -174,7 +174,7 @@ impl Canvas {
                     }
                     let q = w0 * a.1 + w1 * b.1 + w2 * c.1;
                     let world = (a.2 * w0 + b.2 * w1 + c.2 * w2) / q;
-                    let t = crate::texmap::sample(img, map.uv(world));
+                    let t = crate::texmap::sample(img, map.uv_in(orig, world));
                     self.depth[idx] = z;
                     self.color[idx] = [t[0] * k, t[1] * k, t[2] * k];
                 }
@@ -522,17 +522,17 @@ pub fn render(model: &Model, opts: &RenderOpts) -> RgbImage {
         };
         let textured = images.as_ref().and_then(|imgs| {
             let (name, t) = crate::texmap::of_face(model, &f)?;
-            Some((crate::texmap::Mapping::of_face(t, &f), imgs.get(name)?))
+            Some((crate::texmap::FaceMap::of(t, &f), imgs.get(name)?))
         });
         if let Some((map, img)) = textured {
             let k = shade([1.0, 1.0, 1.0], if front { n } else { -n })[0].min(1.0);
             for tri in geom::triangulate(&f.outer, &f.holes, n) {
                 match clip {
-                    None => cv.triangle_tex(tri, &map, img, k),
+                    None => cv.triangle_tex(tri, tri, &map, img, k),
                     Some((o, d)) => {
                         let poly = clip_plane(&tri, o, d);
                         for j in 1..poly.len().saturating_sub(1) {
-                            cv.triangle_tex([poly[0], poly[j], poly[j + 1]], &map, img, k);
+                            cv.triangle_tex([poly[0], poly[j], poly[j + 1]], tri, &map, img, k);
                         }
                     }
                 }
