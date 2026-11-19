@@ -19,3 +19,4 @@ pub mod project;
 pub mod raster;
 pub mod sheet;
 pub mod svg;
+pub mod table;

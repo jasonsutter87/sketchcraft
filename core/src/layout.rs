@@ -87,15 +87,13 @@ pub struct PageSpec {
     /// paper text saved on the sheet, in stacking order (set when a saved sheet is exported)
     #[serde(skip)]
     pub texts: Vec<TextDraw>,
+    /// tables saved on the sheet, in stacking order (set when a saved sheet is exported)
+    #[serde(skip)]
+    pub tables: Vec<crate::draft::table::TableDraw>,
 }
 
-/// One paper text, ready to draw: its first line's baseline starts at `at_mm` (paper mm from the top left).
-#[derive(Clone, Debug, Default)]
-pub struct TextDraw {
-    pub at_mm: [f64; 2],
-    pub lines: Vec<String>,
-    pub height_mm: f64,
-}
+/// One paper text or text block, ready to draw: its first line's baseline starts at `at_mm` (paper mm from the top left).
+pub use crate::draft::table::TextDraw;
 
 // the scale parser and the grid placer, where the saved-sheets commands (#61) look for them
 #[allow(unused_imports)]

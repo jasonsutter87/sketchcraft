@@ -62,7 +62,7 @@ pub fn build_opts(m: &Model, sheet: &str, project: &str, mut pages: Vec<PageSpec
             pages.push(PageSpec { title: "Views".into(), ..Default::default() });
         }
         for p in &mut pages {
-            if p.viewports.is_empty() && p.table.is_empty() {
+            if p.viewports.is_empty() && p.table.is_empty() && p.tables.is_empty() {
                 p.viewports = defaults.clone();
             }
         }
@@ -95,13 +95,17 @@ pub fn build_opts(m: &Model, sheet: &str, project: &str, mut pages: Vec<PageSpec
         }
         // paper text, over the line work
         for t in &page.texts {
-            text_item(&mut cv, &pens, t);
+            super::table::draw_text(&mut cv, &pens, t);
         }
         // dimensions attached to the model, drawn over the viewports
         for d in &page.dims {
             super::dims::draw(&mut cv, &pens, d);
         }
         table(&mut cv, &pens, page);
+        // saved tables, over everything but the notes
+        for (i, t) in page.tables.iter().enumerate() {
+            super::table::draw_table(&mut cv, &pens, t, (i + 1).min(u16::MAX as usize) as u16);
+        }
         notes_box(&mut cv, &pens, notes, sw, sh);
         doc.pages.push(Page { w: sw, h: sh, bg: blueprint.then_some(BP_PAPER), title: format!("{project}: {}", page.title), items: cv.out });
     }
@@ -144,16 +148,6 @@ pub const TEXT_LEADING: f64 = 1.25;
 /// A letter height in mm is this many times the font size in mm (Inter's cap height is about 0.73 of its size).
 pub const CAP_OF_SIZE: f64 = 0.73;
 
-/// A paper text: each line down from the first line's baseline at `at_mm`; `height_mm` is the capital letters' height.
-fn text_item(cv: &mut Cv, pens: &Pens, t: &crate::layout::TextDraw) {
-    let size_pt = t.height_mm / CAP_OF_SIZE * PT;
-    let sh = cv.h_mm;
-    for (i, line) in t.lines.iter().enumerate() {
-        let y = t.at_mm[1] + i as f64 * t.height_mm / CAP_OF_SIZE * TEXT_LEADING;
-        cv.text(t.at_mm[0] * PT, (sh - y) * PT, line, size_pt, false, pens.ink, 0.0);
-    }
-}
-
 /// A table (schedule) at the top left.
 fn table(cv: &mut Cv, pens: &Pens, page: &PageSpec) {
     if page.table.is_empty() {
@@ -175,7 +169,7 @@ fn table(cv: &mut Cv, pens: &Pens, page: &PageSpec) {
         cv.line((tx, y(top)), (tx + total_w, y(top)), &pens.ink(if ri <= 1 { pens.heavy } else { pens.thin }));
         let mut x = tx;
         for (ci, cell) in row.iter().enumerate() {
-            cv.role = Role::Cell { row: ri as u16, col: ci as u16, header: ri == 0 || ci == 0 };
+            cv.role = Role::Cell { table: 0, row: ri as u16, col: ci as u16, header: ri == 0 || ci == 0 };
             cv.text(x + 6.0, y(top + rh - 2.0), cell, size, ri == 0 || ci == 0, pens.ink, 0.0);
             cv.role = Role::Paragraph;
             x += widths[ci];

@@ -50,7 +50,8 @@ fn f(v: f64) -> f32 {
 struct Tag {
     role: StructRole,
     alt: Option<String>,
-    cell: Option<(u16, u16)>,
+    /// (table, row, column)
+    cell: Option<(u16, u16, u16)>,
 }
 
 struct PageOut {
@@ -362,7 +363,7 @@ impl Writer<'_> {
                         Role::Heading2 => (StructRole::H2, None),
                         Role::Heading3 => (StructRole::H3, None),
                         Role::Caption => (StructRole::Caption, None),
-                        Role::Cell { row, col, header } => (if header { StructRole::TH } else { StructRole::TD }, Some((row, col))),
+                        Role::Cell { table, row, col, header } => (if header { StructRole::TH } else { StructRole::TD }, Some((table, row, col))),
                     };
                     // inside a figure the text is part of the figure's one tagged sequence (tagged content
                     // never nests); it still extracts as text
@@ -494,35 +495,58 @@ pub fn write(doc: &Doc) -> Result<Vec<u8>> {
     let (root, docelem, ptree) = (cx.alloc(), cx.alloc(), cx.alloc());
     let mut paragraphs: Vec<Vec<Ref>> = Vec::new();
     let mut parents: Vec<Vec<Ref>> = Vec::new();
-    let mut tables: Vec<Ref> = Vec::new();
     for (pid, _, out, _) in &outs {
-        let refs: Vec<Ref> = out.tags.iter().map(|_| cx.alloc()).collect();
-        // a page's schedule is a Table of rows of cells
-        let rows: std::collections::BTreeMap<u16, Ref> = out.tags.iter().filter_map(|t| t.cell).map(|(r, _)| (r, cx.alloc())).collect();
-        let table = (!rows.is_empty()).then(|| cx.alloc());
+        use std::collections::BTreeMap;
+        // a page's tables (schedules) are Tables of rows of cells; a cell's lines (several runs) are one cell
+        let mut cell_refs: BTreeMap<(u16, u16, u16), Ref> = BTreeMap::new();
+        let refs: Vec<Ref> = out.tags.iter().map(|t| match t.cell {
+            Some(c) => *cell_refs.entry(c).or_insert_with(|| cx.alloc()),
+            None => cx.alloc(),
+        }).collect();
+        let rows: BTreeMap<(u16, u16), Ref> = cell_refs.keys().map(|c| ((c.0, c.1), cx.alloc())).collect();
+        let tables: BTreeMap<u16, Ref> = rows.keys().map(|r| (r.0, cx.alloc())).collect();
         for (mcid, (r, t)) in refs.iter().zip(&out.tags).enumerate() {
-            let parent = t.cell.map_or(docelem, |(row, _)| rows[&row]);
+            if t.cell.is_some() {
+                continue;
+            }
             let mut e = pdf.struct_element(*r);
-            e.kind(t.role).parent(parent).page(*pid);
+            e.kind(t.role).parent(docelem).page(*pid);
             if let Some(a) = &t.alt {
                 e.alt(TextStr(a));
             }
             e.marked_content_child().marked_content_id(mcid as i32);
         }
-        if let Some(table) = table {
-            for (row, tr) in &rows {
-                let mut cells: Vec<(u16, Ref)> = out.tags.iter().zip(&refs).filter_map(|(t, r)| t.cell.filter(|c| c.0 == *row).map(|c| (c.1, *r))).collect();
-                cells.sort_by_key(|c| c.0);
-                let mut e = pdf.struct_element(*tr);
-                e.kind(StructRole::TR).parent(table).page(*pid);
-                e.insert(Name(b"K")).array().items(cells.iter().map(|c| c.1));
+        for (c, r) in &cell_refs {
+            let mcids: Vec<i32> = out.tags.iter().enumerate().filter(|(_, t)| t.cell == Some(*c)).map(|(i, _)| i as i32).collect();
+            let header = out.tags.iter().any(|t| t.cell == Some(*c) && t.role == StructRole::TH);
+            let mut e = pdf.struct_element(*r);
+            e.kind(if header { StructRole::TH } else { StructRole::TD }).parent(rows[&(c.0, c.1)]).page(*pid);
+            let mut k = e.children();
+            for m in mcids {
+                k.marked_content_id(m);
             }
-            let mut e = pdf.struct_element(table);
-            e.kind(StructRole::Table).parent(docelem).page(*pid);
-            e.insert(Name(b"K")).array().items(rows.values().copied());
-            tables.push(table);
         }
-        paragraphs.push(refs.iter().zip(&out.tags).filter(|(_, t)| t.cell.is_none()).map(|(r, _)| *r).chain(table).collect::<Vec<_>>());
+        for ((table, row), tr) in &rows {
+            let cells: Vec<Ref> = cell_refs.iter().filter(|(c, _)| c.0 == *table && c.1 == *row).map(|(_, r)| *r).collect();
+            let mut e = pdf.struct_element(*tr);
+            e.kind(StructRole::TR).parent(tables[table]).page(*pid);
+            e.insert(Name(b"K")).array().items(cells);
+        }
+        for (table, tref) in &tables {
+            let mut e = pdf.struct_element(*tref);
+            e.kind(StructRole::Table).parent(docelem).page(*pid);
+            e.insert(Name(b"K")).array().items(rows.iter().filter(|(r, _)| r.0 == *table).map(|(_, r)| *r));
+        }
+        // reading order: what is not a cell in drawing order, each table where its first cell was drawn
+        let mut said: Vec<Ref> = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for (r, t) in refs.iter().zip(&out.tags) {
+            let r = t.cell.map_or(*r, |c| tables[&c.0]);
+            if seen.insert(r) {
+                said.push(r);
+            }
+        }
+        paragraphs.push(said);
         parents.push(refs);
     }
     {

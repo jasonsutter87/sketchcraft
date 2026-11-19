@@ -222,8 +222,9 @@ pub enum Role {
     Caption,
     /// a heading inside the notes
     Heading3,
-    /// a table cell: its row and column, and whether it heads them
-    Cell { row: u16, col: u16, header: bool },
+    /// a table cell: which table on the page, its row and column, and whether it heads them (a cell's text may be
+    /// several runs, one per line: they are one cell)
+    Cell { table: u16, row: u16, col: u16, header: bool },
 }
 
 #[derive(Clone, Debug, PartialEq)]

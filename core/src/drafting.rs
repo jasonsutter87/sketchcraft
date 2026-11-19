@@ -281,8 +281,47 @@ pub const WEIGHT_RANGE: (f64, f64) = (0.05, 2.0);
 /// Paper text (`Text` items): the default letter height and the range a command may set, paper mm.
 pub const TEXT_HEIGHT: f64 = 3.5;
 pub const TEXT_HEIGHT_RANGE: (f64, f64) = (1.0, 50.0);
-/// The most characters one paper text holds (a note, not a document: text blocks are #7).
-pub const MAX_TEXT_CHARS: usize = 4000;
+/// The most characters one paper text or text block holds (a page of general notes, not a document).
+pub const MAX_TEXT_CHARS: usize = 20_000;
+/// A text block's wrap width and a table column's width: the range a command may set, paper mm.
+pub const BLOCK_WIDTH_RANGE: (f64, f64) = (5.0, 2000.0);
+/// A table's cell text: the default letter height, paper mm (its range is `TEXT_HEIGHT_RANGE`).
+pub const TABLE_TEXT: f64 = 2.5;
+/// The most cells one table holds (rows times columns), and the most characters in one cell.
+pub const MAX_TABLE_CELLS: usize = 20_000;
+pub const MAX_CELL_CHARS: usize = 2_000;
+/// The most rows and columns a table may have.
+pub const MAX_TABLE_ROWS: usize = 5_000;
+pub const MAX_TABLE_COLS: usize = 100;
+
+/// How text sits across its box (a text block's width, a table cell).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Align {
+    #[default]
+    Left,
+    Center,
+    Right,
+}
+
+/// Which rules a table draws: every cell boxed (`grid`, the default), the outline and a rule under each row
+/// (`rules`), the outline only (`outer`), or nothing (`none`). The header's rule is always heavy when drawn.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Border {
+    #[default]
+    Grid,
+    Rules,
+    Outer,
+    None,
+}
+
+fn is_default<T: Default + PartialEq>(x: &T) -> bool {
+    *x == T::default()
+}
+fn is_zero_u32(n: &u32) -> bool {
+    *n == 0
+}
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -553,9 +592,14 @@ pub struct Text {
     #[serde(skip_serializing_if = "is_zero")]
     pub z: i32,
     pub at_mm: [f64; 2],
+    /// a text block: `[width, height]` in paper mm; the paragraphs wrap to the width (the height is 0: as tall as
+    /// the text). None: plain text, one paragraph per line, never wrapped
     #[serde(skip_serializing_if = "Option::is_none")]
     pub box_mm: Option<[f64; 2]>,
     pub paragraphs: Vec<String>,
+    /// how each line sits across the block's width (plain text: about `at_mm`)
+    #[serde(skip_serializing_if = "is_default")]
+    pub align: Align,
     /// the letters' height in paper mm (none: `TEXT_HEIGHT`)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub height_mm: Option<f64>,
@@ -623,15 +667,36 @@ pub struct Table {
     pub sheet: Id,
     #[serde(skip_serializing_if = "is_zero")]
     pub z: i32,
+    /// the table's top left corner (its title, when it has one, sits above it)
     pub at_mm: [f64; 2],
+    /// each column's width; a column past the end of the list is as wide as its widest text
     pub cols_mm: Vec<f64>,
-    /// rows of cell text (the first row is the header)
+    /// rows of cell text (the first `header_rows` are the header); a newline in a cell starts a new line in it, and
+    /// a cell's text wraps to its column
     pub rows: Vec<Vec<String>>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub cell_styles: BTreeMap<String, String>,
-    /// what feeds it ("doors", "windows"...): empty for a typed one
+    /// what feeds it: "sheets" fills it from the document's sheets (a drawing index, kept up to date); none for a
+    /// typed one
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
+    /// how many rows at the top are the header (bold, a heavy rule under them; none: 1)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub header_rows: Option<u32>,
+    /// how many columns at the left head their rows (bold)
+    #[serde(skip_serializing_if = "is_zero_u32")]
+    pub header_cols: u32,
+    /// a caption above the table ("DOOR SCHEDULE")
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub title: String,
+    /// the cell text's letter height in paper mm (none: `TABLE_TEXT`)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text_mm: Option<f64>,
+    #[serde(skip_serializing_if = "is_default")]
+    pub border: Border,
+    /// each column's alignment (a column past the end: left)
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub align: Vec<Align>,
     #[serde(skip_serializing_if = "String::is_empty")]
     pub made_by: String,
     #[serde(flatten)]
@@ -736,7 +801,7 @@ impl ItemKind {
             ItemKind::Text(t) => p2(&t.at_mm) && t.box_mm.as_ref().is_none_or(p2) && t.leader.as_ref().is_none_or(p2) && t.height_mm.is_none_or(sane),
             ItemKind::Line(s) | ItemKind::Polyline(s) | ItemKind::Arc(s) | ItemKind::Rect(s) => s.pts_mm.iter().all(p2) && sane(s.pen.w_mm) && s.pen.dash_mm.iter().all(|&x| sane(x)),
             ItemKind::Hatch(h) => h.ring_mm.iter().all(p2) && h.holes.iter().flatten().all(p2) && sane(h.hatch.weight_mm) && sane(h.hatch.scale) && sane(h.hatch.angle),
-            ItemKind::Table(t) => p2(&t.at_mm) && t.cols_mm.iter().all(|&x| sane(x)),
+            ItemKind::Table(t) => p2(&t.at_mm) && t.cols_mm.iter().all(|&x| sane(x)) && t.text_mm.is_none_or(sane),
             ItemKind::TitleBlockRef(t) => p2(&t.at_mm),
         }
     }
@@ -750,7 +815,7 @@ impl ItemKind {
             ItemKind::Text(t) => t.paragraphs.iter().map(String::len).sum::<usize>() + t.style.as_ref().map_or(0, String::len) + t.made_by.len() + extra(&t.extra),
             ItemKind::Line(s) | ItemKind::Polyline(s) | ItemKind::Arc(s) | ItemKind::Rect(s) => s.pen.color.len() + s.made_by.len() + extra(&s.extra),
             ItemKind::Hatch(h) => h.hatch.pattern.len() + h.made_by.len() + extra(&h.extra),
-            ItemKind::Table(t) => t.rows.iter().flatten().map(String::len).sum::<usize>() + t.cell_styles.iter().map(|(k, v)| k.len() + v.len()).sum::<usize>() + t.source.as_ref().map_or(0, String::len) + t.made_by.len() + extra(&t.extra),
+            ItemKind::Table(t) => t.rows.iter().flatten().map(String::len).sum::<usize>() + t.cell_styles.iter().map(|(k, v)| k.len() + v.len()).sum::<usize>() + t.source.as_ref().map_or(0, String::len) + t.title.len() + t.made_by.len() + extra(&t.extra),
             ItemKind::TitleBlockRef(t) => extra(&t.extra),
         }
     }
