@@ -141,6 +141,9 @@ impl W {
                     for c in t.text.chars() {
                         if c.is_control() {
                             s.push(' ');
+                        } else if c == '\\' {
+                            // a backslash starts a DXF text code: written as its own character code, it stays a backslash
+                            s.push_str("\\U+005C");
                         } else if (c as u32) < 128 {
                             s.push(c);
                         } else {

@@ -15,9 +15,16 @@ fn rgb(c: Rgb) -> String {
     format!("#{:02x}{:02x}{:02x}", c[0], c[1], c[2])
 }
 
+/// A character XML text may hold as it is: not a control (but a line break), and not a Unicode non-character
+/// (U+FFFE, U+FFFF, U+FDD0 to U+FDEF, and the last two of every plane), which XML refuses or discourages.
+fn xml_char(c: char) -> bool {
+    let n = c as u32;
+    (!c.is_control() || c == '\n') && !(0xFDD0..=0xFDEF).contains(&n) && (n & 0xFFFE) != 0xFFFE
+}
+
 fn esc(s: &str) -> String {
     s.chars()
-        .filter(|c| !c.is_control() || *c == '\n')
+        .filter(|c| xml_char(*c))
         .map(|c| match c {
             '&' => "&amp;".to_string(),
             '<' => "&lt;".to_string(),
