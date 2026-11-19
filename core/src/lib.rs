@@ -48,6 +48,7 @@ pub mod photomodel;
 pub mod photoproject;
 pub mod pt;
 pub mod render;
+pub mod rectpoly;
 pub mod room;
 pub mod sandbox;
 pub mod safety;
