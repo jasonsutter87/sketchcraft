@@ -1,4 +1,5 @@
 import { translate, useLocale } from "./locale";
+import { TEXTURING_SET } from "./texturing-set";
 import { fixtureOf, wallSnap } from "./fixtures";
 // The 3D view. Draws the engine's scene with three.js and turns mouse and
 // keyboard input into engine commands. Z is up, units are meters.
@@ -3725,7 +3726,7 @@ export default function Viewport(props: Props) {
           style={{ left: Math.min(box.x0, box.x1), top: Math.min(box.y0, box.y1), width: Math.abs(box.x1 - box.x0), height: Math.abs(box.y1 - box.y0) }}
         />
       )}
-      {placeAsset && tool === "place" && <div className="mode-pill">Placing {fixtureOf(placeAsset) ? translate(language, `fixture.${placeAsset}`) : placeAsset.replace("_", " ")}. Click to drop, Esc when done.</div>}
+      {placeAsset && tool === "place" && <div className="mode-pill">Placing {fixtureOf(placeAsset) ? translate(language, `fixture.${placeAsset}`) : TEXTURING_SET.some((m) => m.key === placeAsset) ? translate(language, `texset.${placeAsset}`) : placeAsset.replace("_", " ")}. Click to drop, Esc when done.</div>}
     </div>
   );
 }
