@@ -6,6 +6,13 @@ What changed in each SketchCraft release, newest first. The format follows
 
 ## [Unreleased]
 
+### Added
+- **Big drawing sets use far less memory and redraw faster.** The 52-page A1 permit set (about 200,000 faces) missed two
+  of its budgets the first time it was measured: it peaked at 1.94 GB of memory (budget 1.5 GB) and its slowest drawing
+  took 1.06 s to redraw after a wall moved (budget 1 s). Drawings kept for the pages now hold their plain lines packed
+  (about a fifth of the memory, 92 MB instead of 540 MB for the set), and the hidden-line views skip the work for
+  anything certainly hidden behind a big wall. The drawings, PDF, SVG and DXF files come out exactly the same as before.
+
 ### Fixed
 - **Changes the app groups together now undo in one step.** When the app sent several changes as one group (reordering
   the intersection priorities of several tags, for example), the first change closed the group, so Undo had to be
