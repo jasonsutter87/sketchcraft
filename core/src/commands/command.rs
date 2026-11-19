@@ -1302,6 +1302,30 @@ pub enum Command {
         #[serde(default)]
         at: Option<[f64; 3]>,
     },
+    /// Room mode: a room dragged out from corner `from` to corner `to` (the wall centre lines, on the ground plane of
+    /// `from`): four walls and a floor in one group named "Room N" (on the tag "Rooms"; the walls on "Walls"). A side that
+    /// lines up with a neighbouring room's wall shares it instead of doubling it, a side within one wall thickness of a
+    /// neighbour's wall snaps onto it, and a room that would overlap another is refused with the model untouched.
+    RoomRect {
+        from: [f64; 3],
+        to: [f64; 3],
+        #[serde(default = "wall_t")]
+        thickness: f64,
+        #[serde(default = "wall_h")]
+        height: f64,
+        #[serde(default)]
+        name: Option<String>,
+    },
+    /// What `room_rect` would do for these corners, without doing it: the snapped rectangle, the inside size and area,
+    /// the rooms whose walls it would share, or why it would be refused. Read-only.
+    RoomPreview {
+        from: [f64; 3],
+        to: [f64; 3],
+        #[serde(default = "wall_t")]
+        thickness: f64,
+    },
+    /// The rooms in the model: name, inside rectangle, area (m²) and wall thickness. Read-only.
+    Rooms,
     /// A straight stair climbing `rise` along `direction` (degrees from +X).
     Stairs {
         at: [f64; 3],

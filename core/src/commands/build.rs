@@ -53,6 +53,24 @@ impl Engine {
                     "moves": p.moves.iter().map(|(v, k)| json!({"v": v, "at": a(m.p(*v)), "per_m": a(*k)})).collect::<Vec<_>>(),
                 })
             }
+            Command::RoomRect { from, to, thickness, height, name } => {
+                let (g, plan, walls, floor) = m.room_rect(v3(from), v3(to), thickness, height, name)?;
+                let mut out = room_plan_json(m, &plan);
+                out["group"] = json!(g);
+                out["name"] = json!(m.groups[&g].name);
+                out["walls"] = json!(walls);
+                out["floor"] = json!(floor);
+                out
+            }
+            Command::RoomPreview { from, to, thickness } => room_plan_json(m, &m.room_plan(v3(from), v3(to), thickness)?),
+            Command::Rooms => {
+                let list: Vec<Value> = m
+                    .rooms()
+                    .iter()
+                    .map(|r| json!({"id": r.id, "name": r.name, "floor": r.floor, "inside": r.inside, "z": r.z, "thickness": r.thickness, "area": r.area, "center": [(r.inside[0] + r.inside[2]) / 2.0, (r.inside[1] + r.inside[3]) / 2.0, r.z]}))
+                    .collect();
+                json!({"rooms": list})
+            }
             Command::Stairs { at, rise, direction, width, tread } => {
                 let (g, risers) = m.stairs(v3(at), direction, width, rise, tread)?;
                 json!({"group": g, "risers": risers, "riser_height": rise / risers as f64})
@@ -69,4 +87,9 @@ impl Engine {
             other => unreachable!("command routed to the wrong group: {other:?}"),
         })
     }
+}
+
+fn room_plan_json(m: &crate::Model, p: &crate::room::RoomPlan) -> Value {
+    let shared: Vec<Value> = p.shared.iter().map(|(id, side)| json!({"room": id, "name": m.groups.get(id).map(|g| g.name.clone()), "side": side})).collect();
+    json!({"rect": p.rect, "inside": p.inside, "width": p.inside[2] - p.inside[0], "depth": p.inside[3] - p.inside[1], "area": p.area, "thickness": p.thickness, "shared": shared, "snapped": p.snapped})
 }

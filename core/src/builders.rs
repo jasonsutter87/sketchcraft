@@ -17,7 +17,7 @@ impl Model {
         Ok(f)
     }
 
-    fn in_new_group<T>(&mut self, name: &str, f: impl FnOnce(&mut Model) -> Result<T>) -> Result<(Id, T)> {
+    pub(crate) fn in_new_group<T>(&mut self, name: &str, f: impl FnOnce(&mut Model) -> Result<T>) -> Result<(Id, T)> {
         let prev = self.active_group;
         let gid = self.begin_group(name.to_string());
         let r = f(self);

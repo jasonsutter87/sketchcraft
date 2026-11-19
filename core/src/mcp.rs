@@ -39,6 +39,7 @@ ORGANIZE
 - begin_group {name} / end_group; group {ids, name?}; edit {id} (open a group or component) / close
 - make_component {ids, name}; place {component(id|name), at, rotate?}; explode {id}; components
 - wall_pull {face, by}: pull a whole wall (the wall the face is a side of) by metres along that face's outward normal; thickness stays, doors/windows ride along, joined walls stretch to stay joined; refused (model untouched) when it would not fit. wall_info {face}: preview what would move.
+- room_rect {from, to, thickness?=0.2, height?=2.7, name?}: a room (4 walls + floor, one group "Room N") dragged out between two corners on the ground; a side along a neighbouring room's wall shares it, a side within one thickness snaps onto it, an overlap is refused (model untouched). room_preview {from, to}: what it would do. rooms: the rooms and their areas.
 - wall {points, thickness?=0.2, height?=2.7, closed?}; stairs {at, rise, direction?(deg), width?, tread?}; roof {face, kind?=gable|hip|shed, pitch?(deg), overhang?, thickness?}; column {at, size?, height?, round?}
 - texture {name, data(data: URL), width?, height?, color?, project?:[x,y,z]|null, origin?}; paint {ids, material:name} paints with it
 - units {units: m|cm|mm|ft|in} (display only; geometry is meters); dimension {from, to, offset}; text {at, text, leader?}
