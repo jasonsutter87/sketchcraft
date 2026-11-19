@@ -69,7 +69,7 @@ const info = async () => (await pageExec(p, { cmd: 'sheets_info' })).sheets?.[0]
 await until(async () => !!(await info()));
 const sheet = (await info()).id;
 await p.waitForSelector('.paper-tools');
-check((await p.locator('.paper-tools .paper-tool').count()) === 12, 'the paper has a tool bar of 12 tools');
+check((await p.locator('.paper-tools .paper-tool').count()) === 13, 'the paper has a tool bar of 13 tools');
 check((await p.locator('.paper-tools .paper-tool.on').getAttribute('aria-label')) === 'Select', 'Select is the tool to begin with');
 const items = async () => (await info())?.items ?? [];
 const ofKind = async (k) => (await items()).filter((i) => i.kind === k);

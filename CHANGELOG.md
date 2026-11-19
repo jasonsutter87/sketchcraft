@@ -30,6 +30,17 @@ What changed in each SketchCraft release, newest first. The format follows
   (over 32,767 objects) are read correctly too. (part of #70)
 
 ### Added
+- **Tables and text blocks on sheets.** A Table tool (B) in Layout: click for a table, or drag the size you want, and
+  type straight into its cells (Tab goes across, Enter goes down, Alt+Enter starts a new line in a cell); double-click
+  any cell to change it. Paste rows copied from a spreadsheet (or comma-separated text, quotes and all) onto the page
+  for a new table, or into a picked table from the cell you clicked; it grows to fit. The inspector sets a title, adds
+  and removes rows and columns, the header rows and a bold first column, the borders (grid, rules, outline or none),
+  the text height, each column's width and the alignment. "Drawing index" fills a table with every sheet's number and
+  name and keeps it up to date. Drag across with the Text tool for a text block whose paragraphs wrap to its width,
+  left, centred or right aligned. Tables and text blocks print in the PDF (each table a real table for screen
+  readers), SVG and DXF, are saved with the model, and every edit is one Undo. A 200-row schedule or a page of notes
+  stays quick. Agents can make them too (`sheet_table`, `sheet_table_paste`, `sheet_text` with `width_mm`).
+  (part of #7)
 - **Lay out a sheet entirely by mouse.** Layout has a tool bar down the left of the paper: Select, Viewport, Line,
   Polyline, Rectangle, Arc, Text, Dimension, Trim, Extend, Offset and Delete, each with a key (V, W, L, P, R, A, T, D,
   X, E, O, K), its icon as the cursor, and a hint under the paper saying what to do next. Drag a frame with Viewport

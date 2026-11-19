@@ -28,6 +28,7 @@ const SUITES = [
   ['cut-priority', 'tools/ui-tests/cut-priority.mjs', 300],
   ['layout-workspace', 'tools/ui-tests/layout-workspace.mjs', 300],
   ['sheet-editor', 'tools/ui-tests/sheet-editor.mjs', 420],
+  ['sheet-tables', 'tools/ui-tests/sheet-tables.mjs', 300],
   ['subdivide', 'tools/ui-tests/subdivide.mjs', 300],
   ['shortcuts', 'tools/ui-tests/shortcuts.mjs', 300],
   ['tools', 'tools/ui-tests/tools.mjs', 900],

@@ -263,6 +263,29 @@ const editorDraw = async (p, s, pts, ys, bottom) => {
 shots.push({ name: 'layout-editor-light', layout: 'classic', skin: 'classic', run: editorShot });
 shots.push({ name: 'layout-editor-dark', layout: 'classic', skin: 'midnight', run: editorShot });
 shots.push({ name: 'layout-page-light', layout: 'floating', skin: 'classic', run: layoutShot(false) });
+// tables and text blocks (#7): a door schedule and a general-notes block on the page, the schedule picked (its
+// inspector) and a cell being typed in
+const tablesShot = async (p) => {
+  let sid, tid;
+  await layoutShot(false, async (p, s) => {
+    sid = s;
+    const csv = 'Mark,Size,Type,Fire rating\nD1,900 x 2100,Single,\nD2,1800 x 2100,Double,"FD30, self-closing"\nD3,800 x 2100,Single,FD30\n';
+    tid = (await pageExec(p, { cmd: 'sheet_table_paste', sheet: s, at_mm: [215, 185], text: csv })).item;
+    await pageExec(p, { cmd: 'sheet_table', id: tid, title: 'DOOR SCHEDULE', header_cols: 1 });
+    await pageExec(p, { cmd: 'sheet_text', sheet: s, at_mm: [20, 195], width_mm: 120, height_mm: 2.5, text: 'GENERAL NOTES\nAll dimensions are in millimetres unless noted otherwise. Do not scale from this drawing; check all dimensions on site before work starts.' });
+  })(p);
+  for (let i = 0; i < 80 && (await p.locator('.paper-overlay [data-item]').count()) < 2; i++) await wait(150);
+  const t = (await pageExec(p, { cmd: 'sheets_info', sheet: sid })).sheets[0].items.find((i) => i.id === tid);
+  const e = await p.locator('.paper-overlay .paper-edge').boundingBox();
+  const k = e.width / 420;
+  const at = (q) => [e.x + q[0] * k, e.y + q[1] * k];
+  const { xs, ys } = t.layout;
+  await p.mouse.dblclick(...at([(xs[3] + xs[4]) / 2, (ys[1] + ys[2]) / 2]));
+  await p.waitForSelector('.paper-cellbox');
+  await p.keyboard.type('FD60');
+};
+shots.push({ name: 'layout-tables-light', layout: 'classic', skin: 'classic', run: tablesShot });
+shots.push({ name: 'layout-tables-dark', layout: 'classic', skin: 'midnight', run: tablesShot });
 shots.push({
   name: 'layout-empty-light',
   layout: 'classic',
