@@ -2,6 +2,8 @@
 import { useEffect, useState } from "react";
 import { ask } from "./ask";
 import { ASSETS, exec, type Scene } from "./engine";
+import { FIXTURE_GROUPS, FIXTURES, sizeText } from "./fixtures";
+import { useLocale } from "./locale";
 import { pickOpen } from "./files";
 import { Icons } from "./icons";
 import { type Run } from "./panelkit";
@@ -48,6 +50,7 @@ interface LibEntry {
 }
 
 export function Library({ scene, place, placing, run, onToast }: { scene: Scene; place: (k: string | null) => void; placing: string | null; run: Run; onToast: (t: string, bad?: boolean) => void }) {
+  const { t } = useLocale();
   const [q, setQ] = useState("");
   const [lib, setLib] = useState<{ dir: string; entries: LibEntry[] } | null>(null);
   const reload = async () => {
@@ -68,6 +71,13 @@ export function Library({ scene, place, placing, run, onToast }: { scene: Scene;
   const figureWords = /^(people|person|scale|figure|scale figures?|figures)$/;
   const starter = ASSETS.filter((a) => !a.figure && match(a.name));
   const figures = ASSETS.filter((a) => a.figure && (match(a.name) || figureWords.test(q.trim().toLowerCase())));
+
+  // fixtures & furniture: found by name or by room ("bath", "kitchen"...), in the current language
+  const fixtureGroups = FIXTURE_GROUPS.map((g) => ({
+    id: g,
+    label: t(`fixtures.${g}`),
+    items: FIXTURES.filter((f) => f.group === g && (match(t(`fixture.${f.key}`)) || match(t(`fixtures.${g}`)))),
+  })).filter((g) => g.items.length > 0);
 
   const tile = (key: string, name: string, thumbKey: string, req: Record<string, unknown>, title: string, extra?: React.ReactNode) => (
     <div key={key} className={`tile comp ${placing === key ? "on" : ""}`} title={title}>
@@ -165,6 +175,21 @@ export function Library({ scene, place, placing, run, onToast }: { scene: Scene;
         <details className="collection" open={!lib?.entries.length}>
           <summary>Starter</summary>
           <div className="tiles">{starter.map((a) => tile(a.key, a.name, `a:${a.key}`, { asset: a.key }, `Place ${a.name}: click in the model`))}</div>
+        </details>
+      )}
+      {fixtureGroups.length > 0 && (
+        <details className="collection fixtures" open={q.trim() !== ""}>
+          <summary title={t("fixtures.tip")}>{t("fixtures.title")}</summary>
+          {fixtureGroups.map((g) => (
+            <details key={g.id} className="collection" open data-group={g.id}>
+              <summary>{g.label}</summary>
+              <div className="tiles">
+                {g.items.map((f) =>
+                  tile(f.key, t(`fixture.${f.key}`), `a:${f.key}`, { asset: f.key }, `${t(`fixture.${f.key}`)}, ${sizeText(f)}. ${t("fixtures.place")}`)
+                )}
+              </div>
+            </details>
+          ))}
         </details>
       )}
       {figures.length > 0 && (

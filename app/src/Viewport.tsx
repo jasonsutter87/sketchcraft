@@ -1,4 +1,5 @@
-import { useLocale } from "./locale";
+import { translate, useLocale } from "./locale";
+import { fixtureOf, wallSnap } from "./fixtures";
 // The 3D view. Draws the engine's scene with three.js and turns mouse and
 // keyboard input into engine commands. Z is up, units are meters.
 import { useEffect, useRef, useState } from "react";
@@ -1542,6 +1543,24 @@ export default function Viewport(props: Props) {
     setHint({ x: (q.x * 0.5 + 0.5) * r.width, y: (-q.y * 0.5 + 0.5) * r.height, label: sn.label, kind: sn.kind });
   }
 
+  /**
+   * Where a fixture or piece of furniture goes for this cursor: against a wall when one is within reach (turned to face
+   * away from it, back flush), else where the cursor is. Shift places it freely. Null: not a fixture.
+   */
+  function fixtureSpot(key: string | null, sn: Snap, free: boolean): { at: THREE.Vector3; rot: number; wall: boolean } | null {
+    const f = fixtureOf(key);
+    if (!f) return null;
+    const n = sn.face ? V(sn.face.normal) : UP;
+    const at = sn.p.clone();
+    // pointing at a wall itself: the floor at the foot of it, not up the wall
+    if (sn.face && Math.abs(n.z) < 0.5) at.z = Math.min(...sn.face.outer.map((q) => q[2]));
+    if (!free) {
+      const w = wallSnap(arr(at) as Vec3, sceneNow().faces, f.w / 2);
+      if (w) return { at: V(w.at), rot: w.rotate, wall: true };
+    }
+    return { at, rot: 0, wall: false };
+  }
+
   function axisColor(sn: Snap): number {
     return sn.kind === "axis" && sn.axis != null ? AXIS_COLORS[sn.axis] : 0x1d1e24;
   }
@@ -2783,8 +2802,17 @@ export default function Viewport(props: Props) {
       }
 
       // nothing in progress: show what a click would hit
-      if (["axes", "line", "freehand", "arc", "arccenter", "arc3", "pie", "rect", "rrect", "circle", "polygon", "tape", "dimension", "text", "move", "rotate", "scale", "place", "wall", "stairs", "column", "protractor"].includes(L.tool)) showSnap(infer(E, e, {}));
-      else setHint(null);
+      if (["axes", "line", "freehand", "arc", "arccenter", "arc3", "pie", "rect", "rrect", "circle", "polygon", "tape", "dimension", "text", "move", "rotate", "scale", "place", "wall", "stairs", "column", "protractor"].includes(L.tool)) {
+        const sn = infer(E, e, {});
+        showSnap(sn);
+        // placing a fixture near a wall: say it will sit against it
+        const spot = L.tool === "place" ? fixtureSpot(L.placeAsset, sn, e.shiftKey) : null;
+        if (spot?.wall) {
+          const r = rect();
+          const q = spot.at.clone().project(t.current!.camera);
+          setHint({ x: (q.x * 0.5 + 0.5) * r.width, y: (-q.y * 0.5 + 0.5) * r.height, label: translate(localeRef.current, "fixtures.snapHint"), kind: "face" });
+        }
+      } else setHint(null);
       if (["select", "erase", "paint", "push", "offset", "followme", "section", "move", "rotate", "scale", "roof", "wallpull", "room"].includes(L.tool)) {
         const he = ["select", "erase", "move"].includes(L.tool) ? pickEdge(e) : null;
         const h = he == null ? pick(e) : null;
@@ -3232,14 +3260,20 @@ export default function Viewport(props: Props) {
       const n = sn.face ? V(sn.face.normal) : UP;
       // doors and windows face out of the wall they're dropped on
       const wall = Math.abs(n.z) < 0.5;
-      const rot = wall ? THREE.MathUtils.radToDeg(Math.atan2(n.y, n.x)) + 90 : 0;
-      const at = sn.p.clone();
+      let rot = wall ? THREE.MathUtils.radToDeg(Math.atan2(n.y, n.x)) + 90 : 0;
+      let at = sn.p.clone();
       // doors stand on the bottom of the wall they're dropped on
       if (wall && sn.face && (L.placeAsset === "door" || L.placeAsset === "garage_door")) at.z = Math.min(...sn.face.outer.map((q) => q[2]));
       const k = L.placeAsset;
+      // fixtures and furniture: back against the nearest wall, one insert, one undo step
+      const spot = fixtureSpot(k, sn, e.shiftKey);
+      if (spot) {
+        at = spot.at;
+        rot = spot.rot;
+      }
       // a library file, a component already in the model, or a starter asset
       // dropped on a face: doors, windows (and components set to) cut their opening there
-      const host = wall && sn.face ? sn.face.id : undefined;
+      const host = wall && sn.face && !spot ? sn.face.id : undefined;
       let r: Reply;
       if (k.startsWith("file:")) r = await run({ cmd: "insert_file", path: k.slice(5), at: arr(at), rotate: r4(rot) });
       else if (k.startsWith("component:")) r = await run({ cmd: "place", component: Number(k.slice(10)), at: arr(at), rotate: r4(rot), host });
@@ -3675,7 +3709,7 @@ export default function Viewport(props: Props) {
           style={{ left: Math.min(box.x0, box.x1), top: Math.min(box.y0, box.y1), width: Math.abs(box.x1 - box.x0), height: Math.abs(box.y1 - box.y0) }}
         />
       )}
-      {placeAsset && tool === "place" && <div className="mode-pill">Placing {placeAsset.replace("_", " ")}. Click to drop, Esc when done.</div>}
+      {placeAsset && tool === "place" && <div className="mode-pill">Placing {fixtureOf(placeAsset) ? translate(language, `fixture.${placeAsset}`) : placeAsset.replace("_", " ")}. Click to drop, Esc when done.</div>}
     </div>
   );
 }
