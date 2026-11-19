@@ -32,7 +32,7 @@ import { profileMaterial, textureFor } from "./viewport/materials";
 import { UP, r4, arr, circleThrough, bulgeThrough, basis, arcPoints, offsetOutline } from "./viewport/geometry";
 import { selectMarquee } from "./viewport/marquee";
 import { isTypingTarget } from "./keymap";
-import type { Tool, BuildSettings, FaceStyle, Backdrop, Styles, Cam, ViewportApi, PluginPoint, Props, Op, LabelSpec, Last } from "./viewport/types";
+import type { Tool, BuildSettings, FaceStyle, Backdrop, Styles, Cam, ViewportApi, PluginPoint, Props, Op, LabelSpec, Last, WallPlan } from "./viewport/types";
 export { autoTagColor };
 export type { Tool, BuildSettings, FaceStyle, Backdrop, Styles, Cam, ViewportApi, PluginPoint };
 
@@ -144,6 +144,8 @@ export default function Viewport(props: Props) {
     lock: Axis | null;
     hover: number | null;
     hoverEdge: number | null;
+    /** Wall pull: the wall under the cursor (plan null: asking the engine, or it isn't a wall that can be pulled) */
+    wall: { face: number; plan: WallPlan | null; scene: Scene } | null;
     /** last inference shown (Shift locks to it) */
     snap: Snap | null;
     /** the lock came from holding Shift (released with it) */
@@ -162,7 +164,7 @@ export default function Viewport(props: Props) {
     labels: LabelSpec[];
     liveLabels: LabelSpec[];
     labelEls: Map<string, HTMLDivElement>;
-  }>({ press: null, labels: [], liveLabels: [], labelEls: new Map(), op: null, last: null, lock: null, hover: null, hoverEdge: null, snap: null, shiftLock: false, zoomY: null, space: false, spaceUsed: false, fitted: false, fitNext: false, section: null, segs: { circle: 24, polygon: 6 }, rightDown: null, selOverride: null });
+  }>({ press: null, labels: [], liveLabels: [], labelEls: new Map(), op: null, last: null, lock: null, hover: null, hoverEdge: null, wall: null, snap: null, shiftLock: false, zoomY: null, space: false, spaceUsed: false, fitted: false, fitNext: false, section: null, segs: { circle: 24, polygon: 6 }, rightDown: null, selOverride: null });
 
   // dev builds: inspect the tool state from the console (window.__sketchcraft)
   if (import.meta.env.DEV) Object.assign(window as unknown as Record<string, unknown>, { __sketchcraft: st, __sketchcraftView: t });
@@ -1334,6 +1336,9 @@ export default function Viewport(props: Props) {
         else T.overlay.add(overlayMesh(hp, 0.1));
       }
     }
+    // Wall pull: the whole wall under the cursor, both sides, caps, top and bottom
+    const wl = st.current.wall;
+    if (tool === "wallpull" && wl?.plan && wl.scene === s && !st.current.op) T.overlay.add(overlayMesh(wallTriangles(wl.plan), 0.3));
     const he = st.current.hoverEdge;
     if (he != null) {
       const seg: number[] = [];
@@ -1359,6 +1364,41 @@ export default function Viewport(props: Props) {
       coachKey.current = key;
       setCoach(g);
     }
+  }
+
+  /** The triangles of a wall: its faces, plus the top and bottom strips (a ring's top is one face shared with the other walls). */
+  function wallTriangles(plan: WallPlan, offset?: THREE.Vector3): number[] {
+    const out = trianglesOf(new Set(plan.faces));
+    for (const q of plan.strips) for (const k of [0, 1, 2, 0, 2, 3]) out.push(...q[k]);
+    if (offset) {
+      for (let i = 0; i < out.length; i += 3) {
+        out[i] += offset.x;
+        out[i + 1] += offset.y;
+        out[i + 2] += offset.z;
+      }
+    }
+    return out;
+  }
+
+  /** Ask the engine what the wall under the cursor is (once per face; the answer is dropped when the model changes). */
+  function lookAtWall(face: number | null) {
+    const cur = st.current.wall;
+    if (face == null) {
+      if (cur) {
+        st.current.wall = null;
+        drawOverlay();
+      }
+      return;
+    }
+    const scene = sceneNow();
+    if (cur?.face === face && cur.scene === scene) return;
+    st.current.wall = { face, plan: null, scene };
+    drawOverlay();
+    void exec({ cmd: "wall_info", face }).then((r) => {
+      if (st.current.wall?.face !== face || st.current.wall.scene !== scene) return;
+      st.current.wall = { face, plan: r.ok ? ({ ...(r as unknown as WallPlan), face } as WallPlan) : null, scene };
+      drawOverlay();
+    });
   }
 
   /** What hovering this owner would select (a whole group, unless it's open). */
@@ -1877,6 +1917,10 @@ export default function Viewport(props: Props) {
         if (!lens.length) return;
         op.d = lens[0];
         return void (await commitOffset());
+      case "wallpull":
+        if (!lens.length) return;
+        op.d = lens[0];
+        return void (await commitWallPull());
       case "tape": {
         const dir = op.cur.clone().sub(op.p0);
         if (dir.length() > 1e-9 && lens.length) await commitTape(op.p0.clone().addScaledVector(dir.normalize(), lens[0]));
@@ -2073,6 +2117,17 @@ export default function Viewport(props: Props) {
     const d = r4(op.d);
     const r = await run({ cmd: "pushpull", face: op.face.id, distance: d });
     if (r.ok) st.current.last = { t: "push", face: op.face.id, d };
+  }
+
+  async function commitWallPull() {
+    const op = st.current.op;
+    if (op?.t !== "wallpull") return;
+    st.current.op = null;
+    st.current.wall = null;
+    clearPreview();
+    live.current.onMeasure("", "");
+    if (Math.abs(op.d) < 1e-3) return;
+    await run({ cmd: "wall_pull", face: op.face, by: r4(op.d) });
   }
 
   async function commitOffset() {
@@ -2412,6 +2467,26 @@ export default function Viewport(props: Props) {
       L.onMeasure("Distance", fmt(op.d));
       return;
     };
+    const moveWallPull = ({ e, L, op }: MoveArgs<"wallpull">) => {
+      op.d = closestOnLine(ray(e), op.origin, op.n).sub(op.origin).dot(op.n);
+      op.dragged = true;
+      setHint(null);
+      // the wall slides to where it would go, and every joined wall's corner shows where it stretches to
+      const off = op.n.clone().multiplyScalar(op.d);
+      T.preview.add(overlayMesh(wallTriangles(op.plan, off), 0.3));
+      const seg: number[] = [];
+      for (const m of op.plan.moves) {
+        const a = V(m.at);
+        const b = a.clone().add(V(m.per_m).multiplyScalar(op.d));
+        seg.push(a.x, a.y, a.z, b.x, b.y, b.z);
+      }
+      T.preview.add(lines(seg, ACCENT, false));
+      const first = op.plan.strips[0];
+      const mid = first ? first.map(V).reduce((a, p) => a.add(p), new THREE.Vector3()).divideScalar(first.length).add(off) : op.origin.clone().add(off);
+      setLive([{ p: mid, text: fmt(op.d) }]);
+      L.onMeasure("Distance", fmt(op.d));
+      return;
+    };
     const moveOffset = ({ e, L, op }: MoveArgs<"offset">) => {
       const n = V(op.face.normal);
       const q = ray(e).intersectPlane(new THREE.Plane().setFromNormalAndCoplanarPoint(n, op.start), new THREE.Vector3());
@@ -2565,6 +2640,8 @@ export default function Viewport(props: Props) {
           return movePush({ e, L: L as Live, E, op, lock });
         case "offset":
           return moveOffset({ e, L: L as Live, E, op, lock });
+        case "wallpull":
+          return moveWallPull({ e, L: L as Live, E, op, lock });
         case "move":
           return moveMove({ e, L: L as Live, E, op, lock });
         case "rotate":
@@ -2576,10 +2653,11 @@ export default function Viewport(props: Props) {
       // nothing in progress: show what a click would hit
       if (["axes", "line", "freehand", "arc", "arccenter", "arc3", "pie", "rect", "rrect", "circle", "polygon", "tape", "dimension", "text", "move", "rotate", "scale", "place", "wall", "stairs", "column", "protractor"].includes(L.tool)) showSnap(infer(E, e, {}));
       else setHint(null);
-      if (["select", "erase", "paint", "push", "offset", "followme", "section", "move", "rotate", "scale", "roof"].includes(L.tool)) {
+      if (["select", "erase", "paint", "push", "offset", "followme", "section", "move", "rotate", "scale", "roof", "wallpull"].includes(L.tool)) {
         const he = ["select", "erase", "move"].includes(L.tool) ? pickEdge(e) : null;
         const h = he == null ? pick(e) : null;
         const id = h ? h.owner : null;
+        if (L.tool === "wallpull") lookAtWall(h?.face ? h.owner : null);
         if (id !== st.current.hover || he !== st.current.hoverEdge) {
           st.current.hover = id;
           st.current.hoverEdge = he;
@@ -2751,6 +2829,17 @@ export default function Viewport(props: Props) {
       const h = pick(e);
       if (!h?.face) return;
       st.current.op = { t: "push", face: h.face, origin: h.point.clone(), n: V(h.face.normal), d: 0, dragged: false };
+      el.setPointerCapture(e.pointerId);
+      return;
+    };
+    const downWallPull = async ({ e, L, op }: DownArgs) => {
+      if (op?.t === "wallpull") return void (await commitWallPull()); // click-move-click
+      const h = pick(e);
+      if (!h?.face) return;
+      const r = await exec({ cmd: "wall_info", face: h.face.id });
+      if (!r.ok) return L.onToast(r.error ?? "That isn't a wall that can be pulled.", true);
+      const plan = { ...(r as unknown as WallPlan), face: h.face.id };
+      st.current.op = { t: "wallpull", face: h.face.id, plan, origin: h.point.clone(), n: V(plan.normal), d: 0, dragged: false };
       el.setPointerCapture(e.pointerId);
       return;
     };
@@ -3094,6 +3183,8 @@ export default function Viewport(props: Props) {
           return downPush({ e, L: L as Live, E, op, sel });
         case "offset":
           return downOffset({ e, L: L as Live, E, op, sel });
+        case "wallpull":
+          return downWallPull({ e, L: L as Live, E, op, sel });
         case "followme":
           return downFollowme({ e, L: L as Live, E, op, sel });
         case "protractor":
@@ -3192,7 +3283,7 @@ export default function Viewport(props: Props) {
         if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
         return void (await commitFree());
       }
-      if (el.hasPointerCapture(e.pointerId) && op?.t !== "push" && op?.t !== "box") el.releasePointerCapture(e.pointerId);
+      if (el.hasPointerCapture(e.pointerId) && op?.t !== "push" && op?.t !== "wallpull" && op?.t !== "box") el.releasePointerCapture(e.pointerId);
       if (press?.fresh && op && Math.hypot(e.clientX - press.x, e.clientY - press.y) > 6) {
         // a press-drag-release: finish where the mouse let go
         if (op.t === "line") return void (await commitLine(op.cur));
@@ -3213,6 +3304,16 @@ export default function Viewport(props: Props) {
       if (op?.t === "push" && op.dragged) {
         el.releasePointerCapture(e.pointerId);
         if (Math.abs(op.d) > 1e-3) await commitPush();
+        else op.dragged = false;
+        return;
+      }
+      if (op?.t === "wallpull" && !op.dragged && press?.fresh && Math.hypot(e.clientX - press.x, e.clientY - press.y) > 6) {
+        op.d = closestOnLine(ray(e), op.origin, op.n).sub(op.origin).dot(op.n);
+        op.dragged = true;
+      }
+      if (op?.t === "wallpull" && op.dragged) {
+        el.releasePointerCapture(e.pointerId);
+        if (Math.abs(op.d) > 1e-3) await commitWallPull();
         else op.dragged = false;
         return;
       }

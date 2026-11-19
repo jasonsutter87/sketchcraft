@@ -1,32 +1,38 @@
 // The Build and Sandbox panels: settings for the building-block and terrain tools.
 import { Icons } from "./icons";
+import { useLocale } from "./locale";
 import { type Sel } from "./selection";
 import type { BuildSettings, Tool } from "./Viewport";
 import { LengthInput, type Run } from "./panelkit";
 
 const BUILD_TOOLS: { id: Tool; name: string; how: string }[] = [
   { id: "wall", name: "Wall", how: "Click points along the wall. Double-click or Enter to finish; click the first point to close a room." },
+  { id: "wallpull", name: "Pull wall", how: "Hover a wall, then drag it (or click, move, click). It slides sideways and the walls joined to it stretch. Type a distance, then Enter. Esc cancels." },
   { id: "stairs", name: "Stairs", how: "Click where the bottom step starts, then the direction it climbs." },
   { id: "roof", name: "Roof", how: "Click a flat top face: the top of your walls or a ceiling you drew." },
   { id: "column", name: "Column", how: "Click to drop a column." },
 ];
 
 export function BuildTools({ tool, setTool, build, setBuild, units }: { tool: Tool; setTool: (t: Tool) => void; build: BuildSettings; setBuild: (b: BuildSettings) => void; units: string }) {
+  const { t } = useLocale();
+  // the labels the app translates; the rest of this panel is still English
+  const name = (b: (typeof BUILD_TOOLS)[number]) => (b.id === "wallpull" ? t("build.wallpull") : b.name);
+  const how = (b: (typeof BUILD_TOOLS)[number]) => (b.id === "wallpull" ? t("build.wallpull.how") : b.how);
   const active = BUILD_TOOLS.find((b) => b.id === tool);
   const set = (k: keyof BuildSettings) => (v: unknown) => setBuild({ ...build, [k]: v });
   return (
     <>
       <div className="tiles build">
         {BUILD_TOOLS.map((b) => (
-          <button key={b.id} className={`tile ${tool === b.id ? "on" : ""}`} onClick={() => setTool(tool === b.id ? "select" : b.id)} title={b.how}>
+          <button key={b.id} className={`tile ${tool === b.id ? "on" : ""}`} onClick={() => setTool(tool === b.id ? "select" : b.id)} title={how(b)}>
             <span className="tile-art build-art">{Icons[b.id as "wall"]()}</span>
-            <span>{b.name}</span>
+            <span>{name(b)}</span>
           </button>
         ))}
       </div>
       {active && (
         <div className="build-options">
-          <p>{active.how}</p>
+          <p>{how(active)}</p>
           {tool === "wall" && (
             <>
               <LengthInput label="Thickness" value={build.wallThickness} units={units} onChange={set("wallThickness")} />

@@ -70,6 +70,10 @@ export function guide(tool: Tool, c: GuideCtx, language: Language = "en"): Guide
       return c.stage === 1 ? g("Arc", "Click where it ends.", [TYPE, LOCK, ESC]) : g("Arc", "Pull out to bend it, then click.", [["Type", "how far it bows out"], ESC]);
     case "push":
       return busy ? g("Push/Pull", "Move to pull the face out or push it in, then click.", [["Type", "a distance, then Enter"], ESC]) : g("Push/Pull", "Click a face to pull it into 3D.", [["Double-click", "repeat the last distance"]]);
+    case "wallpull": {
+      const w = (id: string) => translate(language, `guide.wallpull.${id}`);
+      return busy ? g("Pull wall", w("drag"), [["Type", w("type")], ["Esc", w("cancel")]]) : g("Pull wall", w("hover"), []);
+    }
     case "offset":
       return busy ? g("Offset", "Move in or out, then click.", [TYPE, ESC]) : g("Offset", "Click a face to draw a copy of its outline inside (or outside) it.", []);
     case "followme":

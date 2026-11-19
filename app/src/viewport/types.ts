@@ -8,7 +8,7 @@ export type Tool =
   | "push" | "offset" | "followme" | "move" | "rotate" | "scale"
   | "tape" | "dimension" | "text" | "paint" | "erase" | "orbit" | "pan" | "zoom" | "section" | "place"
   | "position" | "lookaround" | "walk" | "zoomwindow" | "protractor"
-  | "wall" | "stairs" | "roof" | "column"
+  | "wall" | "wallpull" | "stairs" | "roof" | "column"
   | "smoove" | "stamp" | "drape" | "flipedge"
   | "plugin";
 
@@ -150,6 +150,16 @@ export interface PluginPoint {
   alt: boolean;
 }
 
+/** What `wall_info` tells the app about a wall: its faces, which way a positive pull goes, and every moving point's travel per metre. */
+export interface WallPlan {
+  face: number;
+  normal: [number, number, number];
+  thickness: number;
+  faces: number[];
+  strips: [number, number, number][][];
+  moves: { v: number; at: [number, number, number]; per_m: [number, number, number] }[];
+}
+
 export type Op =
   | { t: "line"; p0: THREE.Vector3; start: THREE.Vector3; cur: THREE.Vector3 }
   | { t: "rect"; p0: THREE.Vector3; n: THREE.Vector3; u: THREE.Vector3; v: THREE.Vector3; a: number; b: number }
@@ -167,6 +177,8 @@ export type Op =
   | { t: "axes"; o: THREE.Vector3; x: THREE.Vector3 | null; cur: THREE.Vector3 }
   | { t: "push"; face: FaceInfo; origin: THREE.Vector3; n: THREE.Vector3; d: number; dragged: boolean }
   | { t: "offset"; face: FaceInfo; start: THREE.Vector3; d: number }
+  /** Wall pull: the wall the picked face belongs to, and what the engine says moves with it */
+  | { t: "wallpull"; face: number; plan: WallPlan; origin: THREE.Vector3; n: THREE.Vector3; d: number; dragged: boolean }
   | { t: "move"; base: THREE.Vector3; ids: number[]; delta: THREE.Vector3; copy: boolean; vertex?: { far: THREE.Vector3[] } }
   | { t: "rotate"; center: THREE.Vector3; n: THREE.Vector3; ref: THREE.Vector3 | null; angle: number; ids: number[]; copy?: boolean }
   | { t: "scale"; center: THREE.Vector3; start: THREE.Vector3; factor: number; ids: number[] }
