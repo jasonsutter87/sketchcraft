@@ -488,10 +488,22 @@ impl Page {
         }
         go(&self.items, f);
     }
+    /// Every primitive, groups opened, packed lines left packed (cheaper than `walk` over a whole set).
+    pub fn visit(&self, f: &mut dyn FnMut(&Prim)) {
+        fn go(items: &[Prim], f: &mut dyn FnMut(&Prim)) {
+            for p in items {
+                f(p);
+                if let Prim::Group(g) = p {
+                    go(&g.children, f);
+                }
+            }
+        }
+        go(&self.items, f);
+    }
     /// All the text on the page, one string per run.
     pub fn texts(&self) -> Vec<String> {
         let mut out = Vec::new();
-        self.walk(&mut |p| {
+        self.visit(&mut |p| {
             if let Prim::Text(t) = p {
                 out.push(t.text.clone());
             }

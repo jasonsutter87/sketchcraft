@@ -152,7 +152,7 @@ pub fn export_warnings(doc: &Doc, path: &str, page: Option<usize>) -> Vec<String
 pub fn hatch_warnings(pages: &[&crate::draft::ir::Page]) -> Vec<String> {
     let mut why: std::collections::BTreeMap<(String, String), usize> = Default::default();
     for p in pages {
-        p.walk(&mut |x| {
+        p.visit(&mut |x| {
             if let crate::draft::ir::Prim::Hatch(h) = x {
                 if let Some(n) = &h.note {
                     *why.entry((h.name.clone(), n.clone())).or_default() += 1;

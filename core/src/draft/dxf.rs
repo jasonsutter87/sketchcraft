@@ -331,7 +331,7 @@ impl W {
 /// How many drawings on the page are faded: a DXF has no opacity, so it draws them at full strength.
 pub fn dropped_opacity(p: &Page) -> usize {
     let mut n = 0;
-    p.walk(&mut |x| {
+    p.visit(&mut |x| {
         if matches!(x, Prim::Group(g) if g.opacity < 1.0) {
             n += 1;
         }

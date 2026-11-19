@@ -110,6 +110,29 @@ impl Writer<'_> {
         f((self.page_h - mm) * PT)
     }
 
+    /// One packed line (`Prim::Lines`): exactly what `path` writes for a stroked `M`, `L` path with no fill.
+    fn line(&mut self, a: [f64; 2], b: [f64; 2], pen: &Pen) {
+        self.c.save_state();
+        self.stroke_pen(pen);
+        let (x, y) = (self.x(a[0]), self.y(a[1]));
+        self.c.move_to(x, y);
+        let (x, y) = (self.x(b[0]), self.y(b[1]));
+        self.c.line_to(x, y);
+        self.c.stroke();
+        self.c.restore_state();
+    }
+
+    fn stroke_pen(&mut self, pen: &Pen) {
+        self.c.set_stroke_rgb(pen.rgb[0] as f32 / 255.0, pen.rgb[1] as f32 / 255.0, pen.rgb[2] as f32 / 255.0);
+        self.c.set_line_width(f(pen.w * PT));
+        if pen.dash.is_empty() {
+            self.c.set_line_cap(LineCapStyle::RoundCap).set_line_join(LineJoinStyle::RoundJoin);
+        } else {
+            self.c.set_line_cap(LineCapStyle::ButtCap).set_line_join(LineJoinStyle::MiterJoin);
+            self.c.set_dash_pattern(pen.dash.iter().map(|d| f(d * PT)), 0.0);
+        }
+    }
+
     fn path(&mut self, p: &PathPrim) {
         if p.segs.is_empty() || (p.pen.is_none() && p.fill.is_none()) {
             return;
@@ -119,14 +142,7 @@ impl Writer<'_> {
             self.c.set_fill_rgb(fl.rgb[0] as f32 / 255.0, fl.rgb[1] as f32 / 255.0, fl.rgb[2] as f32 / 255.0);
         }
         if let Some(pen) = &p.pen {
-            self.c.set_stroke_rgb(pen.rgb[0] as f32 / 255.0, pen.rgb[1] as f32 / 255.0, pen.rgb[2] as f32 / 255.0);
-            self.c.set_line_width(f(pen.w * PT));
-            if pen.dash.is_empty() {
-                self.c.set_line_cap(LineCapStyle::RoundCap).set_line_join(LineJoinStyle::RoundJoin);
-            } else {
-                self.c.set_line_cap(LineCapStyle::ButtCap).set_line_join(LineJoinStyle::MiterJoin);
-                self.c.set_dash_pattern(pen.dash.iter().map(|d| f(d * PT)), 0.0);
-            }
+            self.stroke_pen(pen);
         }
         for s in &p.segs {
             match *s {
@@ -327,7 +343,7 @@ impl Writer<'_> {
     }
 
     fn prims(&mut self, items: &[Prim], pdf: &mut Pdf) -> Result<()> {
-        for p in expanded(items).iter() {
+        for p in items {
             match p {
                 Prim::Path(p) => {
                     // line work is part of its figure; the sheet's own rules are artifacts
@@ -413,8 +429,20 @@ impl Writer<'_> {
                         self.in_figure = false;
                     }
                 }
-                // (opened by `expanded`)
-                Prim::Lines(_) => {}
+                // each line as its path would be written
+                Prim::Lines(l) => {
+                    for i in 0..l.len() {
+                        let [a, b] = l.ends[i];
+                        let pen = &l.pens[l.pen[i] as usize];
+                        if self.in_figure {
+                            self.line(a, b, pen);
+                        } else {
+                            self.c.begin_marked_content(Name(b"Artifact"));
+                            self.line(a, b, pen);
+                            self.c.end_marked_content();
+                        }
+                    }
+                }
             }
         }
         Ok(())

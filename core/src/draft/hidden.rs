@@ -62,6 +62,8 @@ pub struct View<'a> {
     pub pens: &'a Pens,
     /// tests: make a worker thread panic, to check the export fails instead of losing line work
     pub inject_panic: bool,
+    /// answer "hidden" from the `Cover` where it can (true; false: every sample casts its ray, which tests compare)
+    pub cover: bool,
 }
 
 fn rect_hit(rect: &[f64; 4], lo: [f64; 2], hi: [f64; 2]) -> bool {
@@ -88,9 +90,8 @@ fn clip_poly(tri: &[DVec3; 3], o: DVec3, d: DVec3) -> Vec<DVec3> {
     out
 }
 
-struct Item {
-    path: Arc<[crate::model::Id]>,
-    v: [crate::model::Id; 2],
+struct Item<'e> {
+    e: &'e crate::components::WEdge,
     a: DVec3,
     b: DVec3,
     t0: f64,
@@ -98,23 +99,126 @@ struct Item {
     len: f64,
     ta: f64,
     tb: f64,
-    tag: Option<String>,
-    draft: Option<Box<crate::drafting::EdgeDraft>>,
 }
 
-struct Occluder {
+/// Where the view is certainly covered: a grid over the frame (paper mm) holding, per cell, the depth behind which
+/// a point is hidden for sure, from the big triangles that cover the whole cell. A sample that lands behind it is
+/// hidden without casting its ray. Conservative by margins well past `f32` rounding (in the paper and in depth), so
+/// it only ever answers "hidden" where the ray would have: the drawing is the same, made faster (most of a full
+/// house's edges are furniture and rooms behind its walls).
+struct Cover {
+    /// the grid's corner on the paper, its cell size (mm) and size in cells
+    x0: f64,
+    y0: f64,
+    cell: f64,
+    nx: usize,
+    ny: usize,
+    /// per cell: a point deeper than this (metres along the view, from the anchor) is hidden; INFINITY: not known
+    depth: Vec<f64>,
+    /// how far a point may be from the anchor on any axis and still be judged here (rays reach `tmax`)
+    reach: f64,
+}
+
+/// Most cells in a `Cover` (about 2 MB).
+const COVER_CELLS: usize = 250_000;
+
+impl Cover {
+    fn new(tris: &[Tri], pr: &Proj, rect: &[f64; 4], tmin: f64, far: f64) -> Cover {
+        let cell = (rect[2] * rect[3] / COVER_CELLS as f64).sqrt().max(1.0);
+        // in the paper: cells are judged as if a fiftieth of a millimetre larger all round, plus how far a ray drifts
+        // sideways over its length where the BVH tilts it off an axis by a millionth (and f32 corners); in depth: a
+        // millimetre of the model plus the ray's own start gap
+        let pad = 0.02 + 4e-6 * far * pr.k;
+        let dpad = 1e-3 + tmin;
+        let (x0, y0) = (rect[0] - cell, rect[1] - cell);
+        let nx = (rect[2] / cell).ceil() as usize + 3;
+        let ny = (rect[3] / cell).ceil() as usize + 3;
+        let mut depth = vec![f64::INFINITY; nx * ny];
+        let xy = |q: DVec3| -> [f64; 2] { [pr.c[0] + q.dot(pr.right) * pr.k, pr.c[1] - q.dot(pr.up) * pr.k] };
+        for t in tris {
+            let qs = [t.a.as_dvec3(), (t.a + t.e1).as_dvec3(), (t.a + t.e2).as_dvec3()];
+            let ps = qs.map(xy);
+            let ds = qs.map(|q| q.dot(pr.look));
+            let area2 = (ps[1][0] - ps[0][0]) * (ps[2][1] - ps[0][1]) - (ps[2][0] - ps[0][0]) * (ps[1][1] - ps[0][1]);
+            if area2.abs() < cell * cell {
+                continue; // too small (or edge-on) to cover a cell
+            }
+            let lo = [ps[0][0].min(ps[1][0]).min(ps[2][0]), ps[0][1].min(ps[1][1]).min(ps[2][1])];
+            let hi = [ps[0][0].max(ps[1][0]).max(ps[2][0]), ps[0][1].max(ps[1][1]).max(ps[2][1])];
+            let i0 = ((lo[0] + pad - x0) / cell).ceil().max(0.0) as usize;
+            let j0 = ((lo[1] + pad - y0) / cell).ceil().max(0.0) as usize;
+            let i1 = (((hi[0] - pad - x0) / cell).floor().max(0.0) as usize).min(nx);
+            let j1 = (((hi[1] - pad - y0) / cell).floor().max(0.0) as usize).min(ny);
+            if i0 >= i1 || j0 >= j1 {
+                continue;
+            }
+            // barycentric weights of a paper point (the depth is planar over the triangle)
+            let bary = |x: f64, y: f64| -> [f64; 3] {
+                let w1 = ((x - ps[0][0]) * (ps[2][1] - ps[0][1]) - (ps[2][0] - ps[0][0]) * (y - ps[0][1])) / area2;
+                let w2 = ((ps[1][0] - ps[0][0]) * (y - ps[0][1]) - (x - ps[0][0]) * (ps[1][1] - ps[0][1])) / area2;
+                [1.0 - w1 - w2, w1, w2]
+            };
+            for j in j0..j1 {
+                for i in i0..i1 {
+                    let (cx0, cy0) = (x0 + i as f64 * cell - pad, y0 + j as f64 * cell - pad);
+                    let (cx1, cy1) = (cx0 + cell + 2.0 * pad, cy0 + cell + 2.0 * pad);
+                    let mut deepest = f64::MIN;
+                    let mut inside = true;
+                    for (x, y) in [(cx0, cy0), (cx1, cy0), (cx0, cy1), (cx1, cy1)] {
+                        let w = bary(x, y);
+                        if w.iter().any(|w| *w < 0.0) {
+                            inside = false;
+                            break;
+                        }
+                        deepest = deepest.max(w[0] * ds[0] + w[1] * ds[1] + w[2] * ds[2]);
+                    }
+                    if inside {
+                        let k = j * nx + i;
+                        depth[k] = depth[k].min(deepest + dpad);
+                    }
+                }
+            }
+        }
+        // a point judged here is at most `reach` from the anchor on every axis: its ray to anything in the frame is
+        // shorter than the BVH's `tmax` (2 x (4 x far + 10))
+        Cover { x0, y0, cell, nx, ny, depth, reach: far }
+    }
+
+    /// A cover that knows nothing (every sample casts its ray).
+    fn none() -> Cover {
+        Cover { x0: 0.0, y0: 0.0, cell: 1.0, nx: 0, ny: 0, depth: Vec::new(), reach: 0.0 }
+    }
+
+    /// Is the point `q` (from the anchor), at `xy` on the paper, certainly hidden?
+    #[inline]
+    fn hides(&self, q: DVec3, xy: [f64; 2], look: DVec3) -> bool {
+        let (fx, fy) = ((xy[0] - self.x0) / self.cell, (xy[1] - self.y0) / self.cell);
+        if !(fx >= 0.0 && fy >= 0.0) || q.abs().max_element() > self.reach {
+            return false;
+        }
+        let (i, j) = (fx as usize, fy as usize);
+        i < self.nx && j < self.ny && q.dot(look) > self.depth[j * self.nx + i]
+    }
+}
+
+struct Occluder<'p> {
     bvh: Bvh,
+    cover: Cover,
+    proj: &'p Proj,
     origin: DVec3,
     toward: Vec3,
     tmin: f32,
     tmax: f32,
 }
 
-impl Occluder {
+impl Occluder<'_> {
     #[inline]
     fn visible(&self, p: DVec3) -> bool {
-        let o = (p - self.origin).as_vec3();
-        !self.bvh.blocked(o, self.toward, self.tmin, self.tmax)
+        let q = p - self.origin;
+        if self.cover.hides(q, self.proj.xy(p), self.proj.look) {
+            return false;
+        }
+        !self.bvh.blocked(q.as_vec3(), self.toward, self.tmin, self.tmax)
     }
 }
 
@@ -187,18 +291,20 @@ impl View<'_> {
     /// The drawing's line work: visible spans in the pen, and (when asked) the hidden spans dashed.
     pub fn lines(&self) -> anyhow::Result<Vec<Prim>> {
         let pr = &self.proj;
-        let trace = std::env::var("SKETCHCRAFT_PERF").is_ok_and(|v| v == "full");
-        let t_all = std::time::Instant::now();
         let (tris, far) = self.triangles();
-        let n_tris = tris.len();
-        let t_tris = t_all.elapsed().as_secs_f64() * 1000.0;
         // how far a ray must go to leave what's in the frame, and how close to its start it ignores
         // (worked out from the triangles in the frame alone: what's elsewhere can't change a drawing)
         let reach = far * 4.0 + 10.0;
-        let occ = Occluder { bvh: Bvh::build(tris), origin: pr.anchor, toward: (-pr.look).as_vec3(), tmin: (reach * 2e-6).max(1e-4) as f32, tmax: (reach * 2.0) as f32 };
-        let t_bvh = t_all.elapsed().as_secs_f64() * 1000.0 - t_tris;
+        let tmin = (reach * 2e-6).max(1e-4) as f32;
+        let cover = if self.cover { Cover::new(&tris, pr, &self.rect, tmin as f64, far) } else { Cover::none() };
+        let occ = Occluder { bvh: Bvh::build(tris), cover, proj: pr, origin: pr.anchor, toward: (-pr.look).as_vec3(), tmin, tmax: (reach * 2.0) as f32 };
+        self.pens.with_edges(self.m, |all| self.edge_lines(all, &occ))
+    }
+
+    fn edge_lines(&self, all: &[crate::components::WEdge], occ: &Occluder) -> anyhow::Result<Vec<Prim>> {
+        let pr = &self.proj;
         let mut edges = Vec::new();
-        self.pens.with_edges(self.m, |all| for e in all.iter().filter(|e| !e.soft) {
+        for e in all.iter().filter(|e| !e.soft) {
             let (mut ta, mut tb) = (0.0f64, 1.0f64);
             if let Some((o, d)) = self.clip {
                 let (da, db) = ((e.a - o).dot(d), (e.b - o).dot(d));
@@ -219,21 +325,20 @@ impl View<'_> {
                 continue;
             }
             // the edge's own parameter runs along the whole edge, including any section-clipped part
-            edges.push(Item { path: e.path.clone(), v: e.v, a, b, t0, t1, len, ta, tb, tag: e.tag.clone(), draft: e.draft.clone() });
-        });
+            edges.push(Item { e, a, b, t0, t1, len, ta, tb });
+        }
         let base_ink = self.pens.ink(self.pens.medium);
         let base_ghost = Pen::new(self.pens.thin, self.pens.faint()).dashed(&[1.6, 1.0]);
         let styles = &self.m.drafting;
         let work = |chunk: &[Item]| -> Vec<Prim> {
             let mut out = Vec::new();
             for it in chunk {
-                let Item { path, v, a, b, t0, t1, len, ta, tb, tag, draft } = it;
-                // the pen for this edge: edge override, then its tag, then the default
-                let ink = self.pens.for_tag(styles, tag.as_deref(), draft.as_deref(), base_ink.clone(), false);
-                let ghost = self.pens.for_tag(styles, tag.as_deref(), draft.as_deref(), base_ghost.clone(), true);
+                let Item { e: we, a, b, t0, t1, len, ta, tb } = it;
+                // the pen for this edge (edge override, then its tag, then the default) and its provenance, made once
+                // something of it is drawn
+                let (mut ink, mut ghost, mut edge): (Option<Pen>, Option<Pen>, Option<Arc<EdgeRef>>) = (None, None, None);
                 let (s, e) = (*a + (*b - *a) * *t0, *a + (*b - *a) * *t1);
-                let edge = Arc::new(EdgeRef { path: path.to_vec(), v: *v });
-                for (u0, u1, vis) in spans(&occ, s, e, *len) {
+                for (u0, u1, vis) in spans(occ, s, e, *len) {
                     if !vis && !self.beyond {
                         continue;
                     }
@@ -243,29 +348,20 @@ impl View<'_> {
                     }
                     let (h0, h1) = (t0 + (t1 - t0) * u0, t0 + (t1 - t0) * u1);
                     let (g0, g1) = (ta + (tb - ta) * h0, ta + (tb - ta) * h1);
-                    out.push(Prim::Path(PathPrim {
-                        segs: vec![Seg::M(p), Seg::L(q)],
-                        pen: Some(if vis { ink.clone() } else { ghost.clone() }),
-                        fill: None,
-                        prov: Some(Prov { edge: edge.clone(), t: [g0 as f32, g1 as f32] }),
-                    }));
+                    let pen = if vis {
+                        ink.get_or_insert_with(|| self.pens.for_tag(styles, we.tag.as_deref(), we.draft.as_deref(), base_ink.clone(), false))
+                    } else {
+                        ghost.get_or_insert_with(|| self.pens.for_tag(styles, we.tag.as_deref(), we.draft.as_deref(), base_ghost.clone(), true))
+                    };
+                    let edge = edge.get_or_insert_with(|| Arc::new(EdgeRef { path: we.path.to_vec(), v: we.v }));
+                    out.push(Prim::Path(PathPrim { segs: vec![Seg::M(p), Seg::L(q)], pen: Some(pen.clone()), fill: None, prov: Some(Prov { edge: edge.clone(), t: [g0 as f32, g1 as f32] }) }));
                 }
             }
             out
         };
-        let t_edges = t_all.elapsed().as_secs_f64() * 1000.0;
-        let samples: usize = edges.iter().map(|it| ((it.len / SAMPLE_SPACING).ceil() as usize).clamp(8, 4000) + 1).sum();
-        let short = edges.iter().filter(|it| it.len < 8.0 * SAMPLE_SPACING).count();
-        let report = |n: usize| {
-            if trace {
-                eprintln!("hidden: rect {:?} tris {n_tris} ({t_tris:.0} ms) bvh {t_bvh:.0} ms, edges {} ({short} short) by {t_edges:.0} ms, samples {samples}, {n} prims, total {:.0} ms", self.rect, edges.len(), t_all.elapsed().as_secs_f64() * 1000.0);
-            }
-        };
         let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).min(4);
         if threads < 2 || edges.len() < 2000 {
-            let out = work(&edges);
-            report(out.len());
-            return Ok(out);
+            return Ok(work(&edges));
         }
         let per = edges.len().div_ceil(threads);
         std::thread::scope(|s| {
@@ -280,7 +376,6 @@ impl View<'_> {
                 // a worker that stopped would leave a hole in the drawing: fail the whole drawing
                 out.extend(h.join().map_err(|_| anyhow::anyhow!("a hidden-line worker stopped unexpectedly, so the drawing would be incomplete"))?);
             }
-            report(out.len());
             Ok(out)
         })
     }

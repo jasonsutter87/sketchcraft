@@ -211,15 +211,11 @@ fn title_block(cv: &mut Cv, pens: &Pens, project: &str, title: &str, date: &str,
 pub(crate) fn viewport(m: &Model, bm: &Model, v: &ViewportSpec, pens: &Pens, sh: f64) -> Result<Vec<Prim>> {
     let mut cv = Cv::new(sh);
     let y = |mm: f64| (sh - mm) * PT;
-    let t0 = std::time::Instant::now();
     let (label, denom) = if let Some(z) = v.cut {
         super::project::plan(&mut cv, m, bm, v, z, pens)?
     } else {
         super::project::view(&mut cv, m, bm, v, pens)?
     };
-    if std::env::var("SKETCHCRAFT_PERF").is_ok_and(|v| v == "full") {
-        eprintln!("viewport {label}: {:.0} ms, {} bytes", t0.elapsed().as_secs_f64() * 1000.0, super::cache::bytes_of(&cv.out));
-    }
     cv.rect(v.x * PT, y(v.y + v.h), v.w * PT, v.h * PT, &pens.ink(pens.thin));
     cv.role = Role::Caption;
     cv.text(v.x * PT, y(v.y + v.h + 5.0), &label, 8.0, true, pens.ink, 0.0);

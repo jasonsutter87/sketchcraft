@@ -435,7 +435,7 @@ pub(super) fn view(cv: &mut Cv, m: &Model, bm: &Model, v: &ViewportSpec, pens: &
     let k = 1000.0 / d;
     let proj = Proj::new(anchor, look, k, [v.x + v.w / 2.0, v.y + v.h / 2.0]);
     let rect = [v.x, v.y, v.w, v.h];
-    let hv = View { m, proj: proj.clone(), rect, clip: sec, beyond: v.beyond, pens, inject_panic: false };
+    let hv = View { m, proj: proj.clone(), rect, clip: sec, beyond: v.beyond, pens, inject_panic: false, cover: true };
     let lines = hv.lines()?;
     cv.clipped(v.x * PT, y(v.y + v.h), v.w * PT, v.h * PT, |cv| {
         cv.out.extend(lines);
