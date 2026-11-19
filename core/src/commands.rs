@@ -141,6 +141,7 @@ impl Command {
                 | Command::Save { .. }
                 | Command::ExportObj { .. }
                 | Command::ExportGlb { .. }
+                | Command::ExportFbx { .. }
                 | Command::ExportStl { .. }
                 | Command::ExportDae { .. }
                 | Command::ExportIfc { .. }
@@ -1034,7 +1035,7 @@ impl Engine {
                 Command::Finish { .. } | Command::Options { .. } | Command::Report { .. }
             ) => self.run_annotate(c),
             c @ (
-                Command::Save { .. } | Command::Open { .. } | Command::ExportGlb { .. } | Command::ExportStl { .. } |
+                Command::Save { .. } | Command::Open { .. } | Command::ExportGlb { .. } | Command::ExportFbx { .. } | Command::ExportStl { .. } |
                 Command::ImportDxf { .. } | Command::ImportDwg { .. } | Command::ExportDwg { .. } |
                 Command::ExportIfc { .. } | Command::ExportDae { .. } | Command::ExportDxf { .. } |
                 Command::ExportPdf { .. } | Command::ImportObj { .. } | Command::ImportSkp { .. } |

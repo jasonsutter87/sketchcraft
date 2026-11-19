@@ -25,6 +25,7 @@ pub mod environment;
 pub mod export;
 pub mod export2;
 pub mod fbx;
+pub mod fbx_export;
 pub mod format;
 pub mod geo;
 pub mod helper;

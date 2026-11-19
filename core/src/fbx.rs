@@ -22,7 +22,7 @@ use std::collections::HashMap;
 use std::io::Read;
 
 #[derive(Debug, Clone)]
-enum Prop {
+pub(crate) enum Prop {
     I(i64),
     F(f64),
     S(String),
@@ -32,21 +32,21 @@ enum Prop {
 }
 
 impl Prop {
-    fn int(&self) -> Option<i64> {
+    pub(crate) fn int(&self) -> Option<i64> {
         match self {
             Prop::I(v) => Some(*v),
             Prop::F(v) => Some(*v as i64),
             _ => None,
         }
     }
-    fn num(&self) -> Option<f64> {
+    pub(crate) fn num(&self) -> Option<f64> {
         match self {
             Prop::I(v) => Some(*v as f64),
             Prop::F(v) => Some(*v),
             _ => None,
         }
     }
-    fn str(&self) -> &str {
+    pub(crate) fn str(&self) -> &str {
         match self {
             Prop::S(s) => s,
             _ => "",
@@ -55,21 +55,21 @@ impl Prop {
 }
 
 #[derive(Debug, Default)]
-struct Node {
-    name: String,
-    props: Vec<Prop>,
-    kids: Vec<Node>,
+pub(crate) struct Node {
+    pub(crate) name: String,
+    pub(crate) props: Vec<Prop>,
+    pub(crate) kids: Vec<Node>,
 }
 
 impl Node {
-    fn get(&self, name: &str) -> Option<&Node> {
+    pub(crate) fn get(&self, name: &str) -> Option<&Node> {
         self.kids.iter().find(|k| k.name == name)
     }
-    fn all<'a>(&'a self, name: &'a str) -> impl Iterator<Item = &'a Node> + 'a {
+    pub(crate) fn all<'a>(&'a self, name: &'a str) -> impl Iterator<Item = &'a Node> + 'a {
         self.kids.iter().filter(move |k| k.name == name)
     }
     /// Properties70 "P" entries by name: their values after the 4 header strings.
-    fn p70(&self) -> HashMap<String, Vec<Prop>> {
+    pub(crate) fn p70(&self) -> HashMap<String, Vec<Prop>> {
         let mut out = HashMap::new();
         if let Some(ps) = self.get("Properties70") {
             for p in ps.all("P") {
@@ -192,7 +192,7 @@ impl<'a> Reader<'a> {
     }
 }
 
-fn parse(d: &[u8]) -> Result<Node> {
+pub(crate) fn parse(d: &[u8]) -> Result<Node> {
     if d.len() < 27 || &d[..20] != b"Kaydara FBX Binary  " {
         if d.starts_with(b"; FBX") {
             bail!("this is a text (ASCII) FBX; export it as binary FBX");

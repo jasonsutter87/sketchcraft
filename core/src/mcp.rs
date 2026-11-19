@@ -46,7 +46,7 @@ ORGANIZE
 - intersect {ids, with?: model|selection}: Intersect Faces (draws the crossing lines, splitting faces). flip {ids, axis: red|green|blue}: Flip Along
 - section {origin, normal, path?: .svg|.dxf}: section cut lines + filled regions per object; path writes it flat in mm
 - Sandbox: terrain_from_contours {ids: contour edges/groups, spacing?=1}; terrain_grid {at?, width, depth, spacing?=1}; smoove {group, at, radius, height}; stamp {group, face: footprint, offset?=1}; drape {group, ids: edges}; flip_edge {edge}
-- export_dae {path} (Collada), export_dxf {path} (3D faces, mm), export_pdf {path, title?, + render options}
+- export_fbx {path, binary?=true} (FBX: UVs, materials, textures in <name>_textures/), export_dae {path} (Collada), export_dxf {path} (3D faces, mm), export_pdf {path, title?, + render options}
 - import_fbx {path | data(base64), at?, name?}: binary FBX 7.x -> one component, a group per mesh, material colors
 - (animate, import_ifc, import_dwg and export_dwg start other programs (ffmpeg, Python, DWG converters), so they are the person's: ask them to use the app. Frames or a DXF you can write yourself: render with sketchcraft_render, export_dxf)
 - match_photo {name, width, height, red:[[x1,y1,x2,y2]x2], green:[..x2], origin:[x,y], distance?=15, photo?: data URL}: camera from a photo's vanishing lines, saved as a view with the photo

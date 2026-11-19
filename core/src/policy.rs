@@ -150,6 +150,7 @@ const WRITES: &[(&str, &str, &[&str])] = &[
     ("save", "path", &["sketchcraft"]),
     ("export_obj", "path", &["obj"]),
     ("export_glb", "path", &["glb"]),
+    ("export_fbx", "path", &["fbx"]),
     ("export_stl", "path", &["stl"]),
     ("export_dae", "path", &["dae"]),
     ("export_dxf", "path", &["dxf"]),
@@ -182,7 +183,7 @@ const MODEL: &[&str] = &[
 /// other network-reaching commands are the person's alone. An agent that wants a real site asks the person to add the
 /// location (Model > Add location), or imports terrain it already has as a file (`import_obj`, `terrain_from_contours`).
 const FILES: &[&str] = &[
-    "save", "open", "new", "export_obj", "export_glb", "export_stl", "export_dae", "export_dxf", "export_pdf", "export_ifc", "import_obj", "import_skp", "import_cloud", "import_dxf", "import_fbx", "export_sheets", "sheet_render", "blueprint", "photoreal", "thumbnail", "insert_file", "save_to_library", "library_add", "library", "save_image",
+    "save", "open", "new", "export_obj", "export_glb", "export_fbx", "export_stl", "export_dae", "export_dxf", "export_pdf", "export_ifc", "import_obj", "import_skp", "import_cloud", "import_dxf", "import_fbx", "export_sheets", "sheet_render", "blueprint", "photoreal", "thumbnail", "insert_file", "save_to_library", "library_add", "library", "save_image",
 ];
 
 /// Commands only an agent may add to `MODEL`. `undo`/`redo` are not a plugin's: a plugin run is already one undo step
@@ -570,7 +571,7 @@ pub fn vet(caller: &Caller, cmd: &mut Value) -> Result<(), String> {
             let textures = p.with_file_name(format!("{stem}_textures"));
             let extras: Vec<PathBuf> = match *c {
                 "export_obj" => vec![p.with_extension("mtl"), textures],
-                "export_dae" => vec![textures],
+                "export_dae" | "export_fbx" => vec![textures],
                 _ => vec![],
             };
             for x in extras {

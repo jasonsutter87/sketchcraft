@@ -60,6 +60,10 @@ impl Engine {
                 v
             }
             Command::ExportGlb { path } => json!({"path": path, "triangles": export::write_glb(&self.model, &path)?}),
+            Command::ExportFbx { path, binary } => {
+                let r = crate::fbx_export::write_fbx(&self.model, &path, binary.unwrap_or(true))?;
+                json!({"path": path, "meshes": r.meshes, "triangles": r.triangles, "binary": binary.unwrap_or(true)})
+            }
             Command::ExportStl { path, scale } => json!({"path": path, "triangles": export::write_stl(&self.model, &path, scale)?}),
             Command::ImportDxf { path, text, units, at, name } => {
                 let text = match (text, &path) {

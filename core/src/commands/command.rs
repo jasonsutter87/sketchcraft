@@ -333,6 +333,8 @@ pub enum Command {
     ExportObj { path: String },
     /// Binary glTF (.glb): Blender, three.js, game engines, Quick Look.
     ExportGlb { path: String },
+    /// FBX (.fbx): binary 7.4 by default (`binary` false writes ASCII); a model per group and placement, UVs, materials, textures beside it.
+    ExportFbx { path: String, #[serde(default)] binary: Option<bool> },
     /// Binary STL for 3D printing; `scale` 1000 gives millimeters.
     ExportStl { path: String, #[serde(default = "one")] scale: f64 },
     /// Animation through saved views (or a turntable): `path` .mp4/.mov
