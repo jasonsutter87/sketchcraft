@@ -211,9 +211,9 @@ pub fn layout_table(t: &TableDraw) -> TableLayout {
     for (r, row) in t.rows.iter().enumerate() {
         let mut lines_in_row = 1usize;
         let mut wrapped: Vec<Vec<String>> = Vec::with_capacity(n);
-        for c in 0..n {
+        for (c, w) in widths.iter().enumerate() {
             let s = row.get(c).map_or("", String::as_str);
-            let inner = (widths[c] - 2.0 * px).max(1.0);
+            let inner = (w - 2.0 * px).max(1.0);
             let bold = is_header(t, r, c);
             let lines: Vec<String> = if s.is_empty() { vec![] } else { s.split('\n').flat_map(|l| wrap(l, inner, h, bold)).collect() };
             lines_in_row = lines_in_row.max(lines.len());
@@ -241,8 +241,8 @@ pub fn draw_table(cv: &mut Cv, pens: &Pens, t: &TableDraw, index: u16) {
     let (y0, y1) = (l.ys[0], *l.ys.last().unwrap_or(&l.ys[0]));
     let line = |cv: &mut Cv, a: [f64; 2], b: [f64; 2], w: f64| cv.push(Prim::Path(PathPrim { segs: vec![Seg::M(a), Seg::L(b)], pen: Some(pens.ink(w)), fill: None, prov: None }));
     let hr = t.header_rows.min(t.rows.len());
-    if x1 > x0 && y1 > y0 {
-        if t.border != Border::None {
+    if x1 > x0 && y1 > y0 && t.border != Border::None {
+        {
             // rules between rows (the header's heavy), then columns, then the outline over them
             for (i, y) in l.ys.iter().enumerate().skip(1).take(l.ys.len().saturating_sub(2)) {
                 if i == hr {

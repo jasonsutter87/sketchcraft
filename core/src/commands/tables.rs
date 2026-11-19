@@ -20,10 +20,10 @@ pub fn index_rows(m: &Model) -> Vec<Vec<String>> {
 }
 
 /// A table's rows as drawn: its own, or (linked) the live ones.
-pub fn live_rows<'a>(m: &Model, t: &'a Table) -> std::borrow::Cow<'a, Vec<Vec<String>>> {
+pub fn live_rows<'a>(m: &Model, t: &'a Table) -> std::borrow::Cow<'a, [Vec<String>]> {
     match t.source.as_deref() {
         Some("sheets") => std::borrow::Cow::Owned(index_rows(m)),
-        _ => std::borrow::Cow::Borrowed(&t.rows),
+        _ => std::borrow::Cow::Borrowed(&t.rows[..]),
     }
 }
 

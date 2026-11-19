@@ -387,7 +387,7 @@ fn a_long_text_block_and_a_big_table_lay_out_and_draw_fast() {
     let mut notes = String::new();
     while notes.len() + para.len() < 19_900 {
         notes.push_str(para);
-        if notes.len() % 7 == 0 {
+        if notes.len().is_multiple_of(7) {
             notes.push('\n');
         }
     }
