@@ -24,10 +24,11 @@ import { pickSave, rememberedFile, rememberFile } from "./files";
 import Viewport, { type Backdrop, type BuildSettings, type FaceStyle, type Styles, type Tool, type ViewportApi } from "./Viewport";
 import { MatchPhoto, type PhotoMatch } from "./matchphoto";
 import { prepareImage } from "./textures";
-import { savedSettings } from "./skins";
-import { useLook, type Tab } from "./uselook";
+import { savedSettings, store } from "./skins";
+import { panelTabs, readSideTab, shownTab, SIDE_TAB_KEY, stepTab, type SideTab } from "./sidetabs";
+import { useLook } from "./uselook";
 import { CommandPalette, type Command } from "./palette";
-import { leftTabs, TOOL_INFO, WORKSPACES } from "./workspace";
+import { TOOL_INFO, WORKSPACES } from "./workspace";
 import { useLayout } from "./paper/uselayout";
 import { PagesPanel } from "./paper/PagesPanel";
 import { LayoutStage } from "./paper/LayoutStage";
@@ -144,7 +145,8 @@ function ModelingApp() {
   const [measure, setMeasure] = useState({ label: "", value: "" });
   const [typed, setTyped] = useState("");
   const [toast, setToast] = useState<{ text: string; bad?: boolean; undo?: boolean } | null>(null);
-  const [tab, setTab] = useState<Tab>("outliner");
+  // the Vertical layout remembers the tab you last chose (the other layouts start on the Outliner)
+  const [tab, setTab] = useState<SideTab>(() => (store.get("sketchcraft.layout") === "side" ? readSideTab(store.get(SIDE_TAB_KEY)) : null) ?? "outliner");
   const [styles, setStyles] = useState<Styles>(() => {
     let help = true;
     try {
@@ -189,7 +191,7 @@ function ModelingApp() {
   const [showTimeline, setShowTimeline] = useState(false);
   const [showLearn, setShowLearn] = useState(false);
   const [showAbout, setShowAbout] = useState(false);
-  const { preference, setPreference } = useLocale();
+  const { preference, setPreference, t: tr } = useLocale();
   const [lesson, setLesson] = useState<string | null>(null);
   const [showWs, setShowWs] = useState(false);
   const [placing, setPlacing] = useState<string | null>(null);
@@ -607,9 +609,9 @@ function ModelingApp() {
     styles,
     layout,
     language: preference,
-    showLeft: ws.showLeft,
-    showRight: ws.showRight,
-    leftTabs: leftTabs(wsId),
+    showLeft: layout === "side" ? ws.showLeft || ws.showRight : ws.showLeft,
+    showRight: layout === "side" ? ws.showLeft || ws.showRight : ws.showRight,
+    leftTabs: panelTabs(wsId, layout),
     desktop: inTauri,
     file: {
       new: file.new,
@@ -659,11 +661,22 @@ function ModelingApp() {
     setStyles: (patch) => setStyles((s) => ({ ...s, ...patch })),
     workspaceTo: (id) => switchWs(id as Parameters<typeof switchWs>[0]),
     showTab: (t) => {
-      if (!ws.showLeft) editWs({ showLeft: true });
-      setTab(t);
+      if (!(layout === "side" ? ws.showLeft || ws.showRight : ws.showLeft)) editWs({ showLeft: true });
+      chooseTab(t);
     },
-    showRightPanel: () => ws.showRight || editWs({ showRight: true }),
-    togglePanel: (side) => (side === "left" ? editWs({ showLeft: !ws.showLeft }) : editWs({ showRight: !ws.showRight })),
+    // Vertical: Entity info lives in the Properties tab of the one sidebar
+    showRightPanel: () => {
+      if (layout !== "side") return ws.showRight || editWs({ showRight: true });
+      if (!ws.showLeft && !ws.showRight) editWs({ showLeft: true });
+      chooseTab("properties");
+    },
+    togglePanel: (side) => {
+      if (layout === "side") {
+        const on = ws.showLeft || ws.showRight;
+        return editWs({ showLeft: !on, showRight: !on });
+      }
+      return side === "left" ? editWs({ showLeft: !ws.showLeft }) : editWs({ showRight: !ws.showRight });
+    },
     setLayout,
     setLanguage: setPreference,
     open: {
@@ -696,8 +709,178 @@ function ModelingApp() {
   const docName = currentFile ? currentFile.split("/").pop()!.replace(/\.sketchcraft$/, "") : "Untitled";
   const selCount = selIds(sel).length;
 
+  // the Vertical layout has one sidebar: the lower-right panel becomes its Properties tab
+  const merged = layout === "side";
+  const tabs = panelTabs(wsId, layout);
+  const curTab = shownTab(tab, tabs);
+  const showSide = ws.showLeft || (merged && ws.showRight);
+  const chooseTab = (t: SideTab) => {
+    setTab(t);
+    if (merged) store.set(SIDE_TAB_KEY, t);
+  };
+  const inspector = (
+    <>
+        {inLayout && scene && <LayoutInspector page={L.page} viewport={L.viewport} item={L.item} scene={scene} run={run} setViewport={L.setViewport} setItem={L.setItem} />}
+        {!inLayout && (
+        <>
+        {scene && selCount > 0 && <EntityInfo scene={scene} sel={sel} run={run} />}
+        {selCount === 0 && (
+          <div className="section">
+            <div className="section-title">Document</div>
+            <div className="kv">
+              <span>Faces</span>
+              <b>{scene?.faces.length ?? 0}</b>
+              <span>Groups</span>
+              <b>{scene?.groups.length ?? 0}</b>
+              <span>Components</span>
+              <b>{scene?.instances.length ?? 0}</b>
+              <span>Units</span>
+              <select className="units-select" value={scene?.units || "m"} onChange={(e) => run({ cmd: "units", units: e.target.value })}>
+                {UNIT_OPTIONS.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.label}
+                  </option>
+                ))}
+              </select>
+              <span title="Who stands at the origin of a new model, for a sense of size">Scale figure</span>
+              <select className="units-select" value={figure} onChange={(e) => setFigure(e.target.value as FigureChoice)} title="For new models (File › New). Add one any time from the Library.">
+                <option value="person">Person</option>
+                <option value="beaver">Beaver, with clipboard</option>
+                <option value="none">None</option>
+              </select>
+            </div>
+          </div>
+        )}
+        {selCount === 0 && (
+          <div className="section">
+            <div className="section-title">Style</div>
+            <div className="kv">
+              <span>Preset</span>
+              <select
+                className="units-select"
+                value=""
+                onChange={(e) => {
+                  const p = STYLE_PRESETS.find((x) => x.name === e.target.value);
+                  if (p) setStyles((s) => ({ ...s, ...p.styles }));
+                }}
+              >
+                <option value="">Choose…</option>
+                {STYLE_PRESETS.map((p) => (
+                  <option key={p.name}>{p.name}</option>
+                ))}
+              </select>
+              <span>Faces</span>
+              <select className="units-select" value={styles.face ?? "textured"} onChange={(e) => setStyles((s) => ({ ...s, face: e.target.value as FaceStyle }))}>
+                <option value="textured">Shaded with textures</option>
+                <option value="physical">Physically based (roughness, metal)</option>
+                <option value="shaded">Shaded</option>
+                <option value="monochrome">Monochrome</option>
+                <option value="hiddenline">Hidden line</option>
+                <option value="wireframe">Wireframe</option>
+              </select>
+              <span>Background</span>
+              <select className="units-select" value={styles.background ?? "default"} onChange={(e) => setStyles((s) => ({ ...s, background: e.target.value as Backdrop }))}>
+                <option value="default">Sky and ground</option>
+                <option value="paper">Paper</option>
+                <option value="blueprint">Blueprint</option>
+                <option value="night">Night</option>
+              </select>
+            </div>
+            <div className="style-checks">
+              {(
+                [
+                  ["profiles", "Profiles"],
+                  ["sketchy", "Sketchy edges"],
+                  ["extensions", "Extensions"],
+                  ["lineWeights", "Line weights"],
+                  ["ao", "Ambient occlusion"],
+                ] as [keyof Styles, string][]
+              ).map(([k, label]) => (
+                <label key={k} className="field check">
+                  <input type="checkbox" checked={k === "lineWeights" ? styles[k] !== false : !!styles[k]} onChange={(e) => setStyles((s) => ({ ...s, [k]: e.target.checked }))} />
+                  <span>{label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
+        <div className="section">
+          <div className="section-title">{selCount ? "Fill" : "Paint"}</div>
+          <div className="swatches">
+            {SWATCHES.map((c) => (
+              <button
+                key={hex(c)}
+                className={`swatch ${!paintMaterial && hex(c) === hex(color) ? "on" : ""}`}
+                style={{ background: hex(c) }}
+                onClick={() => {
+                  setColor(c);
+                  const ids = [...sel.faces, ...sel.groups];
+                  if (ids.length) run({ cmd: "paint", ids, color: c });
+                }}
+              />
+            ))}
+          </div>
+        </div>
+        {scene && (
+          <Textures
+            scene={scene}
+            paintMaterial={paintMaterial}
+            choose={(n) => {
+              setPaintMaterial(n);
+              if (n) chooseTool(selCount ? tool : "paint");
+            }}
+            run={run}
+            camera={() => api.current!.camera()}
+            sel={sel}
+            onToast={say}
+          />
+        )}
+        {selCount > 0 && (
+          <div className="section">
+            <div className="section-title">Arrange</div>
+            <div className="btn-grid">
+              {(sel.faces.length > 0 || sel.groups.length + sel.instances.length > 1) && (
+                <button className="btn small" title="Groups and components selected go inside the new group" onClick={() => void groupSelection()}>
+                  Make group
+                </button>
+              )}
+              {(sel.faces.length > 0 || sel.groups.length > 0) && (
+                <button
+                  className="btn small"
+                  onClick={async () => {
+                    const name = await ask("Component name", "Component", undefined, "dialog.componentName");
+                    if (name) run({ cmd: "make_component", ids: [...sel.faces, ...sel.groups], name }).then(() => setSel(EMPTY));
+                  }}
+                >
+                  Make component
+                </button>
+              )}
+              {sel.instances.length > 0 && (
+                <button className="btn small" onClick={() => void explodeSelection()}>
+                  Explode
+                </button>
+              )}
+              <button className="btn small ghost" onClick={() => void hideSelection()}>
+                Hide
+              </button>
+              <button className="btn small danger" onClick={deleteSelection}>
+                Delete
+              </button>
+            </div>
+          </div>
+        )}
+        <div className="section hint">
+          <p>
+            Each tool tells you what to do next, top-left of the model. Press <b>?</b> for every shortcut.
+          </p>
+        </div>
+        </>
+        )}
+    </>
+  );
+
   return (
-    <div className={`app ${inLayout ? "ws-layout" : ""} ${ws.showLeft ? "" : "no-left"} ${ws.showRight ? "" : "no-right"} ${ws.dock === "left" ? "dock-left" : ws.dock === "classic" ? "dock-classic" : ""} ${layout === "side" ? "panels-right" : ""}`}>
+    <div className={`app ${inLayout ? "ws-layout" : ""} ${showSide ? "" : "no-left"} ${ws.showRight && !merged ? "" : "no-right"} ${ws.dock === "left" ? "dock-left" : ws.dock === "classic" ? "dock-classic" : ""} ${layout === "side" ? "panels-right" : ""}`}>
       <header className="topbar" data-tauri-drag-region>
         <div className="brand" data-tauri-drag-region>
           <Logo />
@@ -746,17 +929,30 @@ function ModelingApp() {
       </header>
 
       <aside className="panel left">
-        <div className="tabs">
-          {(leftTabs(wsId) as Tab[]).map((t) => (
-            <button key={t} className={tab === t ? "on" : ""} onClick={() => setTab(t)}>
-              {t === "outliner" ? "Outliner" : t === "library" ? "Library" : t === "pages" ? "Pages" : "Views"}
+        <div
+          className="tabs"
+          role="tablist"
+          aria-label={tr("tab.panel")}
+          onKeyDown={(e) => {
+            const to = stepTab(tabs, curTab, e.key);
+            if (!to) return;
+            e.preventDefault();
+            chooseTab(to);
+            e.currentTarget.querySelectorAll<HTMLElement>('[role="tab"]')[tabs.indexOf(to)]?.focus();
+          }}
+        >
+          {tabs.map((t) => (
+            <button key={t} id={`side-tab-${t}`} role="tab" aria-selected={curTab === t} aria-controls="side-tabpanel" tabIndex={curTab === t ? 0 : -1} className={curTab === t ? "on" : ""} onClick={() => chooseTab(t)}>
+              {t === "outliner" ? "Outliner" : t === "library" ? "Library" : t === "pages" ? "Pages" : t === "properties" ? tr("tab.properties") : "Views"}
+              {t === "properties" && selCount > 0 && curTab !== "properties" && <i className="tab-dot" role="img" aria-label={tr("tab.hasSelection")} title={tr("tab.hasSelection")} />}
             </button>
           ))}
         </div>
-        <div className="section grow">
-          {tab === "pages" && <PagesPanel L={L} />}
-          {scene && tab === "outliner" && <Outliner scene={scene} sel={sel} setSel={setSel} run={run} byTag={!!styles.byTag} setByTag={(on) => setStyles((s) => ({ ...s, byTag: on }))} />}
-          {scene && tab === "library" && (
+        <div id="side-tabpanel" role="tabpanel" aria-labelledby={`side-tab-${curTab}`} className={curTab === "properties" ? "inspector-body" : "section grow"}>
+          {curTab === "properties" && inspector}
+          {curTab === "pages" && <PagesPanel L={L} />}
+          {scene && curTab === "outliner" && <Outliner scene={scene} sel={sel} setSel={setSel} run={run} byTag={!!styles.byTag} setByTag={(on) => setStyles((s) => ({ ...s, byTag: on }))} />}
+          {scene && curTab === "library" && (
             <>
               <Library
                 scene={scene}
@@ -802,7 +998,7 @@ function ModelingApp() {
               </details>
             </>
           )}
-          {scene && tab === "views" && <Views scene={scene} run={run} camera={() => ({ ...api.current!.camera(), ...sceneProps() })} goTo={(c) => showView(c as Parameters<typeof showView>[0])} onMatchPhoto={startMatch} onPhotoModel={() => setShowPhotoModel(true)} onRefImage={() => setShowRef(true)} />}
+          {scene && curTab === "views" && <Views scene={scene} run={run} camera={() => ({ ...api.current!.camera(), ...sceneProps() })} goTo={(c) => showView(c as Parameters<typeof showView>[0])} onMatchPhoto={startMatch} onPhotoModel={() => setShowPhotoModel(true)} onRefImage={() => setShowRef(true)} />}
         </div>
       </aside>
 
@@ -1055,164 +1251,7 @@ function ModelingApp() {
         {menu && scene && <ContextMenu x={menu.x} y={menu.y} close={() => setMenu(null)} items={contextItems(scene, sel, run, setSel, () => api.current?.fit(), api.current?.sectionPlane(), (id) => api.current?.editCage(id), say, { subdivide: askSubdivide, subdBox: addSubdBox })} />}
       </main>
 
-      <aside className="panel right">
-        {inLayout && scene && <LayoutInspector page={L.page} viewport={L.viewport} item={L.item} scene={scene} run={run} setViewport={L.setViewport} setItem={L.setItem} />}
-        {!inLayout && (
-        <>
-        {scene && selCount > 0 && <EntityInfo scene={scene} sel={sel} run={run} />}
-        {selCount === 0 && (
-          <div className="section">
-            <div className="section-title">Document</div>
-            <div className="kv">
-              <span>Faces</span>
-              <b>{scene?.faces.length ?? 0}</b>
-              <span>Groups</span>
-              <b>{scene?.groups.length ?? 0}</b>
-              <span>Components</span>
-              <b>{scene?.instances.length ?? 0}</b>
-              <span>Units</span>
-              <select className="units-select" value={scene?.units || "m"} onChange={(e) => run({ cmd: "units", units: e.target.value })}>
-                {UNIT_OPTIONS.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.label}
-                  </option>
-                ))}
-              </select>
-              <span title="Who stands at the origin of a new model, for a sense of size">Scale figure</span>
-              <select className="units-select" value={figure} onChange={(e) => setFigure(e.target.value as FigureChoice)} title="For new models (File › New). Add one any time from the Library.">
-                <option value="person">Person</option>
-                <option value="beaver">Beaver, with clipboard</option>
-                <option value="none">None</option>
-              </select>
-            </div>
-          </div>
-        )}
-        {selCount === 0 && (
-          <div className="section">
-            <div className="section-title">Style</div>
-            <div className="kv">
-              <span>Preset</span>
-              <select
-                className="units-select"
-                value=""
-                onChange={(e) => {
-                  const p = STYLE_PRESETS.find((x) => x.name === e.target.value);
-                  if (p) setStyles((s) => ({ ...s, ...p.styles }));
-                }}
-              >
-                <option value="">Choose…</option>
-                {STYLE_PRESETS.map((p) => (
-                  <option key={p.name}>{p.name}</option>
-                ))}
-              </select>
-              <span>Faces</span>
-              <select className="units-select" value={styles.face ?? "textured"} onChange={(e) => setStyles((s) => ({ ...s, face: e.target.value as FaceStyle }))}>
-                <option value="textured">Shaded with textures</option>
-                <option value="physical">Physically based (roughness, metal)</option>
-                <option value="shaded">Shaded</option>
-                <option value="monochrome">Monochrome</option>
-                <option value="hiddenline">Hidden line</option>
-                <option value="wireframe">Wireframe</option>
-              </select>
-              <span>Background</span>
-              <select className="units-select" value={styles.background ?? "default"} onChange={(e) => setStyles((s) => ({ ...s, background: e.target.value as Backdrop }))}>
-                <option value="default">Sky and ground</option>
-                <option value="paper">Paper</option>
-                <option value="blueprint">Blueprint</option>
-                <option value="night">Night</option>
-              </select>
-            </div>
-            <div className="style-checks">
-              {(
-                [
-                  ["profiles", "Profiles"],
-                  ["sketchy", "Sketchy edges"],
-                  ["extensions", "Extensions"],
-                  ["lineWeights", "Line weights"],
-                  ["ao", "Ambient occlusion"],
-                ] as [keyof Styles, string][]
-              ).map(([k, label]) => (
-                <label key={k} className="field check">
-                  <input type="checkbox" checked={k === "lineWeights" ? styles[k] !== false : !!styles[k]} onChange={(e) => setStyles((s) => ({ ...s, [k]: e.target.checked }))} />
-                  <span>{label}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-        )}
-        <div className="section">
-          <div className="section-title">{selCount ? "Fill" : "Paint"}</div>
-          <div className="swatches">
-            {SWATCHES.map((c) => (
-              <button
-                key={hex(c)}
-                className={`swatch ${!paintMaterial && hex(c) === hex(color) ? "on" : ""}`}
-                style={{ background: hex(c) }}
-                onClick={() => {
-                  setColor(c);
-                  const ids = [...sel.faces, ...sel.groups];
-                  if (ids.length) run({ cmd: "paint", ids, color: c });
-                }}
-              />
-            ))}
-          </div>
-        </div>
-        {scene && (
-          <Textures
-            scene={scene}
-            paintMaterial={paintMaterial}
-            choose={(n) => {
-              setPaintMaterial(n);
-              if (n) chooseTool(selCount ? tool : "paint");
-            }}
-            run={run}
-            camera={() => api.current!.camera()}
-            sel={sel}
-            onToast={say}
-          />
-        )}
-        {selCount > 0 && (
-          <div className="section">
-            <div className="section-title">Arrange</div>
-            <div className="btn-grid">
-              {(sel.faces.length > 0 || sel.groups.length + sel.instances.length > 1) && (
-                <button className="btn small" title="Groups and components selected go inside the new group" onClick={() => void groupSelection()}>
-                  Make group
-                </button>
-              )}
-              {(sel.faces.length > 0 || sel.groups.length > 0) && (
-                <button
-                  className="btn small"
-                  onClick={async () => {
-                    const name = await ask("Component name", "Component", undefined, "dialog.componentName");
-                    if (name) run({ cmd: "make_component", ids: [...sel.faces, ...sel.groups], name }).then(() => setSel(EMPTY));
-                  }}
-                >
-                  Make component
-                </button>
-              )}
-              {sel.instances.length > 0 && (
-                <button className="btn small" onClick={() => void explodeSelection()}>
-                  Explode
-                </button>
-              )}
-              <button className="btn small ghost" onClick={() => void hideSelection()}>
-                Hide
-              </button>
-              <button className="btn small danger" onClick={deleteSelection}>
-                Delete
-              </button>
-            </div>
-          </div>
-        )}
-        <div className="section hint">
-          <p>
-            Each tool tells you what to do next, top-left of the model. Press <b>?</b> for every shortcut.
-          </p>
-        </div>
-        </>
-        )}
-      </aside>
+      {!merged && <aside className="panel right">{inspector}</aside>}
     </div>
   );
 }
