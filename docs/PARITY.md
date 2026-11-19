@@ -37,7 +37,7 @@ Checked items are in `main`.
 ## Files
 
 - [x] Import: SketchUp `.skp` (6–8 and 2013+), **DXF** (layers as tags, blocks, units, text as labels, dimensions, splines, ellipses, hatches), **DWG** (via LibreDWG / ODA converter; tested on AutoCAD 2004 and 2018 files), OBJ (+ .mtl), binary FBX, **IFC** (Revit / ArchiCAD exports; through IfcOpenShell: elements typed for the Classifier, grouped and tagged by storey, openings cut)
-- [x] Export: glTF, OBJ, Collada (all with textures), STL, 3D DXF, **DWG** (via converter), PDF, section cuts (SVG / DXF), IFC4 (BIM)
+- [x] Export: glTF, **FBX** (binary or ASCII; UVs, materials, textures, nested groups), OBJ, Collada (all with textures), STL, 3D DXF, **DWG** (via converter), PDF, section cuts (SVG / DXF), IFC4 (BIM)
 - [x] **Raise walls** from an imported floor plan (wall bands found across T-junctions, window lines and drafting slips; window openings with sill and head)
 - [x] **Point clouds** (Scan Essentials core): PLY, LAS, XYZ / PTS / TXT; colored, thinned to a budget, survey coordinates moved home; drawing tools snap to scan points
 - [x] **Classifier** (IFC types) and **Generate Report** (CSV); IFC export validated with IfcOpenShell (`tools/ifc/check_ifc.py`)

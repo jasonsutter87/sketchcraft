@@ -524,7 +524,7 @@ function ModelingApp() {
       { id: "file.saveas", label: "Save As…", hint: "File", run: () => file.save(true) },
       { label: "Restore from backup…", hint: "File · earlier copies of this model, and work set aside", run: () => setShowRestore(true) },
       { id: "file.import", label: "Import…", hint: "File · SketchUp, DWG/DXF, IFC, FBX, OBJ, point clouds", run: file.import },
-      ...(["glb", "obj", "stl", "dae", "dxf", "dwg", "pdf", "ifc"] as const).map((k) => ({ label: `Export ${k.toUpperCase()}…`, hint: "File", run: () => file.export(k) })),
+      ...(["glb", "fbx", "obj", "stl", "dae", "dxf", "dwg", "pdf", "ifc"] as const).map((k) => ({ label: `Export ${k.toUpperCase()}…`, hint: "File", run: () => file.export(k) })),
       { id: "file.render", label: "Render…", hint: "Photoreal render", run: () => setShowRender(true) },
       { id: "file.timeline", label: "Timeline (video)…", hint: "Turntables, walkthroughs, sun studies", run: () => setShowTimeline(true) },
       { label: "Drawing sheets (PDF)…", hint: "File", run: () => setShowSheets(true) },

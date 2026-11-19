@@ -7,6 +7,9 @@ What changed in each SketchCraft release, newest first. The format follows
 ## [Unreleased]
 
 ### Added
+- **Export to FBX.** File > Export > FBX writes a model for Unity, Unreal, Blender and Maya: each group and component is
+  its own object, nested as in your model and keeping its name, with normals, texture coordinates, materials and the
+  pictures used as textures (saved in a folder beside the file). Metres, Y up. Agents use `export_fbx`.
 - **A texturing test set in the Library.** Six small models made to try textures on: the beaver, dice, a drinks can, a
   globe on a stand, a wooden crate of separate planks, and a soccer ball with 12 pentagons and 20 hexagons. Open the
   Library's **Texturing test set** section and click one to place it at its real size (Italian names included). The

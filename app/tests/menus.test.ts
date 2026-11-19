@@ -84,7 +84,8 @@ describe("the menus", () => {
     a["tool:room"].run();
     a["view.xray"].run();
     a["file.export.glb"].run();
-    expect(calls).toEqual(["file.new()", "tool(room)", "toggleStyle(xray)", "file.export(glb)"]);
+    a["file.export.fbx"].run();
+    expect(calls).toEqual(["file.new()", "tool(room)", "toggleStyle(xray)", "file.export(glb)", "file.export(fbx)"]);
   });
 
   it("offer only tools the app has", () => {

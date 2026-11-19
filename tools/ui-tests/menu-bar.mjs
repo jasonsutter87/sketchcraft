@@ -5,8 +5,9 @@
 // promise and the contributors, Italian renames the menus, and the bar and its menus fit in every layout and theme.
 //   node tools/ui-tests/run.mjs menu-bar
 // Like the other suites it runs on a scratch model, in a browser pinned to en-US, with real pointer and key events.
+import fs from 'node:fs';
 import path from 'node:path';
-import { launch, PAGE, ROOT } from '../demos/lib.mjs';
+import { exec, launch, PAGE, ROOT } from '../demos/lib.mjs';
 
 if (!process.env.SKETCHCRAFT_DOC) {
   console.error('Set SKETCHCRAFT_DOC to a scratch model path (and run the bridge with the same); tools/ui-tests/run.mjs does.');
@@ -464,6 +465,30 @@ for (const layout of ['classic', 'floating', 'side']) {
     await p.keyboard.press('Escape');
     await ctx.close();
   }
+}
+
+// ---- File > Export > FBX writes a real file -----------------------------------------------------------------------------------
+{
+  const { p, ctx } = await open();
+  const out = path.join(path.dirname(process.env.SKETCHCRAFT_DOC), 'menu-export.fbx');
+  fs.rmSync(out, { force: true });
+  const rect = await exec({ cmd: 'rect', from: [0, 0, 0], to: [2, 1, 0] });
+  await exec({ cmd: 'pushpull', face: rect.face, distance: 1 });
+  p.removeAllListeners('dialog');
+  p.on('dialog', (d) => (d.type() === 'prompt' ? d.accept(out) : d.dismiss()).catch(() => {}));
+  await openMenu(p, 'File');
+  await p.getByRole('menuitem', { name: 'Export' }).hover();
+  await item(p, 'file.export.fbx').waitFor();
+  check((await item(p, 'file.export.fbx').innerText()).includes('FBX'), 'File > Export lists FBX');
+  const sent = execRequest(p, 'export_fbx');
+  await item(p, 'file.export.fbx').click();
+  await sent.then(() => check(true, 'choosing FBX sends export_fbx'), () => check(false, 'choosing FBX sends export_fbx'));
+  for (let i = 0; i < 50 && !fs.existsSync(out); i++) await wait(100);
+  const size = fs.existsSync(out) ? fs.statSync(out).size : 0;
+  check(size > 0, `the FBX file exists and is not empty (${size} bytes)`);
+  check(size > 27 && fs.readFileSync(out).subarray(0, 20).toString('latin1') === 'Kaydara FBX Binary  ', 'it is a binary FBX');
+  fs.rmSync(out, { force: true });
+  await ctx.close();
 }
 
 // ---- narrow windows ----------------------------------------------------------------------------------------------------------

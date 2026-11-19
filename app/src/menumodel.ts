@@ -31,6 +31,7 @@ const tool = (name: string, label = `tool.${name}`): MenuItem => ({ id: `tool:${
 /** the formats of File > Export: [engine format, name]; the same name in every language */
 export const EXPORT_FORMATS: [string, string][] = [
   ["glb", "glTF (.glb)…"],
+  ["fbx", "FBX (.fbx)…"],
   ["obj", "OBJ…"],
   ["stl", "STL (mm)…"],
   ["dae", "Collada (.dae)…"],

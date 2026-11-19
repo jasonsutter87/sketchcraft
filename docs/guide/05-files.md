@@ -116,9 +116,17 @@ the walls go up, with openings where the windows are.
 
 ## Exporting
 
-**File › Export ▸**: glTF (`.glb`), OBJ, STL (for 3D printing), Collada
+**File › Export ▸**: glTF (`.glb`), FBX (`.fbx`), OBJ, STL (for 3D printing), Collada
 (`.dae`), 3D DXF, DWG, IFC, a PDF or PNG of the view, a scene tour (MP4), and
 section cuts (SVG, DXF). Also on the File menu: **Make blueprint (PDF)**,
 **Drawing sheets (PDF)** at true scale, and **Generate report (CSV)**.
+
+**FBX** is for game engines and 3D tools (Unity, Unreal, Blender, Maya). Every group and
+component becomes its own object, nested the way it is nested in your model and
+keeping its name. Faces come out as triangles with normals, texture coordinates and
+materials (colour, finish). Pictures used as textures are saved beside the file in a
+`<name>_textures` folder and linked by a relative path, so keep the two together.
+Units are metres and Y is up. It is binary FBX (7.4); agents can ask for the text
+version with `binary: false` (Blender doesn't open text FBX).
 
 Next: [Presenting](06-presenting.md)

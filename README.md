@@ -68,7 +68,7 @@ own themes, docked or floating tool bars, and your own tool icons.
 | **3D models** (`.fbx`, `.obj`) | |
 | **3D scans** (`.ply`, `.las`, `.xyz`, `.pts`) | point clouds you can snap to |
 
-It saves glTF, OBJ, STL (3D printing), Collada, DXF, DWG, IFC, PDF, PNG and MP4.
+It saves glTF, FBX, OBJ, STL (3D printing), Collada, DXF, DWG, IFC, PDF, PNG and MP4.
 
 ## New to SketchCraft?
 

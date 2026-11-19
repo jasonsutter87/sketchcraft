@@ -181,7 +181,7 @@ export function useFileActions({ run, say, refresh, api, scene, figure, currentF
       const path = await pickOpen();
       if (path) await importPath(path);
     },
-    export: async (kind: "obj" | "glb" | "stl" | "dae" | "dxf" | "dwg" | "pdf" | "ifc") => {
+    export: async (kind: "obj" | "glb" | "fbx" | "stl" | "dae" | "dxf" | "dwg" | "pdf" | "ifc") => {
       const base = modelBase(currentFile);
       const path = await pickSave(`${base}.${kind}`, kind, kind.toUpperCase());
       if (!path) return;
