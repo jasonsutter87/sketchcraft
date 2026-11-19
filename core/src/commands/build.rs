@@ -53,21 +53,23 @@ impl Engine {
                     "moves": p.moves.iter().map(|(v, k)| json!({"v": v, "at": a(m.p(*v)), "per_m": a(*k)})).collect::<Vec<_>>(),
                 })
             }
-            Command::RoomRect { from, to, thickness, height, name } => {
-                let (g, plan, walls, floor) = m.room_rect(v3(from), v3(to), thickness, height, name)?;
-                let mut out = room_plan_json(m, &plan);
-                out["group"] = json!(g);
-                out["name"] = json!(m.groups[&g].name);
-                out["walls"] = json!(walls);
-                out["floor"] = json!(floor);
+            Command::RoomRect { from, to, thickness, height, name, mode } => {
+                let built = m.room_rect(v3(from), v3(to), thickness, height, name, mode)?;
+                let mut out = room_plan_json(m, &built.plan);
+                out["group"] = json!(built.room);
+                out["name"] = json!(m.groups[&built.room].name);
+                out["walls"] = json!(built.walls);
+                out["floor"] = json!(built.floor);
+                out["kept_openings"] = json!(built.kept);
+                out["removed_openings"] = json!(built.removed);
                 out
             }
-            Command::RoomPreview { from, to, thickness } => room_plan_json(m, &m.room_plan(v3(from), v3(to), thickness)?),
+            Command::RoomPreview { from, to, thickness, mode } => room_plan_json(m, &m.room_plan_mode(v3(from), v3(to), thickness, mode)?),
             Command::Rooms => {
                 let list: Vec<Value> = m
                     .rooms()
                     .iter()
-                    .map(|r| json!({"id": r.id, "name": r.name, "floor": r.floor, "inside": r.inside, "z": r.z, "thickness": r.thickness, "area": r.area, "center": [(r.inside[0] + r.inside[2]) / 2.0, (r.inside[1] + r.inside[3]) / 2.0, r.z]}))
+                    .map(|r| json!({"id": r.id, "name": r.name, "floor": r.floor, "inside": r.inside, "outline": r.outline, "z": r.z, "thickness": r.thickness, "area": r.area, "center": [r.label[0], r.label[1], r.z]}))
                     .collect();
                 json!({"rooms": list})
             }
@@ -91,5 +93,10 @@ impl Engine {
 
 fn room_plan_json(m: &crate::Model, p: &crate::room::RoomPlan) -> Value {
     let shared: Vec<Value> = p.shared.iter().map(|(id, side)| json!({"room": id, "name": m.groups.get(id).map(|g| g.name.clone()), "side": side})).collect();
-    json!({"rect": p.rect, "inside": p.inside, "width": p.inside[2] - p.inside[0], "depth": p.inside[3] - p.inside[1], "area": p.area, "thickness": p.thickness, "shared": shared, "snapped": p.snapped})
+    let target = p.target.as_ref().map(|(id, name)| json!({"room": id, "name": name}));
+    json!({
+        "rect": p.rect, "inside": p.inside, "width": p.inside[2] - p.inside[0], "depth": p.inside[3] - p.inside[1], "area": p.area, "thickness": p.thickness,
+        "shared": shared, "snapped": p.snapped, "mode": p.mode.name(), "target": target,
+        "outline": p.outline, "centre_outline": p.centre_outline, "label": p.label,
+    })
 }

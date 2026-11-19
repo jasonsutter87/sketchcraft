@@ -1315,6 +1315,10 @@ pub enum Command {
         height: f64,
         #[serde(default)]
         name: Option<String>,
+        /// `new` (default): an overlap is refused. `combine`: join the room the box overlaps (outline = union).
+        /// `subtract`: cut the box out of the room it overlaps.
+        #[serde(default)]
+        mode: crate::room::RoomMode,
     },
     /// What `room_rect` would do for these corners, without doing it: the snapped rectangle, the inside size and area,
     /// the rooms whose walls it would share, or why it would be refused. Read-only.
@@ -1323,6 +1327,8 @@ pub enum Command {
         to: [f64; 3],
         #[serde(default = "wall_t")]
         thickness: f64,
+        #[serde(default)]
+        mode: crate::room::RoomMode,
     },
     /// The rooms in the model: name, inside rectangle, area (m²) and wall thickness. Read-only.
     Rooms,
