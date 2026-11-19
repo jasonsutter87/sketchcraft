@@ -32,6 +32,21 @@ impl Mapping {
         Mapping { u, v, origin, width: t.width.max(1e-6), height: t.height.max(1e-6) }
     }
 
+    /// The mapping for one face: its painted-through placement while that still holds (same material, axes in
+    /// the face's plane, not a projected texture), else the material's own rule.
+    pub fn of_face(t: &Texture, f: &crate::components::WFace) -> Mapping {
+        if t.project.is_none() {
+            if let Some(p) = f.place.as_ref().filter(|p| f.material.as_deref() == Some(p.material.as_str())) {
+                let (u, v) = (DVec3::from(p.u), DVec3::from(p.v));
+                let ok = |a: DVec3| (a.length() - 1.0).abs() < 1e-6 && a.dot(f.normal).abs() < 1e-4;
+                if ok(u) && ok(v) {
+                    return Mapping { u, v, origin: DVec3::from(p.origin), width: t.width.max(1e-6), height: t.height.max(1e-6) };
+                }
+            }
+        }
+        Mapping::of(t, f.normal)
+    }
+
     /// (u, v) with v up the image (the viewport's convention)
     pub fn uv(&self, p: DVec3) -> [f64; 2] {
         let q = p - self.origin;

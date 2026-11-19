@@ -50,7 +50,7 @@ pub fn build(root: &Model, ctx: Option<u32>) -> Value {
             None => -1,
         };
         // tile axes: along the face, or along the projection direction
-        let map = tex.as_ref().map(|(_, t)| crate::texmap::Mapping::of(t, f.normal));
+        let map = tex.as_ref().map(|(_, t)| crate::texmap::Mapping::of_face(t, &f));
         let color = f.color.unwrap_or(DEFAULT_COLOR);
         let (rough, metal) = f.material.as_ref().and_then(|n| root.find_material(n).map(|m| m.pbr(n))).unwrap_or((0.7, 0.0));
         // painted faces show paint on both sides; bare backs are blue

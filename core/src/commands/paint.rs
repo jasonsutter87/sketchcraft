@@ -7,14 +7,32 @@ impl Engine {
     pub(super) fn run_paint(&mut self, cmd: Command) -> Result<Value> {
         let m: &mut Model = active_model!(self);
         Ok(match cmd {
-            Command::Paint { ids, color, material } => match (material, color) {
-                (Some(name), _) => {
-                    m.paint_material(&ids, &name)?;
-                    json!({"material": name})
+            Command::Paint { ids, color, material, scope, through } => {
+                let spreads = scope.as_deref().is_some_and(|s| s != "face");
+                if !spreads && !through {
+                    return Ok(match (material, color) {
+                        (Some(name), _) => {
+                            m.paint_material(&ids, &name)?;
+                            json!({"material": name})
+                        }
+                        (None, Some(c)) => json!({"material": m.paint(&ids, c)?}),
+                        _ => bail!("paint needs a color or a material"),
+                    });
                 }
-                (None, Some(c)) => json!({"material": m.paint(&ids, c)?}),
-                _ => bail!("paint needs a color or a material"),
-            },
+                // the reach is worked out before anything changes (it depends on the old materials)
+                let mut faces = m.paint_targets(&ids, scope.as_deref())?;
+                // the clicked faces first: they get the material's own placement, the rest continue from them
+                let clicked = m.faces_of(&ids)?;
+                faces.sort_by_key(|f| !clicked.contains(f));
+                let name = match (material, color) {
+                    (Some(name), _) => name,
+                    (None, Some(c)) => m.color_material(c),
+                    _ => bail!("paint needs a color or a material"),
+                };
+                let continuous = through || matches!(scope.as_deref(), Some("connected" | "object"));
+                m.apply_paint(&faces, &name, continuous)?;
+                json!({"material": name, "faces": faces})
+            }
             Command::Texture { name, data, width, height, color, project, origin } => {
                 let mat = m.materials.entry(name.clone()).or_default();
                 let mut tex = mat.texture.clone().unwrap_or(crate::model::Texture { data: String::new(), width: 1.0, height: 1.0, project: None, origin: None });

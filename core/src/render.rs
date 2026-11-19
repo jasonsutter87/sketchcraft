@@ -522,7 +522,7 @@ pub fn render(model: &Model, opts: &RenderOpts) -> RgbImage {
         };
         let textured = images.as_ref().and_then(|imgs| {
             let (name, t) = crate::texmap::of_face(model, &f)?;
-            Some((crate::texmap::Mapping::of(t, n), imgs.get(name)?))
+            Some((crate::texmap::Mapping::of_face(t, &f), imgs.get(name)?))
         });
         if let Some((map, img)) = textured {
             let k = shade([1.0, 1.0, 1.0], if front { n } else { -n })[0].min(1.0);

@@ -102,7 +102,7 @@ pub fn write_dae(m: &Model, path: &str) -> Result<usize> {
         for f in faces {
             let ti = tex_index(f);
             let mi = ti.unwrap_or_else(|| colors.iter().position(|c| *c == color_of(f)).unwrap_or(0));
-            let map = crate::texmap::of_face(m, f).map(|(_, t)| crate::texmap::Mapping::of(t, f.normal));
+            let map = crate::texmap::of_face(m, f).map(|(_, t)| crate::texmap::Mapping::of_face(t, f));
             for t in geom::triangulate(&f.outer, &f.holes, f.normal) {
                 let base = pos.len() / 3;
                 for p in t {

@@ -89,6 +89,15 @@ pub enum Command {
         /// a material by name (an image material from `texture`)
         #[serde(default)]
         material: Option<String>,
+        /// how far from the given faces the paint spreads: "face" (default), "connected" (touching faces with the
+        /// same material, stopping at any other), "all" (every face in the group with that material) or "object"
+        /// (faces with that material anywhere on the connected mesh)
+        #[serde(default)]
+        scope: Option<String>,
+        /// lay a picture material across touching painted faces as one continuous sheet (always on for
+        /// "connected" and "object")
+        #[serde(default)]
+        through: bool,
     },
     /// Create or update an image material. `data` is a data: URL; `width` and
     /// `height` are meters per tile; `project` [x,y,z] projects it along a

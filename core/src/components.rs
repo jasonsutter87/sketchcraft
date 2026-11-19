@@ -20,6 +20,8 @@ pub struct WFace {
     pub color: Option<[f32; 3]>,
     /// material name (look it up in the model, or the component that owns it)
     pub material: Option<String>,
+    /// where its picture sits when painted through (root faces only)
+    pub place: Option<crate::model::TexPlace>,
     /// what a section groups this face's cut under (design §3.4): the innermost tagged owner around the face (its
     /// group or a parent group, else the nearest tagged placement or a group around it, outward), named by its own
     /// id when it is in the root model and by the top-level placement's id when it is inside a component; with no
@@ -173,6 +175,7 @@ impl Model {
                 normal,
                 color: f.material.as_ref().and_then(|m| self.materials.get(m)).map(|m| m.color).or(fill),
                 material: f.material.clone(),
+                place: if owner.is_none() { f.tex.clone() } else { None },
             });
         }
         for (&iid, inst) in &self.instances {
@@ -396,6 +399,7 @@ impl Model {
                 material: f.material.clone(),
                 group: Some(gid),
                 hidden: false,
+                tex: None,
             };
             if mirror {
                 nf.reverse();

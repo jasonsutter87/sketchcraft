@@ -63,6 +63,19 @@ pub struct Face {
     pub group: Option<Id>,
     #[serde(default, skip_serializing_if = "is_false")]
     pub hidden: bool,
+    /// where this face's picture sits when it was painted through from a neighbour (none: the material's own rule)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tex: Option<TexPlace>,
+}
+
+/// A picture's placement on one face: unit axes lying in the face plane and the point the image corner sits on.
+/// Used only while the face still wears `material` and the axes still lie in its plane.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TexPlace {
+    pub material: String,
+    pub u: [f64; 3],
+    pub v: [f64; 3],
+    pub origin: [f64; 3],
 }
 
 #[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize)]
@@ -1168,6 +1181,7 @@ impl Model {
                 material: f.material.clone(),
                 group: Some(new),
                 hidden: f.hidden,
+                tex: None,
             };
             self.faces.insert(id, face);
         }
@@ -1183,6 +1197,17 @@ impl Model {
     }
 
     pub fn paint(&mut self, ids: &[Id], color: [f32; 3]) -> Result<String> {
+        let name = self.color_material(color);
+        for f in self.faces_of(ids)? {
+            let face = self.faces.get_mut(&f).unwrap();
+            face.material = Some(name.clone());
+            face.tex = None;
+        }
+        Ok(name)
+    }
+
+    /// The plain-color material for `color` (made if it isn't there yet); its name.
+    pub fn color_material(&mut self, color: [f32; 3]) -> String {
         let name = format!(
             "#{:02x}{:02x}{:02x}",
             (color[0].clamp(0.0, 1.0) * 255.0).round() as u8,
@@ -1190,10 +1215,7 @@ impl Model {
             (color[2].clamp(0.0, 1.0) * 255.0).round() as u8
         );
         self.materials.entry(name.clone()).or_insert(Material { color, texture: None, opacity: 1.0, ..Default::default() });
-        for f in self.faces_of(ids)? {
-            self.faces.get_mut(&f).unwrap().material = Some(name.clone());
-        }
-        Ok(name)
+        name
     }
 
     /// Paint faces (or whole groups) with an existing material by name.
@@ -1202,7 +1224,133 @@ impl Model {
             bail!("no material {name}");
         }
         for f in self.faces_of(ids)? {
-            self.faces.get_mut(&f).unwrap().material = Some(name.to_string());
+            let face = self.faces.get_mut(&f).unwrap();
+            face.material = Some(name.to_string());
+            face.tex = None;
+        }
+        Ok(())
+    }
+
+    /// The faces a Paint Bucket click reaches from the clicked faces `seeds`, in the seed's group.
+    /// - `face` (or none): just the seeds.
+    /// - `connected`: faces joined to a seed through shared edges that wear the seed's material; the spread stops
+    ///   at a face with any other material (it is not crossed), and it crosses hard and soft edges alike.
+    /// - `all`: every face in the group with the seed's material, joined or not.
+    /// - `object`: faces with the seed's material anywhere on the connected mesh, crossing faces of other materials.
+    ///
+    /// Hidden faces are skipped. The result is in face-id order.
+    pub fn paint_targets(&self, seeds: &[Id], scope: Option<&str>) -> Result<Vec<Id>> {
+        let seeds = self.faces_of(seeds)?;
+        let scope = scope.unwrap_or("face");
+        if scope == "face" {
+            return Ok(seeds);
+        }
+        if !matches!(scope, "connected" | "all" | "object") {
+            bail!("unknown paint scope {scope} (face, connected, all or object)");
+        }
+        let mut out = BTreeSet::new();
+        // faces next to each other through a shared edge, per group
+        let mut by_edge: HashMap<(Option<Id>, Id, Id), Vec<Id>> = HashMap::new();
+        if scope != "all" {
+            for (&id, f) in self.faces.iter().filter(|(_, f)| !f.hidden) {
+                for l in f.loops() {
+                    for (a, b) in pairs(l) {
+                        by_edge.entry((f.group, a.min(b), a.max(b))).or_default().push(id);
+                    }
+                }
+            }
+        }
+        for &s in &seeds {
+            let sf = &self.faces[&s];
+            let (group, mat) = (sf.group, sf.material.clone());
+            if scope == "all" {
+                out.extend(self.faces.iter().filter(|(_, f)| f.group == group && f.material == mat && !f.hidden).map(|(&k, _)| k));
+                continue;
+            }
+            let through_other = scope == "object";
+            let mut seen: BTreeSet<Id> = BTreeSet::from([s]);
+            let mut todo = vec![s];
+            while let Some(id) = todo.pop() {
+                for l in self.faces[&id].loops() {
+                    for (a, b) in pairs(l) {
+                        for &n in by_edge.get(&(group, a.min(b), a.max(b))).into_iter().flatten() {
+                            if (through_other || self.faces[&n].material == mat) && seen.insert(n) {
+                                todo.push(n);
+                            }
+                        }
+                    }
+                }
+            }
+            out.extend(seen.into_iter().filter(|id| self.faces[id].material == mat));
+        }
+        Ok(out.into_iter().collect())
+    }
+
+    /// Give `faces` the material `name`. With `through`, a picture material is laid across the faces that touch
+    /// along an edge as one continuous sheet: the first face of each touching run gets the material's own
+    /// placement, every neighbour's is that placement unfolded across the shared edge (same tile size, lined up
+    /// on the edge, turned into the neighbour's plane). Plain colors and projected pictures just fill.
+    pub fn apply_paint(&mut self, faces: &[Id], name: &str, through: bool) -> Result<()> {
+        let tex = self.materials.get(name).ok_or_else(|| anyhow::anyhow!("no material {name}"))?.texture.clone();
+        for f in faces {
+            let face = self.faces.get_mut(f).ok_or_else(|| anyhow::anyhow!("{f} is not a face"))?;
+            face.material = Some(name.to_string());
+            face.tex = None;
+        }
+        if !through || tex.is_none_or(|t| t.project.is_some()) {
+            return Ok(());
+        }
+        let set: BTreeSet<Id> = faces.iter().copied().collect();
+        let mut by_edge: HashMap<(Option<Id>, Id, Id), Vec<Id>> = HashMap::new();
+        for &id in &set {
+            let f = &self.faces[&id];
+            for l in f.loops() {
+                for (a, b) in pairs(l) {
+                    by_edge.entry((f.group, a.min(b), a.max(b))).or_default().push(id);
+                }
+            }
+        }
+        let mut placed: BTreeSet<Id> = BTreeSet::new();
+        for &start in faces {
+            if placed.contains(&start) {
+                continue;
+            }
+            let n0 = self.normal(start);
+            let (u, v) = geom::basis(n0);
+            self.faces.get_mut(&start).unwrap().tex = Some(TexPlace { material: name.to_string(), u: u.into(), v: v.into(), origin: [0.0; 3] });
+            placed.insert(start);
+            let mut todo = vec![start];
+            while let Some(a) = todo.pop() {
+                let (fa, na) = (self.faces[&a].clone(), self.normal(a));
+                let pa = fa.tex.clone().unwrap();
+                for l in fa.loops() {
+                    for (i, j) in pairs(l) {
+                        let key = (fa.group, i.min(j), i.max(j));
+                        for &b in by_edge.get(&key).into_iter().flatten() {
+                            if placed.contains(&b) {
+                                continue;
+                            }
+                            let nb = self.normal(b);
+                            let (p0, p1) = (self.vertices[&i].p, self.vertices[&j].p);
+                            let e = (p1 - p0).normalize_or_zero();
+                            if e == DVec3::ZERO || nb == DVec3::ZERO {
+                                continue;
+                            }
+                            let angle = na.cross(nb).dot(e).atan2(na.dot(nb));
+                            let q = glam::DQuat::from_axis_angle(e, angle);
+                            let place = TexPlace {
+                                material: name.to_string(),
+                                u: (q * DVec3::from(pa.u)).normalize().into(),
+                                v: (q * DVec3::from(pa.v)).normalize().into(),
+                                origin: (p0 + q * (DVec3::from(pa.origin) - p0)).into(),
+                            };
+                            self.faces.get_mut(&b).unwrap().tex = Some(place);
+                            placed.insert(b);
+                            todo.push(b);
+                        }
+                    }
+                }
+            }
         }
         Ok(())
     }
