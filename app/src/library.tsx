@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { ask } from "./ask";
 import { ASSETS, exec, type Scene } from "./engine";
 import { FIXTURE_GROUPS, FIXTURES, sizeText } from "./fixtures";
+import { TEXTURING_SET, setSizeText } from "./texturing-set";
 import { useLocale } from "./locale";
 import { pickOpen } from "./files";
 import { Icons } from "./icons";
@@ -78,6 +79,9 @@ export function Library({ scene, place, placing, run, onToast }: { scene: Scene;
     label: t(`fixtures.${g}`),
     items: FIXTURES.filter((f) => f.group === g && (match(t(`fixture.${f.key}`)) || match(t(`fixtures.${g}`)))),
   })).filter((g) => g.items.length > 0);
+
+  // the texturing test set: found by name or by the collection name
+  const setItems = TEXTURING_SET.filter((m) => match(t(`texset.${m.key}`)) || match(t("texset.title")));
 
   const tile = (key: string, name: string, thumbKey: string, req: Record<string, unknown>, title: string, extra?: React.ReactNode) => (
     <div key={key} className={`tile comp ${placing === key ? "on" : ""}`} title={title}>
@@ -190,6 +194,16 @@ export function Library({ scene, place, placing, run, onToast }: { scene: Scene;
               </div>
             </details>
           ))}
+        </details>
+      )}
+      {setItems.length > 0 && (
+        <details className="collection texset" open={q.trim() !== ""}>
+          <summary title={t("texset.tip")}>{t("texset.title")}</summary>
+          <div className="tiles">
+            {setItems.map((m) =>
+              tile(m.key, t(`texset.${m.key}`), `a:${m.key}`, { asset: m.key }, `${t(`texset.${m.key}`)}, ${setSizeText(m)}: ${t(`texset.use.${m.key}`)}. ${t("texset.place")}`)
+            )}
+          </div>
         </details>
       )}
       {figures.length > 0 && (
