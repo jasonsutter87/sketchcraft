@@ -1,10 +1,10 @@
 {
-  "open_added_ms": 7.7,
-  "first_page_cold_ms": 1256.6,
-  "switch_page_p95_ms": 1.4,
-  "commit_edit_ms": 1.6,
-  "wall_redraw_max_ms": 1055.3,
-  "export_cold_ms": 15803.6,
-  "export_warm_ms": 2487.5,
+  "open_added_ms": 9.4,
+  "first_page_cold_ms": 995.3,
+  "switch_page_p95_ms": 2.0,
+  "commit_edit_ms": 1.9,
+  "wall_redraw_max_ms": 748.2,
+  "export_cold_ms": 13684.5,
+  "export_warm_ms": 3312.1,
   "pdf_mb": 14.8
 }
