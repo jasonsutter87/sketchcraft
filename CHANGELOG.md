@@ -6,6 +6,8 @@ What changed in each SketchCraft release, newest first. The format follows
 
 ## [Unreleased]
 
+## [0.3.8] - 2026-11-18
+
 ### Added
 - **Big drawing sets use far less memory and redraw faster.** The 52-page A1 permit set (about 200,000 faces) missed two
   of its budgets the first time it was measured: it peaked at 1.94 GB of memory (budget 1.5 GB) and its slowest drawing
@@ -635,7 +637,8 @@ The first build with installers (never published as a release).
   import and export, and PNG renders with dimensions and labels.
 - Installers for macOS, Windows and Linux, and the CLI for each.
 
-[Unreleased]: https://github.com/jasonsutter87/sketchcraft/compare/v0.3.7...HEAD
+[Unreleased]: https://github.com/jasonsutter87/sketchcraft/compare/v0.3.8...HEAD
+[0.3.8]: https://github.com/jasonsutter87/sketchcraft/compare/v0.3.7...v0.3.8
 [0.3.7]: https://github.com/jasonsutter87/sketchcraft/compare/v0.3.6...v0.3.7
 [0.3.6]: https://github.com/jasonsutter87/sketchcraft/compare/v0.3.5...v0.3.6
 [0.3.5]: https://github.com/jasonsutter87/sketchcraft/compare/v0.3.4...v0.3.5
