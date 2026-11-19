@@ -7,6 +7,11 @@ What changed in each SketchCraft release, newest first. The format follows
 ## [Unreleased]
 
 ### Added
+- **The Vertical layout has one sidebar with four full-height tabs.** Outliner, Library and Views are joined by
+  **Properties** (Document, Style, Paint, Finish and the selection details), which used to sit in a fixed panel below
+  and squeeze everything. Now every tab uses the whole height, so there is less scrolling. A dot on Properties shows
+  when something is selected (you stay on your tab), the arrow keys move between the tabs, and your last tab is
+  remembered. Classic and Floating are unchanged.
 - **A real menu bar: File, Edit, View, Camera, Draw, Tools, Window and Help.** It replaces the single File drop-down
   next to the logo. File holds New, Open, Save, Save As, Restore from backup, Import, Export, Render, blueprints,
   drawing sheets, Layout, Timeline, locations, 3D text, reports and Plugins; Edit has Undo and Redo, Cut, Copy, Paste
