@@ -9,10 +9,10 @@ export default {
   async steps(h) {
     const { page } = h;
     await h.caption('Plugins add commands: File › Plugins, or Shift+S');
-    await h.click(page.locator('.file-btn'));
-    await h.click(page.locator('.file-menu button', { hasText: /^Plugins/ }), { after: 1200 });
+    await h.click(page.getByRole('menuitem', { name: 'File', exact: true }));
+    await h.click(page.getByRole('menuitem', { name: /^Plugins/ }), { after: 1200 });
     await h.caption('Shelf unit… asks for a few sizes');
-    await h.click(page.locator('.file-menu button', { hasText: 'Shelf unit' }));
+    await h.click(page.getByRole('menuitem', { name: 'Shelf unit' }));
     const form = page.locator('.plugin-form');
     await form.waitFor();
     const field = (label) => form.locator('label', { hasText: new RegExp(`^${label}`) }).locator('input');

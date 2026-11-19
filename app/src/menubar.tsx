@@ -192,8 +192,9 @@ function MenuList({ label, items, actions, plugins, done, focusFirst, top, sub }
       // a submenu is fixed beside its name (a scrolling menu would clip it); on the left when there's no room on the right
       const trigger = list.previousElementSibling as HTMLElement;
       const r = trigger.getBoundingClientRect();
+      const parent = (trigger.closest("[role='menu']") ?? trigger).getBoundingClientRect();
       const w = list.offsetWidth;
-      const left = r.right + w + 8 > window.innerWidth ? Math.max(4, r.left - w + 4) : r.right - 4;
+      const left = parent.right + w + 8 > window.innerWidth ? Math.max(4, parent.left - w + 2) : parent.right - 2;
       const maxHeight = window.innerHeight - 16;
       const top = Math.max(8, Math.min(r.top - 6, window.innerHeight - Math.min(list.scrollHeight, maxHeight) - 8));
       setPlace({ left, top, maxHeight });

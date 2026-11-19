@@ -142,15 +142,15 @@ const selectedTitle = (p) => p.locator('.section-title', { hasText: /selected|^F
     await wait(300);
     check(!(await sheetOpen(p)), `Escape closes ${name}`);
   }
-  await p.locator('.file-btn').click();
+  await p.getByRole('menuitem', { name: 'File', exact: true }).click();
   await wait(300);
-  check((await p.locator('.file-menu').count()) === 1, 'the File menu opens');
+  check((await p.getByRole('menu', { name: 'File' }).count()) === 1, 'the File menu opens');
   await p.keyboard.press('Escape');
   await wait(300);
-  check((await p.locator('.file-menu').count()) === 0, 'Escape closes the File menu');
-  await p.locator('.file-btn').click();
-  await p.getByRole('button', { name: /^Plugins/ }).click();
-  await p.getByRole('button', { name: /Manage plugins/ }).click();
+  check((await p.getByRole('menu', { name: 'File' }).count()) === 0, 'Escape closes the File menu');
+  await p.getByRole('menuitem', { name: 'File', exact: true }).click();
+  await p.getByRole('menuitem', { name: /^Plugins/ }).click();
+  await p.getByRole('menuitem', { name: /Manage plugins/ }).click();
   await wait(400);
   check(await sheetOpen(p), 'the Plugins dialog opens');
   await p.keyboard.press('Escape');

@@ -10,6 +10,8 @@
 }
 
 .menubar {
+  position: relative;
+  z-index: 21; /* above the scrim, which is inside the same wrapper */
   display: flex;
   align-items: center;
   gap: 1px;
@@ -117,6 +119,13 @@
 /* on narrower windows the Live badge, then the name, give way to the menus */
 @media (max-width: 1500px) {
   .topbar .live {
+    display: none;
+  }
+}
+
+/* the workspaces are also in View > Workspaces, so the switch goes first when the window is narrow */
+@media (max-width: 1200px) {
+  .topbar .ws-switch {
     display: none;
   }
 }

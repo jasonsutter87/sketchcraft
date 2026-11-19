@@ -246,8 +246,8 @@ check((await selTitle()) === selBefore, `the selection is kept (${await selTitle
 check((await p.locator('nav.toolbar button.tool.on[aria-label="Select"]').count()) === 1, 'the tool is the one you had');
 
 // ---- the File menu goes to Layout ------------------------------------------------------------------------------------------
-await p.locator('.file-btn').click();
-await p.getByRole('button', { name: 'Open in Layout' }).click();
+await p.getByRole('menuitem', { name: 'File', exact: true }).click();
+await p.getByRole('menuitem', { name: 'Open in Layout' }).click();
 await p.waitForSelector('.layout-stage');
 check((await tab('Layout').getAttribute('aria-selected')) === 'true', 'File > Open in Layout switches to Layout');
 await until(async () => (await rows()).length === 3);

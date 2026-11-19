@@ -150,17 +150,17 @@ const SKINS = [['classic', 'light'], ['midnight', 'dark'], ['contrast', 'high-co
 const shots = [];
 for (const [layout] of LAYOUTS) for (const [skin, label] of SKINS) shots.push({ name: `main-${layout}-${label}`, layout, skin, run: async () => {} });
 const dialogs = [
-  ['file-menu', async (p) => p.locator('.file-btn').click()],
+  ['file-menu', async (p) => p.getByRole('menuitem', { name: 'File', exact: true }).click()],
   ['themes', async (p) => p.locator('.skin-btn').click()],
   ['learn', async (p) => p.locator('.learn-btn').click()],
   ['plugins', async (p) => {
-    await p.locator('.file-btn').click();
-    await p.getByRole('button', { name: /^Plugins/ }).click();
-    await p.getByRole('button', { name: /Manage plugins/ }).click();
+    await p.getByRole('menuitem', { name: 'File', exact: true }).click();
+    await p.getByRole('menuitem', { name: /^Plugins/ }).click();
+    await p.getByRole('menuitem', { name: /Manage plugins/ }).click();
   }],
   ['restore', async (p) => {
-    await p.locator('.file-btn').click();
-    await p.getByRole('button', { name: /Restore from backup/ }).click();
+    await p.getByRole('menuitem', { name: 'File', exact: true }).click();
+    await p.getByRole('menuitem', { name: /Restore from backup/ }).click();
     await p.waitForSelector('[role=dialog][aria-label="Restore from backup"]');
   }],
   ['command-palette', async (p) => {

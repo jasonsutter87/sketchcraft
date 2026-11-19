@@ -88,18 +88,20 @@ const isMac = process.platform === 'darwin';
   const sendNew = async (name) => {
     const request = p.waitForRequest((r) => r.method() === 'POST' &&
       new URL(r.url()).pathname === '/exec' && r.postDataJSON()?.cmd === 'new');
-    await p.locator('.file-menu').getByRole('button', { name }).click();
+    await p.getByRole('menuitem', { name }).click();
     return (await request).postDataJSON();
   };
-  await p.getByRole('button', { name: 'File ▾' }).click();
-  const english = await sendNew(/^New /);
+  await p.getByRole('menuitem', { name: 'File', exact: true }).click();
+  const english = await sendNew(/^New/);
   await press(p, 'l');
   check((await activeTool(p)) === 'Line', 'L selects Line before changing language');
 
-  await p.getByRole('button', { name: 'File ▾' }).click();
-  await p.getByLabel('Language').selectOption('it');
+  await p.getByRole('menuitem', { name: 'View', exact: true }).click();
+  await p.getByRole('menuitem', { name: 'Language' }).click();
+  await p.getByRole('menuitemradio', { name: 'Italiano' }).click();
   check(await p.locator('html').getAttribute('lang') === 'it', 'the language switches without a reload');
-  const italian = await sendNew(/^Nuovo /);
+  await p.getByRole('menuitem', { name: 'File', exact: true }).click();
+  const italian = await sendNew(/^Nuovo/);
   check(JSON.stringify(english) === JSON.stringify(italian), 'New and Nuovo send the same engine command');
   await p.locator('body').click({ position: { x: 5, y: 450 } });
   await press(p, 'c');
