@@ -28,3 +28,13 @@ it("keeps the modifier hints for the Italian paint and eraser tools", () => {
   expect(translate("it", "tool.paint")).toMatch(/campiona.*Ctrl.*Opzione.*collegate.*Maiusc.*stesso materiale/);
   expect(translate("it", "tool.erase")).toMatch(/Maiusc.*Ctrl.*ammorbidimento/);
 });
+
+it("explains the Paint Bucket modifiers in the step hint, in both languages", () => {
+  for (const lang of ["en", "it"] as const) {
+    const g = guide("paint", { selected: 0, op: null }, lang);
+    expect(g.keys.map((k) => k[0])).toEqual(["⌘ click", "Ctrl / Option click", "⇧ click", "Ctrl ⇧ click"]);
+    expect(g.keys.every((k) => k[1].trim().length > 5)).toBe(true);
+  }
+  expect(guide("paint", { selected: 0, op: null }, "en").keys[1][1]).toMatch(/touching faces.*continuing across edges/);
+  expect(guide("paint", { selected: 0, op: null }, "it").keys[1][1]).toMatch(/facce collegate/);
+});

@@ -805,8 +805,6 @@ await scenario('paint', ['paint'], async () => {
   s = await until((s) => s.faces.length === 6 && s.faces.every((f) => f.material));
   const boxMats = new Set(s.faces.map((f) => f.material));
   check(s.faces.length === 6 && s.faces.every((f) => f.material) && boxMats.size === 1, `Ctrl-click paints all six faces of a box with one material (${s.faces.length} faces, materials ${[...boxMats]})`);
-  const hint = await p.locator('.coach, [class*="coach"]').first().innerText({ timeout: 800 }).catch(() => '');
-  check(/Ctrl \/ Option click/.test(hint) && /touching faces/.test(hint), `the step hint explains the Ctrl/Option modifier (${hint.replace(/\s+/g, ' ').slice(0, 120)})`);
 });
 
 await scenario('erase', ['erase'], async () => {

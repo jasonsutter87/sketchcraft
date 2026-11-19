@@ -49,7 +49,7 @@ export const TOOL_INFO: Record<Exclude<Tool, "place" | "plugin">, { name: string
   axes: { name: "Axes: move and turn the drawing axes (origin, red, green)", key: "" },
   dimension: { name: "Dimension: click, click, pull out", key: "D" },
   text: { name: "Text label: click a point, then where the label goes", key: "W" },
-  paint: { name: "Paint Bucket (⌘/Option-click samples, Shift-click paints all matching)", key: "B" },
+  paint: { name: "Paint Bucket (⌘ samples, Ctrl/Option paints connected faces, Shift paints all matching, Ctrl+Shift the whole object)", key: "B" },
   erase: { name: "Eraser (Shift hides, Option/Ctrl softens, both unsoften)", key: "E" },
   orbit: { name: "Orbit (or middle-drag / hold Space)", key: "O" },
   pan: { name: "Pan (or Shift+middle-drag / right-drag)", key: "H" },
