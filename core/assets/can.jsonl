@@ -1,0 +1,8 @@
+# Can: a 66 x 122 mm drinks can, 32-sided with soft side edges, flat top and bottom caps.
+# Tests: cylindrical projection, label wrap. Origin: on the floor at the middle.
+{"cmd":"material","name":"Aluminium","color":[0.78,0.8,0.82],"roughness":0.3,"metalness":0.9}
+{"cmd":"begin_group","name":"Can","as":"s1"}
+{"cmd":"circle","center":[0,0,0],"radius":0.033,"segments":32,"as":"s2"}
+{"cmd":"pushpull","face":"@s2","distance":0.122}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@s1"],"material":"Aluminium"}

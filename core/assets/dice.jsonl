@@ -1,0 +1,8 @@
+# Dice: a 5 cm cube whose six faces are separately selectable (pips are texture-only).
+# Tests: box projection, per-face texture placement. Origin: on the floor at the middle.
+{"cmd":"material","name":"Ivory plastic","color":[0.95,0.93,0.86],"roughness":0.35}
+{"cmd":"begin_group","name":"Dice","as":"s1"}
+{"cmd":"rect","from":[-0.025,-0.025,0],"to":[0.025,0.025,0],"as":"s2"}
+{"cmd":"pushpull","face":"@s2","distance":0.05}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@s1"],"material":"Ivory plastic"}

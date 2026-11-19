@@ -27,6 +27,12 @@ pub const ASSETS: &[Asset] = &[
     Asset { key: "person", name: "Person", about: "Scale figure 1.75 m, always faces you", script: include_str!("../assets/person.jsonl"), face_me: true },
     Asset { key: "beaver", name: "Beaver", about: "The SketchCraft beaver with a clipboard, 1.5 m, always faces you", script: include_str!("../assets/beaver.jsonl"), face_me: true },
     Asset { key: "hydrant", name: "Hydrant", about: "Fire hydrant", script: include_str!("../assets/hydrant.jsonl"), face_me: false },
+    // the texturing test set (tools/texturing_set/texturing_set.py, docs/dev/texturing-test-set.md); the beaver is the sixth
+    Asset { key: "dice", name: "Dice", about: "Dice 0.05 × 0.05 × 0.05 m, six separate faces", script: include_str!("../assets/dice.jsonl"), face_me: false },
+    Asset { key: "can", name: "Can", about: "Drinks can 0.066 × 0.066 × 0.122 m, 32 sides", script: include_str!("../assets/can.jsonl"), face_me: false },
+    Asset { key: "globe", name: "Globe", about: "Globe 0.30 × 0.30 × 0.35 m on a stand", script: include_str!("../assets/globe.jsonl"), face_me: false },
+    Asset { key: "crate", name: "Crate", about: "Wooden crate 0.60 × 0.60 × 0.60 m of separate planks", script: include_str!("../assets/crate.jsonl"), face_me: false },
+    Asset { key: "soccer_ball", name: "Soccer ball", about: "Soccer ball 0.22 m, 12 pentagons and 20 hexagons", script: include_str!("../assets/soccer_ball.jsonl"), face_me: false },
     // fixtures and furniture: fixed assets, back edge on y=0, front toward -Y (see docs/dev/fixtures.md)
     Asset { key: "toilet", name: "Toilet", about: "Toilet 0.38 × 0.70 × 0.78 m, back against a wall", script: include_str!("../assets/toilet.jsonl"), face_me: false },
     Asset { key: "vanity_60", name: "Vanity 0.6 m", about: "Vanity 0.6 m 0.60 × 0.50 × 0.95 m, back against a wall", script: include_str!("../assets/vanity_60.jsonl"), face_me: false },

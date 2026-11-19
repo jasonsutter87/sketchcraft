@@ -1,0 +1,177 @@
+# Crate: a 60 cm wooden crate: four corner posts, a floor and lid of five boards each, and four sides of five
+# planks each, every one a separate closed box. Tests: paint-through across connected faces, planar projection.
+# Origin: on the floor at the middle.
+{"cmd":"material","name":"Pine","color":[0.76,0.6,0.38],"roughness":0.8}
+{"cmd":"material","name":"Pine dark","color":[0.6,0.45,0.27],"roughness":0.8}
+{"cmd":"begin_group","name":"Crate","as":"crate"}
+{"cmd":"begin_group","name":"Post 1","as":"s1"}
+{"cmd":"rect","from":[-0.3,-0.3,0],"to":[-0.25,-0.25,0],"as":"s2"}
+{"cmd":"pushpull","face":"@s2","distance":0.6}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@s1"],"material":"Pine dark"}
+{"cmd":"begin_group","name":"Post 2","as":"s3"}
+{"cmd":"rect","from":[0.25,-0.3,0],"to":[0.3,-0.25,0],"as":"s4"}
+{"cmd":"pushpull","face":"@s4","distance":0.6}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@s3"],"material":"Pine dark"}
+{"cmd":"begin_group","name":"Post 3","as":"s5"}
+{"cmd":"rect","from":[0.25,0.25,0],"to":[0.3,0.3,0],"as":"s6"}
+{"cmd":"pushpull","face":"@s6","distance":0.6}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@s5"],"material":"Pine dark"}
+{"cmd":"begin_group","name":"Post 4","as":"s7"}
+{"cmd":"rect","from":[-0.3,0.25,0],"to":[-0.25,0.3,0],"as":"s8"}
+{"cmd":"pushpull","face":"@s8","distance":0.6}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@s7"],"material":"Pine dark"}
+{"cmd":"begin_group","name":"Side 1 plank 1","as":"s9"}
+{"cmd":"rect","from":[-0.25,-0.3,0.0],"to":[0.25,-0.27999999999999997,0.0],"as":"s10"}
+{"cmd":"pushpull","face":"@s10","distance":0.12}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@s9"],"material":"Pine"}
+{"cmd":"begin_group","name":"Side 1 plank 2","as":"s11"}
+{"cmd":"rect","from":[-0.25,-0.3,0.12],"to":[0.25,-0.27999999999999997,0.12],"as":"s12"}
+{"cmd":"pushpull","face":"@s12","distance":0.12}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@s11"],"material":"Pine"}
+{"cmd":"begin_group","name":"Side 1 plank 3","as":"s13"}
+{"cmd":"rect","from":[-0.25,-0.3,0.24],"to":[0.25,-0.27999999999999997,0.24],"as":"s14"}
+{"cmd":"pushpull","face":"@s14","distance":0.12}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@s13"],"material":"Pine"}
+{"cmd":"begin_group","name":"Side 1 plank 4","as":"s15"}
+{"cmd":"rect","from":[-0.25,-0.3,0.36],"to":[0.25,-0.27999999999999997,0.36],"as":"s16"}
+{"cmd":"pushpull","face":"@s16","distance":0.12}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@s15"],"material":"Pine"}
+{"cmd":"begin_group","name":"Side 1 plank 5","as":"s17"}
+{"cmd":"rect","from":[-0.25,-0.3,0.48],"to":[0.25,-0.27999999999999997,0.48],"as":"s18"}
+{"cmd":"pushpull","face":"@s18","distance":0.12}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@s17"],"material":"Pine"}
+{"cmd":"begin_group","name":"Side 2 plank 1","as":"s19"}
+{"cmd":"rect","from":[0.27999999999999997,-0.25,0.0],"to":[0.3,0.25,0.0],"as":"s20"}
+{"cmd":"pushpull","face":"@s20","distance":0.12}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@s19"],"material":"Pine"}
+{"cmd":"begin_group","name":"Side 2 plank 2","as":"s21"}
+{"cmd":"rect","from":[0.27999999999999997,-0.25,0.12],"to":[0.3,0.25,0.12],"as":"s22"}
+{"cmd":"pushpull","face":"@s22","distance":0.12}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@s21"],"material":"Pine"}
+{"cmd":"begin_group","name":"Side 2 plank 3","as":"s23"}
+{"cmd":"rect","from":[0.27999999999999997,-0.25,0.24],"to":[0.3,0.25,0.24],"as":"s24"}
+{"cmd":"pushpull","face":"@s24","distance":0.12}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@s23"],"material":"Pine"}
+{"cmd":"begin_group","name":"Side 2 plank 4","as":"s25"}
+{"cmd":"rect","from":[0.27999999999999997,-0.25,0.36],"to":[0.3,0.25,0.36],"as":"s26"}
+{"cmd":"pushpull","face":"@s26","distance":0.12}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@s25"],"material":"Pine"}
+{"cmd":"begin_group","name":"Side 2 plank 5","as":"s27"}
+{"cmd":"rect","from":[0.27999999999999997,-0.25,0.48],"to":[0.3,0.25,0.48],"as":"s28"}
+{"cmd":"pushpull","face":"@s28","distance":0.12}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@s27"],"material":"Pine"}
+{"cmd":"begin_group","name":"Side 3 plank 1","as":"s29"}
+{"cmd":"rect","from":[-0.25,0.27999999999999997,0.0],"to":[0.25,0.3,0.0],"as":"s30"}
+{"cmd":"pushpull","face":"@s30","distance":0.12}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@s29"],"material":"Pine"}
+{"cmd":"begin_group","name":"Side 3 plank 2","as":"s31"}
+{"cmd":"rect","from":[-0.25,0.27999999999999997,0.12],"to":[0.25,0.3,0.12],"as":"s32"}
+{"cmd":"pushpull","face":"@s32","distance":0.12}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@s31"],"material":"Pine"}
+{"cmd":"begin_group","name":"Side 3 plank 3","as":"s33"}
+{"cmd":"rect","from":[-0.25,0.27999999999999997,0.24],"to":[0.25,0.3,0.24],"as":"s34"}
+{"cmd":"pushpull","face":"@s34","distance":0.12}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@s33"],"material":"Pine"}
+{"cmd":"begin_group","name":"Side 3 plank 4","as":"s35"}
+{"cmd":"rect","from":[-0.25,0.27999999999999997,0.36],"to":[0.25,0.3,0.36],"as":"s36"}
+{"cmd":"pushpull","face":"@s36","distance":0.12}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@s35"],"material":"Pine"}
+{"cmd":"begin_group","name":"Side 3 plank 5","as":"s37"}
+{"cmd":"rect","from":[-0.25,0.27999999999999997,0.48],"to":[0.25,0.3,0.48],"as":"s38"}
+{"cmd":"pushpull","face":"@s38","distance":0.12}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@s37"],"material":"Pine"}
+{"cmd":"begin_group","name":"Side 4 plank 1","as":"s39"}
+{"cmd":"rect","from":[-0.3,-0.25,0.0],"to":[-0.27999999999999997,0.25,0.0],"as":"s40"}
+{"cmd":"pushpull","face":"@s40","distance":0.12}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@s39"],"material":"Pine"}
+{"cmd":"begin_group","name":"Side 4 plank 2","as":"s41"}
+{"cmd":"rect","from":[-0.3,-0.25,0.12],"to":[-0.27999999999999997,0.25,0.12],"as":"s42"}
+{"cmd":"pushpull","face":"@s42","distance":0.12}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@s41"],"material":"Pine"}
+{"cmd":"begin_group","name":"Side 4 plank 3","as":"s43"}
+{"cmd":"rect","from":[-0.3,-0.25,0.24],"to":[-0.27999999999999997,0.25,0.24],"as":"s44"}
+{"cmd":"pushpull","face":"@s44","distance":0.12}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@s43"],"material":"Pine"}
+{"cmd":"begin_group","name":"Side 4 plank 4","as":"s45"}
+{"cmd":"rect","from":[-0.3,-0.25,0.36],"to":[-0.27999999999999997,0.25,0.36],"as":"s46"}
+{"cmd":"pushpull","face":"@s46","distance":0.12}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@s45"],"material":"Pine"}
+{"cmd":"begin_group","name":"Side 4 plank 5","as":"s47"}
+{"cmd":"rect","from":[-0.3,-0.25,0.48],"to":[-0.27999999999999997,0.25,0.48],"as":"s48"}
+{"cmd":"pushpull","face":"@s48","distance":0.12}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@s47"],"material":"Pine"}
+{"cmd":"begin_group","name":"Floor board 1","as":"s49"}
+{"cmd":"rect","from":[-0.27999999999999997,-0.27999999999999997,0.0],"to":[-0.16799999999999998,0.27999999999999997,0.0],"as":"s50"}
+{"cmd":"pushpull","face":"@s50","distance":0.02}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@s49"],"material":"Pine"}
+{"cmd":"begin_group","name":"Floor board 2","as":"s51"}
+{"cmd":"rect","from":[-0.16799999999999998,-0.27999999999999997,0.0],"to":[-0.055999999999999994,0.27999999999999997,0.0],"as":"s52"}
+{"cmd":"pushpull","face":"@s52","distance":0.02}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@s51"],"material":"Pine"}
+{"cmd":"begin_group","name":"Floor board 3","as":"s53"}
+{"cmd":"rect","from":[-0.055999999999999994,-0.27999999999999997,0.0],"to":[0.055999999999999994,0.27999999999999997,0.0],"as":"s54"}
+{"cmd":"pushpull","face":"@s54","distance":0.02}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@s53"],"material":"Pine"}
+{"cmd":"begin_group","name":"Floor board 4","as":"s55"}
+{"cmd":"rect","from":[0.055999999999999994,-0.27999999999999997,0.0],"to":[0.16799999999999998,0.27999999999999997,0.0],"as":"s56"}
+{"cmd":"pushpull","face":"@s56","distance":0.02}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@s55"],"material":"Pine"}
+{"cmd":"begin_group","name":"Floor board 5","as":"s57"}
+{"cmd":"rect","from":[0.16799999999999998,-0.27999999999999997,0.0],"to":[0.27999999999999997,0.27999999999999997,0.0],"as":"s58"}
+{"cmd":"pushpull","face":"@s58","distance":0.02}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@s57"],"material":"Pine"}
+{"cmd":"begin_group","name":"Lid board 1","as":"s59"}
+{"cmd":"rect","from":[-0.27999999999999997,-0.27999999999999997,0.58],"to":[-0.16799999999999998,0.27999999999999997,0.58],"as":"s60"}
+{"cmd":"pushpull","face":"@s60","distance":0.020000000000000018}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@s59"],"material":"Pine"}
+{"cmd":"begin_group","name":"Lid board 2","as":"s61"}
+{"cmd":"rect","from":[-0.16799999999999998,-0.27999999999999997,0.58],"to":[-0.055999999999999994,0.27999999999999997,0.58],"as":"s62"}
+{"cmd":"pushpull","face":"@s62","distance":0.020000000000000018}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@s61"],"material":"Pine"}
+{"cmd":"begin_group","name":"Lid board 3","as":"s63"}
+{"cmd":"rect","from":[-0.055999999999999994,-0.27999999999999997,0.58],"to":[0.055999999999999994,0.27999999999999997,0.58],"as":"s64"}
+{"cmd":"pushpull","face":"@s64","distance":0.020000000000000018}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@s63"],"material":"Pine"}
+{"cmd":"begin_group","name":"Lid board 4","as":"s65"}
+{"cmd":"rect","from":[0.055999999999999994,-0.27999999999999997,0.58],"to":[0.16799999999999998,0.27999999999999997,0.58],"as":"s66"}
+{"cmd":"pushpull","face":"@s66","distance":0.020000000000000018}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@s65"],"material":"Pine"}
+{"cmd":"begin_group","name":"Lid board 5","as":"s67"}
+{"cmd":"rect","from":[0.16799999999999998,-0.27999999999999997,0.58],"to":[0.27999999999999997,0.27999999999999997,0.58],"as":"s68"}
+{"cmd":"pushpull","face":"@s68","distance":0.020000000000000018}
+{"cmd":"end_group"}
+{"cmd":"paint","ids":["@s67"],"material":"Pine"}
+{"cmd":"end_group"}
