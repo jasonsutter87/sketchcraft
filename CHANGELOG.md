@@ -30,6 +30,7 @@ What changed in each SketchCraft release, newest first. The format follows
   them, as the same fix already did for newer files. On that file the import now gives about 5,000 faces, 25,200 edges
   and 377 placements, against 4,990, 25,140 and 377 in SketchUp 2026's re-save. Dimensions in large classic files
   (over 32,767 objects) are read correctly too. (part of #70)
+- Security: hardened limits on sheets, tables, rendering and imported text (WildLeopard).
 
 ### Added
 - **Tables and text blocks on sheets.** A Table tool (B) in Layout: click for a table, or drag the size you want, and
