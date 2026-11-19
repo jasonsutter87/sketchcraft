@@ -234,3 +234,17 @@
 .panel.left .inspector-body > * {
   flex-shrink: 0;
 }
+
+/* four tabs in a narrow sidebar: tighter, and scroll sideways rather than clip at the smallest window */
+.app.panels-right .panel.left .tabs {
+  padding: 8px 6px 0;
+  gap: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+
+  button {
+    padding: 8px 8px 9px;
+    white-space: nowrap;
+    flex: none;
+  }
+}
