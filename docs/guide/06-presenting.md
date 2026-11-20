@@ -3,9 +3,14 @@
 ## Styles
 
 **Style** in the right panel: shaded, shaded with textures, physically based,
-monochrome, hidden line or wireframe, on a sky, paper, blueprint or night
+monochrome, hidden line or wireframe, on a sky and ground, a plain grid, paper, blueprint or night
 background. Add profiles, sketchy edges, extensions or ambient occlusion. The
 **Preset** list has ready-made looks.
+
+New models start in the **Classic** look, a SketchUp-like one: a light blue sky over a grey-green ground, thick dark
+profiles on the outlines of shapes, thin dark edges elsewhere, no line weights, off-white front faces and blue-grey
+backs. Pick any other preset and SketchCraft remembers your choice for next time; a saved scene keeps the style it was
+saved with. (Choose **Default** for the earlier look: a plain grid, no profiles, line weights on.)
 
 ## Painting (B)
 

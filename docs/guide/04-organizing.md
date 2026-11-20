@@ -4,18 +4,20 @@
 
 ## Groups
 
-Select some geometry and right-click › **Make group** (or press G). A group
-moves and hides as one, and nothing outside it sticks to it. Double-click a
+Select some geometry and right-click it › **Make group** (also **Edit › Make group**, and **Make group** in the
+right panel). A group moves and hides as one, and nothing outside it sticks to it. Right-click always opens the menu on
+what is under the pointer, selecting it first if nothing is selected; with the keyboard, **Shift+F10** (or the Menu key)
+opens it for the current selection. Double-click a
 group to open it and edit inside; Esc or a click outside closes it.
 
 Groups can sit inside groups: a House holding a Main floor and an Upper floor.
 In the **Outliner** (left panel), drag a row onto a group to put it inside, or
-select several and right-click › **Group these**.
+select several and right-click › **Make group**.
 
 ## Components
 
 A component is a group that's reused: edit one, and every copy changes. Select
-and right-click › **Make component…**. Doors, windows, trees, cars and people
+and right-click › **Make component…** (or press **G**). Doors, windows, trees, cars and people
 in the **Library** are components.
 
 - **Cuts an opening where placed**: doors and windows cut their hole in the wall

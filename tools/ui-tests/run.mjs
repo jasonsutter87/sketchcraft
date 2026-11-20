@@ -22,6 +22,7 @@ const SUITES = [
   ['undo-and-restore', 'tools/ui-tests/undo-and-restore.mjs', 240],
   ['read-only', 'tools/ui-tests/read-only.mjs', 240],
   ['gestures-and-escape', 'tools/ui-tests/gestures-and-escape.mjs', 240],
+  ['right-click', 'tools/ui-tests/right-click.mjs', 240],
   ['overlay-layout', 'tools/ui-tests/overlay-layout.mjs', 300],
   ['side-tabs', 'tools/ui-tests/side-tabs.mjs', 300],
   ['line-styles', 'tools/ui-tests/line-styles.mjs', 300],

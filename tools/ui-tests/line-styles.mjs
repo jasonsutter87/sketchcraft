@@ -102,6 +102,8 @@ check(s.tagStyles?.Walls?.weight_mm === 0.7 && s.tagStyles?.Walls?.line === 'das
 const toggle = p.getByLabel('Line weights');
 if (await toggle.count()) {
   const bucketCount = () => p.evaluate(() => { let n = 0; window.__sketchcraftView.current.model.traverse((o) => { if (o.userData?.pen) n++; }); return n; });
+  await toggle.check(); // the Classic look starts with it off
+  await wait(500);
   const on = await bucketCount();
   await toggle.uncheck();
   await wait(500);

@@ -7,6 +7,14 @@ What changed in each SketchCraft release, newest first. The format follows
 ## [Unreleased]
 
 ### Added
+- **A SketchUp-like Classic look, and a right-click that always works.** New models start in a **Classic** style: a light
+  blue sky over a grey-green ground, thick dark profiles on outlines, thin dark edges elsewhere, no line weights, off-white
+  front faces and blue-grey backs. It is the first entry in **Style > Preset** (the earlier look is **Default**, and every
+  other preset is still there); the look you pick is remembered, and a saved scene keeps its own style.
+  Right-clicking now opens the context menu even when the mouse jitters, a touchpad two-finger tap raises only a
+  context-menu event, or the pointer is captured by the view; a real right-drag still pans. **Shift+F10** and the Menu key
+  open it for the current selection. The menu on a selection now always says **Make group** (it used to say
+  "Group these (nest them)" for groups).
 - **Texture painting.** **Tools > Texture Paint** paints straight onto a model's texture picture. Select faces (or a group),
   make a **New paint texture** (512, 1024 or 2048 pixels, starting from a flat colour or from what the faces look like now;
   if they have no UVs, or UVs that overlap, one click unwraps them first) and drag over the model: the brush reaches every

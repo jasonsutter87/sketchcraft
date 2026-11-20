@@ -38,7 +38,7 @@ export function contextItems(scene: Scene, sel: Sel, run: Run, setSel: (s: Sel) 
   if (one && (sel.groups.length || sel.instances.length)) items.push({ label: `Edit ${sel.groups.length ? "group" : "component"}`, run: () => (run({ cmd: "edit", id: ids[0] }), setSel(EMPTY)) });
   // groups and components selected go inside the new group as they are (nesting)
   if (sel.faces.length || sel.groups.length || sel.instances.length) {
-    items.push({ label: sel.faces.length ? "Make group" : "Group these (nest them)", labelId: sel.faces.length ? "context.group" : "context.nest", run: () => run({ cmd: "group", ids: [...sel.faces, ...sel.groups, ...sel.instances] }).then((r) => r.ok && setSel({ ...EMPTY, groups: [r.group as number] })) });
+    items.push({ label: "Make group", labelId: "context.group", run: () => run({ cmd: "group", ids: [...sel.faces, ...sel.groups, ...sel.instances] }).then((r) => r.ok && setSel({ ...EMPTY, groups: [r.group as number] })) });
   }
   if (one && sel.groups.length) {
     const g = scene.groups.find((x) => x.id === ids[0]);
