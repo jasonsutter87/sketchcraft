@@ -21,6 +21,7 @@ guess today.
 | **0.4.1** | Big models | Every CPU core, lighter imports, smooth orbiting on huge sites |
 | **0.4.2** | Switchers & your own AI | Coming from SketchUp made easy, your old extensions, and AI without credits |
 | **0.4.3** | Rendering | Clean, fast renders on the GPU with HDRI lighting, no paid plugin |
+| **Later** | Phone and tablet | A touch-first SketchCraft for Android and iOS, last on the list and not planned out yet |
 
 ## 0.3.7: Safety & polish
 
@@ -95,6 +96,15 @@ complaint about LayOut is that it's slow and loses your dimensions. So:
 1. **AI denoiser**: clean renders in a fraction of the time
 2. **GPU path tracing**
 3. **HDRI lighting** and **roughness, metalness and normal maps**
+
+## Later: Phone and tablet
+
+Last on the list, and not planned out yet. The idea is a touch-first SketchCraft
+for Android and iOS, built on tools that already exist on desktop, like Room
+mode and wall dragging. It would use the same engine and the same
+`.sketchcraft` files, work offline, and need no account. The full modeler stays
+on desktop. It would be released as a free APK on GitHub releases and F-Droid
+first.
 
 ## Always
 
