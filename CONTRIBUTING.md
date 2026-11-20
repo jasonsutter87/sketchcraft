@@ -132,7 +132,7 @@ feature/*  --PR-->  develop  --PR-->  staging  --PR-->  main  --tag v*-->  relea
 | Job | What it runs |
 | --- | ------------ |
 | `test` | the Rust engine tests (including the SketchUp corpus and the importer fuzzing), `tsc`, `npm run check`, the Vitest unit tests; that every action is pinned to a commit SHA; that CI and `rust-toolchain.toml` name the same Rust |
-| `ui-tests` | **on `staging`, `main` and release tags** (and pull requests into them): builds the release engine, installs a pinned Playwright and Chromium, starts a scratch bridge and the dev page, and runs all the browser suites above, visual regression included. A failure uploads screenshots and traces |
+| `ui-tests` | **on `staging`, `main` and release tags** (and pull requests into them): builds the release engine, installs a pinned Playwright and Chromium, starts a scratch bridge and the dev page, and runs all the browser suites above, visual regression included, in three parallel groups (`run.mjs --shard=i/3`; the `ui-tests` check reports all three). A failure uploads screenshots and traces |
 | `audit` | no high advisory in the shipped npm packages; lockfiles name only the public registries |
 | `flow` | pull requests into `staging` and `main` come from the branch before them |
 

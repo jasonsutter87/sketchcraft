@@ -72,13 +72,21 @@ jobs:
   #
   # The full browser suite gates release candidates: it runs on staging and main (pushes and PRs into them)
   # and on release tags (release.yml calls this workflow). develop and feature PRs get the fast jobs only.
-  ui-tests:
+  #
+  # The suites are split into three fixed, balanced groups that run in parallel (`run.mjs --shard=i/3`; one runner
+  # took more than 30 minutes). `ui-tests` below is the check the rulesets require: it reports the three together.
+  ui-suites:
+    name: ui-suites (${{ matrix.shard }}/3)
     if: >-
       github.ref == 'refs/heads/staging' || github.ref == 'refs/heads/main' ||
       startsWith(github.ref, 'refs/tags/') ||
       github.base_ref == 'staging' || github.base_ref == 'main'
     runs-on: ubuntu-22.04
-    timeout-minutes: 30
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     permissions:
       contents: read
     env:
@@ -106,13 +114,13 @@ jobs:
         env:
           SKETCHCRAFT_TRACE_DIR: ${{ runner.temp }}/ui-traces
           SHOT_DIR: ${{ runner.temp }}/ui-shots
-        run: node tools/ui-tests/run.mjs
+        run: node tools/ui-tests/run.mjs --shard=${{ matrix.shard }}/3
       # what the visual suite saw, when this platform has no reference pictures yet (tools/ui-tests/visual.mjs)
       - name: Keep the visual candidates
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: visual-candidates
+          name: visual-candidates-${{ matrix.shard }}
           path: ${{ runner.temp }}/ui-shots/visual/candidates
           if-no-files-found: ignore
           retention-days: 7
@@ -120,12 +128,29 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: ui-test-failures
+          name: ui-test-failures-${{ matrix.shard }}
           path: |
             ${{ runner.temp }}/ui-traces
             ${{ runner.temp }}/ui-shots
           if-no-files-found: ignore
           retention-days: 7
+
+  # The one check the rulesets require for the browser suites: green only when all three groups are
+  ui-tests:
+    needs: ui-suites
+    if: >-
+      always() && (github.ref == 'refs/heads/staging' || github.ref == 'refs/heads/main' ||
+      startsWith(github.ref, 'refs/tags/') ||
+      github.base_ref == 'staging' || github.base_ref == 'main')
+    runs-on: ubuntu-22.04
+    permissions: {}
+    steps:
+      - name: All three groups of browser suites passed
+        env:
+          RESULT: ${{ needs.ui-suites.result }}
+        run: |
+          echo "browser suites: $RESULT"
+          [ "$RESULT" = "success" ]
 
   # (The scale-figure generator's `--check` is not run here: its sine and cosine come out a last digit
   # different on Linux than on a Mac for four of the figures, so the check is only stable on the machine
