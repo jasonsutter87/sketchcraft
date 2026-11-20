@@ -94,6 +94,7 @@ pub fn load_file(path: &str) -> Result<Model> {
             }
             m.repair_ids();
             m.vet_pictures();
+            m.vet_face_data();
             m.check_sane_with(false)?;
         }
         "skp" => {

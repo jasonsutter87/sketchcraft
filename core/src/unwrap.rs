@@ -14,7 +14,7 @@
 //! Coordinates: (u, v) in tiles, v up, the same as `Face::uv`. A face's corner list is its outer loop followed by each hole.
 
 use crate::geom;
-use crate::model::{FaceUv, Id, Model};
+use crate::model::{uv32_ring, FaceUv, Id, Model};
 use anyhow::{bail, Result};
 use glam::DVec3;
 use serde::Serialize;
@@ -1037,15 +1037,16 @@ type Corners = Vec<[f64; 2]>;
 /// a face's use of an edge: the face and the coordinates at the edge's two ends (lower vertex id first)
 type FaceEnds = (usize, [[f64; 2]; 2]);
 
-fn to_face_uv(f: &crate::model::Face, c: &Corners) -> FaceUv {
+/// The corners as the face keeps them (f32 per loop); refused when one isn't a number or is out of range.
+fn to_face_uv(f: &crate::model::Face, c: &Corners) -> Result<FaceUv> {
     let mut off = f.outer.len();
-    let outer = c[..off].iter().map(|p| [p[0] as f32, p[1] as f32]).collect();
+    let outer = uv32_ring(&c[..off])?;
     let mut holes = vec![];
     for h in &f.holes {
-        holes.push(c[off..off + h.len()].iter().map(|p| [p[0] as f32, p[1] as f32]).collect());
+        holes.push(uv32_ring(&c[off..off + h.len()])?);
         off += h.len();
     }
-    FaceUv { outer, holes }
+    Ok(FaceUv { outer, holes })
 }
 
 fn corners_of(u: &FaceUv) -> Corners {
@@ -1180,7 +1181,7 @@ impl Model {
         }
         let n_islands = pieces.len();
         for (id, c) in result {
-            let uv = to_face_uv(&self.faces[&id], &c);
+            let uv = to_face_uv(&self.faces[&id], &c)?;
             self.set_uv(id, opts.set, Some(uv));
         }
         Ok(Report { faces: faces.len(), islands: n_islands, split, pinned, ignored_pins: ignored, stretch: stats, scale })
@@ -1259,7 +1260,7 @@ impl Model {
             let (b, (r, _)) = (boxes[i], place[i]);
             for f in isl {
                 let c: Corners = corners_of(self.uv_of(*f, set).unwrap()).iter().map(|p| [r.x + (p[0] - b.x) * scale, r.y + (p[1] - b.y) * scale]).collect();
-                let uv = to_face_uv(&self.faces[f], &c);
+                let uv = to_face_uv(&self.faces[f], &c)?;
                 self.set_uv(*f, set, Some(uv));
             }
         }
@@ -1280,7 +1281,7 @@ impl Model {
             }
         }
         for (id, c) in uv {
-            let new = c.as_ref().map(|c| to_face_uv(&self.faces[id], c));
+            let new = c.as_ref().map(|c| to_face_uv(&self.faces[id], c)).transpose()?;
             if set == 1 && new.is_none() {
                 self.faces.get_mut(id).unwrap().tex = None;
             }
@@ -1308,7 +1309,7 @@ impl Model {
                     *p
                 }
             }).collect();
-            done.push((id, to_face_uv(f, &c)));
+            done.push((id, to_face_uv(f, &c)?));
         }
         let n = done.len();
         for (id, uv) in done {

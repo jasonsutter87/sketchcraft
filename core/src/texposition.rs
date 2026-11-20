@@ -132,10 +132,10 @@ impl Model {
             let mid = pic.iter().flatten().fold([0.0, 0.0], |a, p| [a[0] + p[0] / n, a[1] + p[1] / n]);
             let a = m(mid);
             a.check()?;
-            let back = |r: &Vec<[f64; 2]>| r.iter().map(|p| a.apply(*p)).map(|p| [(p[0] / w) as f32, (p[1] / h) as f32]).collect::<Vec<_>>();
+            let back = |r: &Vec<[f64; 2]>| r.iter().map(|p| a.apply(*p)).map(|p| crate::model::uv32([p[0] / w, p[1] / h])).collect::<Result<Vec<_>>>();
             let mut rings = pic.iter().map(back);
-            let outer = rings.next().unwrap_or_default();
-            done.push((id, FaceUv { outer, holes: rings.collect() }));
+            let outer = rings.next().transpose()?.unwrap_or_default();
+            done.push((id, FaceUv { outer, holes: rings.collect::<Result<_>>()? }));
         }
         let n = done.len();
         for (id, uv) in done {

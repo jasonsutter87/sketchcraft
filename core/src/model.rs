@@ -85,21 +85,97 @@ pub struct Face {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TexPlace {
     pub material: String,
+    #[serde(deserialize_with = "lenient::de3")]
     pub u: [f64; 3],
+    #[serde(deserialize_with = "lenient::de3")]
     pub v: [f64; 3],
+    #[serde(deserialize_with = "lenient::de3")]
     pub origin: [f64; 3],
+}
+
+impl TexPlace {
+    /// Every number finite and within `MAX_COORD` (a damaged file may hold others; see `Model::vet_face_data`).
+    pub fn sane(&self) -> bool {
+        self.u.iter().chain(&self.v).chain(&self.origin).all(|&x| sane(x))
+    }
+}
+
+/// Per-corner data (texture coordinates, vertex colours) is kept as f32: a value the model can hold is finite and
+/// within `MAX_COORD`.
+pub fn sane32(v: f32) -> bool {
+    v.is_finite() && (v as f64).abs() <= MAX_COORD
+}
+
+/// A texture coordinate worked out in f64, as the model keeps it (f32). Refused when it isn't a number or is out of
+/// range (a tiny projection scale or a huge transform can make one), so a model never holds one.
+pub fn uv32(p: [f64; 2]) -> Result<[f32; 2]> {
+    let q = [p[0] as f32, p[1] as f32];
+    if !sane32(q[0]) || !sane32(q[1]) {
+        bail!("that would put texture coordinates out of range (not a number, or more than {MAX_COORD:e} tiles), so it was not done");
+    }
+    Ok(q)
+}
+
+/// `uv32` for a whole loop of corners.
+pub fn uv32_ring(r: &[[f64; 2]]) -> Result<Vec<[f32; 2]>> {
+    r.iter().map(|p| uv32(*p)).collect()
+}
+
+/// Reading per-corner numbers from a file: a `null` (what JSON holds for a number that isn't one) is read as NaN instead
+/// of failing the whole file, so `Model::vet_face_data` can leave out just that face's data, with a notice.
+mod lenient {
+    use serde::{Deserialize, Deserializer};
+
+    fn nan_for_null<const N: usize>(a: [Option<f64>; N]) -> [f64; N] {
+        a.map(|x| x.unwrap_or(f64::NAN))
+    }
+
+    fn f32s<const N: usize>(a: [Option<f64>; N]) -> [f32; N] {
+        nan_for_null(a).map(|x| x as f32)
+    }
+
+    pub fn de3<'de, D: Deserializer<'de>>(d: D) -> Result<[f64; 3], D::Error> {
+        Ok(nan_for_null(<[Option<f64>; 3]>::deserialize(d)?))
+    }
+
+    pub fn ring2<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<[f32; 2]>, D::Error> {
+        Ok(Vec::<[Option<f64>; 2]>::deserialize(d)?.into_iter().map(f32s).collect())
+    }
+
+    pub fn rings2<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<Vec<[f32; 2]>>, D::Error> {
+        Ok(Vec::<Vec<[Option<f64>; 2]>>::deserialize(d)?.into_iter().map(|r| r.into_iter().map(f32s).collect()).collect())
+    }
+
+    pub fn ring4<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<[f32; 4]>, D::Error> {
+        Ok(Vec::<[Option<f64>; 4]>::deserialize(d)?.into_iter().map(f32s).collect())
+    }
+
+    pub fn rings4<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<Vec<[f32; 4]>>, D::Error> {
+        Ok(Vec::<Vec<[Option<f64>; 4]>>::deserialize(d)?.into_iter().map(|r| r.into_iter().map(f32s).collect()).collect())
+    }
 }
 
 /// Texture coordinates for a face's corners, in tiles (1 = one whole picture), v up the picture. One entry per vertex
 /// of each loop, in the loop's order. A face whose loops have changed size since ignores them.
 #[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize)]
 pub struct FaceUv {
+    #[serde(deserialize_with = "lenient::ring2")]
     pub outer: Vec<[f32; 2]>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty", deserialize_with = "lenient::rings2")]
     pub holes: Vec<Vec<[f32; 2]>>,
 }
 
 impl FaceUv {
+    /// Every coordinate finite and within `MAX_COORD`.
+    pub fn sane(&self) -> bool {
+        self.outer.iter().chain(self.holes.iter().flatten()).flatten().all(|&x| sane32(x))
+    }
+
+    /// How many corners it holds.
+    pub fn corners(&self) -> usize {
+        self.outer.len() + self.holes.iter().map(Vec::len).sum::<usize>()
+    }
+
     /// Do the coordinates still fit the face's loops?
     pub fn fits(&self, f: &Face) -> bool {
         self.outer.len() == f.outer.len() && self.holes.len() == f.holes.len() && self.holes.iter().zip(&f.holes).all(|(a, b)| a.len() == b.len())
@@ -110,12 +186,23 @@ impl FaceUv {
 /// order. A face whose loops have changed size since ignores them.
 #[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize)]
 pub struct FaceColors {
+    #[serde(deserialize_with = "lenient::ring4")]
     pub outer: Vec<[f32; 4]>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty", deserialize_with = "lenient::rings4")]
     pub holes: Vec<Vec<[f32; 4]>>,
 }
 
 impl FaceColors {
+    /// Every channel finite and within `MAX_COORD`.
+    pub fn sane(&self) -> bool {
+        self.outer.iter().chain(self.holes.iter().flatten()).flatten().all(|&x| sane32(x))
+    }
+
+    /// How many corners it holds.
+    pub fn corners(&self) -> usize {
+        self.outer.len() + self.holes.iter().map(Vec::len).sum::<usize>()
+    }
+
     /// Do the colours still fit the face's loops?
     pub fn fits(&self, f: &Face) -> bool {
         self.outer.len() == f.outer.len() && self.holes.len() == f.holes.len() && self.holes.iter().zip(&f.holes).all(|(a, b)| a.len() == b.len())
@@ -455,6 +542,24 @@ fn same_set(a: &[Id], b: &[Id]) -> bool {
 impl Face {
     pub fn loops(&self) -> impl Iterator<Item = &Vec<Id>> {
         std::iter::once(&self.outer).chain(self.holes.iter())
+    }
+
+    /// Its per-corner data and painted-through placement hold only numbers the model can keep (see `sane`).
+    pub fn data_sane(&self) -> bool {
+        self.uv.as_ref().is_none_or(FaceUv::sane) && self.uv2.as_ref().is_none_or(FaceUv::sane) && self.vcol.as_ref().is_none_or(FaceColors::sane) && self.tex.as_ref().is_none_or(TexPlace::sane)
+    }
+
+    /// About how many bytes its texture coordinates, vertex colours and painted-through placement take in the file (on
+    /// the high side, like the rest of `Model::size_estimate`).
+    pub fn data_estimate(&self) -> usize {
+        let uv = |u: &FaceUv| 40 + 28 * u.corners() + 4 * u.holes.len();
+        self.uv.as_ref().map_or(0, uv) + self.uv2.as_ref().map_or(0, uv) + self.vcol.as_ref().map_or(0, |c| 40 + 52 * c.corners() + 4 * c.holes.len()) + self.tex.as_ref().map_or(0, |t| 300 + jl(&t.material))
+    }
+
+    /// About how many bytes the same take in memory (for the undo budget).
+    pub fn data_bytes(&self) -> usize {
+        let uv = |u: &FaceUv| 48 + 8 * u.corners() + 24 * u.holes.len();
+        self.uv.as_ref().map_or(0, uv) + self.uv2.as_ref().map_or(0, uv) + self.vcol.as_ref().map_or(0, |c| 48 + 16 * c.corners() + 24 * c.holes.len()) + self.tex.as_ref().map_or(0, |t| 96 + t.material.len())
     }
     pub fn uses_edge(&self, a: Id, b: Id) -> bool {
         self.loops().any(|l| pairs(l).any(|(x, y)| (x == a && y == b) || (x == b && y == a)))
@@ -1714,6 +1819,9 @@ impl Model {
         if !self.vertices.values().all(|v| sane3(v.p)) {
             return bad("a point");
         }
+        if let Some(id) = self.faces.iter().find(|(_, f)| !f.data_sane()).map(|(id, _)| *id) {
+            return bad(&format!("the texture coordinates or vertex colours of face {id}"));
+        }
         if !self.guides.iter().all(|g| sane3(g.p) && g.dir.is_none_or(sane3)) {
             return bad("a guide");
         }
@@ -1791,6 +1899,50 @@ impl Model {
             out.push(format!("and {more} more"));
         }
         out
+    }
+
+    /// Take out per-face data (texture coordinates, the second set, vertex colours, a painted-through placement) that
+    /// holds something that isn't a number or is out of range, which only a damaged file can hold (one written with
+    /// `null`s, say): those faces fall back to their material's own placement and colour, and the rest of the model
+    /// opens as it was. Components' models too. A notice says how many faces lost it.
+    pub fn vet_face_data(&mut self) {
+        let n = self.drop_bad_face_data();
+        if n > 0 {
+            crate::safety::note_skipped(&format!("{n} face{}", if n == 1 { "" } else { "s" }), "held texture coordinates or vertex colours that weren't numbers (a damaged file), so those were left out; the faces keep their material");
+        }
+    }
+
+    fn drop_bad_face_data(&mut self) -> usize {
+        let mut n = 0;
+        for f in self.faces.values_mut() {
+            if f.data_sane() {
+                continue;
+            }
+            n += 1;
+            if f.uv.as_ref().is_some_and(|u| !u.sane()) {
+                f.uv = None;
+            }
+            if f.uv2.as_ref().is_some_and(|u| !u.sane()) {
+                f.uv2 = None;
+            }
+            if f.vcol.as_ref().is_some_and(|c| !c.sane()) {
+                f.vcol = None;
+            }
+            if f.tex.as_ref().is_some_and(|t| !t.sane()) {
+                f.tex = None;
+            }
+        }
+        for d in self.definitions.values_mut() {
+            if !d.model.face_data_sane() {
+                n += std::sync::Arc::make_mut(&mut d.model).drop_bad_face_data();
+            }
+        }
+        n
+    }
+
+    /// Every face's per-corner data is sane, components' too.
+    fn face_data_sane(&self) -> bool {
+        self.faces.values().all(Face::data_sane) && self.definitions.values().all(|d| d.model.face_data_sane())
     }
 
     fn drop_oversize_pictures(&mut self) -> Vec<String> {
@@ -1879,7 +2031,7 @@ impl Model {
     /// which is why every command can afford it. The constants are on the high side of what the writer produces (a
     /// test compares them with real files), so the open limit has room over this limit.
     pub fn size_estimate(&self) -> usize {
-        let faces: usize = self.faces.values().map(|f| 80 + 10 * f.outer.len() + f.holes.iter().map(|h| 10 * h.len() + 4).sum::<usize>() + f.material.as_ref().map_or(0, |m| jl(m) + 4)).sum();
+        let faces: usize = self.faces.values().map(|f| 80 + 10 * f.outer.len() + f.holes.iter().map(|h| 10 * h.len() + 4).sum::<usize>() + f.material.as_ref().map_or(0, |m| jl(m) + 4) + f.data_estimate()).sum();
         let mats: usize = self.materials.iter().map(|(k, m)| jl(k) + 200 + m.texture.as_ref().map_or(0, |t| jl(&t.data) + 200)).sum();
         let clouds: usize = self.clouds.values().map(|c| jl(&c.name) + 128 + (4 * c.points.len() + c.colors.len()) * 4 / 3 + 8).sum();
         let views: usize = self.views.iter().map(|v| 320 + jl(&v.name) + v.photo.as_ref().map_or(0, |p| jl(p)) + v.style.as_ref().map_or(0, jsz) + v.tags.as_ref().map_or(0, |t| t.keys().map(|k| jl(k) + 12).sum()) + v.hidden.as_ref().map_or(0, |h| 12 * h.len())).sum();
@@ -2118,7 +2270,7 @@ impl Model {
     /// component geometry isn't counted, since undo steps share it).
     pub fn approx_bytes(&self) -> usize {
         let tex: usize = self.materials.values().map(|m| 64 + m.texture.as_ref().map_or(0, |t| t.data.len())).sum();
-        let faces: usize = self.faces.values().map(|f| 96 + 4 * (f.outer.len() + f.holes.iter().map(Vec::len).sum::<usize>())).sum();
+        let faces: usize = self.faces.values().map(|f| 96 + 4 * (f.outer.len() + f.holes.iter().map(Vec::len).sum::<usize>()) + f.data_bytes()).sum();
         let photos: usize = self.views.iter().map(|v| 160 + v.photo.as_ref().map_or(0, String::len)).sum();
         let clouds: usize = self.clouds.values().map(|c| 64 + 4 * c.points.len() + c.colors.len()).sum();
         self.text_bytes() + clouds + self.vertices.len() * 64 + self.edges.len() * 72 + faces + self.groups.len() * 96 + self.instances.len() * 200 + self.definitions.len() * 128 + tex + photos + self.annotations.len() * 120 + self.guides.len() * 80 + self.sheets.len() * 160 + self.sheet_items.len() * 160

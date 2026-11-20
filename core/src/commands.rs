@@ -602,6 +602,7 @@ impl Engine {
         let mut model = model;
         model.repair_ids();
         model.vet_pictures();
+        model.vet_face_data();
         model.vet_sheets();
         // a model over the size limits is restored for viewing and cutting down, like Open: the limits never block getting work back
         model.check_sane_with(false)?;

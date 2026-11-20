@@ -105,8 +105,8 @@ impl Setup {
     /// Fill in the defaults for `rings` (every loop of every selected face, in world points) with the biggest face's
     /// normal `dominant`.
     pub fn new(p: &Projection, rings: &[&[DVec3]], dominant: DVec3) -> Result<Setup> {
-        if !p.scale.is_finite() || p.scale <= 0.0 {
-            bail!("scale must be above zero");
+        if !p.scale.is_finite() || p.scale < 1e-6 {
+            bail!("scale must be at least 0.000001 (a size factor: 1 is the picture's own size)");
         }
         if !p.rotation.is_finite() {
             bail!("rotation must be a number");
@@ -375,9 +375,9 @@ impl Model {
             let n = geom::newell(&r[0]);
             let refs: Vec<&[DVec3]> = r.iter().map(|v| v.as_slice()).collect();
             let mut uv = setup.uvs(&refs, n, tile).into_iter();
-            let f32s = |v: Vec<[f64; 2]>| v.into_iter().map(|p| [p[0] as f32, p[1] as f32]).collect::<Vec<_>>();
-            let outer = f32s(uv.next().unwrap_or_default());
-            done.push((*id, FaceUv { outer, holes: uv.map(f32s).collect() }));
+            let outer = crate::model::uv32_ring(&uv.next().unwrap_or_default())?;
+            let holes = uv.map(|r| crate::model::uv32_ring(&r)).collect::<Result<_>>()?;
+            done.push((*id, FaceUv { outer, holes }));
         }
         let n = done.len();
         for (id, uv) in done {
