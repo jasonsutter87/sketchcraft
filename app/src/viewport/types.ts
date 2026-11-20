@@ -39,7 +39,7 @@ export interface BuildSettings {
 }
 
 export type FaceStyle = "textured" | "shaded" | "monochrome" | "hiddenline" | "wireframe" | "physical";
-export type Backdrop = "default" | "paper" | "blueprint" | "night";
+export type Backdrop = "sky" | "default" | "paper" | "blueprint" | "night";
 
 export interface Styles {
   xray: boolean;

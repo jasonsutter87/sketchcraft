@@ -28,12 +28,13 @@ import { Icons } from "./icons";
 import { AXES, AXIS_COLORS, closestOnLine, infer, rayFrom, setDrawingAxes, V, type Axis, type InferEnv, type Pick, type Snap } from "./inference";
 import { combine, EMPTY, selIds, selMode, toggle, type Sel } from "./selection";
 import { formatLength, parseLengths } from "./units";
-import { autoTagColor, ACCENT, BACKGROUNDS } from "./viewport/colors";
+import { autoTagColor, ACCENT, BACKGROUNDS, skyDome } from "./viewport/colors";
 import { styledEdges, averagedNormals, smoothNormals } from "./viewport/edges";
 import { adoptPainted, checkerTexture, forgetPainted, profileMaterial, textureFor } from "./viewport/materials";
 import { DEFAULT_TPAINT, decodePixels, Painter, sampleRgba, stroke3DCommand, trisOf, uvAt } from "./texturepaint";
 import { UP, r4, arr, circleThrough, bulgeThrough, basis, arcPoints, offsetOutline } from "./viewport/geometry";
 import { selectMarquee } from "./viewport/marquee";
+import { contextEventAction, isMenuKey, isRightClick } from "./viewport/rightclick";
 import { isMac, isTypingTarget } from "./keymap";
 import { paintCommand, paintReach } from "./paintmods";
 import { DEFAULT_VPAINT, effectiveRadius, extendStroke, ringPoints, sceneDiagonal, stepRadius, strokeCommand } from "./vertexpaint";
@@ -106,6 +107,8 @@ export default function Viewport(props: Props) {
     /** SubD mode's cage and live surface */
     cage: THREE.Group;
     ground: THREE.Group;
+    /** the Classic look's sky over ground: a dome that follows the camera */
+    sky: THREE.Mesh;
     catcher: THREE.Mesh;
     pickMesh: THREE.Mesh | null;
     editMesh: THREE.Mesh | null;
@@ -167,13 +170,16 @@ export default function Viewport(props: Props) {
     fitNext: boolean;
     section: THREE.Plane | null;
     segs: { circle: number; polygon: number };
-    rightDown: { x: number; y: number } | null;
+    rightDown: { x: number; y: number; t: number } | null;
+    /** when our context menu last opened, and when a right-drag pan last ended (performance.now) */
+    menuAt: number;
+    panAt: number;
     selOverride: Sel | null;
     press: { x: number; y: number; fresh: boolean } | null;
     labels: LabelSpec[];
     liveLabels: LabelSpec[];
     labelEls: Map<string, HTMLDivElement>;
-  }>({ press: null, labels: [], liveLabels: [], labelEls: new Map(), op: null, last: null, lock: null, hover: null, hoverEdge: null, wall: null, rooms: [], cutaway: null, snap: null, shiftLock: false, zoomY: null, space: false, spaceUsed: false, fitted: false, fitNext: false, section: null, segs: { circle: 24, polygon: 6 }, rightDown: null, selOverride: null });
+  }>({ press: null, labels: [], liveLabels: [], labelEls: new Map(), op: null, last: null, lock: null, hover: null, hoverEdge: null, wall: null, rooms: [], cutaway: null, snap: null, shiftLock: false, zoomY: null, space: false, spaceUsed: false, fitted: false, fitNext: false, section: null, segs: { circle: 24, polygon: 6 }, rightDown: null, menuAt: -1e9, panAt: -1e9, selOverride: null });
 
   // dev builds: inspect the tool state from the console (window.__sketchcraft)
   if (import.meta.env.DEV) Object.assign(window as unknown as Record<string, unknown>, { __sketchcraft: st, __sketchcraftView: t });
@@ -285,6 +291,8 @@ export default function Viewport(props: Props) {
     catcher.visible = false;
     ground.add(catcher);
     world.add(ground);
+    const sky = skyDome();
+    world.add(sky);
 
     const model = new THREE.Group();
     const overlay = new THREE.Group();
@@ -292,7 +300,7 @@ export default function Viewport(props: Props) {
     const cage = new THREE.Group();
     world.add(model, overlay, preview, cage, cloudGroup.current);
 
-    t.current = { renderer, persp, ortho, camera: persp, controls, world, sun, model, overlay, preview, cage, ground, catcher, pickMesh: null, editMesh: null, groundZ: 0 };
+    t.current = { renderer, persp, ortho, camera: persp, controls, world, sun, model, overlay, preview, cage, ground, sky, catcher, pickMesh: null, editMesh: null, groundZ: 0 };
 
     const resize = () => {
       const { clientWidth: w, clientHeight: h } = el;
@@ -316,6 +324,10 @@ export default function Viewport(props: Props) {
       }
       controls.update();
       const cam = t.current!.camera;
+      if (sky.visible) {
+        sky.position.copy(cam.position);
+        sky.scale.setScalar(Math.max(cam.near * 10, Math.min(cam.far * 0.5, 5000)));
+      }
       if (live.current.styles.ao) {
         // ambient occlusion: render through a post-processing chain (built on first use)
         if (!ao.current) {
@@ -894,6 +906,7 @@ export default function Viewport(props: Props) {
     if (!backdropOn.current) {
       T.renderer.setClearColor(bg.clear, 1);
       T.ground.visible = bg.grid;
+      T.sky.visible = sty.background === "sky";
     }
     // section fill: the cut faces of walls and solids, dark, with a heavy outline
     if (st.current.section) {
@@ -1581,6 +1594,7 @@ export default function Viewport(props: Props) {
     backdropOn.current = !!photo;
     T.renderer.setClearColor(0xf3f4f8, photo ? 0 : 1);
     T.ground.visible = !photo;
+    T.sky.visible = !photo && live.current.styles.background === "sky";
   }
 
   function showSnap(sn: Snap) {
@@ -2923,6 +2937,48 @@ export default function Viewport(props: Props) {
       return;
     };
 
+    /** Open our context menu at a point: select what's under it first if nothing is selected. */
+    const openMenuAt = (clientX: number, clientY: number) => {
+      const L = live.current;
+      if (st.current.menuAt > performance.now() - 250) return; // never two menus for one click
+      st.current.menuAt = performance.now();
+      if (selIds(selNow()).length === 0) {
+        const h = pick({ clientX, clientY });
+        if (h) {
+          const ent = entityOf(h);
+          L.setSel(toggle(EMPTY, ent.kind, ent.id, false));
+        }
+      }
+      const r = rect();
+      L.onContext(clientX - r.left, clientY - r.top);
+    };
+    /** The right button came up (or the system cancelled the press): a click opens the menu, a drag was a pan. */
+    const finishRight = (e: { clientX: number; clientY: number }) => {
+      const rd = st.current.rightDown;
+      st.current.rightDown = null;
+      if (!rd) return;
+      if (isRightClick(Math.hypot(e.clientX - rd.x, e.clientY - rd.y), performance.now() - rd.t)) openMenuAt(e.clientX, e.clientY);
+      else st.current.panAt = performance.now();
+    };
+    /** A contextmenu event the browser raised: ours if no pointer events handled it. */
+    const contextEvent = (e: MouseEvent) => {
+      e.preventDefault();
+      const rd = st.current.rightDown;
+      const now = performance.now();
+      const what = contextEventAction({ pressed: !!rd, sinceMenuMs: now - st.current.menuAt, sincePanMs: now - st.current.panAt });
+      if (what === "open") {
+        // the keyboard's menu key reports no position: use the pointer's last place over the view
+        const from = e.clientX === 0 && e.clientY === 0 && lastPointer.current ? lastPointer.current : { x: e.clientX, y: e.clientY };
+        openMenuAt(from.x, from.y);
+      } else if (what === "wait" && rd) {
+        // pressed, and the release never came (a lost pointerup): decide from where the pointer is now
+        window.setTimeout(() => {
+          if (st.current.rightDown !== rd) return;
+          const at = lastPointer.current ?? { x: rd.x, y: rd.y };
+          finishRight({ clientX: at.x, clientY: at.y });
+        }, 300);
+      }
+    };
     const move = (e: PointerEvent) => {
       lastPointer.current = { x: e.clientX, y: e.clientY };
       // camera tools
@@ -3614,7 +3670,7 @@ export default function Viewport(props: Props) {
         return;
       }
       if (e.button === 2) {
-        st.current.rightDown = { x: e.clientX, y: e.clientY };
+        st.current.rightDown = { x: e.clientX, y: e.clientY, t: performance.now() };
         return;
       }
       if (L.tool === "zoom" && e.button === 0) {
@@ -3739,23 +3795,7 @@ export default function Viewport(props: Props) {
         }
       }
       if (cageEd.current && e.button === 0 && (await cageEd.current.pointerUp(e))) return;
-      if (e.button === 2) {
-        const rd = st.current.rightDown;
-        st.current.rightDown = null;
-        if (rd && Math.hypot(e.clientX - rd.x, e.clientY - rd.y) < 4) {
-          // a right click (not a pan): select what's under the cursor if nothing is, then the menu
-          if (selIds(selNow()).length === 0) {
-            const h = pick(e);
-            if (h) {
-              const ent = entityOf(h);
-              L.setSel(toggle(EMPTY, ent.kind, ent.id, false));
-            }
-          }
-          const r = rect();
-          L.onContext(e.clientX - r.left, e.clientY - r.top);
-        }
-        return;
-      }
+      if (e.button === 2) return void finishRight(e);
       const op = st.current.op;
       const press = st.current.press;
       st.current.press = null;
@@ -3848,6 +3888,16 @@ export default function Viewport(props: Props) {
     const key = (e: KeyboardEvent) => {
       if (live.current.paused) return;
       const typing = isTypingTarget(e.target);
+      // the keyboard's way to the context menu: the Menu key or Shift+F10, for the current selection
+      if (e.type === "keydown" && isMenuKey(e) && !typing) {
+        e.preventDefault();
+        const r = rect();
+        const lp = lastPointer.current;
+        const inside = lp && lp.x >= r.left && lp.x <= r.right && lp.y >= r.top && lp.y <= r.bottom;
+        const at = inside ? lp : { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+        openMenuAt(at.x, at.y);
+        return;
+      }
       if (e.code === "Space" && !typing) {
         const isDown = e.type === "keydown";
         e.preventDefault();
@@ -3936,7 +3986,9 @@ export default function Viewport(props: Props) {
       }
     };
 
-    const noMenu = (e: MouseEvent) => e.preventDefault();
+    const padCancel = (e: PointerEvent) => {
+      if (e.button === 2 || st.current.rightDown) finishRight(e);
+    };
     const leave = () => {
       setHint(null);
       if (badge.current) badge.current.style.opacity = "0";
@@ -3944,7 +3996,8 @@ export default function Viewport(props: Props) {
     el.addEventListener("pointermove", move);
     el.addEventListener("pointerdown", down);
     el.addEventListener("pointerup", up);
-    el.addEventListener("contextmenu", noMenu);
+    el.addEventListener("contextmenu", contextEvent);
+    el.addEventListener("pointercancel", padCancel);
     el.addEventListener("pointerleave", leave);
     window.addEventListener("keydown", key);
     window.addEventListener("keyup", key);
@@ -3952,7 +4005,8 @@ export default function Viewport(props: Props) {
       el.removeEventListener("pointermove", move);
       el.removeEventListener("pointerdown", down);
       el.removeEventListener("pointerup", up);
-      el.removeEventListener("contextmenu", noMenu);
+      el.removeEventListener("contextmenu", contextEvent);
+      el.removeEventListener("pointercancel", padCancel);
       el.removeEventListener("pointerleave", leave);
       window.removeEventListener("keydown", key);
       window.removeEventListener("keyup", key);

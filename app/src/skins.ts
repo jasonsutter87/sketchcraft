@@ -14,7 +14,7 @@ export interface Skin {
   dark: boolean;
   tokens: Record<SkinToken, string>;
   /** a backdrop for the model that suits the skin (applied when you pick it) */
-  backdrop?: "default" | "paper" | "blueprint" | "night";
+  backdrop?: "sky" | "default" | "paper" | "blueprint" | "night";
   /** the layout it comes with when picked from the gallery: "classic" (tool
    * bars docked above the model, like SketchUp) or "floating" (SketchCraft's own) */
   layout?: "classic" | "floating";
@@ -65,6 +65,7 @@ export const SKINS: Skin[] = [
     blurb: "Neutral greys, a blue accent and docked tool bars: at home if you know SketchUp. The default.",
     dark: false,
     tokens: { bg: "#ececec", panel: "#f7f7f7", line: "#dcdcdc", "line-strong": "#c2c2c2", text: "#1f1f1f", muted: "#575757", faint: "#999999", accent: "#1e6fd9", "accent-soft": "#e2edfb", "accent-ink": "#1557ad", danger: "#d23c3c", glass: "rgba(247,247,247,0.97)", radius: "4px", font: SYSTEM },
+    backdrop: "sky",
     layout: "classic",
   },
   {
@@ -174,7 +175,7 @@ export function readSkin(raw: unknown, fallbackName: string): Skin | null {
     blurb: typeof r.blurb === "string" ? r.blurb.slice(0, 120) : "Your theme",
     dark: typeof r.dark === "boolean" ? r.dark : isDark(tokens.panel),
     tokens,
-    backdrop: ["default", "paper", "blueprint", "night"].includes(r.backdrop as string) ? r.backdrop : undefined,
+    backdrop: ["sky", "default", "paper", "blueprint", "night"].includes(r.backdrop as string) ? r.backdrop : undefined,
     icons: readIcons((r as { icons?: unknown }).icons),
   };
 }

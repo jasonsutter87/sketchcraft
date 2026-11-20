@@ -25,6 +25,7 @@ import Viewport, { type Backdrop, type BuildSettings, type FaceStyle, type Style
 import { MatchPhoto, type PhotoMatch } from "./matchphoto";
 import { prepareImage } from "./textures";
 import { savedSettings, store } from "./skins";
+import { STYLE_KEY, STYLE_PRESETS, chosenStyle, readChosenStyle, startingStyles, styleForModel } from "./styledefaults";
 import { panelTabs, readSideTab, shownTab, SIDE_TAB_KEY, stepTab, type SideTab } from "./sidetabs";
 import { useLook } from "./uselook";
 import { CommandPalette, type Command } from "./palette";
@@ -84,17 +85,6 @@ const DEFAULT_BUILD: BuildSettings = {
 function loadBuild(): BuildSettings {
   return savedSettings("sketchcraft.build", DEFAULT_BUILD, { roofKind: ["gable", "hip", "shed"], roomOpening: ["door", "window"] });
 }
-
-/** One-click looks, like SketchUp's style collections. */
-const STYLE_PRESETS: { name: string; styles: Partial<Styles> }[] = [
-  { name: "Default", styles: { face: "textured", background: "default", profiles: false, sketchy: false, extensions: false, ao: false, edges: true } },
-  { name: "Architectural", styles: { face: "shaded", background: "default", profiles: true, sketchy: false, extensions: false, ao: true, edges: true } },
-  { name: "Sketchy on paper", styles: { face: "hiddenline", background: "paper", profiles: true, sketchy: true, extensions: true, ao: false, edges: true } },
-  { name: "Hidden line", styles: { face: "hiddenline", background: "default", profiles: true, sketchy: false, extensions: false, ao: false, edges: true } },
-  { name: "Blueprint", styles: { face: "hiddenline", background: "blueprint", profiles: false, sketchy: false, extensions: true, ao: false, edges: true } },
-  { name: "Clay", styles: { face: "monochrome", background: "default", profiles: false, sketchy: false, extensions: false, ao: true, edges: false } },
-  { name: "Night", styles: { face: "shaded", background: "night", profiles: true, sketchy: false, extensions: false, ao: false, edges: true } },
-];
 
 /** The cut's height for a floor-plan cut: type one (4', 14', 1.2 m) to move it. */
 function SectionHeight({ api, units, tick }: { api: React.RefObject<ViewportApi | null>; units: string; tick: number }) {
@@ -161,8 +151,13 @@ function ModelingApp() {
     } catch {
       /* private window: help stays on */
     }
-    return { xray: false, backEdges: false, shadows: false, edges: true, parallel: false, face: "textured", background: "default", help };
+    return startingStyles(readChosenStyle(store.get(STYLE_KEY)), help);
   });
+  // the look you chose is remembered
+  useEffect(() => {
+    store.set(STYLE_KEY, JSON.stringify(chosenStyle(styles)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [styles.face, styles.background, styles.profiles, styles.sketchy, styles.extensions, styles.ao, styles.edges, styles.lineWeights]);
   // help on or off is remembered
   useEffect(() => {
     try {
@@ -182,7 +177,7 @@ function ModelingApp() {
     const r = await run({ cmd: "show_view", name: v.name });
     api.current?.goTo({ eye: v.eye, target: v.target, fov: v.fov, photo: v.photo ?? undefined });
     if (!r.ok || r.style == null) return; // a camera-only scene
-    setStyles((s) => ({ ...s, ...(r.style as Partial<Styles>) }));
+    setStyles((s) => styleForModel(s, r.style as Partial<Styles>));
     const sec = r.section as number[] | null | undefined;
     if (sec && sec.length === 6) api.current?.setSection([sec[0], sec[1], sec[2]], [sec[3], sec[4], sec[5]]);
     else {
@@ -826,8 +821,9 @@ function ModelingApp() {
                 <option value="wireframe">Wireframe</option>
               </select>
               <span>Background</span>
-              <select className="units-select" value={styles.background ?? "default"} onChange={(e) => setStyles((s) => ({ ...s, background: e.target.value as Backdrop }))}>
-                <option value="default">Sky and ground</option>
+              <select className="units-select" value={styles.background ?? "sky"} onChange={(e) => setStyles((s) => ({ ...s, background: e.target.value as Backdrop }))}>
+                <option value="sky">Sky and ground</option>
+                <option value="default">Plain with grid</option>
                 <option value="paper">Paper</option>
                 <option value="blueprint">Blueprint</option>
                 <option value="night">Night</option>
