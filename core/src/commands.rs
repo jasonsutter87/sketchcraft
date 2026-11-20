@@ -41,6 +41,7 @@ mod library;
 mod media;
 mod paint;
 mod projection;
+mod uv;
 mod vertex_paint;
 mod rendering;
 mod sections;
@@ -172,6 +173,7 @@ impl Command {
                 | Command::TextureUv { .. }
                 | Command::VertexColors { .. }
                 | Command::TextureFrame { .. }
+                | Command::UvInfo { .. }
         )
     }
 }
@@ -1024,6 +1026,7 @@ impl Engine {
                 Command::SaveSkin { .. } | Command::Material { .. }
             ) => self.run_paint(c),
             c @ (Command::TextureProject { .. } | Command::TextureUv { .. } | Command::TexturePosition { .. } | Command::TextureFrame { .. }) => self.run_projection(c),
+            c @ (Command::UvSeam { .. } | Command::UvUnwrap { .. } | Command::UvPack { .. } | Command::UvLightmap { .. } | Command::UvSet { .. } | Command::UvTransform { .. } | Command::UvInfo { .. }) => self.run_uv(c),
             c @ (Command::VertexPaint { .. } | Command::VertexPaintClear { .. } | Command::VertexColors { .. }) => self.run_vertex_paint(c),
             c @ (
                 Command::Photoreal { .. } | Command::Render { .. } | Command::Environment { .. } |

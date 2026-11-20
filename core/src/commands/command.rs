@@ -1471,6 +1471,93 @@ pub enum Command {
         #[serde(default)]
         default: bool,
     },
+    /// Mark (`on`, default true) or clear UV seams. Either `edges`, or `auto` (degrees) with `faces` / `entity`: the edges
+    /// inside those faces whose faces meet at more than that angle. Seams are where an unwrap cuts. One undo step.
+    UvSeam {
+        #[serde(default)]
+        edges: Option<Vec<Id>>,
+        #[serde(default)]
+        faces: Option<Vec<Id>>,
+        #[serde(default)]
+        entity: Option<Id>,
+        #[serde(default)]
+        on: Option<bool>,
+        #[serde(default)]
+        auto: Option<f64>,
+    },
+    /// UV unwrap `faces` (or a group / placed component, `entity`): split into islands along seams (`seams`: "marked", the
+    /// default, or "auto": marked plus every hard edge past `angle`), flatten each island (`method`: "conformal" (default,
+    /// LSCM), "angle" (hard edges first, then LSCM), "planar_islands"), pack into 0..1 with `margin` (default 0.01).
+    /// `pins`: [[face, corner, u, v]...] hold those corners in place (two or more on an island). Writes `Face.uv`.
+    /// One undo step.
+    UvUnwrap {
+        #[serde(default)]
+        faces: Option<Vec<Id>>,
+        #[serde(default)]
+        entity: Option<Id>,
+        #[serde(default)]
+        method: Option<String>,
+        #[serde(default)]
+        seams: Option<String>,
+        #[serde(default)]
+        angle: Option<f64>,
+        #[serde(default)]
+        margin: Option<f64>,
+        #[serde(default)]
+        pins: Option<Vec<[f64; 4]>>,
+    },
+    /// Repack the islands of faces that already have UVs, as they are, as big as the sheet allows (`set`: 1, or 2 for the lightmap).
+    UvPack {
+        #[serde(default)]
+        faces: Option<Vec<Id>>,
+        #[serde(default)]
+        entity: Option<Id>,
+        #[serde(default)]
+        margin: Option<f64>,
+        #[serde(default)]
+        set: Option<u8>,
+    },
+    /// The lightmap UV channel (`Face.uv2`): an unwrap with no overlaps, packed into 0..1 with `margin` (default 0.02).
+    /// Exported as TEXCOORD_1 (glTF) and a second UV layer (FBX); never drawn. `clear: true` removes it.
+    UvLightmap {
+        #[serde(default)]
+        faces: Option<Vec<Id>>,
+        #[serde(default)]
+        entity: Option<Id>,
+        #[serde(default)]
+        margin: Option<f64>,
+        #[serde(default)]
+        angle: Option<f64>,
+        #[serde(default)]
+        clear: bool,
+    },
+    /// Set the UVs of faces: `uv` maps a face id to one [u, v] per corner (outer loop, then each hole), or to null to drop
+    /// them. `set` 1 (default) or 2 (lightmap). One undo step.
+    UvSet {
+        uv: std::collections::BTreeMap<String, Option<Vec<[f64; 2]>>>,
+        #[serde(default)]
+        set: Option<u8>,
+    },
+    /// Move UVs by an affine map (`matrix` [a, b, c, d, e, f]: p' = [a c; b d] p + [e f], in tiles) on `faces`; `vertices`
+    /// limits it to the corners at those model vertices. One undo step.
+    UvTransform {
+        faces: Vec<Id>,
+        #[serde(default)]
+        vertices: Option<Vec<Id>>,
+        matrix: [f64; 6],
+        #[serde(default)]
+        set: Option<u8>,
+    },
+    /// What the UV view draws for `faces` / `entity`: per face its corners' vertices and UVs, the island it belongs to, the
+    /// faces without UVs and the marked seams. Read-only.
+    UvInfo {
+        #[serde(default)]
+        faces: Option<Vec<Id>>,
+        #[serde(default)]
+        entity: Option<Id>,
+        #[serde(default)]
+        set: Option<u8>,
+    },
 }
 
 /// One number for both axes, or one per axis.

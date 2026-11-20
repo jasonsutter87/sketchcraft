@@ -44,6 +44,9 @@ pub struct Edge {
     /// this edge's own line weight and style on drawing sheets; beats its tag's style. Boxed to keep `Edge` small.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub draft: Option<Box<crate::drafting::EdgeDraft>>,
+    /// a UV seam: unwrapping cuts the surface along it (see docs/dev/uv-editor.md)
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub seam: bool,
 }
 
 fn is_false(b: &bool) -> bool {
@@ -72,6 +75,9 @@ pub struct Face {
     /// vertex colours per corner (set by vertex painting, RGBA 0..1); None: the face shows only its material
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vcol: Option<FaceColors>,
+    /// the second texture-coordinate set (the lightmap channel): per corner, in 0..1. Exported, never drawn.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub uv2: Option<FaceUv>,
 }
 
 /// A picture's placement on one face: unit axes lying in the face plane and the point the image corner sits on.
@@ -459,6 +465,12 @@ impl Face {
             h.reverse();
         }
         if let Some(uv) = &mut self.uv {
+            uv.outer.reverse();
+            for h in &mut uv.holes {
+                h.reverse();
+            }
+        }
+        if let Some(uv) = &mut self.uv2 {
             uv.outer.reverse();
             for h in &mut uv.holes {
                 h.reverse();
@@ -1220,7 +1232,7 @@ impl Model {
             // a copy's curves are its own
             let curve = e.curve.map(|c| *curves.entry(c).or_insert_with(|| self.new_id()));
             let id = self.new_id();
-            self.edges.insert(id, Edge { a: map[&e.a], b: map[&e.b], group: Some(new), soft: e.soft, hidden: e.hidden, curve, draft: e.draft.clone() });
+            self.edges.insert(id, Edge { a: map[&e.a], b: map[&e.b], group: Some(new), soft: e.soft, hidden: e.hidden, curve, draft: e.draft.clone(), seam: e.seam });
         }
         let faces: Vec<Face> = self.faces.values().filter(|f| f.group == Some(gid)).cloned().collect();
         for f in faces {
@@ -1234,6 +1246,7 @@ impl Model {
                 tex: None,
                 uv: f.uv.clone(),
                 vcol: f.vcol.clone(),
+                uv2: f.uv2.clone(),
             };
             self.faces.insert(id, face);
         }

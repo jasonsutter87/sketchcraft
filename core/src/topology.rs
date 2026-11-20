@@ -162,8 +162,8 @@ impl Model {
             let q = geom::to2d(&[self.p(h[0])], u, v)[0];
             if geom::inside(q, &poly1) { h1.push(h.clone()) } else { h2.push(h.clone()) }
         }
-        self.faces.insert(fid, Face { outer: l1, holes: h1, uv: None, ..f.clone() });
-        let other = self.insert_face(Face { outer: l2, holes: h2, uv: None, ..f });
+        self.faces.insert(fid, Face { outer: l1, holes: h1, uv: None, uv2: None, ..f.clone() });
+        let other = self.insert_face(Face { outer: l2, holes: h2, uv: None, uv2: None, ..f });
         (fid, other)
     }
 

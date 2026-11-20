@@ -26,6 +26,8 @@ pub struct WFace {
     pub uv: Option<(Vec<[f32; 2]>, Vec<Vec<[f32; 2]>>)>,
     /// vertex colours per corner (RGBA), same layout as `uv`
     pub vcol: Option<(Vec<[f32; 4]>, Vec<Vec<[f32; 4]>>)>,
+    /// the lightmap channel (second texture-coordinate set), same layout as `uv`; exported, never drawn
+    pub uv2: Option<(Vec<[f32; 2]>, Vec<Vec<[f32; 2]>>)>,
     /// what a section groups this face's cut under (design §3.4): the innermost tagged owner around the face (its
     /// group or a parent group, else the nearest tagged placement or a group around it, outward), named by its own
     /// id when it is in the root model and by the top-level placement's id when it is inside a component; with no
@@ -179,6 +181,16 @@ impl Model {
                 };
                 (fix(&u.outer), u.holes.iter().map(fix).collect())
             });
+            let uv2 = f.uv2.as_ref().filter(|u| u.fits(f)).map(|u| {
+                let fix = |v: &Vec<[f32; 2]>| {
+                    let mut v = v.clone();
+                    if mirrored {
+                        v.reverse();
+                    }
+                    v
+                };
+                (fix(&u.outer), u.holes.iter().map(fix).collect())
+            });
             let vcol = f.vcol.as_ref().filter(|u| u.fits(f)).map(|u| {
                 let fix = |v: &Vec<[f32; 4]>| {
                     let mut v = v.clone();
@@ -191,6 +203,7 @@ impl Model {
             });
             out.push(WFace {
                 uv,
+                uv2,
                 vcol,
                 cut,
                 tag,
@@ -414,7 +427,9 @@ impl Model {
         }
         for e in def.edges.values() {
             let id = self.edge(map[&e.a], map[&e.b]);
-            self.edges.get_mut(&id).unwrap().soft = e.soft;
+            let ne = self.edges.get_mut(&id).unwrap();
+            ne.soft = e.soft;
+            ne.seam = e.seam;
         }
         // anchors that pointed into the component follow its points out into the new group
         self.note_remap(true, || crate::anchors::Remap::Vertices { scope: None, from_path: vec![inst], to_path: Vec::new(), map: map.iter().map(|(a, b)| (*a, *b)).collect() });
@@ -429,6 +444,7 @@ impl Model {
                 tex: None,
                 uv: f.uv.clone(),
                 vcol: f.vcol.clone(),
+                uv2: f.uv2.clone(),
             };
             if mirror {
                 nf.reverse();
