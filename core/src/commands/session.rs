@@ -8,6 +8,8 @@ impl Engine {
         Ok(match cmd {
             Command::BeginBatch => {
                 if self.batch.is_some() {
+                    // the app (a plugin's run, the person's change) asking while an agent's batch is open waits its turn
+                    self.turn_waiting |= self.batch_kind == BatchKind::Agent && !self.untrusted;
                     bail!(
                         "a batch is already open{}: batches don't nest, so end it first (one nobody ends is closed on its own)",
                         match self.batch_kind {
@@ -16,6 +18,13 @@ impl Engine {
                             _ => "",
                         }
                     );
+                }
+                // turn-taking: an agent that just closed a batch while another client waited lets that one in first
+                if self.untrusted && self.turn_waiting {
+                    if let Some(left) = self.agent_batch_ended.and_then(|t| BATCH_TURN.checked_sub(t.elapsed())).filter(|d| !d.is_zero()) {
+                        bail!("another client (the app or a plugin) is waiting for its turn: begin the next batch in {} s", left.as_secs().max(1));
+                    }
+                    self.turn_waiting = false;
                 }
                 self.batch_kind = if self.untrusted { BatchKind::Agent } else { BatchKind::Fresh };
                 self.batch_last = Some(std::time::Instant::now());
