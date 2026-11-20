@@ -996,23 +996,140 @@ pub fn pack_at(items: &[Item], scale: f64, margin: f64, blocked: &[Rect]) -> Opt
     Some(out)
 }
 
+/// Refuse a pack of more islands than `MAX_PACK_ISLANDS`, before the work.
+fn too_many_islands(n: usize) -> Result<()> {
+    if n > MAX_PACK_ISLANDS {
+        bail!("that is {n} UV islands to lay out at once (the most is {MAX_PACK_ISLANDS}): unwrap fewer faces at a time, or mark fewer seams so the islands are bigger");
+    }
+    Ok(())
+}
+
 /// (scale, margin used, placements)
 pub type Packed = (f64, f64, Vec<(Rect, bool)>);
+
+/// Past this many islands (pinned ones included) the packer lays them on shelves: rows, tallest first, which costs
+/// O(n log n) per try. The free-rectangle packer (`pack_at`) fits a little tighter, but its cost grows much faster with
+/// the count.
+pub const SHELF_ABOVE: usize = 300;
+/// The most islands one unwrap or pack places, pinned ones included.
+pub const MAX_PACK_ISLANDS: usize = 50_000;
+
+/// Cells on a side of the grid that finds blocked rectangles near a spot.
+const GRID: usize = 64;
+
+/// Blocked rectangles (with the margin added) and a grid that finds those near a spot.
+struct Blocks {
+    rects: Vec<Rect>,
+    cells: Vec<Vec<u32>>,
+}
+
+impl Blocks {
+    fn new(blocked: &[Rect], margin: f64) -> Blocks {
+        let rects: Vec<Rect> = blocked.iter().map(|b| Rect { x: b.x - margin * 0.5, y: b.y - margin * 0.5, w: b.w + margin, h: b.h + margin }).collect();
+        let mut cells = vec![vec![]; GRID * GRID];
+        for (i, r) in rects.iter().enumerate() {
+            if let Some((x0, x1, y0, y1)) = Blocks::span(r) {
+                for cy in y0..=y1 {
+                    for cx in x0..=x1 {
+                        cells[cy * GRID + cx].push(i as u32);
+                    }
+                }
+            }
+        }
+        Blocks { rects, cells }
+    }
+
+    /// The grid cells a rectangle touches (clipped to the unit square); None when it is outside it.
+    fn span(r: &Rect) -> Option<(usize, usize, usize, usize)> {
+        if !(r.x < 1.0 && r.y < 1.0 && r.x + r.w > 0.0 && r.y + r.h > 0.0) {
+            return None;
+        }
+        let c = |v: f64| (v * GRID as f64).floor().clamp(0.0, (GRID - 1) as f64) as usize;
+        Some((c(r.x), c(r.x + r.w), c(r.y), c(r.y + r.h)))
+    }
+
+    fn near(&self, r: Rect) -> impl Iterator<Item = &Rect> + '_ {
+        let span = Blocks::span(&r);
+        let (x0, x1, y0, y1) = span.unwrap_or((1, 0, 1, 0));
+        (y0..=y1).flat_map(move |cy| (x0..=x1).flat_map(move |cx| self.cells[cy * GRID + cx].iter())).map(|&i| &self.rects[i as usize]).filter(move |b| b.overlaps(&r))
+    }
+
+    /// The furthest right edge of the blocked rectangles `r` overlaps, if it overlaps any.
+    fn hit(&self, r: &Rect) -> Option<f64> {
+        self.near(*r).map(|b| b.x + b.w).reduce(f64::max)
+    }
+
+    /// The lowest top edge among the blocked rectangles that reach into the band `y..y + h`.
+    fn next_top(&self, y: f64, h: f64) -> Option<f64> {
+        self.near(Rect { x: 0.0, y, w: 1.0, h }).map(|b| b.y + b.h).filter(|t| *t > y).reduce(f64::min)
+    }
+}
+
+/// The order the shelf packer takes the items in: rotatable ones lying down (long side along u), tallest first.
+fn shelf_order(items: &[Item]) -> (Vec<usize>, Vec<(f64, f64, bool)>) {
+    let dims: Vec<(f64, f64, bool)> = items.iter().map(|it| if it.rotatable && it.h > it.w { (it.h, it.w, true) } else { (it.w, it.h, false) }).collect();
+    let mut order: Vec<usize> = (0..items.len()).collect();
+    order.sort_by(|a, b| dims[*b].1.total_cmp(&dims[*a].1).then(dims[*b].0.total_cmp(&dims[*a].0)).then(a.cmp(b)));
+    (order, dims)
+}
+
+/// `pack_at` on shelves: the items in `order` left to right along a row as tall as its first, around the blocked
+/// rectangles, then the next row above. The placements come back in item order, as from `pack_at`.
+fn shelf_at(order: &[usize], dims: &[(f64, f64, bool)], scale: f64, margin: f64, blocks: &Blocks) -> Option<Vec<(Rect, bool)>> {
+    let mut out = vec![(Rect { x: 0.0, y: 0.0, w: 0.0, h: 0.0 }, false); dims.len()];
+    let (mut x, mut y, mut shelf) = (0.0f64, 0.0f64, 0.0f64);
+    for &i in order {
+        let (w, h, rot) = dims[i];
+        let (pw, ph) = (w * scale + margin, h * scale + margin);
+        if pw > 1.0 + 1e-12 || ph > 1.0 + 1e-12 {
+            return None;
+        }
+        loop {
+            if x + pw > 1.0 + 1e-12 {
+                // the next row: above the tallest on this one, or (an empty row the blocked rectangles filled) above them
+                y = if shelf > 0.0 { y + shelf } else { blocks.next_top(y, ph)? };
+                x = 0.0;
+                shelf = 0.0;
+            }
+            if y + ph > 1.0 + 1e-12 {
+                return None;
+            }
+            let r = Rect { x, y, w: pw, h: ph };
+            match blocks.hit(&r) {
+                // past what is in the way (always further right: it overlaps)
+                Some(right) => x = right,
+                None => {
+                    out[i] = (Rect { x: r.x + margin * 0.5, y: r.y + margin * 0.5, w: r.w - margin, h: r.h - margin }, rot);
+                    x += pw;
+                    shelf = shelf.max(ph);
+                    break;
+                }
+            }
+        }
+    }
+    Some(out)
+}
 
 /// The biggest scale at which the items fit, with the placements. The margin shrinks when the sheet is too crowded for it.
 pub fn pack(items: &[Item], margin: f64, blocked: &[Rect]) -> Option<Packed> {
     if items.is_empty() {
         return Some((1.0, margin, vec![]));
     }
+    let shelves = (items.len() + blocked.len() > SHELF_ABOVE).then(|| shelf_order(items));
     let mut margin = margin.clamp(0.0, 0.2);
     for _ in 0..8 {
+        let blocks = shelves.as_ref().map(|_| Blocks::new(blocked, margin));
+        let try_at = |scale: f64| match (&shelves, &blocks) {
+            (Some((order, dims)), Some(b)) => shelf_at(order, dims, scale, margin, b),
+            _ => pack_at(items, scale, margin, blocked),
+        };
         let top = items.iter().map(|i| i.w.max(i.h)).fold(1e-12, f64::max);
         let (mut lo, mut hi) = (0.0, 1.0 / top);
-        let mut best = pack_at(items, 0.0, margin, blocked).map(|p| (0.0, p));
+        let mut best = try_at(0.0).map(|p| (0.0, p));
         if best.is_some() {
             for _ in 0..28 {
                 let mid = (lo + hi) * 0.5;
-                match pack_at(items, mid, margin, blocked) {
+                match try_at(mid) {
                     Some(p) => {
                         lo = mid;
                         best = Some((mid, p));
@@ -1142,11 +1259,13 @@ impl Model {
         }
         let all: Vec<usize> = (0..soup.faces.len()).collect();
         let comps = soup.components(&all, &cut);
+        too_many_islands(comps.len())?;
         let mut ctx = Ctx { soup: &soup, opts, cut: &cut, pins, out: vec![], split: 0, ignored: 0, pinned: 0 };
         for c in comps {
             ctx.solve(c, 0.0);
         }
         let (mut pieces, split, ignored, pinned) = (std::mem::take(&mut ctx.out), ctx.split, ctx.ignored, ctx.pinned);
+        too_many_islands(pieces.len())?;
         let stats = finish_pieces(&soup, &mut pieces);
         // pinned islands keep their place; the others are packed around them
         let blocked: Vec<Rect> = pieces.iter().filter(|p| p.fixed).map(|p| bbox(&p.faces)).collect();
@@ -1250,6 +1369,7 @@ impl Model {
         if islands.is_empty() {
             bail!("these faces have no UVs yet: unwrap them first");
         }
+        too_many_islands(islands.len())?;
         let boxes: Vec<Rect> = islands.iter().map(|isl| {
             let pts: Vec<[f64; 2]> = isl.iter().flat_map(|f| corners_of(self.uv_of(*f, set).unwrap())).collect();
             bbox_pts(&pts)
@@ -1557,6 +1677,66 @@ mod tests {
         for (r, _) in &place {
             assert!(!r.overlaps(&block), "{r:?}");
         }
+    }
+
+    fn check_packing(items: &[Item], blocked: &[Rect], m: f64) -> f64 {
+        let (scale, margin, place) = pack(items, m, blocked).unwrap();
+        assert!(scale > 0.0 && margin <= m + 1e-12 && place.len() == items.len());
+        let pad = |r: &Rect| Rect { x: r.x - margin * 0.5, y: r.y - margin * 0.5, w: r.w + margin, h: r.h + margin };
+        let mut seen: Vec<Rect> = blocked.to_vec();
+        for (i, (r, rot)) in place.iter().enumerate() {
+            assert!(r.x >= margin * 0.5 - 1e-9 && r.y >= margin * 0.5 - 1e-9 && r.x + r.w <= 1.0 - margin * 0.5 + 1e-9 && r.y + r.h <= 1.0 - margin * 0.5 + 1e-9, "{r:?} inside");
+            let (w, h) = if *rot { (items[i].h, items[i].w) } else { (items[i].w, items[i].h) };
+            assert!((r.w - w * scale).abs() < 1e-9 && (r.h - h * scale).abs() < 1e-9);
+            assert!(items[i].rotatable || !rot);
+            seen.push(*r);
+        }
+        // margins apart from each other and from the blocked rectangles (a grid finds the neighbours: thousands of items)
+        let n = seen.len();
+        let cell = 1.0 / 32.0;
+        let mut grid: HashMap<(i64, i64), Vec<usize>> = HashMap::new();
+        for (i, r) in seen.iter().enumerate() {
+            let p = pad(r);
+            for cy in (p.y / cell).floor() as i64..=((p.y + p.h) / cell).floor() as i64 {
+                for cx in (p.x / cell).floor() as i64..=((p.x + p.w) / cell).floor() as i64 {
+                    grid.entry((cx, cy)).or_default().push(i);
+                }
+            }
+        }
+        for v in grid.values() {
+            for (k, &i) in v.iter().enumerate() {
+                for &j in &v[k + 1..] {
+                    if i < blocked.len() && j < blocked.len() {
+                        continue;
+                    }
+                    assert!(!pad(&seen[i]).overlaps(&pad(&seen[j])), "{i} and {j} of {n} are closer than the margin");
+                }
+            }
+        }
+        place.iter().map(|(r, _)| r.w * r.h).sum()
+    }
+
+    #[test]
+    fn many_islands_pack_on_shelves_quickly_inside_and_apart() {
+        let items: Vec<Item> = (0..4000).map(|i| Item { w: 0.3 + (i % 7) as f64 * 0.1, h: 0.2 + (i % 5) as f64 * 0.15, rotatable: i % 2 == 0 }).collect();
+        let t = std::time::Instant::now();
+        let used = check_packing(&items, &[], 0.002);
+        assert!(t.elapsed().as_secs_f64() < 5.0, "{:?}", t.elapsed());
+        assert!(used > 0.35, "{used}");
+        // around blocked rectangles too, and the same every time
+        let blocked = [Rect { x: 0.0, y: 0.0, w: 0.5, h: 0.5 }, Rect { x: 0.7, y: 0.6, w: 0.2, h: 0.3 }];
+        check_packing(&items[..1000], &blocked, 0.01);
+        assert_eq!(format!("{:?}", pack(&items[..1000], 0.01, &blocked)), format!("{:?}", pack(&items[..1000], 0.01, &blocked)));
+        // a blocked band across the whole sheet is stepped over
+        let band = [Rect { x: 0.0, y: 0.0, w: 1.0, h: 0.25 }];
+        check_packing(&items[..500], &band, 0.0);
+    }
+
+    #[test]
+    fn a_pack_of_too_many_islands_is_refused_before_the_work() {
+        assert!(too_many_islands(MAX_PACK_ISLANDS).is_ok());
+        let e = too_many_islands(MAX_PACK_ISLANDS + 1).unwrap_err().to_string();
+        assert!(e.contains("islands"), "{e}");
     }
 
     #[test]
