@@ -142,6 +142,7 @@ What changed in each SketchCraft release, newest first. The format follows
 - **The top bar fits a 1366-pixel laptop screen.** On wider system fonts (Linux) the menus ran under the workspace
   switch at that width. The product name now steps aside below 1400 pixels, and a long file name is shortened with an
   ellipsis before it can crowd the menus. Wider windows look as before.
+- Security: hardened limits on texture painting, UV editing and texture export (WildLeopard).
 
 ## [0.3.8] - 2026-11-18
 
