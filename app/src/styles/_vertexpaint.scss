@@ -1,6 +1,7 @@
 @use "variables" as *;
 
-/* Vertex Paint: the brush panel shares the Project texture panel's look; this is just the colour chip */
+/* The paint colour chip, shown in the Vertex Paint and Texture Paint panels and the UV editor.
+   The panels themselves are styled with Project texture's, in _projection.scss. */
 
 .vp-chip {
   display: inline-block;
@@ -8,23 +9,4 @@
   height: 18px;
   border-radius: 50%;
   box-shadow: 0 0 0 1px rgba(20, 22, 40, 0.25);
-}
-
-/* clear of the Paint swatches on the right: bottom left of the model */
-.proj-panel.vp-panel {
-  right: auto;
-  left: 264px;
-}
-
-/* Texture Paint: the new-texture block and its "needs unwrapping" note (plain boxes, no accent stripe) */
-.tp-panel .tp-new {
-  display: grid;
-  gap: 6px;
-}
-
-.tp-panel .tp-warn {
-  padding: 6px 8px;
-  border-radius: $radius-sm;
-  background: var(--bg-sunk, rgba(0, 0, 0, 0.06));
-  line-height: 1.4;
 }

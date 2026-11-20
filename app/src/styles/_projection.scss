@@ -1,6 +1,7 @@
 @use "variables" as *;
 
-/* Project texture: a small panel over the corner of the model, so the selection stays in view while it is tuned */
+/* Project texture: a small panel over the corner of the model, so the selection stays in view while it is tuned.
+   Vertex Paint and Texture Paint reuse this panel (see _vertexpaint.scss). */
 
 .proj-panel {
   position: fixed;
@@ -29,49 +30,66 @@
   .field {
     display: grid;
     gap: 2px;
+
+    &.check {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
   }
 
-  .field.check {
+  .proj-head {
     display: flex;
+    gap: 8px;
+    align-items: baseline;
+    justify-content: space-between;
+  }
+
+  .proj-step {
+    padding: 6px 8px;
+    border-radius: $radius-sm;
+    background: var(--bg-sunk, rgba(0, 0, 0, 0.04));
+    line-height: 1.4;
+  }
+
+  .proj-more {
+    justify-self: start;
+  }
+
+  .proj-more-body {
+    display: grid;
     gap: 6px;
+  }
+
+  .proj-origin {
+    display: grid;
+    grid-template-columns: auto repeat(3, 1fr);
+    gap: 4px;
     align-items: center;
+
+    input {
+      min-width: 0;
+    }
   }
-}
 
-.proj-head {
-  display: flex;
-  gap: 8px;
-  align-items: baseline;
-  justify-content: space-between;
-}
-
-.proj-step {
-  padding: 6px 8px;
-  border-radius: $radius-sm;
-  background: var(--bg-sunk, rgba(0, 0, 0, 0.04));
-  line-height: 1.4;
-}
-
-.proj-more {
-  justify-self: start;
-}
-
-.proj-more-body {
-  display: grid;
-  gap: 6px;
-}
-
-.proj-origin {
-  display: grid;
-  grid-template-columns: auto repeat(3, 1fr);
-  gap: 4px;
-  align-items: center;
-
-  input {
-    min-width: 0;
+  /* Vertex Paint and Texture Paint: clear of the Paint swatches on the right, bottom left of the model */
+  &.vp-panel {
+    right: auto;
+    left: 264px;
   }
-}
 
-.proj-actions {
-  margin-top: 2px;
+  /* Texture Paint: the new-texture block and its "needs unwrapping" note (plain boxes, no accent stripe) */
+  &.tp-panel {
+    .tp-new {
+      display: grid;
+      gap: 6px;
+    }
+
+    .tp-warn {
+      padding: 6px 8px;
+      border-radius: $radius-sm;
+      background: var(--bg-sunk, rgba(0, 0, 0, 0.06));
+      line-height: 1.4;
+    }
+  }
 }
