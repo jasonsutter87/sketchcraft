@@ -1160,6 +1160,87 @@ await scenario('plugin', ['plugin'], async () => {
   await key('Escape');
 });
 
+/** a close-up of whatever is in the model, from the front: it fills the view */
+const closeUp = async () => {
+  const pos = (await scene()).positions;
+  const lo = [Infinity, Infinity, Infinity];
+  const hi = [-Infinity, -Infinity, -Infinity];
+  for (let i = 0; i < pos.length; i += 3) for (let k = 0; k < 3; k++) (lo[k] = Math.min(lo[k], pos[i + k]), (hi[k] = Math.max(hi[k], pos[i + k])));
+  const mid = lo.map((v, k) => (v + hi[k]) / 2);
+  const size = Math.hypot(...hi.map((v, k) => v - lo[k]));
+  await camera([mid[0], mid[1] - size * 1.1, mid[2] + size * 0.11], mid);
+  await wait(400);
+  return mid;
+};
+/** a drag across the middle of the model, in screen pixels */
+const strokeAcross = async (mid) => {
+  const [cx, cy] = await px(mid);
+  await p.mouse.move(cx - 50, cy + 5);
+  await p.mouse.down();
+  await p.mouse.move(cx, cy - 5, { steps: 10 });
+  await p.mouse.move(cx + 50, cy + 5, { steps: 10 });
+  await p.mouse.up();
+  await wait(900);
+};
+
+await scenario('vpaint', ['vpaint'], async () => {
+  let inst;
+  await fresh(async (X) => {
+    inst = (await X({ cmd: 'insert', asset: 'globe', at: [0, 0, 0] })).instance;
+  }, { view: 'none' });
+  const mid = await closeUp();
+  const cornersOf = async () => Object.values((await X({ cmd: 'vertex_colors', faces: [inst] })).colors ?? {}).flatMap((v) => v ?? []);
+  const painted = (cs) => cs.filter((c) => c.some((x) => x < 0.999)).length;
+  check(painted(await cornersOf()) === 0, 'Vertex Paint: the placed globe starts with no painted corners');
+  await tool('vpaint');
+  check(await p.locator('[data-testid="vertex-paint-panel"]').isVisible().catch(() => false), 'the tool opens its brush panel');
+  await p.locator('.viewport canvas').hover();
+  await strokeAcross(mid);
+  const hit = painted(await cornersOf());
+  check(hit > 0, `a drag across the model paints corners (${hit})`);
+  await key('Control+z');
+  await wait(400);
+  check(painted(await cornersOf()) === 0, 'one Undo takes the whole stroke back');
+  await key('Escape');
+  check(painted(await cornersOf()) === 0, 'Esc changes nothing in the model');
+  await tool('select');
+  check(!(await p.locator('[data-testid="vertex-paint-panel"]').isVisible().catch(() => false)), 'leaving the tool closes its brush panel');
+});
+
+await scenario('tpaint', ['tpaint'], async () => {
+  await fresh(async (X) => {
+    const ins = await X({ cmd: 'insert', asset: 'crate', at: [0, 0, 0] });
+    await X({ cmd: 'explode', id: ins.instance });
+  }, { view: 'none' });
+  const mid = await closeUp();
+  await tool('select');
+  await p.locator('.viewport canvas').click({ position: { x: 850, y: 500 } });
+  await key('ControlOrMeta+a');
+  await tool('tpaint');
+  const panel = p.locator('[data-testid="texture-paint-panel"]');
+  check(await panel.isVisible().catch(() => false), 'Texture Paint: the tool opens its panel');
+  await panel.getByTestId('tp-create').click();
+  await panel.getByTestId('tp-needs').waitFor({ timeout: 5000 }).catch(() => {});
+  // a base of the faces' own material, so a stroke in the brush colour shows on it
+  await panel.getByTestId('tp-newbase').selectOption('material');
+  await panel.getByTestId('tp-unwrap-new').click();
+  const s = await until((s) => s.materials.some((m) => m.name === 'Paint 1' && m.texture), 8000);
+  check(s.materials.some((m) => m.name === 'Paint 1' && m.texture), 'Unwrap and create makes a paint texture (Paint 1)');
+  const pic = () => X({ cmd: 'texture_pixels', material: 'Paint 1', x: 0, y: 0, w: 1, h: 1 });
+  const h0 = (await pic()).hash;
+  await p.locator('.viewport canvas').hover();
+  await strokeAcross(mid);
+  const h1 = (await pic()).hash;
+  check(h1 !== h0, 'a drag across the model changes the picture');
+  await key('Control+z');
+  await wait(700);
+  check((await pic()).hash === h0, 'one Undo puts every pixel back');
+  await key('Escape');
+  check((await pic()).hash === h0, 'Esc changes nothing in the picture');
+  await tool('select');
+  check(!(await panel.isVisible().catch(() => false)), 'leaving the tool closes its panel');
+});
+
 // ---- the whole list: every tool must have a scenario -------------------------------------------------------------
 {
   // `plugin` is the tool a plugin button turns on; the scenario above covers it
