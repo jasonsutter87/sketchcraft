@@ -176,6 +176,19 @@ await key('Control+z');
 s = await until((st) => st.instances.length === 0);
 check(s.instances.length === 0, 'and Undo takes it away');
 
+// selecting one group must not make the page reload the scene over and over (Entity info's volume
+// question once went through run(), which reloaded the scene, which asked again: a loop)
+await key('Escape');
+await p.locator('[role="tab"]', { hasText: 'Outliner' }).click();
+await p.locator('.orow', { hasText: 'Room 1' }).first().click();
+await wait(500);
+let reloads = 0;
+const countScene = (r) => r.url().endsWith('/scene') && r.method() === 'GET' && reloads++;
+p.on('request', countScene);
+await wait(2000);
+p.off('request', countScene);
+check(reloads <= 2, `with a group selected the page stays quiet (${reloads} scene reloads in 2 s)`);
+
 check(problems.length === 0, `no page errors ${problems.slice(0, 3).join(' | ').slice(0, 300)}`);
 await b.close();
 console.log(failed ? `${failed} check(s) failed, ${passed} passed` : `all ${passed} checks passed`);

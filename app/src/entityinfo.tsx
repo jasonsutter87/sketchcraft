@@ -24,7 +24,9 @@ export function EntityInfo({ scene, sel, run }: { scene: Scene; sel: Sel; run: R
   useEffect(() => {
     if (one == null) return setSolid(null);
     let live = true;
-    run({ cmd: "volume", id: one }).then((r) => live && setSolid({ id: one, volume: r.ok && r.solid ? (r.volume as number) : null }));
+    // a read-only question: ask the engine directly. Going through run() reloads the scene, which
+    // re-runs this effect, which asks again: a loop that rebuilt the scene many times a second.
+    exec({ cmd: "volume", id: one }).then((r) => live && setSolid({ id: one, volume: r.ok && r.solid ? (r.volume as number) : null }));
     return () => {
       live = false;
     };

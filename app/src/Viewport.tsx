@@ -1001,6 +1001,9 @@ export default function Viewport(props: Props) {
     T.pickMesh = front;
 
     addFigures(T, s, clip);
+    // turn them to the camera now, not after the next frame is drawn (a new figure flashed its
+    // default side for a frame, which made it look like it was spinning)
+    turnFigures();
 
     addEditMesh(T, s);
 
