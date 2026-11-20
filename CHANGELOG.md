@@ -15,6 +15,14 @@ What changed in each SketchCraft release, newest first. The format follows
   **View > Vertex colours** hides them. They are saved in the model (a model that has them opens read-only in older
   versions, so they are not lost) and go into glTF / GLB as vertex colours, into FBX as a colour layer, and into renders.
   Agents use `vertex_paint`, `vertex_paint_clear` and `vertex_colors`.
+- **Position Texture: move, rotate, scale and skew a picture on a face.** Right-click a face that has a picture and choose
+  **Texture › Position** (or Tools › Position texture…). The whole picture shows see-through over the face with four pins:
+  **red** moves it, **green** scales and turns it around the red pin, **blue** stretches or leans its height, **yellow**
+  skews it; dragging the picture itself moves it too. The face follows live; **Enter** (or a click on empty space) keeps it
+  as one Undo step, **Esc** takes it back. Right-click inside for Flip left/right, Flip up/down, Rotate 90/180/270 and
+  Reset. It works on a plain, a painted-through and a projected face alike. Agents use `texture_position`.
+- **Painted-through pictures are now marked in the file.** A model with a picture carried across faces by paint-through is
+  saved so that older versions open it read-only instead of silently dropping the placement on their next save.
 - **Export to FBX.** File > Export > FBX writes a model for Unity, Unreal, Blender and Maya: each group and component is
   its own object, nested as in your model and keeping its name, with normals, texture coordinates, materials and the
   pictures used as textures (saved in a folder beside the file). Metres, Y up. Agents use `export_fbx`.

@@ -2063,6 +2063,21 @@ export default function Viewport(props: Props) {
       return { origin: [o.x, o.y, o.z], normal: [p.normal.x, p.normal.y, p.normal.z] };
     },
     editCage: (id: number) => enterCage(id),
+    toClient: (p: Vec3) => {
+      const T = t.current!;
+      const r = T.renderer.domElement.getBoundingClientRect();
+      const q = V(p).project(T.camera);
+      return q.z > 1 || !Number.isFinite(q.x) ? null : ([r.left + ((q.x + 1) / 2) * r.width, r.top + ((1 - q.y) / 2) * r.height] as [number, number]);
+    },
+    rayAt: (clientX: number, clientY: number) => {
+      const o = ray({ clientX, clientY });
+      return { origin: [o.origin.x, o.origin.y, o.origin.z] as Vec3, dir: [o.direction.x, o.direction.y, o.direction.z] as Vec3 };
+    },
+    watchCamera: (cb: () => void) => {
+      const c = t.current!.controls;
+      c.addEventListener("change", cb);
+      return () => c.removeEventListener("change", cb);
+    },
     previousView: () => stepView(-1),
     setCamera,
     setSun,

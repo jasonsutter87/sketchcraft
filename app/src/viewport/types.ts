@@ -108,6 +108,12 @@ export interface ViewportApi {
   planCut: (height: number) => void;
   /** slide the cut along its direction (m; + moves it deeper into what's kept) */
   moveSection: (by: number) => void;
+  /** a world point on the screen (client pixels); null when it is behind the camera */
+  toClient: (p: Vec3) => [number, number] | null;
+  /** the ray through a client pixel */
+  rayAt: (clientX: number, clientY: number) => { origin: Vec3; dir: Vec3 };
+  /** call `cb` whenever the camera moves; returns the way to stop */
+  watchCamera: (cb: () => void) => () => void;
 }
 
 export interface Props {

@@ -1,0 +1,88 @@
+@use "variables" as *;
+
+/* Position texture: the whole picture drawn see-through over the face, four pins on its corners. The layer lets clicks
+   through everywhere except the pins and the picture, so the model can still be orbited. */
+
+.pos-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 25;
+  pointer-events: none;
+
+  .pos-image {
+    position: fixed;
+    left: 0;
+    top: 0;
+    width: 100px;
+    height: 100px;
+    transform-origin: 0 0;
+    opacity: 0.42;
+    pointer-events: none;
+
+    img {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+  }
+
+  .pos-svg {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    overflow: visible;
+  }
+
+  .pos-quad {
+    fill: transparent;
+    stroke: rgba(255, 255, 255, 0.9);
+    stroke-width: 1.5;
+    stroke-dasharray: 5 4;
+    pointer-events: all;
+    cursor: move;
+  }
+
+  .pos-pin {
+    pointer-events: all;
+    cursor: grab;
+
+    &:active {
+      cursor: grabbing;
+    }
+  }
+
+  .pos-label {
+    font-size: 12px;
+    font-weight: 600;
+    fill: #fff;
+    paint-order: stroke;
+    stroke: rgba(20, 22, 40, 0.8);
+    stroke-width: 3px;
+    pointer-events: none;
+  }
+
+  .pos-bar {
+    position: fixed;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    max-width: min(920px, calc(100vw - 32px));
+    padding: 8px 12px;
+    border-radius: $radius-lg;
+    background: var(--panel);
+    color: var(--text);
+    box-shadow: 0 6px 24px rgba(20, 22, 40, 0.22), 0 0 0 1px rgba(20, 22, 40, 0.08);
+    font-size: $font-l;
+    pointer-events: all;
+
+    span {
+      flex: 1;
+      line-height: 1.35;
+    }
+  }
+}

@@ -52,6 +52,7 @@ import { Text3dDialog } from "./text3d";
 import { ProjectionPanel } from "./projectionpanel";
 import { VertexPaintPanel } from "./vertexpaintpanel";
 import { DEFAULT_VPAINT, effectiveRadius, sceneDiagonal, type VPaintSettings } from "./vertexpaint";
+import { PositionPanel } from "./positionpanel";
 import { RestoreDialog } from "./restore";
 import { TimelinePanel } from "./timeline";
 import { LearnCenter, LessonCard, lessonsDone, useLearnCtx } from "./learn";
@@ -193,6 +194,8 @@ function ModelingApp() {
   // Project texture: the panel is about the selection it opened on
   const [showProjection, setShowProjection] = useState(false);
   const [vpaint, setVPaint] = useState<VPaintSettings>(DEFAULT_VPAINT);
+  // Position texture: the face being positioned
+  const [positionFace, setPositionFace] = useState<number | null>(null);
   const [showRestore, setShowRestore] = useState(false);
   const [showTimeline, setShowTimeline] = useState(false);
   const [showLearn, setShowLearn] = useState(false);
@@ -316,6 +319,12 @@ function ModelingApp() {
   const askProjection = () => {
     if (!sel.faces.length && !sel.groups.length && !sel.instances.length) return say(tr("proj.select"), true);
     setShowProjection(true);
+  };
+  const askPosition = () => {
+    const f = sel.faces.length === 1 && !sel.groups.length && !sel.instances.length ? scene?.faces.find((x) => x.id === sel.faces[0]) : null;
+    if (!f) return say(tr("pos.select"), true);
+    if (!f.material || !scene?.materials.find((m) => m.name === f.material)?.texture) return say(tr("pos.nopicture"), true);
+    setPositionFace(f.id);
   };
   const askSubdivide = () => {
     if (api.current?.inCage()) return;
@@ -585,6 +594,7 @@ function ModelingApp() {
           if (r.ok) say(`Raised ${r.walls} walls${r.windows ? ` with ${r.windows} window openings` : ""}`);
         },
       },
+      { id: "tools.positiontexture", label: "Position texture…", hint: "Tools · move, rotate, scale and skew the picture on the selected face (also right-click a textured face: Texture › Position)", run: askPosition },
       { id: "tools.projecttexture", label: "Project texture…", hint: "Tools · lay a picture on the selection: planar, box, cylinder or sphere", run: askProjection },
       { label: "Subdivide…", hint: `Tools · smooth the selected group or component into a SubD shape. ${SUBD_HOW}`, run: askSubdivide },
       { label: "SubD box", hint: `Tools · a cube cage to shape. ${SUBD_HOW}`, run: () => void addSubdBox() },
@@ -700,6 +710,7 @@ function ModelingApp() {
       location: () => setShowLocation(true),
       text3d: () => setShowText3d(true),
       projection: askProjection,
+      positionTexture: askPosition,
       plugins: () => (reloadPlugins(), setShowPlugins(true)),
       themes: () => setShowSkins(true),
       keys: () => setShowKeys(true),
@@ -1184,6 +1195,7 @@ function ModelingApp() {
         {lesson && learnCtx && <LessonCard key={lesson} id={lesson} ctx={learnCtx} onClose={() => setLesson(null)} onToast={say} />}
         {showRestore && <RestoreDialog run={run} onClose={() => setShowRestore(false)} onToast={say} />}
         {tool === "vpaint" && scene && !inLayout && <VertexPaintPanel settings={vpaint} set={setVPaint} radius={effectiveRadius(vpaint, sceneDiagonal(scene))} sel={sel} color={color} run={run} onToast={say} />}
+        {positionFace != null && scene && api.current && <PositionPanel scene={scene} face={positionFace} run={run} api={api.current} onClose={() => setPositionFace(null)} onToast={say} />}
         {showProjection && scene && <ProjectionPanel scene={scene} sel={sel} run={run} camera={() => api.current!.camera()} onClose={() => setShowProjection(false)} onToast={say} />}
         {showText3d && scene && <Text3dDialog scene={scene} run={run} camera={() => api.current!.camera()} onClose={() => setShowText3d(false)} onToast={say} />}
         {showRef && scene && <RefImageDialog scene={scene} run={run} onClose={() => setShowRef(false)} onToast={say} />}
@@ -1266,7 +1278,7 @@ function ModelingApp() {
             }}
           />
         )}
-        {menu && scene && <ContextMenu x={menu.x} y={menu.y} close={() => setMenu(null)} items={contextItems(scene, sel, run, setSel, () => api.current?.fit(), api.current?.sectionPlane(), (id) => api.current?.editCage(id), say, { subdivide: askSubdivide, subdBox: addSubdBox, projectTexture: askProjection })} />}
+        {menu && scene && <ContextMenu x={menu.x} y={menu.y} close={() => setMenu(null)} items={contextItems(scene, sel, run, setSel, () => api.current?.fit(), api.current?.sectionPlane(), (id) => api.current?.editCage(id), say, { subdivide: askSubdivide, subdBox: addSubdBox, projectTexture: askProjection, positionTexture: askPosition })} />}
       </main>
 
       {!merged && <aside className="panel right">{inspector}</aside>}

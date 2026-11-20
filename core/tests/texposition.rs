@@ -221,3 +221,18 @@ fn painted_through_placements_are_marked_in_the_file() {
     old["needs"] = json!(["face_tex", "face_next"]);
     assert!(sketchcraft::format::check(old.to_string().as_bytes()).is_some());
 }
+
+#[test]
+fn reset_with_a_change_starts_from_the_materials_own_placement() {
+    let (mut e, f) = floor();
+    let home = pic(&mut e, f);
+    run(&mut e, json!({"cmd":"texture_position","face":f,"transform":{"rotation":40}}));
+    // the default frame is what a reset gives, whatever the face holds now
+    let r = run(&mut e, json!({"cmd":"texture_frame","face":f,"default":true}));
+    assert_eq!(r["own"], false);
+    let d: Vec<[f64; 2]> = r["picture"][0].as_array().unwrap().iter().map(|p| [p[0].as_f64().unwrap(), p[1].as_f64().unwrap()]).collect();
+    near(&d, &home);
+    // one command: reset, then move
+    run(&mut e, json!({"cmd":"texture_position","face":f,"reset":true,"matrix":[1, 0, 0, 1, 0.5, 0]}));
+    near(&pic(&mut e, f), &home.iter().map(|p| [p[0] + 0.5, p[1]]).collect::<Vec<_>>());
+}

@@ -77,8 +77,11 @@ impl Engine {
                 if ids.is_empty() {
                     bail!("texture_position needs face or faces");
                 }
-                if reset {
+                if reset && matrix.is_none() && transform.is_none() {
                     return Ok(json!({"reset": m.reset_texture_position(&ids)?}));
+                }
+                if reset {
+                    m.reset_texture_position(&ids)?;
                 }
                 let build = |mid: [f64; 2]| -> Affine {
                     if let Some(a) = matrix {
@@ -97,7 +100,7 @@ impl Engine {
                 }
                 json!({"faces": m.position_texture(&ids, &build, &frames)?})
             }
-            Command::TextureFrame { face } => m.texture_frame(face, &frames)?,
+            Command::TextureFrame { face, default } => m.texture_frame(face, &frames, default)?,
             other => unreachable!("command routed to the wrong group: {other:?}"),
         })
     }

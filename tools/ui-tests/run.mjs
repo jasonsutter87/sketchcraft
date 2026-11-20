@@ -37,6 +37,7 @@ const SUITES = [
   ['texturing-set', 'tools/ui-tests/texturing-set.mjs', 300],
   ['projection', 'tools/ui-tests/projection.mjs', 300],
   ['vertex-paint', 'tools/ui-tests/vertex-paint.mjs', 300],
+  ['position-texture', 'tools/ui-tests/position-texture.mjs', 300],
   ['shortcuts', 'tools/ui-tests/shortcuts.mjs', 300],
   ['menu-bar', 'tools/ui-tests/menu-bar.mjs', 420],
   ['tools', 'tools/ui-tests/tools.mjs', 900],

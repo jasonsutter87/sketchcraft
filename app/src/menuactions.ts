@@ -85,7 +85,7 @@ export interface MenuCtx {
   setLayout: (l: Layout) => void;
   setLanguage: (l: string) => void;
   // dialogs and links
-  open: Record<"restore" | "render" | "sheets" | "layout" | "timeline" | "location" | "text3d" | "projection" | "plugins" | "themes" | "keys" | "keyEditor" | "palette" | "learn" | "about" | "customize", () => void>;
+  open: Record<"restore" | "render" | "sheets" | "layout" | "timeline" | "location" | "text3d" | "projection" | "positionTexture" | "plugins" | "themes" | "keys" | "keyEditor" | "palette" | "learn" | "about" | "customize", () => void>;
   checkForUpdates: () => void;
   openLink: (which: "issues") => void;
 }
@@ -182,6 +182,8 @@ export function buildMenuActions(c: MenuCtx): Record<string, MenuAction> {
 
   // Project texture: a panel over a selection (the same action the command search and the context menu run)
   add("tools.projecttexture", c.open.projection, model && has);
+  // Position texture: move, rotate, scale and skew the picture on the selected face
+  add("tools.positiontexture", c.open.positionTexture, model && has);
 
   // Window
   add("win.outliner", () => c.showTab("outliner"), c.leftTabs.includes("outliner"));

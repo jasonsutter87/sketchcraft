@@ -209,6 +209,7 @@ export const MENUS: Menu[] = [
       tool("paint"),
       tool("vpaint"),
       act("tools.projecttexture", "menu.projectTexture"),
+      act("tools.positiontexture", "menu.positionTexture"),
       tool("erase"),
       tool("section"),
     ],

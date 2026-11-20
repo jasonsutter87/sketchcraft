@@ -83,17 +83,17 @@ impl Model {
         out
     }
 
-    fn picture_corners(&self, id: Id, frames: &Frames) -> Result<Corners> {
+    fn picture_corners(&self, id: Id, frames: &Frames, fresh: bool) -> Result<Corners> {
         let f = self.faces.get(&id).ok_or_else(|| anyhow::anyhow!("no face {id} here (open the component to edit its faces)"))?;
         let Some(name) = f.material.as_deref() else { bail!("face {id} has no picture: paint it with a textured material first") };
         let Some(t) = frames.get(name) else { bail!("face {id}'s material \"{name}\" has no picture") };
         let loops: Vec<Vec<DVec3>> = f.loops().map(|l| self.pts(l)).collect();
         let (w, h) = (t.width.max(1e-6), t.height.max(1e-6));
-        let own = f.uv.as_ref().filter(|u| u.fits(f));
+        let own = f.uv.as_ref().filter(|u| u.fits(f) && !fresh);
         let uv: Vec<Vec<[f64; 2]>> = match own {
             Some(u) => std::iter::once(&u.outer).chain(u.holes.iter()).map(|r| r.iter().map(|p| [p[0] as f64, p[1] as f64]).collect()).collect(),
             None => {
-                let place = f.tex.as_ref().filter(|p| f.material.as_deref() == Some(p.material.as_str()));
+                let place = f.tex.as_ref().filter(|p| !fresh && f.material.as_deref() == Some(p.material.as_str()));
                 let map = Mapping::of_place(t, place, geom::newell(&loops[0]));
                 loops.iter().map(|l| l.iter().map(|p| map.uv(*p)).collect()).collect()
             }
@@ -103,13 +103,13 @@ impl Model {
     }
 
     /// What Position needs to draw its pins: per loop the corners' points and picture-space coordinates, the tile size.
-    pub fn texture_frame(&self, id: Id, frames: &Frames) -> Result<serde_json::Value> {
-        let (pic, loops, (w, h), material) = self.picture_corners(id, frames)?;
+    pub fn texture_frame(&self, id: Id, frames: &Frames, fresh: bool) -> Result<serde_json::Value> {
+        let (pic, loops, (w, h), material) = self.picture_corners(id, frames, fresh)?;
         let f = &self.faces[&id];
         let n = geom::newell(&loops[0]);
         Ok(serde_json::json!({
             "material": material, "tile": [w, h], "normal": [n.x, n.y, n.z],
-            "own": f.uv.as_ref().is_some_and(|u| u.fits(f)),
+            "own": !fresh && f.uv.as_ref().is_some_and(|u| u.fits(f)),
             "points": loops.iter().map(|l| l.iter().map(|p| [p.x, p.y, p.z]).collect::<Vec<_>>()).collect::<Vec<_>>(),
             "picture": pic,
         }))
@@ -127,7 +127,7 @@ impl Model {
         }
         let mut done = Vec::with_capacity(faces.len());
         for id in faces {
-            let (pic, _, (w, h), _) = self.picture_corners(id, frames)?;
+            let (pic, _, (w, h), _) = self.picture_corners(id, frames, false)?;
             let n = pic.iter().map(Vec::len).sum::<usize>().max(1) as f64;
             let mid = pic.iter().flatten().fold([0.0, 0.0], |a, p| [a[0] + p[0] / n, a[1] + p[1] / n]);
             let a = m(mid);
