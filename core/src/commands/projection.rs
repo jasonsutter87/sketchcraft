@@ -1,12 +1,15 @@
 //! Projection mapping commands (`texture_project`, `texture_uv`). The math lives in `crate::projection`.
 
 use super::*;
+use super::command::One2;
 use crate::projection::{Mode, Projection};
+use crate::texposition::Affine;
 
 impl Engine {
     pub(super) fn run_projection(&mut self, cmd: Command) -> Result<Value> {
         // the root model knows every material and picture size, even when a component is open for editing
         let tiles = self.model.texture_tiles();
+        let frames = self.model.texture_frames();
         let root_has = |name: &str| self.model.find_material(name).is_some();
         let known = match &cmd {
             Command::TextureProject { material: Some(name), .. } => root_has(name),
@@ -68,6 +71,33 @@ impl Engine {
                 }
                 json!({"uv": out})
             }
+            Command::TexturePosition { face, faces, transform, matrix, reset } => {
+                let mut ids = faces.unwrap_or_default();
+                ids.extend(face);
+                if ids.is_empty() {
+                    bail!("texture_position needs face or faces");
+                }
+                if reset {
+                    return Ok(json!({"reset": m.reset_texture_position(&ids)?}));
+                }
+                let build = |mid: [f64; 2]| -> Affine {
+                    if let Some(a) = matrix {
+                        return Affine(a);
+                    }
+                    let t = transform.unwrap_or_default();
+                    let skew = match t.skew {
+                        Some(One2::One(a)) => [a, 0.0],
+                        Some(One2::Two(p)) => p,
+                        None => [0.0; 2],
+                    };
+                    Affine::about(t.pivot.unwrap_or(mid), t.offset.unwrap_or([0.0; 2]), t.rotation.unwrap_or(0.0), t.scale.map_or([1.0; 2], One2::pair), skew)
+                };
+                if matrix.is_none() && transform.is_none() {
+                    bail!("texture_position needs a transform, a matrix or reset");
+                }
+                json!({"faces": m.position_texture(&ids, &build, &frames)?})
+            }
+            Command::TextureFrame { face } => m.texture_frame(face, &frames)?,
             other => unreachable!("command routed to the wrong group: {other:?}"),
         })
     }

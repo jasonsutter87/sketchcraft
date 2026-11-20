@@ -20,8 +20,8 @@ use serde_json::Value;
 /// can still open it wherever that is possible.
 pub const FORMAT: u64 = 2;
 
-/// Features (the `needs` list) this build understands. "sheets": drawing sheets in the model (0.3.8). "face_uv": faces with their own texture coordinates (projection mapping, 0.3.9).
-pub const KNOWN_NEEDS: &[&str] = &["sheets", "face_uv", "face_vcol"];
+/// Features (the `needs` list) this build understands. "sheets": drawing sheets in the model (0.3.8). "face_uv": faces with their own texture coordinates (projection mapping, 0.3.9). "face_vcol": faces with vertex colours. "face_tex": faces with a painted-through picture placement (`tex`).
+pub const KNOWN_NEEDS: &[&str] = &["sheets", "face_uv", "face_vcol", "face_tex"];
 
 /// Every top-level key this build knows: the serialized fields of `Model` (kept in step by the test
 /// `known_keys_match_the_model_struct`, which reads model.rs) and the two the guard adds.
@@ -135,6 +135,11 @@ fn has_face_vcol(m: &crate::model::Model) -> bool {
     m.faces.values().any(|f| f.vcol.is_some()) || m.definitions.values().any(|d| has_face_vcol(&d.model))
 }
 
+/// Does any face (here or in a component) carry a painted-through picture placement? An older build would drop it on save.
+fn has_face_tex(m: &crate::model::Model) -> bool {
+    m.faces.values().any(|f| f.tex.is_some()) || m.definitions.values().any(|d| has_face_tex(&d.model))
+}
+
 /// The features a file of this model needs a reader to understand.
 fn needs_of(m: &crate::model::Model) -> Option<Vec<&'static str>> {
     let mut v = Vec::new();
@@ -147,10 +152,13 @@ fn needs_of(m: &crate::model::Model) -> Option<Vec<&'static str>> {
     if has_face_vcol(m) {
         v.push("face_vcol");
     }
+    if has_face_tex(m) {
+        v.push("face_tex");
+    }
     Some(v).filter(|v| !v.is_empty())
 }
 
-/// The format number a file of this model is written with: 2 when it holds sheets or per-face texture coordinates,
+/// The format number a file of this model is written with: 2 when it holds sheets, per-face texture coordinates or painted-through placements,
 /// 1 otherwise.
 pub fn format_of(m: &crate::model::Model) -> u64 {
     if needs_of(m).is_some() { 2 } else { 1 }
@@ -221,6 +229,8 @@ mod tests {
         // and projected texture coordinates (0.3.9)
         assert!(check(br#"{"format":2,"needs":["face_uv"],"next_id":1}"#).is_none());
         assert!(check(br#"{"format":2,"needs":["face_uv","nope"],"next_id":1}"#).is_some());
+        // and painted-through placements
+        assert!(check(br#"{"format":2,"needs":["face_tex"],"next_id":1}"#).is_none());
         assert!(check(b"not json").is_none());
         assert!(check(b"[1,2]").is_none());
     }

@@ -35,16 +35,22 @@ impl Mapping {
     /// The mapping for one face: its painted-through placement while that still holds (same material, axes in
     /// the face's plane, not a projected texture), else the material's own rule.
     pub fn of_face(t: &Texture, f: &crate::components::WFace) -> Mapping {
+        let place = f.place.as_ref().filter(|p| f.material.as_deref() == Some(p.material.as_str()));
+        Mapping::of_place(t, place, f.normal)
+    }
+
+    /// As `of_face`, from the placement (already checked against the face's material) and the face's normal.
+    pub fn of_place(t: &Texture, place: Option<&crate::model::TexPlace>, normal: DVec3) -> Mapping {
         if t.project.is_none() {
-            if let Some(p) = f.place.as_ref().filter(|p| f.material.as_deref() == Some(p.material.as_str())) {
+            if let Some(p) = place {
                 let (u, v) = (DVec3::from(p.u), DVec3::from(p.v));
-                let ok = |a: DVec3| (a.length() - 1.0).abs() < 1e-6 && a.dot(f.normal).abs() < 1e-4;
+                let ok = |a: DVec3| (a.length() - 1.0).abs() < 1e-6 && a.dot(normal).abs() < 1e-4;
                 if ok(u) && ok(v) {
                     return Mapping { u, v, origin: DVec3::from(p.origin), width: t.width.max(1e-6), height: t.height.max(1e-6) };
                 }
             }
         }
-        Mapping::of(t, f.normal)
+        Mapping::of(t, normal)
     }
 
     /// (u, v) with v up the image (the viewport's convention)

@@ -171,6 +171,7 @@ impl Command {
                 | Command::Rooms
                 | Command::TextureUv { .. }
                 | Command::VertexColors { .. }
+                | Command::TextureFrame { .. }
         )
     }
 }
@@ -1022,7 +1023,7 @@ impl Engine {
                 Command::DeleteMaterial { .. } | Command::PurgeMaterials { .. } | Command::Skins { .. } |
                 Command::SaveSkin { .. } | Command::Material { .. }
             ) => self.run_paint(c),
-            c @ (Command::TextureProject { .. } | Command::TextureUv { .. }) => self.run_projection(c),
+            c @ (Command::TextureProject { .. } | Command::TextureUv { .. } | Command::TexturePosition { .. } | Command::TextureFrame { .. }) => self.run_projection(c),
             c @ (Command::VertexPaint { .. } | Command::VertexPaintClear { .. } | Command::VertexColors { .. }) => self.run_vertex_paint(c),
             c @ (
                 Command::Photoreal { .. } | Command::Render { .. } | Command::Environment { .. } |

@@ -1446,6 +1446,58 @@ pub enum Command {
     },
     /// The vertex colours of these faces (or of a group or placed component: all its faces): per face, one [r,g,b,a] per corner of its outer loop (null: none). Read-only.
     VertexColors { faces: Vec<Id> },
+    /// Position Texture: move, rotate, scale or skew the picture on faces (`face`, or `faces`). Either `transform`
+    /// ({offset [du, dv] metres, rotation degrees, scale n or [su, sv], skew degrees n or [along u, along v], pivot [u, v]
+    /// metres; default the face's middle}, applied in the picture's own plane), or `matrix` [a, b, c, d, e, f] (p' =
+    /// [a c; b d] p + [e f], picture metres), or `reset` (back to the material's own placement). Rewrites the faces'
+    /// own texture coordinates, so it works on a painted-through or projected face alike. One undo step.
+    TexturePosition {
+        #[serde(default)]
+        face: Option<Id>,
+        #[serde(default)]
+        faces: Option<Vec<Id>>,
+        #[serde(default)]
+        transform: Option<TexTransform>,
+        #[serde(default)]
+        matrix: Option<[f64; 6]>,
+        #[serde(default)]
+        reset: bool,
+    },
+    /// What Position needs to draw its pins for one face: the corners' points, their picture-space coordinates (metres),
+    /// the tile size. Read-only.
+    TextureFrame { face: Id },
+}
+
+/// One number for both axes, or one per axis.
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(untagged)]
+pub enum One2 {
+    One(f64),
+    Two([f64; 2]),
+}
+
+impl One2 {
+    pub fn pair(self) -> [f64; 2] {
+        match self {
+            One2::One(a) => [a, a],
+            One2::Two(p) => p,
+        }
+    }
+}
+
+/// The parts of a Position change; every part is optional.
+#[derive(Debug, Clone, Copy, Deserialize, Default)]
+pub struct TexTransform {
+    #[serde(default)]
+    pub offset: Option<[f64; 2]>,
+    #[serde(default)]
+    pub rotation: Option<f64>,
+    #[serde(default)]
+    pub scale: Option<One2>,
+    #[serde(default)]
+    pub skew: Option<One2>,
+    #[serde(default)]
+    pub pivot: Option<[f64; 2]>,
 }
 
 #[derive(Debug, Deserialize)]
