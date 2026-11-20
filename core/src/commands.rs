@@ -41,6 +41,7 @@ mod library;
 mod media;
 mod paint;
 mod projection;
+mod vertex_paint;
 mod rendering;
 mod sections;
 mod session;
@@ -169,6 +170,7 @@ impl Command {
                 | Command::RoomPreview { .. }
                 | Command::Rooms
                 | Command::TextureUv { .. }
+                | Command::VertexColors { .. }
         )
     }
 }
@@ -1021,6 +1023,7 @@ impl Engine {
                 Command::SaveSkin { .. } | Command::Material { .. }
             ) => self.run_paint(c),
             c @ (Command::TextureProject { .. } | Command::TextureUv { .. }) => self.run_projection(c),
+            c @ (Command::VertexPaint { .. } | Command::VertexPaintClear { .. } | Command::VertexColors { .. }) => self.run_vertex_paint(c),
             c @ (
                 Command::Photoreal { .. } | Command::Render { .. } | Command::Environment { .. } |
                 Command::Sun { .. } | Command::AddLocation { .. } | Command::Thumbnail { .. } |

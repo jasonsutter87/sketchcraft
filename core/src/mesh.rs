@@ -109,7 +109,7 @@ impl<'a> Mesh<'a> {
             }
         }
         let id = self.m.new_id();
-        self.m.faces.insert(id, Face { outer: ring, holes, material, group: self.group, hidden: false, tex: None, uv: None });
+        self.m.faces.insert(id, Face { outer: ring, holes, material, group: self.group, hidden: false, tex: None, uv: None, vcol: None });
         self.faces += 1;
     }
 

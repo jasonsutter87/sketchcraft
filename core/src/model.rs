@@ -69,6 +69,9 @@ pub struct Face {
     /// where the face's texture lands, per corner (set by projection mapping); None: the material's own placement
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub uv: Option<FaceUv>,
+    /// vertex colours per corner (set by vertex painting, RGBA 0..1); None: the face shows only its material
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vcol: Option<FaceColors>,
 }
 
 /// A picture's placement on one face: unit axes lying in the face plane and the point the image corner sits on.
@@ -92,6 +95,22 @@ pub struct FaceUv {
 
 impl FaceUv {
     /// Do the coordinates still fit the face's loops?
+    pub fn fits(&self, f: &Face) -> bool {
+        self.outer.len() == f.outer.len() && self.holes.len() == f.holes.len() && self.holes.iter().zip(&f.holes).all(|(a, b)| a.len() == b.len())
+    }
+}
+
+/// Vertex colours for a face's corners (RGBA, 0..1, white = no tint): one entry per vertex of each loop, in the loop's
+/// order. A face whose loops have changed size since ignores them.
+#[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize)]
+pub struct FaceColors {
+    pub outer: Vec<[f32; 4]>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub holes: Vec<Vec<[f32; 4]>>,
+}
+
+impl FaceColors {
+    /// Do the colours still fit the face's loops?
     pub fn fits(&self, f: &Face) -> bool {
         self.outer.len() == f.outer.len() && self.holes.len() == f.holes.len() && self.holes.iter().zip(&f.holes).all(|(a, b)| a.len() == b.len())
     }
@@ -442,6 +461,12 @@ impl Face {
         if let Some(uv) = &mut self.uv {
             uv.outer.reverse();
             for h in &mut uv.holes {
+                h.reverse();
+            }
+        }
+        if let Some(c) = &mut self.vcol {
+            c.outer.reverse();
+            for h in &mut c.holes {
                 h.reverse();
             }
         }
@@ -1208,6 +1233,7 @@ impl Model {
                 hidden: f.hidden,
                 tex: None,
                 uv: f.uv.clone(),
+                vcol: f.vcol.clone(),
             };
             self.faces.insert(id, face);
         }

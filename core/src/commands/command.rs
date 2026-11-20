@@ -1415,6 +1415,37 @@ pub enum Command {
     /// The texture coordinates projection mapping gave these faces: per face, one [u, v] per corner of its outer loop
     /// (null: the face has none). Read-only.
     TextureUv { faces: Vec<Id> },
+    /// Vertex painting: one brush stroke on `faces` (or every face of the group `entity`). Every face corner within
+    /// `radius` metres of a stroke point (`points`, world [x,y,z]) blends toward `color` ([r,g,b] or [r,g,b,a], 0..1)
+    /// by `strength` (0..1, default 1) times the falloff (`smooth` default, `linear`, `hard`). Without `points` the whole
+    /// selection is filled. `erase` paints toward white (no tint) instead. One undo step.
+    VertexPaint {
+        #[serde(default)]
+        faces: Option<Vec<Id>>,
+        #[serde(default)]
+        entity: Option<Id>,
+        #[serde(default)]
+        color: Option<Vec<f32>>,
+        #[serde(default)]
+        points: Option<Vec<[f64; 3]>>,
+        #[serde(default)]
+        radius: Option<f64>,
+        #[serde(default)]
+        strength: Option<f64>,
+        #[serde(default)]
+        falloff: Option<String>,
+        #[serde(default)]
+        erase: bool,
+    },
+    /// Take vertex colours off faces (or every face of the group `entity`). One undo step.
+    VertexPaintClear {
+        #[serde(default)]
+        faces: Option<Vec<Id>>,
+        #[serde(default)]
+        entity: Option<Id>,
+    },
+    /// The vertex colours of these faces (or of a group or placed component: all its faces): per face, one [r,g,b,a] per corner of its outer loop (null: none). Read-only.
+    VertexColors { faces: Vec<Id> },
 }
 
 #[derive(Debug, Deserialize)]

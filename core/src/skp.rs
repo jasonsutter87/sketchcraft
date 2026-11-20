@@ -1515,6 +1515,7 @@ fn merge_into(m: &mut Model, src: &Model, gid: Id, t: DMat4) {
             hidden: false,
             tex: None,
             uv: None,
+            vcol: None,
         });
     }
 }

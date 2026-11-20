@@ -21,7 +21,7 @@ use serde_json::Value;
 pub const FORMAT: u64 = 2;
 
 /// Features (the `needs` list) this build understands. "sheets": drawing sheets in the model (0.3.8). "face_uv": faces with their own texture coordinates (projection mapping, 0.3.9).
-pub const KNOWN_NEEDS: &[&str] = &["sheets", "face_uv"];
+pub const KNOWN_NEEDS: &[&str] = &["sheets", "face_uv", "face_vcol"];
 
 /// Every top-level key this build knows: the serialized fields of `Model` (kept in step by the test
 /// `known_keys_match_the_model_struct`, which reads model.rs) and the two the guard adds.
@@ -130,6 +130,11 @@ fn has_face_uv(m: &crate::model::Model) -> bool {
     m.faces.values().any(|f| f.uv.is_some()) || m.definitions.values().any(|d| has_face_uv(&d.model))
 }
 
+/// Does any face (here or in a component) carry vertex colours? An older build would drop them on save.
+fn has_face_vcol(m: &crate::model::Model) -> bool {
+    m.faces.values().any(|f| f.vcol.is_some()) || m.definitions.values().any(|d| has_face_vcol(&d.model))
+}
+
 /// The features a file of this model needs a reader to understand.
 fn needs_of(m: &crate::model::Model) -> Option<Vec<&'static str>> {
     let mut v = Vec::new();
@@ -138,6 +143,9 @@ fn needs_of(m: &crate::model::Model) -> Option<Vec<&'static str>> {
     }
     if has_face_uv(m) {
         v.push("face_uv");
+    }
+    if has_face_vcol(m) {
+        v.push("face_vcol");
     }
     Some(v).filter(|v| !v.is_empty())
 }
