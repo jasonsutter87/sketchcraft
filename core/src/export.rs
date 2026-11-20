@@ -132,6 +132,9 @@ pub fn write_glb(m: &Model, path: &str) -> Result<usize> {
         pos: Vec<[f32; 3]>,
         nor: Vec<[f32; 3]>,
         uv: Vec<[f32; 2]>,
+        /// vertex colours (COLOR_0), one per position; written only when some face of the primitive has them
+        vcol: Vec<[f32; 4]>,
+        any_vcol: bool,
     }
     let mut by_key: std::collections::BTreeMap<String, Prim> = Default::default();
     let mut tris = 0;
@@ -143,14 +146,17 @@ pub fn write_glb(m: &Model, path: &str) -> Result<usize> {
             Some((name, _)) => format!("t:{name}|{:.2},{:.2}", pbr.0, pbr.1),
             None => format!("{}|{:.2},{:.2}", color_id(c), pbr.0, pbr.1),
         };
-        let e = by_key.entry(key).or_insert(Prim { color: c, tex, pbr, pos: vec![], nor: vec![], uv: vec![] });
+        let e = by_key.entry(key).or_insert(Prim { color: c, tex, pbr, pos: vec![], nor: vec![], uv: vec![], vcol: vec![], any_vcol: false });
         let n = f.normal;
         let ny = [n.x as f32, n.z as f32, -n.y as f32];
         let map = tex.map(|(_, t)| crate::texmap::FaceMap::of(t, &f));
+        let vc = crate::vertex_paint::CornerColors::of(&f);
+        e.any_vcol |= vc.any();
         for t in geom::triangulate(&f.outer, &f.holes, n) {
             for p in t {
                 e.pos.push([p.x as f32, p.z as f32, -p.y as f32]);
                 e.nor.push(ny);
+                e.vcol.push(vc.at(p));
                 if let Some(mp) = &map {
                     // glTF images start at the top
                     let [u, v] = mp.uv(p);
@@ -190,6 +196,21 @@ pub fn write_glb(m: &Model, path: &str) -> Result<usize> {
         }
         let mut attrs = json!({"POSITION": accessors.len() - 2, "NORMAL": accessors.len() - 1});
         let mut mat = json!({"pbrMetallicRoughness": {"baseColorFactor": [c[0], c[1], c[2], 1.0], "metallicFactor": pr.pbr.1, "roughnessFactor": pr.pbr.0}, "doubleSided": false});
+        if pr.any_vcol {
+            // vertex colours: glTF multiplies COLOR_0 with the material's base colour (and its picture)
+            let off = bin.len();
+            for v in &pr.vcol {
+                for x in v {
+                    bin.extend_from_slice(&x.to_le_bytes());
+                }
+            }
+            views.push(json!({"buffer": 0, "byteOffset": off, "byteLength": pr.vcol.len() * 16, "target": 34962}));
+            accessors.push(json!({"bufferView": views.len() - 1, "componentType": 5126, "count": pr.vcol.len(), "type": "VEC4"}));
+            attrs["COLOR_0"] = json!(accessors.len() - 1);
+            if pr.vcol.iter().any(|c| c[3] < 1.0) {
+                mat["alphaMode"] = json!("BLEND");
+            }
+        }
         if let (Some((name, t)), false) = (pr.tex, pr.uv.is_empty()) {
             let off = bin.len();
             for v in &pr.uv {

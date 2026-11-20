@@ -332,6 +332,9 @@ pub fn write_fbx(m: &Model, path: &str, binary: bool) -> Result<FbxStats> {
         let mut face_mats: Vec<i32> = Vec::new();
         let mut local_mats: Vec<usize> = Vec::new();
         let mut any_uv = false;
+        // vertex colours (RGBA per polygon corner), written only when a face of the part has them
+        let mut vcols: Vec<f64> = Vec::new();
+        let mut any_vcol = false;
         for f in &part.faces {
             let c = f.color.unwrap_or([0.95, 0.94, 0.91]);
             let tex = crate::texmap::of_face(m, f);
@@ -370,6 +373,8 @@ pub fn write_fbx(m: &Model, path: &str, binary: bool) -> Result<FbxStats> {
             let map = if mats[mi].tex.is_some() { tex.map(|(_, t)| crate::texmap::FaceMap::of(t, f)) } else { None };
             any_uv |= map.is_some();
             let nrm = y_up(f.normal);
+            let vc = crate::vertex_paint::CornerColors::of(f);
+            any_vcol |= vc.any();
             for t in geom::triangulate(&f.outer, &f.holes, f.normal) {
                 for (k, pt) in t.iter().enumerate() {
                     let v = y_up(*pt);
@@ -380,6 +385,7 @@ pub fn write_fbx(m: &Model, path: &str, binary: bool) -> Result<FbxStats> {
                     });
                     poly.push(if k == 2 { -vi - 1 } else { vi });
                     normals.extend_from_slice(&nrm);
+                    vcols.extend(vc.at(*pt).iter().map(|x| *x as f64));
                     match &map {
                         Some(mp) => uvs.extend_from_slice(&mp.uv(*pt)),
                         None => uvs.extend_from_slice(&[0.0, 0.0]),
@@ -430,6 +436,18 @@ pub fn write_fbx(m: &Model, path: &str, binary: bool) -> Result<FbxStats> {
                 n("UVIndex", vec![V::ArrI((0..count).collect())], vec![]),
             ]));
             layer_refs.push(layer_element("LayerElementUV"));
+        }
+        if any_vcol {
+            let count = (vcols.len() / 4) as i32;
+            kids.push(n("LayerElementColor", vec![V::I32(0)], vec![
+                n("Version", vec![V::I32(101)], vec![]),
+                n("Name", vec![s("VertexColors")], vec![]),
+                n("MappingInformationType", vec![s("ByPolygonVertex")], vec![]),
+                n("ReferenceInformationType", vec![s("IndexToDirect")], vec![]),
+                n("Colors", vec![V::ArrF(vcols)], vec![]),
+                n("ColorIndex", vec![V::ArrI((0..count).collect())], vec![]),
+            ]));
+            layer_refs.push(layer_element("LayerElementColor"));
         }
         kids.push(n("LayerElementMaterial", vec![V::I32(0)], vec![
             n("Version", vec![V::I32(101)], vec![]),

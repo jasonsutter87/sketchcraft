@@ -19,6 +19,9 @@ pub fn build(root: &Model, ctx: Option<u32>) -> Value {
     let mut tri_face: Vec<u32> = Vec::new();
     // image materials: texture coordinates per vertex, a texture index per triangle
     let mut uvs: Vec<f32> = Vec::new();
+    // vertex colours (a tint per corner), only when something is painted
+    let mut vcolors: Vec<f32> = Vec::new();
+    let mut any_vcol = false;
     let mut tri_tex: Vec<i32> = Vec::new();
     // roughness and metalness per triangle, for the physically based style
     let mut pbr: Vec<f32> = Vec::new();
@@ -55,6 +58,8 @@ pub fn build(root: &Model, ctx: Option<u32>) -> Value {
         let (rough, metal) = f.material.as_ref().and_then(|n| root.find_material(n).map(|m| m.pbr(n))).unwrap_or((0.7, 0.0));
         // painted faces show paint on both sides; bare backs are blue
         let back = f.color.map(|c| [c[0] * 0.85, c[1] * 0.85, c[2] * 0.85]).unwrap_or(BACK_COLOR);
+        let vc = crate::vertex_paint::CornerColors::of(&f);
+        any_vcol |= vc.any();
         for t in geom::triangulate(&f.outer, &f.holes, f.normal) {
             // one color per triangle (the app spreads it to the corners)
             colors.extend(color);
@@ -64,6 +69,7 @@ pub fn build(root: &Model, ctx: Option<u32>) -> Value {
                 positions.extend([p.x as f32, p.y as f32, p.z as f32]);
                 let uv = map.as_ref().map(|mp| mp.uv(p)).unwrap_or([p.x, p.y]);
                 uvs.extend([uv[0] as f32, uv[1] as f32]);
+                vcolors.extend(vc.tint(p));
             }
             tri_face.push(f.owner);
             tri_tex.push(ti);
@@ -249,6 +255,7 @@ pub fn build(root: &Model, ctx: Option<u32>) -> Value {
         "units": root.units,
     });
     // (set apart from the big literal above: json! stops expanding past a recursion limit)
+    out["vcolors"] = json!(if any_vcol { q(&vcolors, 1e-3) } else { Vec::new() });
     out["tagStyles"] = json!(root.drafting.tag_styles);
     out["edgeStyle"] = json!(if style_table.is_empty() { vec![] } else { edge_style });
     out["edgeStyles"] = json!(style_table.iter().map(|p| json!({"w": p.w, "dash": p.dash, "color": p.rgb})).collect::<Vec<_>>());

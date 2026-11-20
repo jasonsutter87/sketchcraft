@@ -114,6 +114,11 @@ impl Canvas {
     }
 
     fn triangle(&mut self, tri: [DVec3; 3], col: [f32; 3]) {
+        self.triangle_g(tri, [col; 3]);
+    }
+
+    /// A triangle with a colour per corner, blended smoothly across it (vertex colours).
+    fn triangle_g(&mut self, tri: [DVec3; 3], cols: [[f32; 3]; 3]) {
         // clip against the near plane in clip space, then fan
         let clip: Vec<DVec4> = tri.iter().map(|p| self.vp * p.extend(1.0)).collect();
         let poly = clip_near(&clip);
@@ -121,8 +126,33 @@ impl Canvas {
             return;
         }
         let s: Vec<_> = poly.iter().map(|c| self.to_screen(*c)).collect();
+        if cols[0] == cols[1] && cols[1] == cols[2] {
+            for i in 1..s.len() - 1 {
+                self.raster(s[0], s[i], s[i + 1], [cols[0]; 3]);
+            }
+            return;
+        }
+        // the clipped polygon's corners take their colour from where they sit in the original triangle
+        let (e1, e2) = (tri[1] - tri[0], tri[2] - tri[0]);
+        let inv = self.vp.inverse();
+        let cs: Vec<[f32; 3]> = poly
+            .iter()
+            .map(|c| {
+                let w = inv * *c;
+                let q = w.truncate() / w.w - tri[0];
+                let (d11, d12, d22, d1, d2) = (e1.dot(e1), e1.dot(e2), e2.dot(e2), q.dot(e1), q.dot(e2));
+                let den = d11 * d22 - d12 * d12;
+                let (u, v) = if den.abs() < 1e-18 { (0.0, 0.0) } else { ((d22 * d1 - d12 * d2) / den, (d11 * d2 - d12 * d1) / den) };
+                let (u, v) = (u.clamp(0.0, 1.0) as f32, v.clamp(0.0, 1.0) as f32);
+                let mut o = [0.0; 3];
+                for k in 0..3 {
+                    o[k] = cols[0][k] + (cols[1][k] - cols[0][k]) * u + (cols[2][k] - cols[0][k]) * v;
+                }
+                o
+            })
+            .collect();
         for i in 1..s.len() - 1 {
-            self.raster(s[0], s[i], s[i + 1], col);
+            self.raster(s[0], s[i], s[i + 1], [cs[0], cs[i], cs[i + 1]]);
         }
     }
 
@@ -182,7 +212,7 @@ impl Canvas {
         }
     }
 
-    fn raster(&mut self, a: (f64, f64, f64), b: (f64, f64, f64), c: (f64, f64, f64), col: [f32; 3]) {
+    fn raster(&mut self, a: (f64, f64, f64), b: (f64, f64, f64), c: (f64, f64, f64), cols: [[f32; 3]; 3]) {
         let area = (b.0 - a.0) * (c.1 - a.1) - (b.1 - a.1) * (c.0 - a.0);
         if area.abs() < 1e-12 {
             return;
@@ -207,7 +237,8 @@ impl Canvas {
                 let i = y * self.w + x;
                 if z > self.depth[i] {
                     self.depth[i] = z;
-                    self.color[i] = col;
+                    let (w0, w1, w2) = (w0 as f32, w1 as f32, w2 as f32);
+                    self.color[i] = [0, 1, 2].map(|k| cols[0][k] * w0 + cols[1][k] * w1 + cols[2][k] * w2);
                 }
             }
         }
@@ -536,6 +567,17 @@ pub fn render(model: &Model, opts: &RenderOpts) -> RgbImage {
                         }
                     }
                 }
+            }
+            continue;
+        }
+        // vertex colours tint the face's shaded colour, smoothly across it (untextured faces)
+        let vc = crate::vertex_paint::CornerColors::of(&f);
+        if vc.any() && !opts.blueprint && clip.is_none() {
+            for tri in geom::triangulate(&f.outer, &f.holes, n) {
+                cv.triangle_g(tri, tri.map(|p| {
+                    let t = vc.tint(p);
+                    [col[0] * t[0], col[1] * t[1], col[2] * t[2]]
+                }));
             }
             continue;
         }
