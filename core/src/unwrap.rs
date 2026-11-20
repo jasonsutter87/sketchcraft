@@ -1016,42 +1016,88 @@ pub const MAX_PACK_ISLANDS: usize = 50_000;
 
 /// Cells on a side of the grid that finds blocked rectangles near a spot.
 const GRID: usize = 64;
+/// Cells on a side of the coarser grid that holds the blocked rectangles too big for the fine one.
+const COARSE: usize = 8;
+/// The most fine cells one blocked rectangle is listed in; bigger ones go in the coarse grid.
+const FINE_CELLS: usize = 64;
+/// How many blocked rectangles one pack may look at in all; past it the pack gives up (does not fit).
+const BLOCK_LOOKS: u64 = 1 << 26;
 
-/// Blocked rectangles (with the margin added) and a grid that finds those near a spot.
+/// Blocked rectangles and grids that find those near a spot. The grids are made once, at the widest margin; each try
+/// sets its own (no wider) margin, so a rectangle's cells there are among the ones it is listed in.
 struct Blocks {
-    rects: Vec<Rect>,
+    raw: Vec<Rect>,
+    margin: f64,
     cells: Vec<Vec<u32>>,
+    coarse: Vec<Vec<u32>>,
+    looks: std::cell::Cell<u64>,
 }
 
 impl Blocks {
     fn new(blocked: &[Rect], margin: f64) -> Blocks {
-        let rects: Vec<Rect> = blocked.iter().map(|b| Rect { x: b.x - margin * 0.5, y: b.y - margin * 0.5, w: b.w + margin, h: b.h + margin }).collect();
-        let mut cells = vec![vec![]; GRID * GRID];
-        for (i, r) in rects.iter().enumerate() {
-            if let Some((x0, x1, y0, y1)) = Blocks::span(r) {
-                for cy in y0..=y1 {
-                    for cx in x0..=x1 {
-                        cells[cy * GRID + cx].push(i as u32);
+        // the same rectangle twice blocks no more than once
+        let mut raw: Vec<Rect> = blocked.to_vec();
+        raw.sort_by(|a, b| a.x.total_cmp(&b.x).then(a.y.total_cmp(&b.y)).then(a.w.total_cmp(&b.w)).then(a.h.total_cmp(&b.h)));
+        raw.dedup_by(|a, b| a.x.to_bits() == b.x.to_bits() && a.y.to_bits() == b.y.to_bits() && a.w.to_bits() == b.w.to_bits() && a.h.to_bits() == b.h.to_bits());
+        let mut b = Blocks { raw, margin, cells: vec![vec![]; GRID * GRID], coarse: vec![vec![]; COARSE * COARSE], looks: Default::default() };
+        for i in 0..b.raw.len() {
+            if let Some((x0, x1, y0, y1)) = Blocks::span(&b.rect(i), GRID) {
+                if (x1 - x0 + 1) * (y1 - y0 + 1) <= FINE_CELLS {
+                    for cy in y0..=y1 {
+                        for cx in x0..=x1 {
+                            b.cells[cy * GRID + cx].push(i as u32);
+                        }
+                    }
+                } else if let Some((x0, x1, y0, y1)) = Blocks::span(&b.rect(i), COARSE) {
+                    for cy in y0..=y1 {
+                        for cx in x0..=x1 {
+                            b.coarse[cy * COARSE + cx].push(i as u32);
+                        }
                     }
                 }
             }
         }
-        Blocks { rects, cells }
+        b
     }
 
-    /// The grid cells a rectangle touches (clipped to the unit square); None when it is outside it.
-    fn span(r: &Rect) -> Option<(usize, usize, usize, usize)> {
+    /// Blocked rectangle `i` with the margin added.
+    fn rect(&self, i: usize) -> Rect {
+        let (b, m) = (self.raw[i], self.margin);
+        Rect { x: b.x - m * 0.5, y: b.y - m * 0.5, w: b.w + m, h: b.h + m }
+    }
+
+    /// Whether one blocked rectangle covers the whole sheet (even without a margin), so nothing can go on it.
+    fn covers_the_sheet(&self) -> bool {
+        self.raw.iter().any(|b| b.x <= 0.0 && b.y <= 0.0 && b.x + b.w >= 1.0 && b.y + b.h >= 1.0)
+    }
+
+    /// Whether this pack has looked at as many blocked rectangles as it may.
+    fn spent(&self) -> bool {
+        self.looks.get() > BLOCK_LOOKS
+    }
+
+    /// The cells of an `n` x `n` grid a rectangle touches (clipped to the unit square); None when it is outside it.
+    fn span(r: &Rect, n: usize) -> Option<(usize, usize, usize, usize)> {
         if !(r.x < 1.0 && r.y < 1.0 && r.x + r.w > 0.0 && r.y + r.h > 0.0) {
             return None;
         }
-        let c = |v: f64| (v * GRID as f64).floor().clamp(0.0, (GRID - 1) as f64) as usize;
+        let c = |v: f64| (v * n as f64).floor().clamp(0.0, (n - 1) as f64) as usize;
         Some((c(r.x), c(r.x + r.w), c(r.y), c(r.y + r.h)))
     }
 
-    fn near(&self, r: Rect) -> impl Iterator<Item = &Rect> + '_ {
-        let span = Blocks::span(&r);
-        let (x0, x1, y0, y1) = span.unwrap_or((1, 0, 1, 0));
-        (y0..=y1).flat_map(move |cy| (x0..=x1).flat_map(move |cx| self.cells[cy * GRID + cx].iter())).map(|&i| &self.rects[i as usize]).filter(move |b| b.overlaps(&r))
+    fn near(&self, r: Rect) -> impl Iterator<Item = Rect> + '_ {
+        let fine = Blocks::span(&r, GRID).unwrap_or((1, 0, 1, 0));
+        let coarse = Blocks::span(&r, COARSE).unwrap_or((1, 0, 1, 0));
+        let (x0, x1, y0, y1) = fine;
+        let a = (y0..=y1).flat_map(move |cy| (x0..=x1).flat_map(move |cx| self.cells[cy * GRID + cx].iter()));
+        let (x0, x1, y0, y1) = coarse;
+        let b = (y0..=y1).flat_map(move |cy| (x0..=x1).flat_map(move |cx| self.coarse[cy * COARSE + cx].iter()));
+        a.chain(b)
+            .map(|&i| {
+                self.looks.set(self.looks.get() + 1);
+                self.rect(i as usize)
+            })
+            .filter(move |b| Blocks::span(b, GRID).is_some() && b.overlaps(&r))
     }
 
     /// The furthest right edge of the blocked rectangles `r` overlaps, if it overlaps any.
@@ -1085,6 +1131,9 @@ fn shelf_at(order: &[usize], dims: &[(f64, f64, bool)], scale: f64, margin: f64,
             return None;
         }
         loop {
+            if blocks.spent() {
+                return None;
+            }
             if x + pw > 1.0 + 1e-12 {
                 // the next row: above the tallest on this one, or (an empty row the blocked rectangles filled) above them
                 y = if shelf > 0.0 { y + shelf } else { blocks.next_top(y, ph)? };
@@ -1117,8 +1166,17 @@ pub fn pack(items: &[Item], margin: f64, blocked: &[Rect]) -> Option<Packed> {
     }
     let shelves = (items.len() + blocked.len() > SHELF_ABOVE).then(|| shelf_order(items));
     let mut margin = margin.clamp(0.0, 0.2);
+    let mut blocks = shelves.as_ref().map(|_| Blocks::new(blocked, margin));
+    if blocks.as_ref().is_some_and(|b| b.covers_the_sheet()) {
+        return None;
+    }
     for _ in 0..8 {
-        let blocks = shelves.as_ref().map(|_| Blocks::new(blocked, margin));
+        if let Some(b) = blocks.as_mut() {
+            b.margin = margin;
+        }
+        if blocks.as_ref().is_some_and(|b| b.spent()) {
+            return None;
+        }
         let try_at = |scale: f64| match (&shelves, &blocks) {
             (Some((order, dims)), Some(b)) => shelf_at(order, dims, scale, margin, b),
             _ => pack_at(items, scale, margin, blocked),
@@ -1744,6 +1802,24 @@ mod tests {
         let items = vec![Item { w: 1.0, h: 1.0, rotatable: false }; 2000];
         let (scale, margin, place) = pack(&items, 0.1, &[]).unwrap();
         assert!(scale > 0.0 && margin < 0.1 && place.len() == 2000);
+    }
+
+    #[test]
+    fn many_large_blocked_rectangles_are_answered_quickly() {
+        let items: Vec<Item> = (0..400).map(|i| Item { w: 0.3 + (i % 7) as f64 * 0.1, h: 0.2 + (i % 5) as f64 * 0.15, rotatable: i % 2 == 0 }).collect();
+        // the whole sheet, many times: nothing fits
+        let full = vec![Rect { x: 0.0, y: 0.0, w: 1.0, h: 1.0 }; 40_000];
+        let t = std::time::Instant::now();
+        assert!(pack(&items, 0.0, &full).is_none());
+        assert!(t.elapsed().as_secs_f64() < 5.0, "{:?}", t.elapsed());
+        // many different big ones over most of it: an answer either way, and the same every time
+        let big: Vec<Rect> = (0..40_000).map(|i| Rect { x: 0.0, y: 0.0, w: 0.6 + i as f64 * 1e-6, h: 0.9 - i as f64 * 1e-6 }).collect();
+        let t = std::time::Instant::now();
+        let first = format!("{:?}", pack(&items, 0.0, &big));
+        assert!(t.elapsed().as_secs_f64() < 5.0, "{:?}", t.elapsed());
+        assert_eq!(first, format!("{:?}", pack(&items, 0.0, &big)));
+        // a few big ones still pack around them
+        check_packing(&items, &big[..20], 0.0);
     }
 
     #[test]
