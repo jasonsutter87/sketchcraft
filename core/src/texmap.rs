@@ -110,6 +110,38 @@ impl FaceMap {
     }
 }
 
+/// The lightmap channel (`Face::uv2`) of one world face, looked up by the corner's exact point like `FaceMap`. Only the
+/// exporters read it: it never changes how the model is drawn.
+pub struct Lightmap(Option<HashMap<[u64; 3], [f32; 2]>>);
+
+impl Lightmap {
+    pub fn of(f: &WFace) -> Lightmap {
+        let key = |p: &DVec3| [p.x.to_bits(), p.y.to_bits(), p.z.to_bits()];
+        Lightmap(f.uv2.as_ref().map(|(o, h)| {
+            let mut m = HashMap::new();
+            for (p, c) in f.outer.iter().zip(o) {
+                m.insert(key(p), *c);
+            }
+            for (ring, cs) in f.holes.iter().zip(h) {
+                for (p, c) in ring.iter().zip(cs) {
+                    m.insert(key(p), *c);
+                }
+            }
+            m
+        }))
+    }
+
+    /// Does the face have a lightmap set?
+    pub fn any(&self) -> bool {
+        self.0.is_some()
+    }
+
+    /// (u, v) at a corner, v up the sheet; (0, 0) where the face has none.
+    pub fn at(&self, p: DVec3) -> [f32; 2] {
+        self.0.as_ref().and_then(|m| m.get(&[p.x.to_bits(), p.y.to_bits(), p.z.to_bits()]).copied()).unwrap_or([0.0, 0.0])
+    }
+}
+
 /// A face's texture (the material may live in a component's definition).
 pub fn of_face<'a>(m: &'a Model, f: &WFace) -> Option<(&'a str, &'a Texture)> {
     let name = f.material.as_deref()?;

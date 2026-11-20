@@ -56,7 +56,10 @@ fn props70(items: Vec<N>) -> N {
     n("Properties70", vec![], items)
 }
 fn layer_element(kind: &'static str) -> N {
-    n("LayerElement", vec![], vec![n("Type", vec![s(kind)], vec![]), n("TypedIndex", vec![V::I32(0)], vec![])])
+    layer_element_at(kind, 0)
+}
+fn layer_element_at(kind: &'static str, index: i32) -> N {
+    n("LayerElement", vec![], vec![n("Type", vec![s(kind)], vec![]), n("TypedIndex", vec![V::I32(index)], vec![])])
 }
 
 // ---- binary ----------------------------------------------------------------------------------------------------------
@@ -335,6 +338,9 @@ pub fn write_fbx(m: &Model, path: &str, binary: bool) -> Result<FbxStats> {
         // vertex colours (RGBA per polygon corner), written only when a face of the part has them
         let mut vcols: Vec<f64> = Vec::new();
         let mut any_vcol = false;
+        // the lightmap channel: a second UV layer, written only when a face of the part has one
+        let mut uvs2: Vec<f64> = Vec::new();
+        let mut any_uv2 = false;
         for f in &part.faces {
             let c = f.color.unwrap_or([0.95, 0.94, 0.91]);
             let tex = crate::texmap::of_face(m, f);
@@ -375,6 +381,8 @@ pub fn write_fbx(m: &Model, path: &str, binary: bool) -> Result<FbxStats> {
             let nrm = y_up(f.normal);
             let vc = crate::vertex_paint::CornerColors::of(f);
             any_vcol |= vc.any();
+            let lm = crate::texmap::Lightmap::of(f);
+            any_uv2 |= lm.any();
             for t in geom::triangulate(&f.outer, &f.holes, f.normal) {
                 for (k, pt) in t.iter().enumerate() {
                     let v = y_up(*pt);
@@ -386,6 +394,7 @@ pub fn write_fbx(m: &Model, path: &str, binary: bool) -> Result<FbxStats> {
                     poly.push(if k == 2 { -vi - 1 } else { vi });
                     normals.extend_from_slice(&nrm);
                     vcols.extend(vc.at(*pt).iter().map(|x| *x as f64));
+                    uvs2.extend(lm.at(*pt).iter().map(|x| *x as f64));
                     match &map {
                         Some(mp) => uvs.extend_from_slice(&mp.uv(*pt)),
                         None => uvs.extend_from_slice(&[0.0, 0.0]),
@@ -449,6 +458,17 @@ pub fn write_fbx(m: &Model, path: &str, binary: bool) -> Result<FbxStats> {
             ]));
             layer_refs.push(layer_element("LayerElementColor"));
         }
+        if any_uv2 {
+            let count = (uvs2.len() / 2) as i32;
+            kids.push(n("LayerElementUV", vec![V::I32(1)], vec![
+                n("Version", vec![V::I32(101)], vec![]),
+                n("Name", vec![s("LightmapUV")], vec![]),
+                n("MappingInformationType", vec![s("ByPolygonVertex")], vec![]),
+                n("ReferenceInformationType", vec![s("IndexToDirect")], vec![]),
+                n("UV", vec![V::ArrF(uvs2)], vec![]),
+                n("UVIndex", vec![V::ArrI((0..count).collect())], vec![]),
+            ]));
+        }
         kids.push(n("LayerElementMaterial", vec![V::I32(0)], vec![
             n("Version", vec![V::I32(101)], vec![]),
             n("Name", vec![s("")], vec![]),
@@ -458,6 +478,10 @@ pub fn write_fbx(m: &Model, path: &str, binary: bool) -> Result<FbxStats> {
         ]));
         layer_refs.push(layer_element("LayerElementMaterial"));
         kids.push(n("Layer", vec![V::I32(0)], std::iter::once(n("Version", vec![V::I32(100)], vec![])).chain(layer_refs).collect()));
+        if any_uv2 {
+            // a second UV set lives in its own layer
+            kids.push(n("Layer", vec![V::I32(1)], vec![n("Version", vec![V::I32(100)], vec![]), layer_element_at("LayerElementUV", 1)]));
+        }
         objects.push(n("Geometry", vec![V::I64(gid), V::Obj("Geometry", part.name.clone()), s("Mesh")], kids));
         conns.push(n("C", vec![s("OO"), V::I64(gid), V::I64(model_id)], vec![]));
         uses.push((model_id, local_mats));

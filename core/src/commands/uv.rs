@@ -122,7 +122,26 @@ impl Engine {
             }
             Command::UvInfo { faces, entity, set } => {
                 let ids = targets(faces, entity, "uv_info")?;
-                m.uv_info(&ids, set_of(set)?)?
+                let set = set_of(set)?;
+                let (placed, direct): (Vec<Id>, Vec<Id>) = ids.iter().partition(|id| m.instances.contains_key(id));
+                let mut out = if direct.is_empty() { json!({"faces": [], "without": [], "islands": 0, "seams": []}) } else { m.uv_info(&direct, set)? };
+                // a placed component is read from its definition (its faces are numbered there)
+                for i in placed {
+                    let def = m.instances[&i].def;
+                    let dm = &m.definitions[&def].model;
+                    let all: Vec<Id> = dm.faces.keys().copied().collect();
+                    let part = dm.uv_info(&all, set)?;
+                    let base = out["islands"].as_u64().unwrap_or(0);
+                    for mut f in part["faces"].as_array().cloned().unwrap_or_default() {
+                        f["island"] = json!(f["island"].as_u64().unwrap_or(0) + base);
+                        out["faces"].as_array_mut().unwrap().push(f);
+                    }
+                    for k in ["without", "seams"] {
+                        out[k].as_array_mut().unwrap().extend(part[k].as_array().cloned().unwrap_or_default());
+                    }
+                    out["islands"] = json!(base + part["islands"].as_u64().unwrap_or(0));
+                }
+                out
             }
             other => unreachable!("command routed to the wrong group: {other:?}"),
         })

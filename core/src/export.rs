@@ -135,6 +135,9 @@ pub fn write_glb(m: &Model, path: &str) -> Result<usize> {
         /// vertex colours (COLOR_0), one per position; written only when some face of the primitive has them
         vcol: Vec<[f32; 4]>,
         any_vcol: bool,
+        /// the lightmap channel (TEXCOORD_1), one per position; written only when some face of the primitive has one
+        uv2: Vec<[f32; 2]>,
+        any_uv2: bool,
     }
     let mut by_key: std::collections::BTreeMap<String, Prim> = Default::default();
     let mut tris = 0;
@@ -146,14 +149,19 @@ pub fn write_glb(m: &Model, path: &str) -> Result<usize> {
             Some((name, _)) => format!("t:{name}|{:.2},{:.2}", pbr.0, pbr.1),
             None => format!("{}|{:.2},{:.2}", color_id(c), pbr.0, pbr.1),
         };
-        let e = by_key.entry(key).or_insert(Prim { color: c, tex, pbr, pos: vec![], nor: vec![], uv: vec![], vcol: vec![], any_vcol: false });
+        let e = by_key.entry(key).or_insert(Prim { color: c, tex, pbr, pos: vec![], nor: vec![], uv: vec![], vcol: vec![], any_vcol: false, uv2: vec![], any_uv2: false });
         let n = f.normal;
         let ny = [n.x as f32, n.z as f32, -n.y as f32];
         let map = tex.map(|(_, t)| crate::texmap::FaceMap::of(t, &f));
         let vc = crate::vertex_paint::CornerColors::of(&f);
         e.any_vcol |= vc.any();
+        let lm = crate::texmap::Lightmap::of(&f);
+        e.any_uv2 |= lm.any();
         for t in geom::triangulate(&f.outer, &f.holes, n) {
             for p in t {
+                // glTF images start at the top
+                let [lu, lv] = lm.at(p);
+                e.uv2.push([lu, 1.0 - lv]);
                 e.pos.push([p.x as f32, p.z as f32, -p.y as f32]);
                 e.nor.push(ny);
                 e.vcol.push(vc.at(p));
@@ -210,6 +218,17 @@ pub fn write_glb(m: &Model, path: &str) -> Result<usize> {
             if pr.vcol.iter().any(|c| c[3] < 1.0) {
                 mat["alphaMode"] = json!("BLEND");
             }
+        }
+        if pr.any_uv2 {
+            let off = bin.len();
+            for v in &pr.uv2 {
+                for x in v {
+                    bin.extend_from_slice(&x.to_le_bytes());
+                }
+            }
+            views.push(json!({"buffer": 0, "byteOffset": off, "byteLength": pr.uv2.len() * 8, "target": 34962}));
+            accessors.push(json!({"bufferView": views.len() - 1, "componentType": 5126, "count": pr.uv2.len(), "type": "VEC2"}));
+            attrs["TEXCOORD_1"] = json!(accessors.len() - 1);
         }
         if let (Some((name, t)), false) = (pr.tex, pr.uv.is_empty()) {
             let off = bin.len();
