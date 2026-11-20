@@ -192,6 +192,14 @@ export const Icons = {
       <path d="M6 13l-1.5 5.5L10 17" />
     </Svg>
   ),
+  vpaint: () => (
+    <Svg>
+      <path d="M12 3 20 18H4z" />
+      <circle cx="12" cy="3" r="1.6" fill="currentColor" />
+      <circle cx="20" cy="18" r="1.6" fill="currentColor" />
+      <circle cx="4" cy="18" r="1.6" fill="currentColor" />
+    </Svg>
+  ),
   erase: () => (
     <Svg>
       <path d="M8 19h11" />

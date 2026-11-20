@@ -104,6 +104,11 @@ export function guide(tool: Tool, c: GuideCtx, language: Language = "en"): Guide
         ["⇧ click", translate(language, "guide.paint.all")],
         ["Ctrl ⇧ click", translate(language, "guide.paint.object")],
       ]);
+    case "vpaint":
+      return g(translate(language, "tool.vpaint").split(":")[0], translate(language, c.op === "vpaint" ? "guide.vpaint.busy" : "guide.vpaint.step"), [
+        ["Alt", translate(language, "guide.vpaint.erase")],
+        ["[ ]", translate(language, "guide.vpaint.size")],
+      ]);
     case "erase":
       return g("Eraser", "Click an edge, face or group to delete it. Erasing an edge between two faces merges them.", [["⇧ click", "hide instead"], ["Option / Ctrl", "soften the edge"]]);
     case "orbit":

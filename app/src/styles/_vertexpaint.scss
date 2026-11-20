@@ -1,0 +1,11 @@
+@use "variables" as *;
+
+/* Vertex Paint: the brush panel shares the Project texture panel's look; this is just the colour chip */
+
+.vp-chip {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(20, 22, 40, 0.25);
+}

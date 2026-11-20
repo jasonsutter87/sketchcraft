@@ -35,6 +35,7 @@ import { UP, r4, arr, circleThrough, bulgeThrough, basis, arcPoints, offsetOutli
 import { selectMarquee } from "./viewport/marquee";
 import { isMac, isTypingTarget } from "./keymap";
 import { paintCommand, paintReach } from "./paintmods";
+import { DEFAULT_VPAINT, effectiveRadius, extendStroke, ringPoints, sceneDiagonal, stepRadius, strokeCommand } from "./vertexpaint";
 import type { Tool, BuildSettings, FaceStyle, Backdrop, Styles, Cam, ViewportApi, PluginPoint, Props, Op, LabelSpec, Last, WallPlan, RoomPreview, RoomRow } from "./viewport/types";
 import { areaText, dragLabel, fillRects, gridStep, modeLabel, roomLabel, roomMode, roomModeKey, snapGrid, type Rect, type RoomMode } from "./viewport/rooms";
 export { autoTagColor };
@@ -389,7 +390,7 @@ export default function Viewport(props: Props) {
     T.catcher.visible = styles.shadows;
     buildModel();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [styles.xray, styles.shadows, styles.edges, styles.parallel, styles.backEdges, styles.face, styles.profiles, styles.sketchy, styles.extensions, styles.background, styles.byTag, styles.notes, styles.hideRest, styles.lineWeights]);
+  }, [styles.xray, styles.shadows, styles.edges, styles.parallel, styles.backEdges, styles.face, styles.profiles, styles.vertexColors, styles.sketchy, styles.extensions, styles.background, styles.byTag, styles.notes, styles.hideRest, styles.lineWeights]);
 
   // ---------------------------------------------------------------- labels
   /** Keep one DOM label per spec; positions are updated every frame. */
@@ -738,10 +739,17 @@ export default function Viewport(props: Props) {
       for (let t = 0; t < c.length / 3; t++) for (let k = 0; k < 3; k++) out.set([c[t * 3], c[t * 3 + 1], c[t * 3 + 2]], t * 9 + k * 3);
       return new THREE.BufferAttribute(out, 3);
     };
-    geo.setAttribute("color", corners(live.current.styles.byTag ? tagColors(s) : s.colors));
+    // vertex colours (an rgb tint per vertex) multiply the face colour, so a white material shows them pure
+    const vc = live.current.styles.vertexColors !== false && s.vcolors?.length === s.positions.length ? s.vcolors : null;
+    const tinted = (c: number[]) => {
+      const a = corners(c);
+      if (vc) for (let i = 0; i < a.array.length; i++) (a.array as Float32Array)[i] *= vc[i];
+      return a;
+    };
+    geo.setAttribute("color", tinted(live.current.styles.byTag ? tagColors(s) : s.colors));
     geo.setAttribute("normal", new THREE.BufferAttribute(smoothNormals(s.positions), 3));
     const bgeo = geo.clone();
-    bgeo.setAttribute("color", corners(s.backColors));
+    bgeo.setAttribute("color", tinted(s.backColors));
     const sty = live.current.styles;
     const faceStyle: FaceStyle = sty.face ?? "textured";
     const bg = BACKGROUNDS[sty.background ?? "default"];
@@ -800,11 +808,12 @@ export default function Viewport(props: Props) {
 
     // textured faces: drawn over the base mesh with their images
     if (faceStyle === "textured" && s.triTex?.some((i) => i >= 0)) {
-      const byTex = new Map<number, { pos: number[]; uv: number[] }>();
+      const byTex = new Map<number, { pos: number[]; uv: number[]; col: number[] }>();
       s.triTex.forEach((ti, tri) => {
         if (ti < 0) return;
-        const g = byTex.get(ti) ?? { pos: [], uv: [] };
+        const g = byTex.get(ti) ?? { pos: [], uv: [], col: [] };
         for (let k = 0; k < 9; k++) g.pos.push(s.positions[tri * 9 + k]);
+        for (let k = 0; k < 9; k++) g.col.push(vc ? vc[tri * 9 + k] : 1);
         for (let k = 0; k < 6; k++) g.uv.push(s.uvs[tri * 6 + k]);
         byTex.set(ti, g);
       });
@@ -814,10 +823,11 @@ export default function Viewport(props: Props) {
         const geo2 = new THREE.BufferGeometry();
         geo2.setAttribute("position", new THREE.Float32BufferAttribute(g.pos, 3));
         geo2.setAttribute("uv", new THREE.Float32BufferAttribute(g.uv, 2));
+        if (vc) geo2.setAttribute("color", new THREE.Float32BufferAttribute(g.col, 3));
         geo2.setAttribute("normal", new THREE.BufferAttribute(smoothNormals(g.pos), 3));
         const mesh = new THREE.Mesh(
           geo2,
-          new THREE.MeshLambertMaterial({ map: textureFor(mat.name, mat.texture.data), side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 0, polygonOffsetUnits: 0, transparent: xray || (mat.opacity ?? 1) < 1, opacity: Math.min(xray ? 0.42 : 1, mat.opacity ?? 1), depthWrite: !xray && (mat.opacity ?? 1) >= 1, clippingPlanes: clip })
+          new THREE.MeshLambertMaterial({ map: textureFor(mat.name, mat.texture.data), vertexColors: !!vc, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 0, polygonOffsetUnits: 0, transparent: xray || (mat.opacity ?? 1) < 1, opacity: Math.min(xray ? 0.42 : 1, mat.opacity ?? 1), depthWrite: !xray && (mat.opacity ?? 1) >= 1, clippingPlanes: clip })
         );
         mesh.receiveShadow = live.current.styles.shadows;
         T.model.add(mesh);
@@ -2152,6 +2162,23 @@ export default function Viewport(props: Props) {
     await run({ cmd: "polygon", points: [op.a, op.b, op.b.clone().add(op.h), op.a.clone().add(op.h)].map(arr) });
   }
 
+  /** The brush radius in use: the setting, or one worked out from the size of the model. */
+  function brushRadius(): number {
+    const L = live.current;
+    return effectiveRadius(L.vpaint ?? DEFAULT_VPAINT, L.scene ? sceneDiagonal(L.scene) : 0);
+  }
+
+  /** Vertex Paint: the whole stroke goes as one command, so it is one undo step. */
+  async function commitVPaint() {
+    const op = st.current.op;
+    if (op?.t !== "vpaint") return;
+    st.current.op = null;
+    clearPreview();
+    const L = live.current;
+    const cmd = strokeCommand({ targets: op.targets, points: op.pts, color: L.color, radius: op.radius, settings: L.vpaint ?? DEFAULT_VPAINT, erase: op.erase });
+    if (cmd) await run(cmd);
+  }
+
   async function commitFree() {
     const op = st.current.op;
     if (op?.t !== "free") return;
@@ -2528,6 +2555,30 @@ export default function Viewport(props: Props) {
       if (y.length() > 1e-6) T.preview.add(polyline([op.o, op.o.clone().addScaledVector(y.normalize(), len)], AXIS_COLORS[1]));
       return;
     };
+    /** Vertex Paint: the brush circle on the surface under the cursor; while dragging, the stroke grows by its points. */
+    const moveVPaint = ({ e, op }: { e: PointerEvent; op: Op | null }) => {
+      if (st.current.hover != null || st.current.hoverEdge != null) {
+        st.current.hover = null;
+        st.current.hoverEdge = null;
+        drawOverlay();
+      }
+      const h = pick(e);
+      const stroke = op?.t === "vpaint" ? op : null;
+      const radius = stroke ? stroke.radius : brushRadius();
+      if (!h) return;
+      if (stroke) {
+        stroke.erase = e.altKey;
+        const ent = entityOf(h);
+        if (!stroke.targets.includes(ent.id)) stroke.targets.push(ent.id);
+        extendStroke(stroke.pts, arr(h.point), radius);
+      }
+      const erase = stroke ? stroke.erase : e.altKey;
+      const color = erase ? 0xe5484d : new THREE.Color(live.current.color[0], live.current.color[1], live.current.color[2]).getHex();
+      // the ring faces the camera, so it reads as a circle on any surface
+      const toCam = t.current!.camera.position.clone().sub(h.point).normalize();
+      T0().preview.add(polyline(ringPoints(arr(h.point), arr(toCam), radius).map((p) => V(p)), color, true));
+      if (stroke && stroke.pts.length > 1) T0().preview.add(polyline(stroke.pts.map((p) => V(p)), color));
+    };
     const moveFree = ({ e, op }: MoveArgs<"free">) => {
       const q = ray(e).intersectPlane(new THREE.Plane().setFromNormalAndCoplanarPoint(op.n, op.o), new THREE.Vector3());
       if (!q) return;
@@ -2772,6 +2823,8 @@ export default function Viewport(props: Props) {
         P.move(pluginPoint(sn, e));
         return;
       }
+
+      if (L.tool === "vpaint") return moveVPaint({ e, op });
 
       switch (op?.t) {
         case "box":
@@ -3218,6 +3271,15 @@ export default function Viewport(props: Props) {
       await run({ cmd: "column", at: arr(sn.p), size: b.columnSize, height: b.columnHeight, round: b.columnRound });
       return;
     };
+    const downVPaint = async ({ e }: DownArgs) => {
+      const h = pick(e);
+      if (!h) return;
+      const radius = brushRadius();
+      const pts: [number, number, number][] = [];
+      extendStroke(pts, arr(h.point), radius);
+      st.current.op = { t: "vpaint", targets: [entityOf(h).id], pts, radius, erase: e.altKey };
+      el.setPointerCapture(e.pointerId);
+    };
     const downPaint = async ({ e, L }: DownArgs) => {
       const h = pick(e);
       if (!h) return;
@@ -3424,6 +3486,8 @@ export default function Viewport(props: Props) {
           return downColumn({ e, L: L as Live, E, op, sel });
         case "paint":
           return downPaint({ e, L: L as Live, E, op, sel });
+        case "vpaint":
+          return downVPaint({ e, L: L as Live, E, op, sel });
         case "erase":
           return downErase({ e, L: L as Live, E, op, sel });
         case "section":
@@ -3491,6 +3555,10 @@ export default function Viewport(props: Props) {
       if (op?.t === "free") {
         if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
         return void (await commitFree());
+      }
+      if (op?.t === "vpaint") {
+        if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
+        return void (await commitVPaint());
       }
       if (el.hasPointerCapture(e.pointerId) && op?.t !== "push" && op?.t !== "wallpull" && op?.t !== "box") el.releasePointerCapture(e.pointerId);
       if (press?.fresh && op && Math.hypot(e.clientX - press.x, e.clientY - press.y) > 6) {
@@ -3609,6 +3677,13 @@ export default function Viewport(props: Props) {
       if ((e.metaKey || e.ctrlKey) && (e.key === "[" || e.key === "]")) {
         e.preventDefault();
         stepView(e.key === "[" ? -1 : 1);
+        return;
+      }
+      if (live.current.tool === "vpaint" && !e.metaKey && !e.ctrlKey && (e.key === "[" || e.key === "]")) {
+        // [ and ] make the brush smaller and bigger
+        e.preventDefault();
+        const L = live.current;
+        L.setVPaint?.({ ...(L.vpaint ?? DEFAULT_VPAINT), radius: stepRadius(brushRadius(), e.key === "[" ? -1 : 1) });
         return;
       }
       const ed = cageEd.current;

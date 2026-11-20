@@ -175,6 +175,8 @@ export interface Scene {
   cages?: Record<string, { points: number[][]; faces: number[][]; materials: (string | null)[]; creases: number[][]; levels: number; symmetry: { axis: number; center: number } | null }>;
   /** texture coordinates, two per vertex */
   uvs: number[];
+  /** vertex colours: an rgb tint per vertex (3 numbers each, like `positions`); empty when nothing is painted */
+  vcolors?: number[];
   /** per triangle: index into `textures`, or -1 */
   triTex: number[];
   /** material names of the images in use */

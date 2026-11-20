@@ -50,6 +50,8 @@ import { PhotoModeler } from "./photomodel";
 import { RefImageDialog } from "./refimage";
 import { Text3dDialog } from "./text3d";
 import { ProjectionPanel } from "./projectionpanel";
+import { VertexPaintPanel } from "./vertexpaintpanel";
+import { DEFAULT_VPAINT, effectiveRadius, sceneDiagonal, type VPaintSettings } from "./vertexpaint";
 import { RestoreDialog } from "./restore";
 import { TimelinePanel } from "./timeline";
 import { LearnCenter, LessonCard, lessonsDone, useLearnCtx } from "./learn";
@@ -190,6 +192,7 @@ function ModelingApp() {
   const [showText3d, setShowText3d] = useState(false);
   // Project texture: the panel is about the selection it opened on
   const [showProjection, setShowProjection] = useState(false);
+  const [vpaint, setVPaint] = useState<VPaintSettings>(DEFAULT_VPAINT);
   const [showRestore, setShowRestore] = useState(false);
   const [showTimeline, setShowTimeline] = useState(false);
   const [showLearn, setShowLearn] = useState(false);
@@ -591,6 +594,7 @@ function ModelingApp() {
       toggle("edges", "Edges", "view.edges"),
       { id: "view.backedges", label: "Back edges", hint: "View", run: () => setStyles((s) => ({ ...s, backEdges: !s.backEdges, xray: false })) },
       toggle("parallel", "Parallel projection", "view.parallel"),
+      { id: "view.vertexcolors", label: "Vertex colours", hint: "View · show the colours painted on corners", run: () => setStyles((s) => ({ ...s, vertexColors: s.vertexColors === false })) },
       toggle("hideRest", "Hide rest of model (while editing)", "view.hiderest"),
       ...WORKSPACES.map((w) => ({ id: `ws.${w.id}`, label: `${w.name} workspace`, hint: w.blurb, run: () => switchWs(w.id) })),
       ...(scene?.views ?? []).map((v) => ({ label: `Go to scene "${v.name}"`, hint: "Scenes", run: () => void showView(v) })),
@@ -665,7 +669,7 @@ function ModelingApp() {
       setSection(false);
     },
     toggleStyle: (k) =>
-      setStyles((s) => (k === "backEdges" ? { ...s, backEdges: !s.backEdges, xray: false } : k === "notes" || k === "help" ? { ...s, [k]: s[k] === false } : { ...s, [k]: !s[k] })),
+      setStyles((s) => (k === "backEdges" ? { ...s, backEdges: !s.backEdges, xray: false } : k === "notes" || k === "help" || k === "vertexColors" ? { ...s, [k]: s[k] === false } : { ...s, [k]: !s[k] })),
     setStyles: (patch) => setStyles((s) => ({ ...s, ...patch })),
     workspaceTo: (id) => switchWs(id as Parameters<typeof switchWs>[0]),
     showTab: (t) => {
@@ -799,6 +803,7 @@ function ModelingApp() {
               {(
                 [
                   ["profiles", "Profiles"],
+                  ["vertexColors", "Vertex colours"],
                   ["sketchy", "Sketchy edges"],
                   ["extensions", "Extensions"],
                   ["lineWeights", "Line weights"],
@@ -806,7 +811,7 @@ function ModelingApp() {
                 ] as [keyof Styles, string][]
               ).map(([k, label]) => (
                 <label key={k} className="field check">
-                  <input type="checkbox" checked={k === "lineWeights" ? styles[k] !== false : !!styles[k]} onChange={(e) => setStyles((s) => ({ ...s, [k]: e.target.checked }))} />
+                  <input type="checkbox" checked={k === "lineWeights" || k === "vertexColors" ? styles[k] !== false : !!styles[k]} onChange={(e) => setStyles((s) => ({ ...s, [k]: e.target.checked }))} />
                   <span>{label}</span>
                 </label>
               ))}
@@ -1029,6 +1034,8 @@ function ModelingApp() {
           styles={styles}
           placeAsset={placing}
           build={build}
+          vpaint={vpaint}
+          setVPaint={setVPaint}
           run={run}
           onMeasure={(label, value) => setMeasure({ label, value })}
           onContext={(x, y) => setMenu({ x, y })}
@@ -1176,6 +1183,7 @@ function ModelingApp() {
         )}
         {lesson && learnCtx && <LessonCard key={lesson} id={lesson} ctx={learnCtx} onClose={() => setLesson(null)} onToast={say} />}
         {showRestore && <RestoreDialog run={run} onClose={() => setShowRestore(false)} onToast={say} />}
+        {tool === "vpaint" && scene && !inLayout && <VertexPaintPanel settings={vpaint} set={setVPaint} radius={effectiveRadius(vpaint, sceneDiagonal(scene))} sel={sel} color={color} run={run} onToast={say} />}
         {showProjection && scene && <ProjectionPanel scene={scene} sel={sel} run={run} camera={() => api.current!.camera()} onClose={() => setShowProjection(false)} onToast={say} />}
         {showText3d && scene && <Text3dDialog scene={scene} run={run} camera={() => api.current!.camera()} onClose={() => setShowText3d(false)} onToast={say} />}
         {showRef && scene && <RefImageDialog scene={scene} run={run} onClose={() => setShowRef(false)} onToast={say} />}

@@ -75,7 +75,7 @@ export interface MenuCtx {
   nextView: () => void;
   plan: () => void;
   clearSection: () => void;
-  toggleStyle: (key: "shadows" | "xray" | "backEdges" | "edges" | "profiles" | "sketchy" | "ao" | "notes" | "help" | "hideRest") => void;
+  toggleStyle: (key: "shadows" | "xray" | "backEdges" | "edges" | "profiles" | "vertexColors" | "sketchy" | "ao" | "notes" | "help" | "hideRest") => void;
   setStyles: (patch: Partial<Styles>) => void;
   // panels, layout, language
   workspaceTo: (id: string) => void;
@@ -152,6 +152,7 @@ export function buildMenuActions(c: MenuCtx): Record<string, MenuAction> {
   add("view.backedges", () => c.toggleStyle("backEdges"), model, !!s.backEdges);
   add("view.edges", () => c.toggleStyle("edges"), model, !!s.edges);
   add("view.profiles", () => c.toggleStyle("profiles"), model, !!s.profiles);
+  add("view.vertexcolors", () => c.toggleStyle("vertexColors"), model, s.vertexColors !== false);
   add("view.sketchy", () => c.toggleStyle("sketchy"), model, !!s.sketchy);
   add("view.ao", () => c.toggleStyle("ao"), model, !!s.ao);
   add("view.notes", () => c.toggleStyle("notes"), model, s.notes !== false);
@@ -175,7 +176,7 @@ export function buildMenuActions(c: MenuCtx): Record<string, MenuAction> {
   add("view.parallel", () => c.setStyles({ parallel: true }), model, !!s.parallel);
 
   // every tool a menu offers (Draw, Tools, Camera)
-  for (const id of ["orbit", "pan", "zoom", "zoomwindow", "position", "lookaround", "walk", "line", "freehand", "arc", "arccenter", "arc3", "pie", "rect", "rrect", "circle", "polygon", "wall", "room", "select", "move", "rotate", "scale", "push", "wallpull", "followme", "offset", "tape", "dimension", "text", "paint", "erase", "section"] as const) {
+  for (const id of ["orbit", "pan", "zoom", "zoomwindow", "position", "lookaround", "walk", "line", "freehand", "arc", "arccenter", "arc3", "pie", "rect", "rrect", "circle", "polygon", "wall", "room", "select", "move", "rotate", "scale", "push", "wallpull", "followme", "offset", "tape", "dimension", "text", "paint", "vpaint", "erase", "section"] as const) {
     add(`tool:${id}`, () => c.tool(id), model);
   }
 

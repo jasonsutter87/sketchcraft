@@ -198,6 +198,7 @@ export const MENU_COMMANDS: CommandDef[] = [
   c("view.xray", "X-Ray", "View"),
   c("view.shadows", "Shadows", "View"),
   c("view.edges", "Edges", "View"),
+  c("view.vertexcolors", "Vertex colours", "View"),
   c("view.parallel", "Parallel projection", "View"),
   c("view.hiderest", "Hide rest of model", "View"),
   c("ws.model", "Model workspace", "Window"),
