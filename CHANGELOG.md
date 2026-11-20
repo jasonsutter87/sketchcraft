@@ -7,6 +7,14 @@ What changed in each SketchCraft release, newest first. The format follows
 ## [Unreleased]
 
 ### Added
+- **Vertex painting.** **Tools > Vertex Paint** (or search for it) lays colour straight onto the corners of faces with a
+  brush: drag over the model and every corner inside the brush circle moves toward the colour you picked, fading out
+  toward the circle's edge. **[** and **]** change the brush size, the panel has Strength and the edge (soft, linear,
+  hard) and Fill / Clear for the selection, and **Alt** brushes the colour away. A stroke is one Undo step. The colours
+  blend smoothly across each face and multiply with its material, so a plain white face shows the colour as painted;
+  **View > Vertex colours** hides them. They are saved in the model (a model that has them opens read-only in older
+  versions, so they are not lost) and go into glTF / GLB as vertex colours, into FBX as a colour layer, and into renders.
+  Agents use `vertex_paint`, `vertex_paint_clear` and `vertex_colors`.
 - **Export to FBX.** File > Export > FBX writes a model for Unity, Unreal, Blender and Maya: each group and component is
   its own object, nested as in your model and keeping its name, with normals, texture coordinates, materials and the
   pictures used as textures (saved in a folder beside the file). Metres, Y up. Agents use `export_fbx`.

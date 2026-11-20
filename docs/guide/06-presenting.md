@@ -30,6 +30,28 @@ seam where the sheet meets itself again can still step. Plain colors just fill.
 Each click is one undo step. Agents reach the same thing with
 `paint {ids, material, scope: "connected" | "all" | "object", through}`.
 
+## Vertex painting
+
+**Tools > Vertex Paint** (or press `Shift+S` and search for it) paints colour onto the *corners* of faces, the way a game
+artist tints a mesh. Pick a colour with the paint colour chip, then drag over the model: a circle on the surface shows
+the brush, and every corner inside it moves toward the colour, most at the middle and less toward the rim. The faces
+blend the corner colours smoothly across themselves, and the colour multiplies with the face's material (a plain white
+face shows it as painted; a picture shows through it).
+
+| Do | What happens |
+| --- | --- |
+| drag | paint a stroke; letting go finishes it, and one Undo takes the whole stroke back |
+| **[** / **]** | a smaller / bigger brush (or use the panel's Size) |
+| **Alt** + drag | brush the colour away |
+| the panel's **Strength** and **Edge** | how hard the brush pushes, and whether it fades (soft, linear) or stops dead (hard) |
+| **Fill selection** / **Clear selection** | colour every corner of the selected faces, groups or components, or take the colours off |
+| **View > Vertex colours** | show or hide them (on by default) |
+
+Colour lives on corners, so a big flat face with only four corners can only be tinted from corner to corner. Cut it up
+(or use a finer model such as the globe) to get a soft, local brush. The colours are saved with the model, appear in
+renders, and go into glTF / GLB (as vertex colours) and FBX (as a colour layer). Agents reach the same thing with
+`vertex_paint`, `vertex_paint_clear` and `vertex_colors`.
+
 ## Scenes
 
 In the **Views** tab, name the view and click **Save**: it remembers the camera,

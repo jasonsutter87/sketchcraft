@@ -26,6 +26,7 @@ Checked items are in `main`.
 ## Looks and presentation
 
 - [x] **Paint Bucket modifiers** (Ctrl/Option connected, Shift replace all, Ctrl+Shift whole object, sample) and **paint-through**: a texture runs on across connected faces
+- [x] **Vertex painting**: a brush that tints the corners of faces (size, strength, soft or hard edge, Alt erases), shown in the viewport and renders and exported as glTF `COLOR_0` and FBX colours
 - [x] Materials and image textures (tile size, projected; **projection mapping**: planar, box, cylinder and sphere onto a selection, kept as the faces' own texture coordinates); **physically based finishes** (Matte, Satin, Gloss, Metal, Brushed metal, Glass, Glow) in renders, glTF and a physically based view style
 - [x] **Styles**: shaded / textured / monochrome / hidden line / wireframe, profiles,
       sketchy edges, extensions, ambient occlusion, paper / blueprint / night; presets

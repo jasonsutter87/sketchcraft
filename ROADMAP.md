@@ -56,7 +56,7 @@ complaint about LayOut is that it's slow and loses your dimensions. So:
 5. **Paint-through** across connected faces
 6. **Projection mapping**: planar, box, cylinder, sphere
 7. **Textures in SketchUp 2017–2020 imports**
-8. **Vertex painting**
+8. **Vertex painting** (done: Vertex Paint tool, vertex colours in the viewport, renders, glTF / GLB and FBX)
 
 ## 0.3.10: Makers
 
