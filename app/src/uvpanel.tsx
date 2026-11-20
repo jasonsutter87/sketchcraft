@@ -23,6 +23,10 @@ export interface UvLayer {
 }
 const extraLayers: UvLayer[] = [];
 const layerListeners = new Set<() => void>();
+/** Ask the panel to draw its layers again (a layer's own content changed). */
+export function redrawUvLayers() {
+  layerListeners.forEach((f) => f());
+}
 /** Add a layer between the picture and the wireframe; returns the function that removes it. */
 export function addUvLayer(l: UvLayer): () => void {
   extraLayers.push(l);
@@ -57,7 +61,7 @@ export function UvPanel({ scene, sel, setSel, run, checker, setChecker, onClose,
   const [docked, setDocked] = useState(false);
   const [pos, setPos] = useState<V2>(() => [Math.max(16, window.innerWidth - 640), 90]);
   const [modal, setModal] = useState<Modal | null>(null);
-  const [, bump] = useState(0);
+  const [tick, bump] = useState(0);
   const root = useRef<HTMLDivElement>(null);
   const stage = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -70,16 +74,22 @@ export function UvPanel({ scene, sel, setSel, run, checker, setChecker, onClose,
   const material = pictureMaterial(info, textured);
   const picture = material ? scene.materials.find((m) => m.name === material)?.texture?.data ?? null : null;
 
-  // 3D -> 2D: a selection made out there is the new scope (one this panel made itself is not)
+  // 3D -> 2D: a selection made out there is the new scope (one this panel made itself is not). The app hands a new
+  // selection object on every refresh, so this follows the ids, not the object.
+  const selSig = JSON.stringify([sel.faces, sel.groups, sel.instances]);
+  const targetsRef = useRef(targets);
+  targetsRef.current = targets;
   useEffect(() => {
-    const sig = JSON.stringify([sel.faces, sel.groups, sel.instances]);
-    if (sig === fromPanel.current) return;
+    if (selSig === fromPanel.current) {
+      fromPanel.current = "";
+      return;
+    }
     const next = targetsOf(sel);
-    if (next.length) {
+    if (next.length && JSON.stringify(next) !== JSON.stringify(targetsRef.current)) {
       setTargets(next);
       setChosen(new Set());
     }
-  }, [sel]);
+  }, [selSig]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // read what the 2D view shows whenever the model, the scope or the channel changes
   const key = JSON.stringify(targets);
@@ -102,7 +112,10 @@ export function UvPanel({ scene, sel, setSel, run, checker, setChecker, onClose,
   useEffect(() => setPins((p) => livePins(info, p)), [info]);
   useEffect(() => {
     // corners that no longer exist drop out of the selection
-    setChosen((c) => new Set([...c].filter((k) => ix.faces.has(parseKey(k)[0]))));
+    setChosen((c) => {
+      const n = new Set([...c].filter((k) => ix.faces.has(parseKey(k)[0])));
+      return n.size === c.size ? c : n;
+    });
   }, [ix]);
 
   // the stage's size
@@ -162,7 +175,7 @@ export function UvPanel({ scene, sel, setSel, run, checker, setChecker, onClose,
     g.strokeStyle = "rgba(255,255,255,0.55)";
     g.lineWidth = 1;
     g.strokeRect(x0 + 0.5, y0 + 0.5, size, size);
-  }, [view, picture, checker, bump, key]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [view, picture, checker, tick, key]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---- commands --------------------------------------------------------------------------------------------------------
   const go = async (cmd: Record<string, unknown>, ok?: (r: Record<string, unknown>) => string): Promise<boolean> => {
@@ -415,7 +428,7 @@ export function UvPanel({ scene, sel, setSel, run, checker, setChecker, onClose,
   const sty = docked ? undefined : { left: pos[0], top: pos[1] };
 
   return (
-    <div ref={root} className={`uv-panel${docked ? " docked" : ""}`} style={sty} role="dialog" aria-label={t("uv.title")} data-testid="uv-panel" data-islands={shown.islands} data-faces={shown.faces.length} data-set={set} onKeyDown={keyDown}>
+    <div ref={root} className={`uv-panel${docked ? " docked" : ""}`} style={sty} role="dialog" aria-label={t("uv.title")} data-testid="uv-panel" data-islands={shown.islands} data-faces={shown.faces.length} data-set={set} data-sel-faces={sel.faces.length} data-sel-groups={sel.groups.length} onKeyDown={keyDown}>
       <div className="uv-head" onPointerDown={headDown} onPointerMove={headMove} onPointerUp={() => (dragWin.current = null)}>
         <b>{t("uv.title")}</b>
         <span className="muted small">{t("uv.count").replace("{f}", String(shown.faces.length)).replace("{i}", String(shown.islands))}</span>
