@@ -83,7 +83,7 @@ impl Model {
         out
     }
 
-    fn picture_corners(&self, id: Id, frames: &Frames, fresh: bool) -> Result<Corners> {
+    pub(crate) fn picture_corners(&self, id: Id, frames: &Frames, fresh: bool) -> Result<Corners> {
         let f = self.faces.get(&id).ok_or_else(|| anyhow::anyhow!("no face {id} here (open the component to edit its faces)"))?;
         let Some(name) = f.material.as_deref() else { bail!("face {id} has no picture: paint it with a textured material first") };
         let Some(t) = frames.get(name) else { bail!("face {id}'s material \"{name}\" has no picture") };

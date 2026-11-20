@@ -41,6 +41,7 @@ mod library;
 mod media;
 mod paint;
 mod projection;
+mod texpaint;
 mod uv;
 mod vertex_paint;
 mod rendering;
@@ -174,6 +175,8 @@ impl Command {
                 | Command::VertexColors { .. }
                 | Command::TextureFrame { .. }
                 | Command::UvInfo { .. }
+                | Command::TexturePaintStatus { .. }
+                | Command::TexturePixels { .. }
         )
     }
 }
@@ -1027,6 +1030,7 @@ impl Engine {
             ) => self.run_paint(c),
             c @ (Command::TextureProject { .. } | Command::TextureUv { .. } | Command::TexturePosition { .. } | Command::TextureFrame { .. }) => self.run_projection(c),
             c @ (Command::UvSeam { .. } | Command::UvUnwrap { .. } | Command::UvPack { .. } | Command::UvLightmap { .. } | Command::UvSet { .. } | Command::UvTransform { .. } | Command::UvInfo { .. }) => self.run_uv(c),
+            c @ (Command::TexturePaintNew { .. } | Command::TexturePaintStroke { .. } | Command::TexturePaintStatus { .. } | Command::TexturePixels { .. }) => self.run_texpaint(c),
             c @ (Command::VertexPaint { .. } | Command::VertexPaintClear { .. } | Command::VertexColors { .. }) => self.run_vertex_paint(c),
             c @ (
                 Command::Photoreal { .. } | Command::Render { .. } | Command::Environment { .. } |

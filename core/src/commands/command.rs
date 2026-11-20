@@ -1471,6 +1471,75 @@ pub enum Command {
         #[serde(default)]
         default: bool,
     },
+    /// Texture painting: make a paint texture (a new material with an embedded PNG, `size` pixels square, default 1024) and wear it
+    /// on `faces` (or the group `entity`). The faces need their own UVs that don't overlap and stay in 0..1; with `unwrap`
+    /// they are unwrapped first when they don't (otherwise the call is refused and says why). `base`: [r,g,b] 0..1 (default
+    /// white), or "material" to bake the faces' present picture or colour through the new UVs. `name`: the material's name.
+    /// One undo step.
+    TexturePaintNew {
+        #[serde(default)]
+        faces: Option<Vec<Id>>,
+        #[serde(default)]
+        entity: Option<Id>,
+        #[serde(default)]
+        size: Option<u32>,
+        #[serde(default)]
+        base: Option<serde_json::Value>,
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        unwrap: bool,
+    },
+    /// One brush stroke on a paint texture's pixels. Either `points` ([[x,y,z]...] world metres) with `radius` (metres): the brush
+    /// is projected in 3D onto the texels of `faces` / `entity` (default: every face wearing `material`), across UV seams; or
+    /// `uv_points` ([[u,v]...] tiles) with `uv_radius` (in tiles of the picture's width): painted straight on the picture.
+    /// `fill: true` paints every texel of the faces. `color` [r,g,b] 0..1; `hardness` 0..1 (default 0.5); `opacity` 0..1 (default 1);
+    /// `erase` paints back toward the material's base colour. The stroke's weight is the strongest dab, never a sum. One undo step.
+    TexturePaintStroke {
+        material: String,
+        #[serde(default)]
+        faces: Option<Vec<Id>>,
+        #[serde(default)]
+        entity: Option<Id>,
+        #[serde(default)]
+        points: Option<Vec<[f64; 3]>>,
+        #[serde(default)]
+        radius: Option<f64>,
+        #[serde(default)]
+        uv_points: Option<Vec<[f64; 2]>>,
+        #[serde(default)]
+        uv_radius: Option<f64>,
+        #[serde(default)]
+        fill: bool,
+        #[serde(default)]
+        color: Option<Vec<f32>>,
+        #[serde(default)]
+        hardness: Option<f64>,
+        #[serde(default)]
+        opacity: Option<f64>,
+        #[serde(default)]
+        erase: bool,
+    },
+    /// Can these faces be painted? Per the faces' own UVs: `without` (face ids with none), `overlap`, `outside` (leave 0..1), `paintable`. Read-only.
+    TexturePaintStatus {
+        #[serde(default)]
+        faces: Option<Vec<Id>>,
+        #[serde(default)]
+        entity: Option<Id>,
+    },
+    /// Read a block of a material's pixels: `x`, `y`, `w`, `h` (at most 4096 pixels; default the top-left 1 x 1) as [r,g,b,a] 0..255
+    /// rows, plus the picture's size and a `hash` of all its pixels. Read-only.
+    TexturePixels {
+        material: String,
+        #[serde(default)]
+        x: Option<u32>,
+        #[serde(default)]
+        y: Option<u32>,
+        #[serde(default)]
+        w: Option<u32>,
+        #[serde(default)]
+        h: Option<u32>,
+    },
     /// Mark (`on`, default true) or clear UV seams. Either `edges`, or `auto` (degrees) with `faces` / `entity`: the edges
     /// inside those faces whose faces meet at more than that angle. Seams are where an unwrap cuts. One undo step.
     UvSeam {

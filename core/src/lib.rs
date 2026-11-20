@@ -48,6 +48,7 @@ pub mod openings;
 pub mod photomodel;
 pub mod photoproject;
 pub mod projection;
+pub mod texpaint;
 pub mod vertex_paint;
 pub mod pt;
 pub mod render;
