@@ -1430,13 +1430,20 @@ impl Model {
                 }
             }
         }
+        if scope == "all" {
+            // every face of the seeds' groups that wears a seed's material: one pass, however many seeds
+            let keys: std::collections::HashSet<(Option<Id>, Option<&str>)> = seeds.iter().map(|s| (self.faces[s].group, self.faces[s].material.as_deref())).collect();
+            out.extend(self.faces.iter().filter(|(_, f)| !f.hidden && keys.contains(&(f.group, f.material.as_deref()))).map(|(&k, _)| k));
+            return Ok(out.into_iter().collect());
+        }
         for &s in &seeds {
-            let sf = &self.faces[&s];
-            let (group, mat) = (sf.group, sf.material.clone());
-            if scope == "all" {
-                out.extend(self.faces.iter().filter(|(_, f)| f.group == group && f.material == mat && !f.hidden).map(|(&k, _)| k));
+            // a seed already reached from an earlier one gives the same faces again (the walk stays in its group, and
+            // a face it kept wears the same material)
+            if out.contains(&s) {
                 continue;
             }
+            let sf = &self.faces[&s];
+            let (group, mat) = (sf.group, sf.material.clone());
             let through_other = scope == "object";
             let mut seen: BTreeSet<Id> = BTreeSet::from([s]);
             let mut todo = vec![s];

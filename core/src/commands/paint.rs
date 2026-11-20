@@ -20,10 +20,12 @@ impl Engine {
                     });
                 }
                 // the reach is worked out before anything changes (it depends on the old materials)
-                let mut faces = m.paint_targets(&ids, scope.as_deref())?;
-                // the clicked faces first: they get the material's own placement, the rest continue from them
-                let clicked = m.faces_of(&ids)?;
-                faces.sort_by_key(|f| !clicked.contains(f));
+                let faces = m.paint_targets(&ids, scope.as_deref())?;
+                // the clicked faces first: they get the material's own placement, the rest continue from them (a stable
+                // split: each keeps its order)
+                let clicked: std::collections::HashSet<Id> = m.faces_of(&ids)?.into_iter().collect();
+                let (mut faces, rest): (Vec<Id>, Vec<Id>) = faces.into_iter().partition(|f| clicked.contains(f));
+                faces.extend(rest);
                 let name = match (material, color) {
                     (Some(name), _) => name,
                     (None, Some(c)) => m.color_material(c),
