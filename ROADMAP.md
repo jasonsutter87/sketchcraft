@@ -52,7 +52,7 @@ complaint about LayOut is that it's slow and loses your dimensions. So:
 1. **Blocky Beaver** and a **texturing test set** (dice, can, globe, crate, soccer ball): every feature below is built and tested on them
 2. **glTF / GLB export** with UVs and vertex colours, plus **FBX** and a **lightmap UV channel**
 3. **UV unwrap** with a UV view
-4. **Position Texture**: move, rotate, scale and skew a texture on a face
+4. **Position Texture**: move, rotate, scale and skew a texture on a face (built)
 5. **Paint-through** across connected faces
 6. **Projection mapping**: planar, box, cylinder, sphere
 7. **Textures in SketchUp 2017–2020 imports**

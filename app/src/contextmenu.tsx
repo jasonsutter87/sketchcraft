@@ -16,7 +16,7 @@ export interface MenuItem {
   run: () => void;
 }
 
-export function contextItems(scene: Scene, sel: Sel, run: Run, setSel: (s: Sel) => void, fitSel: () => void, section?: { origin: number[]; normal: number[] } | null, onCage?: (id: number) => void, onToast?: (t: string) => void, subd?: { subdivide: () => void; subdBox: () => void; projectTexture?: () => void }): MenuItem[] {
+export function contextItems(scene: Scene, sel: Sel, run: Run, setSel: (s: Sel) => void, fitSel: () => void, section?: { origin: number[]; normal: number[] } | null, onCage?: (id: number) => void, onToast?: (t: string) => void, subd?: { subdivide: () => void; subdBox: () => void; projectTexture?: () => void; positionTexture?: () => void }): MenuItem[] {
   const ids = selIds(sel);
   const items: MenuItem[] = [];
   if (isEmpty(sel)) {
@@ -30,6 +30,11 @@ export function contextItems(scene: Scene, sel: Sel, run: Run, setSel: (s: Sel) 
   const one = ids.length === 1;
   if (one && sel.groups.length && scene.cages?.[String(ids[0])]) items.push({ label: "Shape in SubD mode", key: "Tab", run: () => onCage?.(ids[0]) });
   if (one && (sel.groups.length || sel.instances.length) && !sel.faces.length && !scene.cages?.[String(ids[0])]) items.push({ label: "Subdivide…", run: () => subd?.subdivide() });
+  // Texture › Position: a single textured face (a face with no picture has nothing to position)
+  if (subd?.positionTexture && sel.faces.length === 1 && !sel.groups.length && !sel.instances.length) {
+    const f = scene.faces.find((x) => x.id === sel.faces[0]);
+    if (f?.material && scene.materials.find((m) => m.name === f.material)?.texture) items.push({ label: "Texture › Position", labelId: "context.positionTexture", run: () => subd.positionTexture?.() });
+  }
   if (one && (sel.groups.length || sel.instances.length)) items.push({ label: `Edit ${sel.groups.length ? "group" : "component"}`, run: () => (run({ cmd: "edit", id: ids[0] }), setSel(EMPTY)) });
   // groups and components selected go inside the new group as they are (nesting)
   if (sel.faces.length || sel.groups.length || sel.instances.length) {

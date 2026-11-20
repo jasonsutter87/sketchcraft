@@ -207,6 +207,7 @@ export const MENUS: Menu[] = [
       SEP,
       tool("paint"),
       act("tools.projecttexture", "menu.projectTexture"),
+      act("tools.positiontexture", "menu.positionTexture"),
       tool("erase"),
       tool("section"),
     ],

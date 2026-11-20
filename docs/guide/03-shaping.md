@@ -75,6 +75,21 @@ projection. **Apply** keeps it (one Undo takes it back), **Cancel** drops it, **
 picture's own placement. The result is saved with the model and goes into glTF, OBJ and Collada exports. A model that
 uses it is saved so that older SketchCraft versions open it read-only rather than lose it.
 
+## Moving a picture on a face (Position Texture)
+
+Right-click a face that has a picture and choose **Texture › Position** (or **Tools › Position texture…**). The whole
+picture appears see-through over the face, with four pins on its corners:
+
+- **Red** moves the picture. So does dragging the picture itself.
+- **Green** scales and turns it around the red pin.
+- **Blue** stretches or leans its height.
+- **Yellow** skews it.
+
+The face follows as you drag. Press **Enter** (or click empty space) to keep the result as one Undo step, **Esc** to take it
+back. Right-click inside for **Flip left/right**, **Flip up/down**, **Rotate 90/180/270**, **Reset** and **Done**. You can
+still orbit by dragging away from the picture. It works on faces painted with the Paint Bucket, carried on by paint-through
+or laid by a projection. The yellow pin skews rather than bending the picture in perspective.
+
 ## Terrain
 
 The Sandbox tools shape ground: **Smoove** raises and lowers it, **Stamp**
