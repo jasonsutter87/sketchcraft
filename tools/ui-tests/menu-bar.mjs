@@ -493,16 +493,21 @@ for (const layout of ['classic', 'floating', 'side']) {
 }
 
 // ---- narrow windows ----------------------------------------------------------------------------------------------------------
-for (const width of [1366, 1280, 1100, 900]) {
+// (1366 twice: the second time in a wider font, as on Linux, where the same bar runs longer than on macOS)
+for (const [width, wide] of [[1366, false], [1366, true], [1280, false], [1100, false], [900, false]]) {
   const { p, ctx } = await open({ viewport: { width, height: 800 } });
+  if (wide) {
+    await p.addStyleTag({ content: '* { font-family: Verdana, "DejaVu Sans", sans-serif !important; }' });
+    await wait(300);
+  }
   const buttons = await p.locator('[role=menubar] > .menubar-item > button').evaluateAll((els) => els.map((e) => e.getBoundingClientRect()));
   const sw = await p.locator('.ws-switch').boundingBox();
   const last = buttons[buttons.length - 1];
-  check(buttons.every((r) => r.width > 0) && last.x + last.width <= width, `${width}px wide: every menu name is on screen`);
-  check(!sw || last.x + last.width <= sw.x + 1, `${width}px wide: the menus don't overlap the workspace switch (${Math.round(last.x + last.width)} vs ${Math.round(sw?.x)})`);
+  check(buttons.every((r) => r.width > 0) && last.x + last.width <= width, `${width}px wide${wide ? ' (wider font)' : ''}: every menu name is on screen`);
+  check(!sw || last.x + last.width <= sw.x + 1, `${width}px wide${wide ? ' (wider font)' : ''}: the menus don't overlap the workspace switch (${Math.round(last.x + last.width)} vs ${Math.round(sw?.x)})`);
   await openMenu(p, 'Help');
   const m = await menu(p, 'Help').boundingBox();
-  check(m.x >= 0 && m.x + m.width <= width, `${width}px wide: Help opens inside the window`);
+  check(m.x >= 0 && m.x + m.width <= width, `${width}px wide${wide ? ' (wider font)' : ''}: Help opens inside the window`);
   await ctx.close();
 }
 

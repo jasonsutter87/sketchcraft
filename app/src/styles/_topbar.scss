@@ -27,6 +27,11 @@
 }
 
 .doc {
+  /* a long file name shortens (…) before it can push the menus under the workspace switch */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--muted);
 }
 

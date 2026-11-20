@@ -7,6 +7,7 @@
   position: relative;
   z-index: 31; /* above the click-away scrim */
   margin-left: 2px;
+  flex-shrink: 0;
 }
 
 .menubar {
@@ -130,12 +131,15 @@
   }
 }
 
-@media (max-width: 1280px) {
+/* 1366px is a common laptop width and Linux fonts are wider than macOS's: the product name goes before the menus can reach the switch */
+@media (max-width: 1400px) {
   .topbar .brand-name,
   .topbar .brand > .sep {
     display: none;
   }
+}
 
+@media (max-width: 1280px) {
   .menubar-item > button {
     padding: 0 7px;
   }

@@ -130,6 +130,11 @@ What changed in each SketchCraft release, newest first. The format follows
   on in a straight line past their end are refused with a reason. The whole pull is one Undo step. Agents can use it
   as `wall_pull`. Italian wording for the new tool is welcome from Italian speakers.
 
+### Fixed
+- **The top bar fits a 1366-pixel laptop screen.** On wider system fonts (Linux) the menus ran under the workspace
+  switch at that width. The product name now steps aside below 1400 pixels, and a long file name is shortened with an
+  ellipsis before it can crowd the menus. Wider windows look as before.
+
 ## [0.3.8] - 2026-11-18
 
 ### Added
