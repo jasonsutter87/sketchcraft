@@ -590,6 +590,9 @@ impl Face {
     }
 }
 
+/// A vertex and where it is.
+type Placed = (Id, DVec3);
+
 /// Vertices by place and edges by their ends, for commands that add many of them: the answers are the ones `vertex_in`
 /// and `find_edge` give (the lowest id that fits), without going over the whole model each time. Ids only grow, so it
 /// takes in whatever was added since it last looked; nothing may be moved or removed while one is in use. One Lookup
@@ -598,7 +601,7 @@ impl Face {
 pub(crate) struct Lookup {
     vertices_to: Option<Id>,
     /// each cell's points in id order, with where they are
-    cells: HashMap<(Option<Id>, [i64; 3]), Vec<(Id, DVec3)>>,
+    cells: HashMap<(Option<Id>, [i64; 3]), Vec<Placed>>,
     edges_to: Option<Id>,
     ends: HashMap<(Id, Id), Id>,
     looks: u64,
