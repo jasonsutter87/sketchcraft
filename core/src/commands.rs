@@ -169,6 +169,7 @@ impl Command {
                 | Command::RoomPreview { .. }
                 | Command::Rooms
                 | Command::TextureUv { .. }
+                | Command::TextureFrame { .. }
         )
     }
 }
@@ -1020,7 +1021,7 @@ impl Engine {
                 Command::DeleteMaterial { .. } | Command::PurgeMaterials { .. } | Command::Skins { .. } |
                 Command::SaveSkin { .. } | Command::Material { .. }
             ) => self.run_paint(c),
-            c @ (Command::TextureProject { .. } | Command::TextureUv { .. }) => self.run_projection(c),
+            c @ (Command::TextureProject { .. } | Command::TextureUv { .. } | Command::TexturePosition { .. } | Command::TextureFrame { .. }) => self.run_projection(c),
             c @ (
                 Command::Photoreal { .. } | Command::Render { .. } | Command::Environment { .. } |
                 Command::Sun { .. } | Command::AddLocation { .. } | Command::Thumbnail { .. } |
