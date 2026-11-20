@@ -133,8 +133,12 @@ check((await p.locator('[role=dialog][aria-label="Subdivide"]').count()) === 0, 
 
 // ---- SubD box ---------------------------------------------------------------------------------
 await X({ cmd: 'new' });
+// the page doesn't redraw for commands sent straight to the bridge: reload, or the right-click below lands on the old box
+await p.reload();
+await p.waitForSelector('.viewport canvas');
+check(await until(async () => (await p.locator('.orow').count()) === 0), 'the page shows the empty model');
 await p.locator('body').click({ position: { x: 640, y: 400 } }).catch(() => {});
-await wait(1500);
+await wait(500);
 await p.mouse.click(400, 600, { button: 'right' });
 const sb = p.locator('.menu button', { hasText: 'SubD box' }).first();
 check(await sb.isVisible().catch(() => false), 'right-click on empty space offers SubD box');
@@ -158,10 +162,13 @@ check(await until(inSubd), 'Library › Smooth shapes › SubD box opens SubD mo
 await leave();
 // a component: Subdivide explodes it to a group first
 await box('Part');
-await p.locator('.orow', { hasText: 'Part' }).first().click();
 const gp = (await scene()).groups.find((g) => g.name === 'Part');
 await X({ cmd: 'make_component', ids: [gp.id], name: 'Part' });
 check(await until(async () => (await scene()).instances.length === 1), 'a component exists');
+// the page doesn't redraw for commands sent straight to the bridge: reload, so it shows the component and not the old group
+await p.reload();
+await p.waitForSelector('.viewport canvas');
+await p.locator('.views button', { hasText: 'fit' }).first().click();
 await until(async () => (await p.locator('.orow', { hasText: 'Part' }).count()) > 0);
 await p.locator('.orow', { hasText: 'Part' }).first().click();
 const [px, py] = await screen([1, 1, 1]);
