@@ -590,6 +590,61 @@ impl Face {
     }
 }
 
+/// Vertices by place and edges by their ends, for commands that add many of them: the answers are the ones `vertex_in`
+/// and `find_edge` give (the lowest id that fits), without going over the whole model each time. Ids only grow, so it
+/// takes in whatever was added since it last looked; nothing may be moved or removed while one is in use.
+#[derive(Default)]
+pub(crate) struct Lookup {
+    vertices_to: Option<Id>,
+    cells: HashMap<(Option<Id>, [i64; 3]), Vec<Id>>,
+    edges_to: Option<Id>,
+    ends: HashMap<(Id, Id), Id>,
+}
+
+impl Lookup {
+    /// Cells a few times the weld distance across, so two points within it are at most one cell apart on each axis.
+    const CELL: f64 = 4.0 * WELD;
+
+    fn cell(p: DVec3) -> [i64; 3] {
+        (p / Self::CELL).floor().to_array().map(|x| x as i64)
+    }
+
+    fn after(last: Option<Id>) -> (std::ops::Bound<Id>, std::ops::Bound<Id>) {
+        use std::ops::Bound::*;
+        (last.map_or(Unbounded, Excluded), Unbounded)
+    }
+
+    fn vertex(&mut self, m: &Model, p: DVec3, group: Option<Id>) -> Option<Id> {
+        for (&id, v) in m.vertices.range(Self::after(self.vertices_to)) {
+            self.cells.entry((v.group, Self::cell(v.p))).or_default().push(id);
+            self.vertices_to = Some(id);
+        }
+        let c = Self::cell(p);
+        let mut best: Option<Id> = None;
+        for dx in -1..=1i64 {
+            for dy in -1..=1i64 {
+                for dz in -1..=1i64 {
+                    let k = [c[0].saturating_add(dx), c[1].saturating_add(dy), c[2].saturating_add(dz)];
+                    for &id in self.cells.get(&(group, k)).into_iter().flatten() {
+                        if best.is_none_or(|b| id < b) && m.vertices.get(&id).is_some_and(|v| v.group == group && v.p.distance(p) < WELD) {
+                            best = Some(id);
+                        }
+                    }
+                }
+            }
+        }
+        best
+    }
+
+    fn edge(&mut self, m: &Model, a: Id, b: Id) -> Option<Id> {
+        for (&id, e) in m.edges.range(Self::after(self.edges_to)) {
+            self.ends.entry((e.a.min(e.b), e.a.max(e.b))).or_insert(id);
+            self.edges_to = Some(id);
+        }
+        self.ends.get(&(a.min(b), a.max(b))).copied().filter(|id| m.edges.get(id).is_some_and(|e| (e.a == a && e.b == b) || (e.a == b && e.b == a)))
+    }
+}
+
 /// What a component's own model may refer to besides its own tables: the root model's component definitions and materials.
 struct Root {
     defs: BTreeSet<Id>,
@@ -621,6 +676,32 @@ impl Model {
         }
         let id = self.new_id();
         self.vertices.insert(id, Vertex { p, group });
+        id
+    }
+
+    /// `vertex_in` through `look`: the same vertex, found without going over every vertex.
+    pub(crate) fn vertex_with(&mut self, p: DVec3, group: Option<Id>, look: &mut Lookup) -> Id {
+        if let Some(id) = look.vertex(self, p, group) {
+            return id;
+        }
+        let id = self.new_id();
+        self.vertices.insert(id, Vertex { p, group });
+        id
+    }
+
+    /// `find_edge` through `look`.
+    pub(crate) fn find_edge_with(&self, a: Id, b: Id, look: &mut Lookup) -> Option<Id> {
+        look.edge(self, a, b)
+    }
+
+    /// `edge` through `look`: the same edge, found without going over every edge.
+    pub(crate) fn edge_with(&mut self, a: Id, b: Id, look: &mut Lookup) -> Id {
+        if let Some(id) = look.edge(self, a, b) {
+            return id;
+        }
+        let id = self.new_id();
+        let group = self.vertices[&a].group;
+        self.edges.insert(id, Edge { a, b, group, ..Default::default() });
         id
     }
 
@@ -830,6 +911,18 @@ impl Model {
         for l in face.loops().cloned().collect::<Vec<_>>() {
             for (a, b) in pairs(&l) {
                 self.edge(a, b);
+            }
+        }
+        let id = self.new_id();
+        self.faces.insert(id, face);
+        id
+    }
+
+    /// `insert_face` through `look`.
+    pub(crate) fn insert_face_with(&mut self, face: Face, look: &mut Lookup) -> Id {
+        for l in face.loops() {
+            for (a, b) in pairs(l) {
+                self.edge_with(a, b, look);
             }
         }
         let id = self.new_id();
@@ -2336,5 +2429,62 @@ impl Model {
         let photos: usize = self.views.iter().map(|v| 160 + v.photo.as_ref().map_or(0, String::len)).sum();
         let clouds: usize = self.clouds.values().map(|c| 64 + 4 * c.points.len() + c.colors.len()).sum();
         self.text_bytes() + clouds + self.vertices.len() * 64 + self.edges.len() * 72 + faces + self.groups.len() * 96 + self.instances.len() * 200 + self.definitions.len() * 128 + tex + photos + self.annotations.len() * 120 + self.guides.len() * 80 + self.sheets.len() * 160 + self.sheet_items.len() * 160
+    }
+}
+
+#[cfg(test)]
+mod lookup_tests {
+    use super::*;
+
+    /// A small deterministic stream of numbers in 0..1.
+    fn stream(seed: u64) -> impl FnMut() -> f64 {
+        let mut s = seed;
+        move || {
+            s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            (s >> 11) as f64 / (1u64 << 53) as f64
+        }
+    }
+
+    #[test]
+    fn the_lookup_finds_the_vertex_and_edge_a_full_scan_finds() {
+        let mut m = Model::default();
+        let mut r = stream(7);
+        // points packed closer than the weld distance, in two groups and at large and small coordinates
+        let place = |r: &mut dyn FnMut() -> f64, k: usize| {
+            let base = [DVec3::ZERO, DVec3::splat(-3.0), DVec3::new(1e7, -2e6, 0.5)][k % 3];
+            base + DVec3::new(r(), r(), r()) * 6e-6
+        };
+        let mut look = Lookup::default();
+        for round in 0..4 {
+            for k in 0..300 {
+                let id = m.new_id();
+                let p = place(&mut r, k);
+                m.vertices.insert(id, Vertex { p, group: (k % 5 == 0).then_some(9) });
+            }
+            let ids: Vec<Id> = m.vertices.keys().copied().collect();
+            for k in 0..200 {
+                let (a, b) = (ids[(r() * ids.len() as f64) as usize], ids[(r() * ids.len() as f64) as usize]);
+                let id = m.new_id();
+                m.edges.insert(id, Edge { a, b, group: None, ..Default::default() });
+                if k % 3 == 0 {
+                    // the same ends again, and reversed
+                    let id = m.new_id();
+                    m.edges.insert(id, Edge { a: b, b: a, group: None, ..Default::default() });
+                }
+            }
+            for k in 0..2000 {
+                let p = place(&mut r, k);
+                let group = (k % 4 == 0).then_some(9);
+                let scan = m.vertices.iter().find(|(_, v)| v.group == group && v.p.distance(p) < WELD).map(|(&id, _)| id);
+                assert_eq!(look.vertex(&m, p, group), scan, "round {round} point {k}");
+                let (a, b) = (ids[(r() * ids.len() as f64) as usize], ids[(r() * ids.len() as f64) as usize]);
+                assert_eq!(look.edge(&m, a, b), m.find_edge(a, b));
+            }
+            // edges from the stream's earlier picks are found too
+            let some: Vec<(Id, Id)> = m.edges.values().map(|e| (e.a, e.b)).collect();
+            for (a, b) in some {
+                assert_eq!(look.edge(&m, b, a), m.find_edge(b, a));
+            }
+        }
     }
 }
