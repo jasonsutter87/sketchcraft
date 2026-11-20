@@ -111,7 +111,7 @@ fn every_test_set_model_unwraps_to_islands_that_fit_the_sheet() {
             check_layout(&i, margin, &format!("{key} {method}"));
             // area distortion within a bound (1 = even density)
             let stretch = r["stretch"].as_f64().unwrap();
-            assert!(stretch >= 1.0 && stretch < 4.0, "{key} {method}: stretch {stretch}");
+            assert!((1.0..4.0).contains(&stretch), "{key} {method}: stretch {stretch}");
             // one density for every island: each island's picture area over its model area is the same, within the
             // stretch the flattening allows
             let d = density(&e, &i);
@@ -392,6 +392,24 @@ fn pinned_corners_stay_where_they_are_put_and_the_rest_packs_around_them() {
     assert!(apart, "{b:?}");
     let sb = b[q];
     assert!(sb[0] >= 0.0 && sb[1] >= 0.0 && sb[2] <= 1.0 && sb[3] <= 1.0);
+}
+
+#[test]
+fn pinning_every_corner_of_one_island_keeps_it_while_the_others_repack() {
+    let mut e = with("crate");
+    let faces = all_faces(&e);
+    run(&mut e, json!({"cmd":"uv_seam","faces":faces,"auto":60}));
+    run(&mut e, json!({"cmd":"uv_unwrap","faces":faces,"seams":"marked"}));
+    let before = info(&mut e, &faces, 1);
+    let face = *before.faces.keys().nth(1).unwrap();
+    let pins: Vec<Value> = before.faces[&face].1.iter().enumerate().map(|(k, p)| json!([face, k, p[0], p[1]])).collect();
+    let r = run(&mut e, json!({"cmd":"uv_unwrap","faces":faces,"seams":"marked","pins":pins}));
+    assert_eq!((r["pinned"].as_u64(), r["ignored_pins"].as_u64()), (Some(4), Some(0)), "{r}");
+    let after = info(&mut e, &faces, 1);
+    for (a, b) in before.faces[&face].1.iter().zip(&after.faces[&face].1) {
+        assert!((a[0] - b[0]).abs() < 1e-5 && (a[1] - b[1]).abs() < 1e-5, "{a:?} vs {b:?}");
+    }
+    check_layout(&after, 0.01, "pinned crate");
 }
 
 #[test]

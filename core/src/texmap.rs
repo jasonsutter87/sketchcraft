@@ -114,6 +114,9 @@ impl FaceMap {
 /// exporters read it: it never changes how the model is drawn.
 pub struct Lightmap(Option<HashMap<[u64; 3], [f32; 2]>>);
 
+/// A face's corner coordinates as `WFace` holds them: the outer loop's, then each hole's.
+type CornerUv = (Vec<[f32; 2]>, Vec<Vec<[f32; 2]>>);
+
 impl Lightmap {
     pub fn of(f: &WFace) -> Lightmap {
         Lightmap::from(f, f.uv2.as_ref())
@@ -125,7 +128,7 @@ impl Lightmap {
         Lightmap::from(f, f.uv.as_ref())
     }
 
-    fn from(f: &WFace, uv: Option<&(Vec<[f32; 2]>, Vec<Vec<[f32; 2]>>)>) -> Lightmap {
+    fn from(f: &WFace, uv: Option<&CornerUv>) -> Lightmap {
         let key = |p: &DVec3| [p.x.to_bits(), p.y.to_bits(), p.z.to_bits()];
         Lightmap(uv.map(|(o, h)| {
             let mut m = HashMap::new();
