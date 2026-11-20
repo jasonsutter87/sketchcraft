@@ -58,6 +58,7 @@ complaint about LayOut is that it's slow and loses your dimensions. So:
 6. **Projection mapping**: planar, box, cylinder, sphere
 7. **Textures in SketchUp 2017–2020 imports**
 8. **Vertex painting** (done: Vertex Paint tool, vertex colours in the viewport, renders, glTF / GLB and FBX)
+9. [x] **Texture painting**: paint straight onto a model's texture image, in the 3D view and in the UV editor (built: paint textures, a brush that reaches across UV seams, live preview, one Undo per stroke, Export texture)
 
 ## 0.3.10: Makers
 

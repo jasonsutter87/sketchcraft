@@ -308,3 +308,21 @@ fn bad_calls_are_refused_and_change_nothing() {
     assert_eq!(r["pixels"].as_array().unwrap().len(), 2);
     assert!(fails(&mut e, json!({"cmd":"texture_pixels","material":mat,"x":0,"y":0,"w":128,"h":128})).contains("4096"));
 }
+
+#[test]
+fn a_stroke_on_faces_of_the_crate_reaches_their_texels() {
+    let mut e = with("crate");
+    let mat = new_paint(&mut e, 512);
+    let faces = all_faces(&e);
+    let mut missed = vec![];
+    for f in faces.iter().step_by(7) {
+        let (p, px) = middle(&e, *f, 512);
+        let before = canvas(&e, &mat).get(px.0, px.1);
+        let r = run(&mut e, json!({"cmd":"texture_paint_stroke","material":mat,"points":[p],"radius":0.02,"color":[1.0,0.0,0.0],"hardness":1.0,"opacity":1.0}));
+        let after = canvas(&e, &mat).get(px.0, px.1);
+        if r["texels"].as_u64().unwrap() == 0 || after != [255, 0, 0, 255] {
+            missed.push((*f, r["texels"].clone(), before, after));
+        }
+    }
+    assert!(missed.is_empty(), "{missed:?}");
+}

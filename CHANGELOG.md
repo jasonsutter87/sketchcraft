@@ -7,6 +7,16 @@ What changed in each SketchCraft release, newest first. The format follows
 ## [Unreleased]
 
 ### Added
+- **Texture painting.** **Tools > Texture Paint** paints straight onto a model's texture picture. Select faces (or a group),
+  make a **New paint texture** (512, 1024 or 2048 pixels, starting from a flat colour or from what the faces look like now;
+  if they have no UVs, or UVs that overlap, one click unwraps them first) and drag over the model: the brush reaches every
+  part of the picture it touches in 3D, even across the cuts between UV islands, and the picture updates as you drag.
+  Size, hardness and opacity are in the panel; **[** and **]** change the size, **Alt** erases back to the base colour,
+  **Cmd / Ctrl-click** picks up the colour under the cursor, **Fill** floods the selection. The UV editor has a **Paint**
+  mode that paints the flat picture the same way. A stroke is one Undo step. The picture is saved inside the model like any
+  texture (older versions open it fine), goes into glTF / GLB and is written beside OBJ, FBX and Collada files;
+  **File > Export texture…** saves it as a PNG. Agents use `texture_paint_new`, `texture_paint_stroke`,
+  `texture_paint_status` and `texture_pixels`.
 - **UV editor: unwrap, pack and edit a model's UVs.** **Tools > UV editor** (or **Window > UV editor**) opens a floating
   2D view of the selected faces with the material's picture under their UVs. Mark seams on edges (**Mark seam** on edges
   you chose in the 3D view or here, or **Auto seams** for every hard edge), press **Unwrap** and the model is cut along

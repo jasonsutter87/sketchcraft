@@ -52,6 +52,33 @@ Colour lives on corners, so a big flat face with only four corners can only be t
 renders, and go into glTF / GLB (as vertex colours) and FBX (as a colour layer). Agents reach the same thing with
 `vertex_paint`, `vertex_paint_clear` and `vertex_colors`.
 
+## Painting on a texture
+
+**Tools > Texture Paint** paints on the model's *picture* (its texture image), the way Substance or Blender's Texture Paint do,
+so the paint stays with the model when you export it. It works on an unwrapped model (see the UV editor): every face needs a
+place on the picture, and no two faces may share one.
+
+1. Select the faces, group or component you want to paint, then open **Tools > Texture Paint**.
+2. In the panel's **New paint texture** block pick a size (1024 is a good start) and what to start from: the colour chip, or
+   what the faces look like now (their picture or colour is baked into the new one). Press **Create and paint it on**. If the
+   faces have no UVs, or UVs that overlap, the panel says so and the button becomes **Unwrap and create**.
+3. Pick a colour with the paint colour chip and drag over the model. Letting go finishes the stroke, and one Undo takes the
+   whole stroke back.
+
+| Do | What happens |
+| --- | --- |
+| drag | paint a stroke; the brush reaches every part of the picture it touches in 3D, even across the cuts between UV islands |
+| **[** / **]** | a smaller / bigger brush (or use the panel's Size) |
+| **Alt** + drag | paint back to the base colour |
+| **Cmd / Ctrl** + click | pick up the colour of the picture under the cursor |
+| the panel's **Hardness** and **Opacity** | a hard or soft edge, and how strongly one pass covers |
+| **Fill** | flood the selected faces' part of the picture with the colour |
+| **UV editor** > **Paint** (key 4) | paint on the flat picture instead, with the same brush |
+| **Export…** or **File > Export texture…** | save the picture as a PNG |
+
+The picture is saved inside the model and goes into glTF / GLB; OBJ, FBX and Collada write it beside the file. Agents use
+`texture_paint_new`, `texture_paint_stroke`, `texture_paint_status` and `texture_pixels`.
+
 ## Scenes
 
 In the **Views** tab, name the view and click **Save**: it remembers the camera,

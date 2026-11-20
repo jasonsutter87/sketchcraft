@@ -422,6 +422,10 @@ fn face_tris(loops: &[Vec<DVec3>], pic: &[Vec<[f64; 2]>], tile: (f64, f64), ok: 
         .collect()
 }
 
+/// What one face looked like before an unwrap: its id, its old texture coordinates by corner point (if it had a picture),
+/// its material colour and the picture material.
+type OldLook = (Id, Option<HashMap<[u64; 3], [f64; 2]>>, [f32; 3], Option<String>);
+
 /// Are these faces' own texture coordinates fit for painting? Counts faces with none, and says whether the islands overlap
 /// or leave the 0..1 square.
 #[derive(Clone, Debug, Default, PartialEq, serde::Serialize)]
@@ -492,7 +496,7 @@ impl Model {
         let (w, h) = (canvas.w, canvas.h);
         let wt = match path {
             Path::Uv(points, r) => {
-                if points.is_empty() || !(*r > 0.0) || points.iter().any(|p| !p[0].is_finite() || !p[1].is_finite()) {
+                if points.is_empty() || *r <= 0.0 || r.is_nan() || points.iter().any(|p| !p[0].is_finite() || !p[1].is_finite()) {
                     bail!("a stroke needs uv_points and a radius above 0 (in tiles)");
                 }
                 weights_2d(w, h, points, *r, brush.hardness)
@@ -522,7 +526,7 @@ impl Model {
                         wt
                     }
                     Some(p) => {
-                        if p.iter().any(|q| !q.is_finite()) || !(*r > 0.0) {
+                        if p.iter().any(|q| !q.is_finite()) || *r <= 0.0 || r.is_nan() {
                             bail!("a stroke needs points and a radius above 0 (metres)");
                         }
                         weights_3d(&tris, w, h, p, *r, brush.hardness)
@@ -555,7 +559,7 @@ impl Model {
         // what the faces look like now (before an unwrap moves their coordinates), per corner
         let frames = self.texture_frames();
         let images = crate::texmap::Images::load(self);
-        let mut old: Vec<(Id, Option<HashMap<[u64; 3], [f64; 2]>>, [f32; 3], Option<String>)> = Vec::new();
+        let mut old: Vec<OldLook> = Vec::new();
         if matches!(base, Base::Material) {
             for id in &faces {
                 let f = &self.faces[id];

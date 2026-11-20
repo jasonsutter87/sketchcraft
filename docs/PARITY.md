@@ -27,6 +27,7 @@ Checked items are in `main`.
 
 - [x] **Paint Bucket modifiers** (Ctrl/Option connected, Shift replace all, Ctrl+Shift whole object, sample) and **paint-through**: a texture runs on across connected faces
 - [x] **Vertex painting**: a brush that tints the corners of faces (size, strength, soft or hard edge, Alt erases), shown in the viewport and renders and exported as glTF `COLOR_0` and FBX colours
+- [x] **Texture painting**: a brush that paints a model's texture picture directly, in the 3D view (across UV seams) and on the flat picture in the UV editor, with size, hardness, opacity, erase, colour pick, fill, a one-click unwrap when the faces have no usable UVs, and File > Export texture; the picture is saved in the model and exported like any texture
 - [x] Materials and image textures (tile size, projected; **projection mapping**: planar, box, cylinder and sphere onto a selection, kept as the faces' own texture coordinates; **Position Texture**: pins to move, scale, turn and skew the picture on a face, with flips and 90-degree turns; **UV editor**: seams, LSCM unwrap into packed islands, a 2D view to select, move, turn, scale, pin and repack them, and a second **lightmap UV set** exported to glTF and FBX); **physically based finishes** (Matte, Satin, Gloss, Metal, Brushed metal, Glass, Glow) in renders, glTF and a physically based view style
 - [x] **Styles**: shaded / textured / monochrome / hidden line / wireframe, profiles,
       sketchy edges, extensions, ambient occlusion, paper / blueprint / night; presets
