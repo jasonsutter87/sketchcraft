@@ -200,6 +200,13 @@ export const Icons = {
       <circle cx="4" cy="18" r="1.6" fill="currentColor" />
     </Svg>
   ),
+  tpaint: () => (
+    <Svg>
+      <rect x="4" y="4" width="16" height="16" rx="2" />
+      <path d="M4 12h16M12 4v16" />
+      <path d="M14 14.5 18 10.5l1.5 1.5-4 4-2.2.6z" />
+    </Svg>
+  ),
   erase: () => (
     <Svg>
       <path d="M8 19h11" />

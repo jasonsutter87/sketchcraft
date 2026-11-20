@@ -52,6 +52,8 @@ import { Text3dDialog } from "./text3d";
 import { ProjectionPanel } from "./projectionpanel";
 import { VertexPaintPanel } from "./vertexpaintpanel";
 import { DEFAULT_VPAINT, effectiveRadius, sceneDiagonal, type VPaintSettings } from "./vertexpaint";
+import { DEFAULT_TPAINT, paintMaterialOf, type TPaintSettings } from "./texturepaint";
+import { exportTexture, TexturePaintPanel } from "./texturepaintpanel";
 import { PositionPanel } from "./positionpanel";
 import { UvPanel } from "./uvpanel";
 import { RestoreDialog } from "./restore";
@@ -197,6 +199,7 @@ function ModelingApp() {
   // the UV editor
   const [showUv, setShowUv] = useState(false);
   const [vpaint, setVPaint] = useState<VPaintSettings>(DEFAULT_VPAINT);
+  const [tpaint, setTPaint] = useState<TPaintSettings>(DEFAULT_TPAINT);
   // Position texture: the face being positioned
   const [positionFace, setPositionFace] = useState<number | null>(null);
   const [showRestore, setShowRestore] = useState(false);
@@ -324,6 +327,16 @@ function ModelingApp() {
     setShowProjection(true);
   };
   const askUv = () => setShowUv(true);
+  // Texture paint: the tool's panel holds "New paint texture" (it needs the selection), so the menu opens the tool
+  const askNewPaintTexture = () => {
+    if (sel.faces.length + sel.groups.length + sel.instances.length === 0) return say(tr("tp.none"), true);
+    chooseTool("tpaint");
+  };
+  const askExportTexture = () => {
+    const name = scene ? paintMaterialOf(scene, sel) ?? scene.materials.find((m) => m.texture && m.name.startsWith("Paint "))?.name ?? null : null;
+    if (!scene || !name) return say(tr("tp.nomat"), true);
+    void exportTexture(scene, name, run, say, tr("tp.exported"));
+  };
   const askPosition = () => {
     const f = sel.faces.length === 1 && !sel.groups.length && !sel.instances.length ? scene?.faces.find((x) => x.id === sel.faces[0]) : null;
     if (!f) return say(tr("pos.select"), true);
@@ -599,6 +612,8 @@ function ModelingApp() {
         },
       },
       { id: "tools.positiontexture", label: "Position texture…", hint: "Tools · move, rotate, scale and skew the picture on the selected face (also right-click a textured face: Texture › Position)", run: askPosition },
+      { id: "tools.newpainttexture", label: "New paint texture…", hint: "Tools · make a paint texture for the selected faces (unwraps them if needed), then paint on it with Texture Paint", run: askNewPaintTexture },
+      { id: "file.exporttexture", label: "Export texture…", hint: "File · save the selected faces' picture (or the first paint texture) as a PNG", run: askExportTexture },
       { id: "tools.uveditor", label: "UV editor", hint: "Tools · a 2D view of the selected faces' UVs: mark seams, unwrap, pack, move islands, make the lightmap UVs", run: askUv },
       { id: "tools.projecttexture", label: "Project texture…", hint: "Tools · lay a picture on the selection: planar, box, cylinder or sphere", run: askProjection },
       { label: "Subdivide…", hint: `Tools · smooth the selected group or component into a SubD shape. ${SUBD_HOW}`, run: askSubdivide },
@@ -649,6 +664,7 @@ function ModelingApp() {
       export: (k) => file.export(k as Parameters<typeof file.export>[0]),
       section: (k) => file.section(k),
       png: file.render,
+      exportTexture: askExportTexture,
       tour: file.animation,
       blueprint: file.blueprint,
       report: file.report,
@@ -717,6 +733,7 @@ function ModelingApp() {
       projection: askProjection,
       positionTexture: askPosition,
       uvEditor: askUv,
+      newPaintTexture: askNewPaintTexture,
       plugins: () => (reloadPlugins(), setShowPlugins(true)),
       themes: () => setShowSkins(true),
       keys: () => setShowKeys(true),
@@ -1053,6 +1070,8 @@ function ModelingApp() {
           build={build}
           vpaint={vpaint}
           setVPaint={setVPaint}
+          tpaint={tpaint}
+          setTPaint={setTPaint}
           run={run}
           onMeasure={(label, value) => setMeasure({ label, value })}
           onContext={(x, y) => setMenu({ x, y })}
@@ -1201,8 +1220,9 @@ function ModelingApp() {
         {lesson && learnCtx && <LessonCard key={lesson} id={lesson} ctx={learnCtx} onClose={() => setLesson(null)} onToast={say} />}
         {showRestore && <RestoreDialog run={run} onClose={() => setShowRestore(false)} onToast={say} />}
         {tool === "vpaint" && scene && !inLayout && <VertexPaintPanel settings={vpaint} set={setVPaint} radius={effectiveRadius(vpaint, sceneDiagonal(scene))} sel={sel} color={color} run={run} onToast={say} />}
+        {tool === "tpaint" && scene && !inLayout && <TexturePaintPanel scene={scene} settings={tpaint} set={setTPaint} radius={effectiveRadius({ radius: tpaint.radius, strength: 1, falloff: "smooth" }, sceneDiagonal(scene))} sel={sel} color={color} run={run} onToast={say} openUv={askUv} />}
         {positionFace != null && scene && api.current && <PositionPanel scene={scene} face={positionFace} run={run} api={api.current} onClose={() => setPositionFace(null)} onToast={say} />}
-        {showUv && scene && <UvPanel scene={scene} sel={sel} setSel={setSel} run={run} checker={!!styles.checker} setChecker={(on) => setStyles((s) => ({ ...s, checker: on }))} onClose={() => setShowUv(false)} onToast={say} />}
+        {showUv && scene && <UvPanel scene={scene} sel={sel} setSel={setSel} run={run} color={color} setColor={setColor} tpaint={tpaint} setTPaint={setTPaint} checker={!!styles.checker} setChecker={(on) => setStyles((s) => ({ ...s, checker: on }))} onClose={() => setShowUv(false)} onToast={say} />}
         {showProjection && scene && <ProjectionPanel scene={scene} sel={sel} run={run} camera={() => api.current!.camera()} onClose={() => setShowProjection(false)} onToast={say} />}
         {showText3d && scene && <Text3dDialog scene={scene} run={run} camera={() => api.current!.camera()} onClose={() => setShowText3d(false)} onToast={say} />}
         {showRef && scene && <RefImageDialog scene={scene} run={run} onClose={() => setShowRef(false)} onToast={say} />}

@@ -45,6 +45,7 @@ export interface MenuCtx {
     export: (format: string) => void;
     section: (format: "svg" | "dxf") => void;
     png: () => void;
+    exportTexture: () => void;
     tour: () => void;
     blueprint: () => void;
     report: () => void;
@@ -85,7 +86,7 @@ export interface MenuCtx {
   setLayout: (l: Layout) => void;
   setLanguage: (l: string) => void;
   // dialogs and links
-  open: Record<"restore" | "render" | "sheets" | "layout" | "timeline" | "location" | "text3d" | "projection" | "positionTexture" | "uvEditor" | "plugins" | "themes" | "keys" | "keyEditor" | "palette" | "learn" | "about" | "customize", () => void>;
+  open: Record<"restore" | "render" | "sheets" | "layout" | "timeline" | "location" | "text3d" | "projection" | "positionTexture" | "uvEditor" | "newPaintTexture" | "plugins" | "themes" | "keys" | "keyEditor" | "palette" | "learn" | "about" | "customize", () => void>;
   checkForUpdates: () => void;
   openLink: (which: "issues") => void;
 }
@@ -176,7 +177,7 @@ export function buildMenuActions(c: MenuCtx): Record<string, MenuAction> {
   add("view.parallel", () => c.setStyles({ parallel: true }), model, !!s.parallel);
 
   // every tool a menu offers (Draw, Tools, Camera)
-  for (const id of ["orbit", "pan", "zoom", "zoomwindow", "position", "lookaround", "walk", "line", "freehand", "arc", "arccenter", "arc3", "pie", "rect", "rrect", "circle", "polygon", "wall", "room", "select", "move", "rotate", "scale", "push", "wallpull", "followme", "offset", "tape", "dimension", "text", "paint", "vpaint", "erase", "section"] as const) {
+  for (const id of ["orbit", "pan", "zoom", "zoomwindow", "position", "lookaround", "walk", "line", "freehand", "arc", "arccenter", "arc3", "pie", "rect", "rrect", "circle", "polygon", "wall", "room", "select", "move", "rotate", "scale", "push", "wallpull", "followme", "offset", "tape", "dimension", "text", "paint", "vpaint", "tpaint", "erase", "section"] as const) {
     add(`tool:${id}`, () => c.tool(id), model);
   }
 
@@ -186,6 +187,9 @@ export function buildMenuActions(c: MenuCtx): Record<string, MenuAction> {
   add("tools.positiontexture", c.open.positionTexture, model && has);
   // the UV editor (Tools and Window open the same panel)
   add("tools.uveditor", c.open.uvEditor, model);
+  // Texture paint: the tool's panel makes a paint texture for the selection; File > Export texture saves the picture
+  add("tools.newpainttexture", c.open.newPaintTexture, model && has);
+  add("file.exporttexture", c.file.exportTexture, model);
   add("win.uveditor", c.open.uvEditor, model);
 
   // Window

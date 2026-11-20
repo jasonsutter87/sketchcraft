@@ -21,9 +21,31 @@ export function profileMaterial(color: number, px: number, clip: THREE.Plane[]):
 
 // images for textured faces, loaded once per material and image
 const textureCache = new Map<string, THREE.Texture>();
+const painted = new Map<string, { tex: THREE.Texture; baseKey: string; at: number }>();
+const keyOf = (name: string, data: string) => `${name}:${data.length}:${data.slice(-32)}`;
+
+/**
+ * A Texture Paint stroke was sent: when the picture it made arrives (a different image for `name`), the canvas the stroke
+ * was drawn on is used for it, so the surface does not blink while the real image loads.
+ */
+export function adoptPainted(name: string, oldData: string, tex: THREE.Texture) {
+  painted.set(name, { tex, baseKey: keyOf(name, oldData), at: Date.now() });
+}
+
+/** The stroke changed nothing or failed: forget it. */
+export function forgetPainted(name: string) {
+  painted.delete(name);
+}
+
 export function textureFor(name: string, data: string): THREE.Texture {
-  const key = `${name}:${data.length}:${data.slice(-32)}`;
+  const key = keyOf(name, data);
   let t = textureCache.get(key);
+  const p = painted.get(name);
+  if (p && !t && key !== p.baseKey && Date.now() - p.at < 10000) {
+    painted.delete(name);
+    textureCache.set(key, p.tex);
+    return p.tex;
+  }
   if (!t) {
     t = new THREE.TextureLoader().load(data);
     t.wrapS = t.wrapT = THREE.RepeatWrapping;

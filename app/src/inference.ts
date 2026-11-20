@@ -88,6 +88,8 @@ export interface Pick {
   owner: number;
   point: THREE.Vector3;
   distance: number;
+  /** the scene triangle that was hit (not for the edit mesh) */
+  tri?: number;
 }
 
 export interface InferEnv {

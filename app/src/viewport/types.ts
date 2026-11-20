@@ -3,11 +3,12 @@ import type * as THREE from "three";
 import type { FaceInfo, Reply, Scene, Vec3 } from "../engine";
 import type { Sel, SelMode } from "../selection";
 import type { VPaintSettings } from "../vertexpaint";
+import type { PaintTri, Painter, TPaintSettings } from "../texturepaint";
 
 export type Tool =
   | "select" | "axes" | "line" | "freehand" | "arc" | "arccenter" | "arc3" | "pie" | "rect" | "rrect" | "circle" | "polygon"
   | "push" | "offset" | "followme" | "move" | "rotate" | "scale"
-  | "tape" | "dimension" | "text" | "paint" | "vpaint" | "erase" | "orbit" | "pan" | "zoom" | "section" | "place"
+  | "tape" | "dimension" | "text" | "paint" | "vpaint" | "tpaint" | "erase" | "orbit" | "pan" | "zoom" | "section" | "place"
   | "position" | "lookaround" | "walk" | "zoomwindow" | "protractor"
   | "wall" | "wallpull" | "room" | "stairs" | "roof" | "column"
   | "smoove" | "stamp" | "drape" | "flipedge"
@@ -135,6 +136,9 @@ export interface Props {
   /** Vertex Paint's brush: size, strength and falloff */
   vpaint?: VPaintSettings;
   setVPaint?: (v: VPaintSettings) => void;
+  /** Texture Paint's brush: size, hardness and opacity */
+  tpaint?: TPaintSettings;
+  setTPaint?: (v: TPaintSettings) => void;
   run: (cmd: Record<string, unknown>) => Promise<Reply>;
   onMeasure: (label: string, value: string) => void;
   onContext: (x: number, y: number) => void;
@@ -228,6 +232,8 @@ export type Op =
   | { t: "room"; a: THREE.Vector3; b: THREE.Vector3; preview: RoomPreview | null; asked: string; pending: boolean; alt: boolean }
   | { t: "wallpull"; face: number; plan: WallPlan; origin: THREE.Vector3; n: THREE.Vector3; d: number; dragged: boolean }
   /** Vertex Paint: the entities the brush went over, the stroke's points so far, and whether Alt (erase) was held */
+  /** Texture Paint: the material's picture being painted, the stroke's points so far, and the preview copy of the pixels */
+  | { t: "tpaint"; mat: string; pts: [number, number, number][]; radius: number; erase: boolean; run: TPaintRun }
   | { t: "vpaint"; targets: number[]; pts: [number, number, number][]; radius: number; erase: boolean }
   | { t: "move"; base: THREE.Vector3; ids: number[]; delta: THREE.Vector3; copy: boolean; vertex?: { far: THREE.Vector3[] } }
   | { t: "rotate"; center: THREE.Vector3; n: THREE.Vector3; ref: THREE.Vector3 | null; angle: number; ids: number[]; copy?: boolean }
@@ -256,3 +262,16 @@ export type Last =
   /** a Tape Measure reading (typing its real length then resizes the model) */
   | { t: "tape"; d: number }
   | null;
+
+/** What a Texture Paint stroke holds while it is dragged (the pixels are decoded a moment after the press). */
+export interface TPaintRun {
+  painter: Painter | null;
+  tris: PaintTri[];
+  canvas: HTMLCanvasElement | null;
+  tex: THREE.CanvasTexture | null;
+  /** the materials of the meshes that wear the preview, and what they wore before */
+  swapped: { m: THREE.MeshLambertMaterial; map: THREE.Texture | null }[];
+  /** settles once the picture is decoded and the preview is up (false: it could not be) */
+  ready: Promise<boolean>;
+  frame: number;
+}

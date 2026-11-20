@@ -30,13 +30,14 @@ import { combine, EMPTY, selIds, selMode, toggle, type Sel } from "./selection";
 import { formatLength, parseLengths } from "./units";
 import { autoTagColor, ACCENT, BACKGROUNDS } from "./viewport/colors";
 import { styledEdges, averagedNormals, smoothNormals } from "./viewport/edges";
-import { checkerTexture, profileMaterial, textureFor } from "./viewport/materials";
+import { adoptPainted, checkerTexture, forgetPainted, profileMaterial, textureFor } from "./viewport/materials";
+import { DEFAULT_TPAINT, decodePixels, Painter, sampleRgba, stroke3DCommand, trisOf, uvAt } from "./texturepaint";
 import { UP, r4, arr, circleThrough, bulgeThrough, basis, arcPoints, offsetOutline } from "./viewport/geometry";
 import { selectMarquee } from "./viewport/marquee";
 import { isMac, isTypingTarget } from "./keymap";
 import { paintCommand, paintReach } from "./paintmods";
 import { DEFAULT_VPAINT, effectiveRadius, extendStroke, ringPoints, sceneDiagonal, stepRadius, strokeCommand } from "./vertexpaint";
-import type { Tool, BuildSettings, FaceStyle, Backdrop, Styles, Cam, ViewportApi, PluginPoint, Props, Op, LabelSpec, Last, WallPlan, RoomPreview, RoomRow } from "./viewport/types";
+import type { Tool, BuildSettings, FaceStyle, Backdrop, Styles, Cam, ViewportApi, PluginPoint, Props, Op, LabelSpec, Last, WallPlan, RoomPreview, RoomRow, TPaintRun } from "./viewport/types";
 import { areaText, dragLabel, fillRects, gridStep, modeLabel, roomLabel, roomMode, roomModeKey, snapGrid, type Rect, type RoomMode } from "./viewport/rooms";
 export { autoTagColor };
 export type { Tool, BuildSettings, FaceStyle, Backdrop, Styles, Cam, ViewportApi, PluginPoint };
@@ -830,6 +831,7 @@ export default function Viewport(props: Props) {
           new THREE.MeshLambertMaterial({ map: textureFor(mat.name, mat.texture.data), vertexColors: !!vc, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 0, polygonOffsetUnits: 0, transparent: xray || (mat.opacity ?? 1) < 1, opacity: Math.min(xray ? 0.42 : 1, mat.opacity ?? 1), depthWrite: !xray && (mat.opacity ?? 1) >= 1, clippingPlanes: clip })
         );
         mesh.receiveShadow = live.current.styles.shadows;
+        mesh.userData.texName = mat.name;
         T.model.add(mesh);
       }
     }
@@ -1220,7 +1222,7 @@ export default function Viewport(props: Props) {
     const hit = hits[0];
     if (!hit || hit.faceIndex == null) return null;
     const owner = hit.object.userData.owner != null ? (hit.object.userData.owner as number) : hit.object === T.editMesh ? s.editTriFace[hit.faceIndex] : s.triFace[hit.faceIndex];
-    return { face: faceById(owner), owner, point: hit.point.clone(), distance: hit.distance };
+    return { face: faceById(owner), owner, point: hit.point.clone(), distance: hit.distance, tri: hit.object === T.pickMesh ? hit.faceIndex : undefined };
   }
 
   /** A corner of loose geometry (or of the open group) under the cursor, for
@@ -1539,6 +1541,8 @@ export default function Viewport(props: Props) {
   }
 
   function cancel() {
+    const was = st.current.op;
+    if (was?.t === "tpaint") void was.run.ready.then(() => tpRestore(was.run));
     st.current.op = null;
     st.current.lock = null;
     clearPreview();
@@ -2226,6 +2230,84 @@ export default function Viewport(props: Props) {
     if (cmd) await run(cmd);
   }
 
+  /** The brush radius for Texture Paint (metres on the model). */
+  function tpRadius(): number {
+    const L = live.current;
+    return effectiveRadius({ radius: (L.tpaint ?? DEFAULT_TPAINT).radius, strength: 1, falloff: "smooth" }, L.scene ? sceneDiagonal(L.scene) : 0);
+  }
+
+  /** The material a picked triangle wears, if it has a picture. */
+  function tpMaterial(h: Pick): { name: string; tri: number } | null {
+    const s = live.current.scene;
+    if (!s?.triTex) return null;
+    const tri = h.tri != null && h.tri < s.triTex.length ? h.tri : s.triFace.indexOf(h.owner);
+    if (tri < 0 || s.triTex[tri] < 0) return null;
+    return { name: s.textures[s.triTex[tri]], tri };
+  }
+
+  /** Put the preview picture on the meshes that wear the material, and remember what they wore. */
+  function tpShow(run: TPaintRun, name: string) {
+    const T = t.current;
+    if (!T || !run.tex) return;
+    T.model.traverse((o) => {
+      if (o.userData.texName !== name) return;
+      const m = (o as THREE.Mesh).material as THREE.MeshLambertMaterial;
+      run.swapped.push({ m, map: m.map });
+      m.map = run.tex;
+      m.needsUpdate = true;
+    });
+  }
+
+  /** Give the meshes their own pictures back (a cancelled stroke). */
+  function tpRestore(run: TPaintRun) {
+    cancelAnimationFrame(run.frame);
+    for (const s of run.swapped) {
+      s.m.map = s.map;
+      s.m.needsUpdate = true;
+    }
+    run.swapped = [];
+    run.tex?.dispose();
+  }
+
+  /** Draw what the stroke has added since the last frame (at most once a frame). */
+  function tpFlush(run: TPaintRun) {
+    if (run.frame) return;
+    run.frame = requestAnimationFrame(() => {
+      run.frame = 0;
+      const p = run.painter;
+      const d = p?.takeDirty();
+      if (!p || !d || !run.canvas || !run.tex) return;
+      run.canvas.getContext("2d")!.putImageData(new ImageData(p.cur, p.w, p.h), 0, 0, d[0], d[1], d[2], d[3]);
+      run.tex.needsUpdate = true;
+    });
+  }
+
+  /** Texture Paint: the stroke goes as one command, so it is one undo step. */
+  async function commitTPaint() {
+    const op = st.current.op;
+    if (op?.t !== "tpaint") return;
+    st.current.op = null;
+    clearPreview();
+    const L = live.current;
+    const ok = await op.run.ready;
+    const cmd = ok ? stroke3DCommand({ material: op.mat, points: op.pts, radius: op.radius, color: L.color, settings: L.tpaint ?? DEFAULT_TPAINT, erase: op.erase }) : null;
+    if (!cmd) return void tpRestore(op.run);
+    const m = L.scene?.materials.find((x) => x.name === op.mat);
+    cancelAnimationFrame(op.run.frame);
+    op.run.frame = 0;
+    if (op.run.painter && op.run.canvas && op.run.tex) {
+      const p = op.run.painter;
+      op.run.canvas.getContext("2d")!.putImageData(new ImageData(p.cur, p.w, p.h), 0, 0);
+      op.run.tex.needsUpdate = true;
+      if (m?.texture) adoptPainted(op.mat, m.texture.data, op.run.tex);
+    }
+    const r = await run(cmd);
+    if (!r.ok || r.texels === 0) {
+      forgetPainted(op.mat);
+      tpRestore(op.run);
+    }
+  }
+
   async function commitFree() {
     const op = st.current.op;
     if (op?.t !== "free") return;
@@ -2602,6 +2684,30 @@ export default function Viewport(props: Props) {
       if (y.length() > 1e-6) T.preview.add(polyline([op.o, op.o.clone().addScaledVector(y.normalize(), len)], AXIS_COLORS[1]));
       return;
     };
+    /** Texture Paint: as Vertex Paint's brush circle, and every new point of the stroke is painted on the preview picture. */
+    const moveTPaint = ({ e, op }: { e: PointerEvent; op: Op | null }) => {
+      if (st.current.hover != null || st.current.hoverEdge != null) {
+        st.current.hover = null;
+        st.current.hoverEdge = null;
+        drawOverlay();
+      }
+      const h = pick(e);
+      const stroke = op?.t === "tpaint" ? op : null;
+      const radius = stroke ? stroke.radius : tpRadius();
+      if (!h) return;
+      if (stroke) {
+        const added = extendStroke(stroke.pts, arr(h.point), radius);
+        const p = stroke.run.painter;
+        if (p) {
+          for (const q of added) p.dab3D(stroke.run.tris, q, radius);
+          tpFlush(stroke.run);
+        }
+      }
+      const erase = stroke ? stroke.erase : e.altKey;
+      const color = erase ? 0xe5484d : new THREE.Color(live.current.color[0], live.current.color[1], live.current.color[2]).getHex();
+      const toCam = t.current!.camera.position.clone().sub(h.point).normalize();
+      T0().preview.add(polyline(ringPoints(arr(h.point), arr(toCam), radius).map((p) => V(p)), color, true));
+    };
     /** Vertex Paint: the brush circle on the surface under the cursor; while dragging, the stroke grows by its points. */
     const moveVPaint = ({ e, op }: { e: PointerEvent; op: Op | null }) => {
       if (st.current.hover != null || st.current.hoverEdge != null) {
@@ -2872,6 +2978,7 @@ export default function Viewport(props: Props) {
       }
 
       if (L.tool === "vpaint") return moveVPaint({ e, op });
+      if (L.tool === "tpaint") return moveTPaint({ e, op });
 
       switch (op?.t) {
         case "box":
@@ -3327,6 +3434,57 @@ export default function Viewport(props: Props) {
       st.current.op = { t: "vpaint", targets: [entityOf(h).id], pts, radius, erase: e.altKey };
       el.setPointerCapture(e.pointerId);
     };
+    /** Texture Paint: press on a face that wears a picture; Cmd/Ctrl-click picks up the colour under the cursor. */
+    const downTPaint = async ({ e, L }: DownArgs) => {
+      const h = pick(e);
+      if (!h) return;
+      const hit = tpMaterial(h);
+      const m = hit ? L.scene.materials.find((x) => x.name === hit.name) : null;
+      if (!hit || !m?.texture) return L.onToast(translate(localeRef.current, "tp.noPicture"), true);
+      if (e.metaKey || e.ctrlKey) {
+        // eyedropper: the colour of the picture where the cursor is
+        const uv = uvAt(L.scene, hit.tri, arr(h.point));
+        if (!uv) return;
+        try {
+          const px = await decodePixels(m.texture.data);
+          L.setColor(sampleRgba(px.rgba, px.w, px.h, uv));
+        } catch {
+          L.onToast(translate(localeRef.current, "tp.noPicture"), true);
+        }
+        return;
+      }
+      const radius = tpRadius();
+      const pts: [number, number, number][] = [];
+      extendStroke(pts, arr(h.point), radius);
+      const run: TPaintRun = { painter: null, tris: [], canvas: null, tex: null, swapped: [], ready: Promise.resolve(false), frame: 0 };
+      const op: Extract<Op, { t: "tpaint" }> = { t: "tpaint", mat: hit.name, pts, radius, erase: e.altKey, run };
+      st.current.op = op;
+      el.setPointerCapture(e.pointerId);
+      const set = L.tpaint ?? DEFAULT_TPAINT;
+      const brush = { color: L.color, opacity: set.opacity, hardness: set.hardness, erase: e.altKey, base: m.color as [number, number, number] };
+      run.ready = decodePixels(m.texture.data).then(
+        (px) => {
+          if (st.current.op !== op && !op.pts.length) return false;
+          const painter = new Painter(px.rgba, px.w, px.h, brush);
+          run.painter = painter;
+          run.tris = trisOf(live.current.scene ?? L.scene, hit.name, px.w, px.h);
+          run.canvas = document.createElement("canvas");
+          run.canvas.width = px.w;
+          run.canvas.height = px.h;
+          run.canvas.getContext("2d")!.putImageData(new ImageData(painter.cur, px.w, px.h), 0, 0);
+          run.tex = new THREE.CanvasTexture(run.canvas);
+          run.tex.wrapS = run.tex.wrapT = THREE.RepeatWrapping;
+          run.tex.colorSpace = THREE.SRGBColorSpace;
+          run.tex.anisotropy = 8;
+          tpShow(run, hit.name);
+          // what was dragged while the picture was being read
+          for (const p of op.pts) painter.dab3D(run.tris, p, op.radius);
+          tpFlush(run);
+          return true;
+        },
+        () => false
+      );
+    };
     const downPaint = async ({ e, L }: DownArgs) => {
       const h = pick(e);
       if (!h) return;
@@ -3535,6 +3693,8 @@ export default function Viewport(props: Props) {
           return downPaint({ e, L: L as Live, E, op, sel });
         case "vpaint":
           return downVPaint({ e, L: L as Live, E, op, sel });
+        case "tpaint":
+          return downTPaint({ e, L: L as Live, E, op, sel });
         case "erase":
           return downErase({ e, L: L as Live, E, op, sel });
         case "section":
@@ -3606,6 +3766,10 @@ export default function Viewport(props: Props) {
       if (op?.t === "vpaint") {
         if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
         return void (await commitVPaint());
+      }
+      if (op?.t === "tpaint") {
+        if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
+        return void (await commitTPaint());
       }
       if (el.hasPointerCapture(e.pointerId) && op?.t !== "push" && op?.t !== "wallpull" && op?.t !== "box") el.releasePointerCapture(e.pointerId);
       if (press?.fresh && op && Math.hypot(e.clientX - press.x, e.clientY - press.y) > 6) {
@@ -3724,6 +3888,12 @@ export default function Viewport(props: Props) {
       if ((e.metaKey || e.ctrlKey) && (e.key === "[" || e.key === "]")) {
         e.preventDefault();
         stepView(e.key === "[" ? -1 : 1);
+        return;
+      }
+      if (live.current.tool === "tpaint" && !e.metaKey && !e.ctrlKey && (e.key === "[" || e.key === "]")) {
+        e.preventDefault();
+        const L = live.current;
+        L.setTPaint?.({ ...(L.tpaint ?? DEFAULT_TPAINT), radius: stepRadius(tpRadius(), e.key === "[" ? -1 : 1) });
         return;
       }
       if (live.current.tool === "vpaint" && !e.metaKey && !e.ctrlKey && (e.key === "[" || e.key === "]")) {

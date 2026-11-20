@@ -15,6 +15,7 @@ import {
   panBy, parseKey, pictureMaterial, pinList, pivotOf, selectedEdges, setCommand, toScreen, translation, transformed, wholeIslandsCommand, zoomAt,
   type Aff, type UvInfo, type V2, type View,
 } from "./uveditor";
+import { clampUvRadius, decodePixels, extendUvStroke, Painter, sampleRgba, type Pixels, stepUvRadius, stroke2DCommand, type TPaintSettings } from "./texturepaint";
 
 /** A thing drawn under the wireframe, in UV space (the picture, a checker, later a paint layer). */
 export interface UvLayer {
@@ -37,14 +38,14 @@ export function addUvLayer(l: UvLayer): () => void {
   };
 }
 
-type Mode = "vertex" | "edge" | "island";
+type Mode = "vertex" | "edge" | "island" | "paint";
 type Modal = { kind: "grab" | "rotate" | "scale"; from: V2; pivot: V2 };
-type Drag = { kind: "move" | "marquee" | "pan"; from: V2; px: V2; moved: boolean; view0: View; add: boolean };
+type Drag = { kind: "move" | "marquee" | "pan" | "paint"; from: V2; px: V2; moved: boolean; view0: View; add: boolean };
 
 const EMPTY_INFO: UvInfo = { faces: [], without: [], islands: 0, seams: [] };
 const tint = (i: number) => `hsl(${(i * 67) % 360} 70% 55%)`;
 
-export function UvPanel({ scene, sel, setSel, run, checker, setChecker, onClose, onToast }: { scene: Scene; sel: Sel; setSel: (s: Sel) => void; run: Run; checker: boolean; setChecker: (on: boolean) => void; onClose: () => void; onToast: (t: string, bad?: boolean) => void }) {
+export function UvPanel({ scene, sel, setSel, run, color, setColor, tpaint, setTPaint, checker, setChecker, onClose, onToast }: { scene: Scene; sel: Sel; setSel: (s: Sel) => void; run: Run; color: [number, number, number]; setColor: (c: [number, number, number]) => void; tpaint: TPaintSettings; setTPaint: (v: TPaintSettings) => void; checker: boolean; setChecker: (on: boolean) => void; onClose: () => void; onToast: (t: string, bad?: boolean) => void }) {
   const { t } = useLocale();
   const [targets, setTargets] = useState<number[]>(() => targetsOf(sel));
   const [set, setSet] = useState<1 | 2>(1);
@@ -68,6 +69,11 @@ export function UvPanel({ scene, sel, setSel, run, checker, setChecker, onClose,
   const drag = useRef<Drag | null>(null);
   const [marq, setMarq] = useState<[V2, V2] | null>(null);
   const fromPanel = useRef<string>("");
+  // painting on the picture: its pixels, the stroke being dragged, and the paint layer waiting for the new picture to arrive
+  const paintPx = useRef<{ data: string; rgba: Pixels; w: number; h: number } | null>(null);
+  const strokeRef = useRef<{ painter: Painter; canvas: HTMLCanvasElement; pts: [number, number][]; material: string; erase: boolean; remove: () => void } | null>(null);
+  const pendingLayer = useRef<(() => void) | null>(null);
+  const [ring, setRing] = useState<V2 | null>(null);
   const shown = preview ?? info;
   const ix = useMemo(() => indexOf(shown), [shown]);
   const textured = useMemo(() => new Set(scene.materials.filter((m) => m.texture).map((m) => m.name)), [scene.materials]);
@@ -142,10 +148,24 @@ export function UvPanel({ scene, sel, setSel, run, checker, setChecker, onClose,
     const i = new Image();
     i.onload = () => {
       img.current = i;
+      // the picture a stroke made has arrived: the layer that showed it meanwhile is not needed
+      pendingLayer.current?.();
+      pendingLayer.current = null;
       bump((n) => n + 1);
     };
     i.src = picture;
   }, [picture]);
+  // the pixels the brush paints on (read once the Paint mode is on)
+  useEffect(() => {
+    if (mode !== "paint" || !picture) return;
+    let live = true;
+    void decodePixels(picture).then((p) => {
+      if (live) paintPx.current = { data: picture, ...p };
+    }, () => undefined);
+    return () => {
+      live = false;
+    };
+  }, [mode, picture]);
   useEffect(() => {
     const c = canvas.current;
     if (!c) return;
@@ -268,6 +288,54 @@ export function UvPanel({ scene, sel, setSel, run, checker, setChecker, onClose,
     setSel(next);
   };
 
+  /** Paint mode: a press starts a stroke on the picture (Cmd/Ctrl-click picks up the colour). */
+  const paintDown = (e: React.PointerEvent, s: V2) => {
+    const px = paintPx.current;
+    const m = material ? scene.materials.find((x) => x.name === material) : null;
+    if (!m?.texture || !picture || !px || px.data !== picture) return onToast(t("uv.paint.nopicture"), true);
+    const uv = fromScreen(view, s);
+    if (e.metaKey || e.ctrlKey) return setColor(sampleRgba(px.rgba, px.w, px.h, uv));
+    const painter = new Painter(px.rgba, px.w, px.h, { color, opacity: tpaint.opacity, hardness: tpaint.hardness, erase: e.altKey, base: m.color as [number, number, number] });
+    const canvas = document.createElement("canvas");
+    canvas.width = px.w;
+    canvas.height = px.h;
+    canvas.getContext("2d")!.putImageData(new ImageData(painter.cur, px.w, px.h), 0, 0);
+    const layer: UvLayer = {
+      id: "paint",
+      draw: (g, v) => {
+        const [x0] = toScreen(v, [0, 0]);
+        const [x1, y0] = toScreen(v, [1, 1]);
+        g.drawImage(canvas, x0, y0, x1 - x0, x1 - x0);
+      },
+    };
+    const remove = addUvLayer(layer);
+    const st = { painter, canvas, pts: [] as [number, number][], material: material!, erase: e.altKey, remove };
+    strokeRef.current = st;
+    for (const p of extendUvStroke(st.pts, uv, tpaint.uvRadius)) painter.dab2D(p, tpaint.uvRadius);
+    flushPaint(st);
+    drag.current = { kind: "paint", from: s, px: s, moved: false, view0: view, add: false };
+  };
+  const flushPaint = (st: NonNullable<typeof strokeRef.current>) => {
+    const d = st.painter.takeDirty();
+    if (!d) return;
+    st.canvas.getContext("2d")!.putImageData(new ImageData(st.painter.cur, st.painter.w, st.painter.h), 0, 0, d[0], d[1], d[2], d[3]);
+    redrawUvLayers();
+  };
+  const finishPaint = async () => {
+    const st = strokeRef.current;
+    strokeRef.current = null;
+    if (!st) return;
+    const cmd = stroke2DCommand({ material: st.material, points: st.pts, radius: tpaint.uvRadius, color, settings: tpaint, erase: st.erase });
+    if (!cmd) return st.remove();
+    // the layer keeps showing the stroke until the new picture arrives (or a moment has passed)
+    pendingLayer.current = st.remove;
+    const ok = await go(cmd);
+    if (!ok) {
+      pendingLayer.current = null;
+      st.remove();
+    } else setTimeout(() => (pendingLayer.current === st.remove ? (pendingLayer.current = null, st.remove()) : undefined), 2000);
+  };
+
   const down = (e: React.PointerEvent) => {
     if (modal) {
       void finishModal(true);
@@ -276,10 +344,11 @@ export function UvPanel({ scene, sel, setSel, run, checker, setChecker, onClose,
     stage.current?.focus();
     const s = local(e);
     (e.currentTarget as Element).setPointerCapture(e.pointerId);
-    if (e.button === 1 || e.button === 2 || e.altKey) {
+    if (e.button === 1 || e.button === 2 || (e.altKey && mode !== "paint")) {
       drag.current = { kind: "pan", from: s, px: s, moved: false, view0: view, add: false };
       return;
     }
+    if (mode === "paint") return paintDown(e, s);
     const add = e.shiftKey;
     let hit: string[] | null = null;
     if (mode === "vertex") hit = hitVertex(shown, ix, view, s);
@@ -303,8 +372,16 @@ export function UvPanel({ scene, sel, setSel, run, checker, setChecker, onClose,
     const s = local(e);
     lastPointer.current = s;
     if (modal) return modalMove(s);
+    if (mode === "paint") setRing(s);
     const d = drag.current;
     if (!d) return;
+    if (d.kind === "paint") {
+      const st = strokeRef.current;
+      if (!st) return;
+      for (const p of extendUvStroke(st.pts, fromScreen(view, s), tpaint.uvRadius)) st.painter.dab2D(p, tpaint.uvRadius);
+      flushPaint(st);
+      return;
+    }
     if (Math.hypot(s[0] - d.from[0], s[1] - d.from[1]) > 3) d.moved = true;
     if (!d.moved) return;
     if (d.kind === "pan") {
@@ -321,6 +398,7 @@ export function UvPanel({ scene, sel, setSel, run, checker, setChecker, onClose,
     const d = drag.current;
     drag.current = null;
     if (!d) return;
+    if (d.kind === "paint") return void finishPaint();
     const s = local(e);
     if (d.kind === "marquee" && d.moved) {
       if (mode === "island") {
@@ -381,6 +459,8 @@ export function UvPanel({ scene, sel, setSel, run, checker, setChecker, onClose,
     } else if (k === "1") setMode("vertex");
     else if (k === "2") setMode("edge");
     else if (k === "3") setMode("island");
+    else if (k === "4" || k === "b") setMode("paint");
+    else if (mode === "paint" && (k === "[" || k === "]") && !mod) setTPaint({ ...tpaint, uvRadius: stepUvRadius(tpaint.uvRadius, k === "[" ? -1 : 1) });
     else if (k === "g") startModal("grab");
     else if (k === "r") startModal("rotate");
     else if (k === "s" && !mod) startModal("scale");
@@ -418,7 +498,7 @@ export function UvPanel({ scene, sel, setSel, run, checker, setChecker, onClose,
   const selIslands = useMemo(() => new Set(islandsSelected(shown, chosen)), [shown, chosen]);
   const hasAny = shown.faces.length > 0;
   const cornerCount = shown.faces.reduce((n, f) => n + f.uv.length, 0);
-  const step = !haveTargets ? t("uv.step.select") : !hasAny ? t(set === 2 ? "uv.step.nolightmap" : "uv.step.unwrap") : modal ? t(`uv.step.${modal.kind}`) : chosen.size ? t("uv.step.chosen") : t(`uv.step.${mode}`);
+  const step = !haveTargets ? t("uv.step.select") : !hasAny ? t(set === 2 ? "uv.step.nolightmap" : "uv.step.unwrap") : modal ? t(`uv.step.${modal.kind}`) : mode === "paint" ? t("uv.step.paint") : chosen.size ? t("uv.step.chosen") : t(`uv.step.${mode}`);
   const used = Math.round(coverage(shown) * 100);
   const msel = (m: Mode, label: string, tip: string, k: string) => (
     <button role="radio" aria-checked={mode === m} className={mode === m ? "on" : ""} onClick={() => setMode(m)} title={`${tip} (${k})`} data-testid={`uv-mode-${m}`}>
@@ -456,12 +536,30 @@ export function UvPanel({ scene, sel, setSel, run, checker, setChecker, onClose,
           {msel("vertex", t("uv.mode.vertex"), t("uv.mode.vertex.tip"), "1")}
           {msel("edge", t("uv.mode.edge"), t("uv.mode.edge.tip"), "2")}
           {msel("island", t("uv.mode.island"), t("uv.mode.island.tip"), "3")}
+          {msel("paint", t("uv.mode.paint"), t("uv.mode.paint.tip"), "4")}
         </div>
         <label className="check small" title={t("uv.checker.tip")}>
           <input type="checkbox" checked={checker} onChange={(e) => setChecker(e.target.checked)} data-testid="uv-checker" />
           <span>{t("uv.checker")}</span>
         </label>
       </div>
+      {mode === "paint" && (
+        <div className="uv-paintbar" role="group" aria-label={t("uv.mode.paint")} data-testid="uv-paintbar">
+          <span className="vp-chip" style={{ background: `rgb(${color.map((c) => Math.round(c * 255)).join(",")})` }} title={t("vp.colorFrom")} />
+          <label className="small" title={t("uv.paint.size")}>
+            <span>{t("uv.paint.size")}</span>
+            <input type="range" min={0.005} max={0.25} step={0.005} value={clampUvRadius(tpaint.uvRadius)} onChange={(e) => setTPaint({ ...tpaint, uvRadius: clampUvRadius(Number(e.target.value)) })} aria-label={t("uv.paint.size")} data-testid="uv-paint-size" />
+          </label>
+          <label className="small">
+            <span>{t("tp.hardness")}</span>
+            <input type="range" min={0} max={1} step={0.05} value={tpaint.hardness} onChange={(e) => setTPaint({ ...tpaint, hardness: Number(e.target.value) })} aria-label={t("tp.hardness")} />
+          </label>
+          <label className="small">
+            <span>{t("tp.opacity")}</span>
+            <input type="range" min={0.05} max={1} step={0.05} value={tpaint.opacity} onChange={(e) => setTPaint({ ...tpaint, opacity: Number(e.target.value) })} aria-label={t("tp.opacity")} />
+          </label>
+        </div>
+      )}
       <div className="uv-stage" ref={stage} tabIndex={0} aria-label={t("uv.canvas")} onPointerDown={down} onPointerMove={movePointer} onPointerUp={up} onWheel={wheel} onContextMenu={(e) => e.preventDefault()} data-testid="uv-stage">
         <canvas ref={canvas} className="uv-bg" style={{ width: view.w, height: view.h }} data-testid="uv-bg" />
         <svg className="uv-svg" width={view.w} height={view.h} data-testid="uv-svg">
@@ -497,6 +595,7 @@ export function UvPanel({ scene, sel, setSel, run, checker, setChecker, onClose,
               </g>
             );
           })}
+          {mode === "paint" && ring && <circle className="uv-brush" cx={ring[0]} cy={ring[1]} r={Math.max(2, tpaint.uvRadius * (toScreen(view, [1, 0])[0] - toScreen(view, [0, 0])[0]))} data-testid="uv-brush" />}
           {marq && <rect className="uv-marquee" x={Math.min(marq[0][0], marq[1][0])} y={Math.min(marq[0][1], marq[1][1])} width={Math.abs(marq[1][0] - marq[0][0])} height={Math.abs(marq[1][1] - marq[0][1])} />}
         </svg>
       </div>

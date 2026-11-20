@@ -15,3 +15,16 @@
   right: auto;
   left: 264px;
 }
+
+/* Texture Paint: the new-texture block and its "needs unwrapping" note (plain boxes, no accent stripe) */
+.tp-panel .tp-new {
+  display: grid;
+  gap: 6px;
+}
+
+.tp-panel .tp-warn {
+  padding: 6px 8px;
+  border-radius: $radius-sm;
+  background: var(--bg-sunk, rgba(0, 0, 0, 0.06));
+  line-height: 1.4;
+}
