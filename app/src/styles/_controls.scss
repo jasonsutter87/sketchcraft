@@ -8,6 +8,12 @@
   gap: 2px;
   padding: 8px 10px 0;
   border-bottom: 1px solid var(--line);
+  /* the panel scrolls; its tabs stay put at the top */
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  flex: none;
+  background: var(--panel);
 
   button {
     padding: 8px 10px 9px;
