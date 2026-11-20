@@ -282,6 +282,105 @@ fn scoped_paint_on_a_big_group_is_quick() {
     assert_eq!(&got[..2], &[f[0] as u64, f[2] as u64]);
 }
 
+/// The faces the object scope reaches from each seed, one seed at a time: every face of the seed's group joined to it
+/// through shared edges (crossing any material), kept when it wears the seed's material.
+fn object_reach_one_seed_at_a_time(m: &Model, seeds: &[Id]) -> Vec<Id> {
+    let edges = |id: Id| -> std::collections::BTreeSet<(Id, Id)> {
+        let f = &m.faces[&id];
+        std::iter::once(&f.outer).chain(f.holes.iter()).flat_map(|l| (0..l.len()).map(move |i| (l[i].min(l[(i + 1) % l.len()]), l[i].max(l[(i + 1) % l.len()])))).collect()
+    };
+    let mut out = std::collections::BTreeSet::new();
+    for &s in seeds {
+        let (group, mat) = (m.faces[&s].group, m.faces[&s].material.clone());
+        let mut seen = std::collections::BTreeSet::from([s]);
+        let mut todo = vec![s];
+        while let Some(id) = todo.pop() {
+            let mine = edges(id);
+            for (&n, f) in &m.faces {
+                if !f.hidden && f.group == group && !edges(n).is_disjoint(&mine) && seen.insert(n) {
+                    todo.push(n);
+                }
+            }
+        }
+        out.extend(seen.into_iter().filter(|id| m.faces[id].material == mat));
+    }
+    out.into_iter().collect()
+}
+
+#[test]
+fn object_scoped_paint_reaches_the_same_faces_as_one_seed_at_a_time() {
+    let mut e = Engine::new();
+    let g1 = run(&mut e, json!({"cmd": "terrain_grid", "width": 9, "depth": 9, "spacing": 1}))["group"].as_u64().unwrap() as Id;
+    let g2 = run(&mut e, json!({"cmd": "terrain_grid", "width": 6, "depth": 6, "spacing": 1}))["group"].as_u64().unwrap() as Id;
+    for (i, name) in ["red", "green", "blue"].iter().enumerate() {
+        e.model.materials.insert(name.to_string(), serde_json::from_value(json!({"color": [i as f32 / 3.0, 0.5, 0.5]})).unwrap());
+    }
+    let ids: Vec<Id> = e.model.faces.keys().copied().collect();
+    for (i, id) in ids.iter().enumerate() {
+        let f = e.model.faces.get_mut(id).unwrap();
+        f.material = (i % 4 != 3).then(|| ["red", "green", "blue"][(i * 7 / 3) % 3].to_string());
+        // a band of hidden faces cuts the first grid in two
+        f.hidden = f.group == Some(g1) && (40..58).contains(&i);
+    }
+    let of = |g: Id| -> Vec<Id> { ids.iter().copied().filter(|f| e.model.faces[f].group == Some(g)).collect() };
+    let (a, b) = (of(g1), of(g2));
+    for seeds in [vec![a[0]], vec![a[0], a[100], b[5]], vec![a[45], a[1], a[2], a[3]], vec![b[0], b[1], b[2], b[3], b[4], a[150]], a.clone(), b.clone()] {
+        let got = e.model.paint_targets(&seeds, Some("object")).unwrap();
+        assert_eq!(got, object_reach_one_seed_at_a_time(&e.model, &seeds), "seeds {seeds:?}");
+    }
+}
+
+#[test]
+fn object_scoped_paint_over_many_materials_is_quick() {
+    let mut e = Engine::new();
+    let g = run(&mut e, json!({"cmd": "terrain_grid", "width": 70, "depth": 70, "spacing": 1}))["group"].as_u64().unwrap();
+    // every face its own material
+    let ids: Vec<Id> = e.model.faces.keys().copied().collect();
+    for (i, id) in ids.iter().enumerate() {
+        let name = format!("m{i}");
+        e.model.materials.insert(name.clone(), serde_json::from_value(json!({"color": [0.5, 0.5, 0.5]})).unwrap());
+        e.model.faces.get_mut(id).unwrap().material = Some(name);
+    }
+    let t = Instant::now();
+    let r = run(&mut e, json!({"cmd": "paint", "ids": [g], "color": [0.2, 0.5, 0.2], "scope": "object"}));
+    assert_eq!(r["faces"].as_array().unwrap().len(), ids.len());
+    assert!(t.elapsed() < Duration::from_secs(5), "{:?}", t.elapsed());
+}
+
+#[test]
+fn many_large_pinned_islands_are_answered_quickly() {
+    let (mut e, _) = islands(110);
+    let faces: Vec<Id> = e.model.faces.keys().copied().collect();
+    let pins: Vec<Value> = faces[1..].iter().flat_map(|f| [json!([f, 0, 0, 0]), json!([f, 2, 1, 1])]).collect();
+    let t = Instant::now();
+    let err = refused(&mut e, json!({"cmd": "uv_unwrap", "faces": faces, "margin": 0, "pins": pins}));
+    assert!(err.contains("fit"), "{err}");
+    assert!(t.elapsed() < Duration::from_secs(5), "{:?}", t.elapsed());
+}
+
+#[test]
+fn an_array_into_a_big_model_is_quick_and_welds_as_before() {
+    let mut e = Engine::new();
+    run(&mut e, json!({"cmd": "terrain_grid", "width": 200, "depth": 200, "spacing": 1}));
+    let rects: Vec<Id> = (0..20).map(|k| rect(&mut e, 3.0 * k as f64, 250.0)).collect();
+    let count = |e: &Engine| (e.model.vertices.len(), e.model.edges.len(), e.model.faces.len());
+    let (v0, e0, f0) = count(&e);
+    let t = Instant::now();
+    run(&mut e, json!({"cmd": "array", "ids": rects, "by": [0, 0, 2], "count": 300}));
+    assert!(t.elapsed() < Duration::from_secs(5), "{:?}", t.elapsed());
+    // copies apart from each other: each its own corners and sides
+    assert_eq!(count(&e), (v0 + 24_000, e0 + 24_000, f0 + 6_000));
+    // copies side by side share the side between them
+    let one = rect(&mut e, 0.0, -20.0);
+    let (v0, e0, f0) = count(&e);
+    run(&mut e, json!({"cmd": "array", "ids": [one], "by": [1, 0, 0], "count": 50}));
+    assert_eq!(count(&e), (v0 + 100, e0 + 150, f0 + 50));
+    // and a copy onto an existing one reuses its corners
+    let (v0, e0, f0) = count(&e);
+    run(&mut e, json!({"cmd": "duplicate", "ids": [one], "by": [2, 0, 0]}));
+    assert_eq!(count(&e), (v0, e0, f0 + 1));
+}
+
 // ---- size budgets ------------------------------------------------------------------------------------------------
 
 #[test]
