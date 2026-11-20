@@ -150,9 +150,11 @@
     padding-top: 6px;
   }
 
-  .about-logo svg {
-    width: 64px;
-    height: 64px;
+  .about-logo {
+    display: block;
+    width: 96px;
+    height: 96px;
+    margin: 0 auto;
   }
 
   .about-name {

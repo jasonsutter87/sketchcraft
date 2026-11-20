@@ -1,6 +1,7 @@
 // Help > About SketchCraft: the name, the promise, the links, and a thank-you to the people who wrote the code.
 // The thank-you list is not kept by hand: it is read from git history when the app is built (app/contributors.mjs).
-import { Logo } from "./icons";
+// the app icon itself (256 px), so About shows exactly what is in the Dock / taskbar
+import appIcon from "../src-tauri/icons/128x128@2x.png";
 import { openLink, LINKS, type LinkName } from "./links";
 import { useLocale } from "./locale";
 import { Sheet } from "./sheet";
@@ -16,9 +17,7 @@ export function AboutDialog({ onClose }: { onClose: () => void }) {
   return (
     <Sheet onClose={onClose} label={t("menu.about")} className="about" width={460}>
       <div className="about-head">
-        <span className="about-logo">
-          <Logo />
-        </span>
+        <img className="about-logo" src={appIcon} alt="" width={96} height={96} />
         <h2 className="about-name">SketchCraft</h2>
         <p className="about-version">
           {t("about.version")} {__APP_VERSION__}

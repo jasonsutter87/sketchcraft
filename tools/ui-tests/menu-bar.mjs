@@ -383,6 +383,7 @@ const isMac = process.platform === 'darwin';
   await dlg.waitFor();
   const text = await dlg.innerText();
   check(/SketchCraft/.test(await dlg.locator('.about-name').innerText()), 'About shows the name');
+  check(await dlg.locator('img.about-logo').evaluate((i) => i.complete && i.naturalWidth >= 256), 'with the app icon at full resolution');
   check(/^Version \d+\.\d+\.\d+/.test(await dlg.locator('.about-version').innerText()), `and the version (${await dlg.locator('.about-version').innerText()})`);
   check((await dlg.locator('.about-tagline').innerText()) === 'Always free. Never freemium. Never paid.', 'the tagline is under the name');
   check((await dlg.locator('.about-promise').innerText()) === "It's a promise.", 'with "It\'s a promise." below it');
