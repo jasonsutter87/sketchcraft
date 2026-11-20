@@ -367,7 +367,7 @@ pub fn write_fbx(m: &Model, path: &str, binary: bool) -> Result<FbxStats> {
                     local_mats.len() - 1
                 }
             };
-            let map = if mats[mi].tex.is_some() { tex.map(|(_, t)| crate::texmap::Mapping::of_face(t, f)) } else { None };
+            let map = if mats[mi].tex.is_some() { tex.map(|(_, t)| crate::texmap::FaceMap::of(t, f)) } else { None };
             any_uv |= map.is_some();
             let nrm = y_up(f.normal);
             for t in geom::triangulate(&f.outer, &f.holes, f.normal) {

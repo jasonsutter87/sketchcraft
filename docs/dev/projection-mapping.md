@@ -1,7 +1,7 @@
 # Projection mapping
 
 Lay a material's picture on a selection with one of four projections: planar, box, cylinder or sphere. The result is kept
-as the faces' own texture coordinates, so the viewport, renders, glTF, OBJ and Collada all show it. Code:
+as the faces' own texture coordinates, so the viewport, renders, glTF, OBJ, Collada and FBX all show it. Code:
 `core/src/projection.rs` (the math, the Model methods), `core/src/commands/projection.rs` (the commands),
 `app/src/projection.ts` and `app/src/projectionpanel.tsx` (the panel). Tests: `core/tests/projection.rs`, the unit tests
 in `projection.rs`, `app/tests/projection.test.ts`, `tools/ui-tests/projection.mjs`.
@@ -61,7 +61,7 @@ All coordinates are in tiles (1 is the whole picture), v up the picture.
   with any face coordinates (in the model or in a component) is written with `"format": 2` and `"needs": ["face_uv"]`
   (`core/src/format.rs`). A build that doesn't know `face_uv` opens it read-only. A model without projected faces is still
   format 1 and opens everywhere as before. (`needs` is now a list that can hold `sheets` and `face_uv` together.)
-- Rendering: `texmap::FaceMap` replaces `Mapping` in the viewport scene, headless renders, glTF, OBJ and Collada. For a
+- Rendering: `texmap::FaceMap` replaces `Mapping` in the viewport scene, headless renders, glTF, OBJ, Collada and FBX. For a
   face with coordinates the triangulation's corner points are matched to the loop's points exactly (the triangulator hands
   back the loop's own points) and the headless renderer interpolates between them.
 
