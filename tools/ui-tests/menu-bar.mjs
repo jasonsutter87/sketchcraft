@@ -301,7 +301,12 @@ const isMac = process.platform === 'darwin';
   check(!(await xray().getAttribute('class'))?.includes('on'), 'choosing it again turns it off');
   // View > Face style (a radio) and Workspaces
   await openMenu(p, 'View');
+  // hovering a submenu's name opens it; clicking it after that must keep it open (not toggle it shut), however slow the click
+  await p.getByRole('menuitem', { name: 'Face style' }).hover();
+  await item(p, 'view.face.wireframe').waitFor();
+  await wait(200);
   await p.getByRole('menuitem', { name: 'Face style' }).click();
+  check(await item(p, 'view.face.wireframe').isVisible(), 'clicking a submenu name after hovering it keeps the submenu open');
   await item(p, 'view.face.wireframe').click();
   await wait(100);
   await openMenu(p, 'View');

@@ -170,7 +170,7 @@ export default function Viewport(props: Props) {
     fitNext: boolean;
     section: THREE.Plane | null;
     segs: { circle: number; polygon: number };
-    rightDown: { x: number; y: number; t: number } | null;
+    rightDown: { x: number; y: number; t: number; held: boolean } | null;
     /** when our context menu last opened, and when a right-drag pan last ended (performance.now) */
     menuAt: number;
     panAt: number;
@@ -2971,16 +2971,23 @@ export default function Viewport(props: Props) {
         const from = e.clientX === 0 && e.clientY === 0 && lastPointer.current ? lastPointer.current : { x: e.clientX, y: e.clientY };
         openMenuAt(from.x, from.y);
       } else if (what === "wait" && rd) {
-        // pressed, and the release never came (a lost pointerup): decide from where the pointer is now
-        window.setTimeout(() => {
+        // Linux/Chromium raises this at the press, before any movement: the release decides. Only if the release
+        // never comes (a lost pointerup: no button held any more) decide from where the pointer is now.
+        const settle = () => {
           if (st.current.rightDown !== rd) return;
+          if (rd.held) {
+            window.setTimeout(settle, 300);
+            return;
+          }
           const at = lastPointer.current ?? { x: rd.x, y: rd.y };
           finishRight({ clientX: at.x, clientY: at.y });
-        }, 300);
+        };
+        window.setTimeout(settle, 300);
       }
     };
     const move = (e: PointerEvent) => {
       lastPointer.current = { x: e.clientX, y: e.clientY };
+      if (st.current.rightDown) st.current.rightDown.held = (e.buttons & 2) !== 0;
       // camera tools
       {
         const c = camTool.current;
@@ -3670,7 +3677,7 @@ export default function Viewport(props: Props) {
         return;
       }
       if (e.button === 2) {
-        st.current.rightDown = { x: e.clientX, y: e.clientY, t: performance.now() };
+        st.current.rightDown = { x: e.clientX, y: e.clientY, t: performance.now(), held: true };
         return;
       }
       if (L.tool === "zoom" && e.button === 0) {

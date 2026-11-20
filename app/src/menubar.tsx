@@ -240,7 +240,10 @@ function MenuList({ label, items, actions, plugins, done, focusFirst, top, sub }
               aria-haspopup="menu"
               aria-expanded={isOpen}
               onClick={(e) => {
-                setOpenSub(isOpen ? null : it.label);
+                // a mouse click keeps it open: hovering already opened it, and the click must not shut it again
+                // (e.detail is 0 for Enter/Space, which does toggle)
+                const close = isOpen && e.detail === 0;
+                setOpenSub(close ? null : it.label);
                 if (!isOpen) {
                   // the submenu mounts on the next render: focus its first item then
                   const btn = e.currentTarget;

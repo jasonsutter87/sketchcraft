@@ -6,6 +6,9 @@ What changed in each SketchCraft release, newest first. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- On Linux, right-dragging to pan no longer opens the context menu, and clicking a submenu's name after hovering it no longer shuts it again.
+
 ## [0.3.9] - 2026-11-20
 
 ### Added

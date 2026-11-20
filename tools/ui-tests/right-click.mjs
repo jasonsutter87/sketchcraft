@@ -139,6 +139,52 @@ const target = (p) => p.evaluate(() => window.__sketchcraftView.current.controls
   check(Math.hypot(...after.map((v, i) => v - before[i])) > 0.05, 'a right-drag pans the view');
   check((await menus(p)) === 0, 'a right-drag opens no menu');
 
+  // Linux/Chromium raises `contextmenu` at the PRESS (before any movement), Windows/macOS at the release.
+  // Emulate the Linux order here so every platform covers it: a contextmenu on every right pointerdown.
+  await p.evaluate(() => {
+    const c = document.querySelector('.viewport canvas');
+    window.__linuxCtx = (e) => {
+      if (e.button === 2) setTimeout(() => c.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: e.clientX, clientY: e.clientY, button: 2 })), 0); // after the pointerdown handlers, as the browser does
+    };
+    c.addEventListener('pointerdown', window.__linuxCtx, true);
+  });
+  await p.mouse.click(fx + 300, fy + 200);
+  await wait(300);
+  const before2 = await target(p);
+  await p.mouse.move(fx, fy);
+  await p.mouse.down({ button: 'right' });
+  await wait(50);
+  await p.mouse.move(fx + 8, fy + 2); // a small first move, well inside the quick-click limit
+  await wait(450); // slower than the 300 ms held-button timer
+  await p.mouse.move(fx + 60, fy + 20, { steps: 6 });
+  await p.mouse.move(fx + 120, fy + 30, { steps: 6 });
+  await wait(200);
+  await p.mouse.up({ button: 'right' });
+  await wait(800);
+  const after2 = await target(p);
+  check(Math.hypot(...after2.map((v, i) => v - before2[i])) > 0.05, 'Linux order: a right-drag pans the view');
+  check((await menus(p)) === 0, 'Linux order: a right-drag opens no menu');
+  await p.mouse.move(fx, fy);
+  await p.mouse.down({ button: 'right' });
+  await wait(50);
+  await p.mouse.up({ button: 'right' });
+  await wait(450);
+  check((await menus(p)) === 1, 'Linux order: a right-click opens exactly one menu');
+  await closeMenu(p);
+  await p.mouse.move(fx, fy);
+  await p.mouse.down({ button: 'right' });
+  await wait(500);
+  await p.mouse.move(fx + 2, fy + 2);
+  await p.mouse.up({ button: 'right' });
+  await wait(450);
+  check((await menus(p)) === 1, 'Linux order: a slow right-click that barely moved opens one menu');
+  await closeMenu(p);
+  await p.evaluate(() => document.querySelector('.viewport canvas').removeEventListener('pointerdown', window.__linuxCtx, true));
+  await reshow(p);
+  await p.getByRole('button', { name: 'Select', exact: true }).first().click();
+  await p.keyboard.press('Shift+z');
+  await wait(700);
+
   // Shift+F10 opens the menu for the selection
   await p.mouse.click(fx, fy);
   await wait(400);
