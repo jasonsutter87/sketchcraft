@@ -185,16 +185,44 @@ pub fn file_name(material: &str, ext: &str) -> String {
     format!("{s}.{ext}")
 }
 
+/// The image file names of one export's textures folder: `file_name` per material, with "-2", "-3"... added when two
+/// materials would get the same name (after the name is made file-safe, and ignoring case, as many disks do), so one
+/// picture never overwrites another.
+#[derive(Default)]
+pub struct FileNames(std::collections::HashSet<String>);
+
+impl FileNames {
+    pub fn name(&mut self, material: &str, ext: &str) -> String {
+        let base = file_name(material, ext);
+        let stem = base.strip_suffix(&format!(".{ext}")).unwrap_or(&base).to_string();
+        let mut name = base;
+        let mut k = 2;
+        while !self.0.insert(name.to_ascii_lowercase()) {
+            name = format!("{stem}-{k}.{ext}");
+            k += 1;
+        }
+        name
+    }
+}
+
 /// Decoded images for headless renders, by material name. Images are capped
 /// at 2048 px so a huge photo can't blow up memory.
 pub struct Images(HashMap<String, RgbImage>);
 
 impl Images {
     pub fn load(m: &Model) -> Images {
+        Images::load_if(m, |_| true)
+    }
+
+    /// Only the pictures of the materials `want` names (decoding is the expensive part).
+    pub fn load_if(m: &Model, want: impl Fn(&str) -> bool) -> Images {
         let mut out = HashMap::new();
         let all = m.materials.iter().chain(m.definitions.values().flat_map(|d| d.model.materials.iter()));
         for (name, mat) in all {
             let Some(t) = &mat.texture else { continue };
+            if !want(name) {
+                continue;
+            }
             if out.contains_key(name) {
                 continue;
             }

@@ -41,10 +41,11 @@ const MAX_RINGS_UNTRUSTED: usize = 120;
 const MAX_LIST_UI: usize = 5_000_000;
 const MAX_LIST_UNTRUSTED: usize = 200_000;
 const MAX_VALUES_UNTRUSTED: usize = 400_000;
-/// Commands that draw from a list of points, whose cost grows faster than linearly.
-const DRAWING: [&str; 6] = ["line", "polygon", "wall", "text_3d", "text3d", "follow_me"];
+/// Commands that draw from a list of points, whose cost grows faster than linearly (or, for the brushes, with the
+/// points times what each one reaches).
+const DRAWING: [&str; 8] = ["line", "polygon", "wall", "text_3d", "text3d", "follow_me", "texture_paint_stroke", "vertex_paint"];
 /// Keys whose arrays are point lists.
-const POINT_KEYS: [&str; 3] = ["points", "rings", "ring"];
+const POINT_KEYS: [&str; 4] = ["points", "rings", "ring", "uv_points"];
 /// Most sheets a model holds (and most pages one `sheets` command describes), by who is asking.
 pub const MAX_PAGES_UI: usize = 200;
 pub const MAX_PAGES_UNTRUSTED: usize = 120;
@@ -174,7 +175,7 @@ const LIBRARY: [&str; 3] = ["library", "save_to_library", "library_add"];
 /// Commands that only change or inspect the model: safe for plugins.
 const MODEL: &[&str] = &[
     "rect", "polygon", "line", "circle", "arc", "offset", "follow_me", "pushpull", "push_pull", "move", "rotate", "scale", "duplicate", "array", "delete", "reverse", "paint", "texture", "vertex_paint", "vertex_paint_clear", "vertex_colors", "begin_group", "end_group", "group", "faces", "pick", "copy", "info", "parts", "make_component", "place", "component_cuts", "component_face_me", "edit", "close", "explode", "components", "hide", "unhide", "tag", "tag_visible", "tag_color", "tag_style", "edge_style", "hatch_pattern", "hatch_patterns", "rename_tag", "set_parent", "ungroup", "lock", "soften", "rename", "guide", "clear_guides", "units", "dimension", "text", "save_view", "show_view", "delete_view", "sheets", "sheet_add", "sheet_edit", "sheet_delete", "viewport_add", "viewport_edit", "sheet_item_delete", "sheet_dim", "sheet_reattach", "sheet_line", "sheet_text", "sheet_table", "sheet_table_paste", "sheet_trim", "sheet_extend", "sheet_offset", "sheets_info", "drafting_status", "sheet_ir", "sheet_duplicate", "sheet_order", "viewport_points", "dimension_auto", "layout_preset", "render", "door_swing", "levels", "solid", "intersect", "flip", "section", "terrain_from_contours", "terrain_grid", "smoove", "stamp", "drape", "flip_edge", "match_photo", "set_attrs", "cloud_data", "cloud", "connected", "same_as", "resize", "section_plane", "section_edit", "section_off", "set_axes", "finish", "options", "report", "classify", "bevel", "divide", "slice", "material", "subd", "cage_edit", "subdivide", "timeline", "timeline_frames", "weld", "explode_curve", "make_unique", "orient_faces", "text_3d", "text3d", "opacity", "environment", "sun", "volume", "wall", "wall_pull", "wall_info", "room_rect", "room_preview", "rooms", "stairs", "roof", "column", "insert", "assets", "raise_walls", "project_photo", "photo_solve", "purge", "texture_project", "texture_uv", "texture_paint_new", "texture_paint_stroke", "texture_paint_status", "texture_pixels",
-    "rect", "polygon", "line", "circle", "arc", "offset", "follow_me", "pushpull", "push_pull", "move", "rotate", "scale", "duplicate", "array", "delete", "reverse", "paint", "texture", "begin_group", "end_group", "group", "faces", "pick", "copy", "info", "parts", "make_component", "place", "component_cuts", "component_face_me", "edit", "close", "explode", "components", "hide", "unhide", "tag", "tag_visible", "tag_color", "tag_style", "edge_style", "hatch_pattern", "hatch_patterns", "rename_tag", "set_parent", "ungroup", "lock", "soften", "rename", "guide", "clear_guides", "units", "dimension", "text", "save_view", "show_view", "delete_view", "sheets", "sheet_add", "sheet_edit", "sheet_delete", "viewport_add", "viewport_edit", "sheet_item_delete", "sheet_dim", "sheet_reattach", "sheet_line", "sheet_text", "sheet_table", "sheet_table_paste", "sheet_trim", "sheet_extend", "sheet_offset", "sheets_info", "drafting_status", "sheet_ir", "sheet_duplicate", "sheet_order", "viewport_points", "dimension_auto", "layout_preset", "render", "door_swing", "levels", "solid", "intersect", "flip", "section", "terrain_from_contours", "terrain_grid", "smoove", "stamp", "drape", "flip_edge", "match_photo", "set_attrs", "cloud_data", "cloud", "connected", "same_as", "resize", "section_plane", "section_edit", "section_off", "set_axes", "finish", "options", "report", "classify", "bevel", "divide", "slice", "material", "subd", "cage_edit", "subdivide", "timeline", "timeline_frames", "weld", "explode_curve", "make_unique", "orient_faces", "text_3d", "text3d", "opacity", "environment", "sun", "volume", "wall", "wall_pull", "wall_info", "room_rect", "room_preview", "rooms", "stairs", "roof", "column", "insert", "assets", "raise_walls", "project_photo", "photo_solve", "purge", "texture_project", "texture_uv", "texture_position", "texture_frame", "uv_seam", "uv_unwrap", "uv_pack", "uv_lightmap", "uv_set", "uv_transform", "uv_info",
+    "texture_position", "texture_frame", "uv_seam", "uv_unwrap", "uv_pack", "uv_lightmap", "uv_set", "uv_transform", "uv_info",
 ];
 
 /// Commands that read or write files (or run converters on them): agents get
@@ -682,5 +683,44 @@ mod tests {
             assert!(vet(&c, &mut json!({"cmd": "export_obj", "path": "link/x.obj"})).is_err());
         }
         std::fs::remove_dir_all(&base).ok();
+    }
+
+    /// The model-only allowlist names each command once, and exactly this set: a command added to or taken out of it
+    /// is a deliberate change made here too.
+    #[test]
+    fn the_model_allowlist_has_each_command_once_and_no_others() {
+        let mut seen = std::collections::BTreeSet::new();
+        for c in MODEL {
+            assert!(seen.insert(*c), "{c} is in MODEL twice");
+        }
+        let expected = "arc array assets begin_group bevel cage_edit circle classify clear_guides close cloud cloud_data column component_cuts \
+            component_face_me components connected copy delete delete_view dimension dimension_auto divide door_swing drafting_status drape \
+            duplicate edge_style edit end_group environment explode explode_curve faces finish flip flip_edge follow_me group guide \
+            hatch_pattern hatch_patterns hide info insert intersect layout_preset levels line lock make_component make_unique match_photo \
+            material move offset opacity options orient_faces paint parts photo_solve pick place polygon project_photo purge push_pull \
+            pushpull raise_walls rect rename rename_tag render report resize reverse roof room_preview room_rect rooms rotate same_as \
+            save_view scale section section_edit section_off section_plane set_attrs set_axes set_parent sheet_add sheet_delete sheet_dim \
+            sheet_duplicate sheet_edit sheet_extend sheet_ir sheet_item_delete sheet_line sheet_offset sheet_order sheet_reattach \
+            sheet_table sheet_table_paste sheet_text sheet_trim sheets sheets_info show_view slice smoove soften solid stairs stamp subd \
+            subdivide sun tag tag_color tag_style tag_visible terrain_from_contours terrain_grid text text3d text_3d texture texture_frame \
+            texture_paint_new texture_paint_status texture_paint_stroke texture_pixels texture_position texture_project texture_uv \
+            timeline timeline_frames ungroup unhide units uv_info uv_lightmap uv_pack uv_seam uv_set uv_transform uv_unwrap vertex_colors \
+            vertex_paint vertex_paint_clear viewport_add viewport_edit viewport_points volume wall wall_info wall_pull weld";
+        let expected: std::collections::BTreeSet<&str> = expected.split_whitespace().collect();
+        assert_eq!(seen, expected);
+        // nothing that reads or writes files is model-only
+        assert!(MODEL.iter().all(|c| !FILES.contains(c)));
+    }
+
+    #[test]
+    fn brush_strokes_are_point_lists() {
+        let mut too_many = json!({"cmd": "texture_paint_stroke", "material": "m", "color": [1, 0, 0], "uv_points": vec![[0.5, 0.5]; MAX_POINTS_UNTRUSTED + 1]});
+        assert!(vet(&Caller::Plugin, &mut too_many).unwrap_err().contains("points"));
+        let mut ok = json!({"cmd": "texture_paint_stroke", "material": "m", "color": [1, 0, 0], "uv_points": vec![[0.5, 0.5]; MAX_POINTS_UNTRUSTED]});
+        assert!(vet(&Caller::Plugin, &mut ok).is_ok());
+        let mut v = json!({"cmd": "vertex_paint", "faces": [1], "color": [1, 0, 0], "points": vec![[0, 0, 0]; MAX_POINTS_UNTRUSTED + 1]});
+        assert!(vet(&Caller::Plugin, &mut v).unwrap_err().contains("points"));
+        let mut t = json!({"cmd": "texture_paint_stroke", "material": "m", "color": [1, 0, 0], "points": vec![[0, 0, 0]; MAX_POINTS_UNTRUSTED + 1]});
+        assert!(vet(&Caller::Plugin, &mut t).is_err());
     }
 }

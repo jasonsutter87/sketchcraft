@@ -9,6 +9,20 @@ use anyhow::{bail, Result};
 use glam::DVec3;
 
 pub const WHITE: [f32; 4] = [1.0; 4];
+/// The most points one stroke carries (the app thins a long drag to 1,500).
+pub const MAX_STROKE_POINTS: usize = 10_000;
+/// The most corner-against-point tests one stroke may make (about a second of work); a stroke past it is refused before
+/// anything changes. Only the points that reach a face's box are tested at its corners.
+pub const MAX_STROKE_WORK: u64 = 1 << 29;
+
+/// Count `n` more units of a stroke's work; refused once the stroke is past `MAX_STROKE_WORK`.
+fn spend(work: &mut u64, n: u64) -> Result<()> {
+    *work = work.saturating_add(n);
+    if *work > MAX_STROKE_WORK {
+        bail!("that stroke is too much work at once (over {} million corner tests): use a smaller brush, fewer points or fewer faces", MAX_STROKE_WORK / 1_000_000);
+    }
+    Ok(())
+}
 
 /// How the brush weakens from its centre (distance 0) to its rim (distance `radius`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -125,6 +139,12 @@ impl Model {
     /// Paint a stroke on faces (or every face of groups). Returns (faces changed, corners changed). Nothing changes
     /// if it is refused.
     pub fn vertex_paint(&mut self, ids: &[Id], s: &Stroke) -> Result<(usize, usize)> {
+        self.vertex_paint_within(ids, s, &mut 0)
+    }
+
+    /// `vertex_paint`, counting its work into `work` (one command painting several placed components shares one
+    /// budget); refused once that passes `MAX_STROKE_WORK`.
+    pub fn vertex_paint_within(&mut self, ids: &[Id], s: &Stroke, work: &mut u64) -> Result<(usize, usize)> {
         self.check_unlocked(ids)?;
         if !s.radius.is_finite() || !s.strength.is_finite() {
             bail!("radius and strength must be numbers");
@@ -132,16 +152,45 @@ impl Model {
         if !s.points.is_empty() && s.radius <= 0.0 {
             bail!("radius must be above 0");
         }
+        if s.points.len() > MAX_STROKE_POINTS {
+            bail!("a stroke has at most {MAX_STROKE_POINTS} points ({} given): send a long stroke as several", s.points.len());
+        }
         let mut faces = self.faces_of(ids)?;
         faces.sort_unstable();
         faces.dedup();
         if faces.is_empty() {
             bail!("select some faces (or a group) to paint");
         }
+        let mut points = s.points.clone();
+        points.dedup();
+        // the box the whole stroke reaches: faces outside it are passed over without looking at the points
+        let pad = DVec3::splat(s.radius * (1.0 + 1e-9) + 1e-12);
+        let reach = points.iter().fold((DVec3::splat(f64::INFINITY), DVec3::splat(f64::NEG_INFINITY)), |(lo, hi), p| (lo.min(*p - pad), hi.max(*p + pad)));
+        // a face's corner points and the stroke's points that reach its box (None: none do), with the work that costs
+        let look = |f: &crate::model::Face| -> (Vec<Vec<DVec3>>, Option<Vec<DVec3>>, u64) {
+            let loops: Vec<Vec<DVec3>> = f.loops().map(|l| self.pts(l)).collect();
+            let corners = loops.iter().map(Vec::len).sum::<usize>() as u64;
+            if points.is_empty() {
+                return (loops, Some(vec![]), corners);
+            }
+            let (lo, hi) = loops.iter().flatten().fold((DVec3::splat(f64::INFINITY), DVec3::splat(f64::NEG_INFINITY)), |(lo, hi), p| (lo.min(*p), hi.max(*p)));
+            if lo.cmpgt(reach.1).any() || hi.cmplt(reach.0).any() {
+                return (loops, None, 1);
+            }
+            let near: Vec<DVec3> = points.iter().copied().filter(|q| (lo - *q).max(*q - hi).max(DVec3::ZERO).length() <= s.radius * (1.0 + 1e-9) + 1e-12).collect();
+            let units = 1 + points.len() as u64 + near.len() as u64 * corners;
+            (loops, (!near.is_empty()).then_some(near), units)
+        };
+        // the work is counted first, so a stroke over the budget is refused before any corner is weighed
+        for id in &faces {
+            spend(work, look(&self.faces[id]).2)?;
+        }
         let (mut nf, mut nc) = (0, 0);
+        let mut done: Vec<(Id, Option<FaceColors>)> = vec![];
         for id in faces {
             let f = &self.faces[&id];
-            let loops: Vec<Vec<DVec3>> = f.loops().map(|l| self.pts(l)).collect();
+            let (loops, near, _) = look(f);
+            let Some(near) = near else { continue };
             let mut cur = match &f.vcol {
                 Some(c) if c.fits(f) => c.clone(),
                 _ => FaceColors { outer: vec![WHITE; f.outer.len()], holes: f.holes.iter().map(|h| vec![WHITE; h.len()]).collect() },
@@ -149,7 +198,7 @@ impl Model {
             let mut changed = 0;
             let mut apply = |ring: &mut Vec<[f32; 4]>, pts: &[DVec3]| {
                 for (c, p) in ring.iter_mut().zip(pts) {
-                    let w = if s.points.is_empty() { 1.0 } else { stroke_weight(*p, &s.points, s.radius, s.falloff) };
+                    let w = if points.is_empty() { 1.0 } else { stroke_weight(*p, &near, s.radius, s.falloff) };
                     let w = w * s.strength;
                     if w > 0.0 {
                         let n = blend(*c, s.color, w);
@@ -170,7 +219,10 @@ impl Model {
             nf += 1;
             nc += changed;
             let all_white = cur.outer.iter().chain(cur.holes.iter().flatten()).all(|c| *c == WHITE);
-            self.faces.get_mut(&id).unwrap().vcol = if all_white { None } else { Some(cur) };
+            done.push((id, if all_white { None } else { Some(cur) }));
+        }
+        for (id, c) in done {
+            self.faces.get_mut(&id).unwrap().vcol = c;
         }
         Ok((nf, nc))
     }

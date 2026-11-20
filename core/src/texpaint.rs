@@ -19,6 +19,23 @@ pub const MIN_SIZE: u32 = 64;
 pub const MAX_SIZE: u32 = 4096;
 /// How far (in pixels) a triangle's texels are grown so a seam leaves no unpainted line between islands.
 const BLEED: f64 = 0.75;
+/// The most points one stroke carries (the app thins a long drag to 1,500).
+pub const MAX_STROKE_POINTS: usize = 10_000;
+/// The biggest brush on the picture, in tiles of its width (1: the whole picture; the app's largest is 0.5).
+pub const MAX_UV_RADIUS: f64 = 1.0;
+/// The most texels one stroke may look at, counted per dab (and per triangle a dab reaches), about a second of work:
+/// a stroke past it is refused before anything is painted. The app spaces a drag's points by the brush size, so even
+/// its biggest brush on a 2048 picture covers dozens of picture widths of drag in one stroke.
+pub const MAX_STROKE_WORK: u64 = 1 << 30;
+
+/// Count `n` more units of a stroke's work; refused once the stroke is past `MAX_STROKE_WORK`.
+fn spend(work: &mut u64, n: u64) -> Result<()> {
+    *work = work.saturating_add(n);
+    if *work > MAX_STROKE_WORK {
+        bail!("that stroke is too much work at once (over {} million texels to look at): use a smaller brush, fewer points or fewer faces", MAX_STROKE_WORK / 1_000_000);
+    }
+    Ok(())
+}
 
 // ----- pixels -------------------------------------------------------------------------------------------------------
 
@@ -191,18 +208,7 @@ pub fn raster(t: &[[f64; 2]; 3], w: u32, h: u32, lo: [f64; 2], hi: [f64; 2], f: 
 
 /// As `raster`, with the bleed given; a negative bleed takes only texels strictly inside (no growing, none on an edge).
 pub fn raster_with(t: &[[f64; 2]; 3], w: u32, h: u32, lo: [f64; 2], hi: [f64; 2], bleed: f64, mut f: impl FnMut(u32, u32, [f64; 3])) {
-    let grow = bleed.max(0.0);
-    let minx = t.iter().map(|p| p[0]).fold(f64::INFINITY, f64::min);
-    let maxx = t.iter().map(|p| p[0]).fold(f64::NEG_INFINITY, f64::max);
-    let miny = t.iter().map(|p| p[1]).fold(f64::INFINITY, f64::min);
-    let maxy = t.iter().map(|p| p[1]).fold(f64::NEG_INFINITY, f64::max);
-    if ![minx, maxx, miny, maxy].iter().all(|v| v.is_finite()) {
-        return;
-    }
-    let x0 = (minx.max(lo[0]) - grow).floor().max(0.0) as i64;
-    let x1 = (maxx.min(hi[0]) + grow).ceil().min(w as f64 - 1.0) as i64;
-    let y0 = (miny.max(lo[1]) - grow).floor().max(0.0) as i64;
-    let y1 = (maxy.min(hi[1]) + grow).ceil().min(h as f64 - 1.0) as i64;
+    let Some((x0, x1, y0, y1)) = raster_span(t, w, h, lo, hi, bleed) else { return };
     for y in y0..=y1 {
         for x in x0..=x1 {
             let q = [x as f64 + 0.5, y as f64 + 0.5];
@@ -230,6 +236,29 @@ pub fn raster_with(t: &[[f64; 2]; 3], w: u32, h: u32, lo: [f64; 2], hi: [f64; 2]
             f(x as u32, y as u32, l);
         }
     }
+}
+
+/// The texel box `raster_with` walks: the triangle's pixel box within `lo..=hi`, grown by the bleed, clipped to the
+/// picture (None for a triangle that isn't numbers).
+fn raster_span(t: &[[f64; 2]; 3], w: u32, h: u32, lo: [f64; 2], hi: [f64; 2], bleed: f64) -> Option<(i64, i64, i64, i64)> {
+    let grow = bleed.max(0.0);
+    let minx = t.iter().map(|p| p[0]).fold(f64::INFINITY, f64::min);
+    let maxx = t.iter().map(|p| p[0]).fold(f64::NEG_INFINITY, f64::max);
+    let miny = t.iter().map(|p| p[1]).fold(f64::INFINITY, f64::min);
+    let maxy = t.iter().map(|p| p[1]).fold(f64::NEG_INFINITY, f64::max);
+    if ![minx, maxx, miny, maxy].iter().all(|v| v.is_finite()) {
+        return None;
+    }
+    let x0 = (minx.max(lo[0]) - grow).floor().max(0.0) as i64;
+    let x1 = (maxx.min(hi[0]) + grow).ceil().min(w as f64 - 1.0) as i64;
+    let y0 = (miny.max(lo[1]) - grow).floor().max(0.0) as i64;
+    let y1 = (maxy.min(hi[1]) + grow).ceil().min(h as f64 - 1.0) as i64;
+    Some((x0, x1, y0, y1))
+}
+
+/// How many texels `raster_with` would look at (for a stroke's work budget).
+pub fn raster_area(t: &[[f64; 2]; 3], w: u32, h: u32, lo: [f64; 2], hi: [f64; 2], bleed: f64) -> u64 {
+    raster_span(t, w, h, lo, hi, bleed).map_or(0, |(x0, x1, y0, y1)| ((x1 - x0 + 1).max(0) as u64) * ((y1 - y0 + 1).max(0) as u64))
 }
 
 /// The largest stretch (pixels per metre) of the map from a triangle's plane to the picture; a bound for how far a dab
@@ -269,32 +298,54 @@ fn dist_to_box(p: DVec3, lo: DVec3, hi: DVec3) -> f64 {
     d.length()
 }
 
+/// The dabs of a 3D stroke that reach triangle `t`: each stroke point near it, with the pixel box the brush can reach on
+/// the triangle's picture.
+fn dabs_3d(t: &Tri, points: &[DVec3], radius: f64) -> Vec<(DVec3, [f64; 2], [f64; 2])> {
+    let (lo, hi) = (t.p[0].min(t.p[1]).min(t.p[2]), t.p[0].max(t.p[1]).max(t.p[2]));
+    let near: Vec<DVec3> = points.iter().copied().filter(|q| dist_to_box(*q, lo, hi) < radius).collect();
+    if near.is_empty() {
+        return vec![];
+    }
+    let Some(stretch) = max_stretch(t) else { return vec![] };
+    let n = (t.p[1] - t.p[0]).cross(t.p[2] - t.p[0]).normalize();
+    let mut out = Vec::with_capacity(near.len());
+    for q in near {
+        // where the dab's centre lands on the picture (extrapolated if it is outside the triangle), and how far the
+        // brush can reach in the triangle's plane
+        let height = (q - t.p[0]).dot(n).abs();
+        if height >= radius {
+            continue;
+        }
+        let rho = (radius * radius - height * height).sqrt();
+        let foot = q - n * (q - t.p[0]).dot(n);
+        let Some(bc) = bary3(t, foot) else { continue };
+        let c = [0, 1].map(|k| bc[0] * t.px[0][k] + bc[1] * t.px[1][k] + bc[2] * t.px[2][k]);
+        let reach = rho * stretch + 1.5;
+        out.push((q, [c[0] - reach, c[1] - reach], [c[0] + reach, c[1] + reach]));
+    }
+    out
+}
+
 /// Brush weights for a 3D stroke: every texel of every triangle whose 3D position is within `radius` of a stroke point.
 /// Distances are measured in 3D, so a brush that straddles a UV seam paints both sides, wherever each lands on the
 /// picture.
 pub fn weights_3d(tris: &[Tri], w: u32, h: u32, points: &[DVec3], radius: f64, hardness: f64) -> Weights {
+    weights_3d_within(tris, w, h, points, radius, hardness, &mut 0).expect("a small stroke")
+}
+
+/// `weights_3d`, counting the work into `work` and refused once it passes `MAX_STROKE_WORK` (see `spend`).
+pub fn weights_3d_within(tris: &[Tri], w: u32, h: u32, points: &[DVec3], radius: f64, hardness: f64, work: &mut u64) -> Result<Weights> {
+    // the work is counted first (the dabs' boxes, without painting), so a stroke over the budget is refused at once
+    for t in tris {
+        spend(work, points.len() as u64)?;
+        for (_, lo, hi) in dabs_3d(t, points, radius) {
+            spend(work, raster_area(&t.px, w, h, lo, hi, BLEED))?;
+        }
+    }
     let mut out = Weights::new(w, h);
     for t in tris {
-        let (lo, hi) = (t.p[0].min(t.p[1]).min(t.p[2]), t.p[0].max(t.p[1]).max(t.p[2]));
-        let near: Vec<DVec3> = points.iter().copied().filter(|q| dist_to_box(*q, lo, hi) < radius).collect();
-        if near.is_empty() {
-            continue;
-        }
-        let Some(stretch) = max_stretch(t) else { continue };
-        let n = (t.p[1] - t.p[0]).cross(t.p[2] - t.p[0]).normalize();
-        for q in near {
-            // where the dab's centre lands on the picture (extrapolated if it is outside the triangle), and how far the
-            // brush can reach in the triangle's plane
-            let height = (q - t.p[0]).dot(n).abs();
-            if height >= radius {
-                continue;
-            }
-            let rho = (radius * radius - height * height).sqrt();
-            let foot = q - n * (q - t.p[0]).dot(n);
-            let Some(bc) = bary3(t, foot) else { continue };
-            let c = [0, 1].map(|k| bc[0] * t.px[0][k] + bc[1] * t.px[1][k] + bc[2] * t.px[2][k]);
-            let reach = rho * stretch + 1.5;
-            raster(&t.px, w, h, [c[0] - reach, c[1] - reach], [c[0] + reach, c[1] + reach], |x, y, l| {
+        for (q, lo, hi) in dabs_3d(t, points, radius) {
+            raster(&t.px, w, h, lo, hi, |x, y, l| {
                 let p = t.p[0] * l[0] + t.p[1] * l[1] + t.p[2] * l[2];
                 let wt = falloff(p.distance(q), radius, hardness);
                 if wt > 0.0 {
@@ -303,7 +354,7 @@ pub fn weights_3d(tris: &[Tri], w: u32, h: u32, points: &[DVec3], radius: f64, h
             });
         }
     }
-    out
+    Ok(out)
 }
 
 /// Barycentric coordinates of a point on the triangle's plane (3D).
@@ -322,15 +373,30 @@ fn bary3(t: &Tri, p: DVec3) -> Option<[f64; 3]> {
 /// Brush weights for a stroke drawn straight on the picture: `points` are texture coordinates (tiles, v up) and `radius`
 /// is in tiles of the picture's width.
 pub fn weights_2d(w: u32, h: u32, points: &[[f64; 2]], radius: f64, hardness: f64) -> Weights {
-    let mut out = Weights::new(w, h);
+    weights_2d_within(w, h, points, radius, hardness, &mut 0).expect("a small stroke")
+}
+
+/// `weights_2d`, refused before any painting when the dabs' boxes add up to more than `MAX_STROKE_WORK` texels.
+pub fn weights_2d_within(w: u32, h: u32, points: &[[f64; 2]], radius: f64, hardness: f64, work: &mut u64) -> Result<Weights> {
     let r = radius * w as f64;
-    if r <= 0.0 {
-        return out;
-    }
-    for p in points {
+    let boxes = |p: &[f64; 2]| {
         let c = uv_to_pixel(*p, w, h);
         let (x0, x1) = (((c[0] - r).floor().max(0.0)) as i64, ((c[0] + r).ceil().min(w as f64 - 1.0)) as i64);
         let (y0, y1) = (((c[1] - r).floor().max(0.0)) as i64, ((c[1] + r).ceil().min(h as f64 - 1.0)) as i64);
+        (c, x0, x1, y0, y1)
+    };
+    if r > 0.0 {
+        for p in points {
+            let (_, x0, x1, y0, y1) = boxes(p);
+            spend(work, ((x1 - x0 + 1).max(0) * (y1 - y0 + 1).max(0)) as u64)?;
+        }
+    }
+    let mut out = Weights::new(w, h);
+    if r <= 0.0 {
+        return Ok(out);
+    }
+    for p in points {
+        let (c, x0, x1, y0, y1) = boxes(p);
         for y in y0..=y1 {
             for x in x0..=x1 {
                 let d = ((x as f64 + 0.5 - c[0]).powi(2) + (y as f64 + 0.5 - c[1]).powi(2)).sqrt();
@@ -341,7 +407,7 @@ pub fn weights_2d(w: u32, h: u32, points: &[[f64; 2]], radius: f64, hardness: f6
             }
         }
     }
-    out
+    Ok(out)
 }
 
 /// Paint the weights onto the picture. Returns how many texels changed.
@@ -489,9 +555,20 @@ impl Model {
             bail!("opacity and hardness are 0..1");
         }
         let mat = self.materials.get(name).with_context(|| format!("no material {name} here (close the open component first)"))?;
-        if mat.texture.is_none() {
-            bail!("material {name} has no picture: make one with texture_paint_new");
+        let Some(tex) = &mat.texture else { bail!("material {name} has no picture: make one with texture_paint_new") };
+        // the size is read from the picture's header, before it is decoded: painting works on pictures the size of a paint texture
+        let (pw, ph) = crate::safety::data_url_dimensions(&tex.data)?;
+        if pw > MAX_SIZE || ph > MAX_SIZE {
+            bail!("material {name}'s picture is {pw} x {ph} pixels; painting works on pictures up to {MAX_SIZE} on a side: make a paint texture with texture_paint_new (base \"material\" keeps the look)");
         }
+        let count = match path {
+            Path::Uv(p, _) => p.len(),
+            Path::World(p, _) => p.as_ref().map_or(0, Vec::len),
+        };
+        if count > MAX_STROKE_POINTS {
+            bail!("a stroke has at most {MAX_STROKE_POINTS} points ({count} given): send a long stroke as several");
+        }
+        let mut work = 0u64;
         let mut canvas = self.texture_canvas(name)?;
         let (w, h) = (canvas.w, canvas.h);
         let wt = match path {
@@ -499,7 +576,12 @@ impl Model {
                 if points.is_empty() || *r <= 0.0 || r.is_nan() || points.iter().any(|p| !p[0].is_finite() || !p[1].is_finite()) {
                     bail!("a stroke needs uv_points and a radius above 0 (in tiles)");
                 }
-                weights_2d(w, h, points, *r, brush.hardness)
+                if *r > MAX_UV_RADIUS {
+                    bail!("uv_radius is at most {MAX_UV_RADIUS} (a brush as wide as the picture; fill: true paints all of it)");
+                }
+                let mut points = points.clone();
+                points.dedup();
+                weights_2d_within(w, h, &points, *r, brush.hardness, &mut work)?
             }
             Path::World(points, r) => {
                 let faces = match ids {
@@ -519,9 +601,13 @@ impl Model {
                 }
                 match points {
                     None => {
+                        let all = ([0.0, 0.0], [w as f64, h as f64]);
+                        for t in &tris {
+                            spend(&mut work, raster_area(&t.px, w, h, all.0, all.1, BLEED))?;
+                        }
                         let mut wt = Weights::new(w, h);
                         for t in &tris {
-                            raster(&t.px, w, h, [0.0, 0.0], [w as f64, h as f64], |x, y, _| wt.raise(x, y, 1.0));
+                            raster(&t.px, w, h, all.0, all.1, |x, y, _| wt.raise(x, y, 1.0));
                         }
                         wt
                     }
@@ -529,7 +615,9 @@ impl Model {
                         if p.iter().any(|q| !q.is_finite()) || *r <= 0.0 || r.is_nan() {
                             bail!("a stroke needs points and a radius above 0 (metres)");
                         }
-                        weights_3d(&tris, w, h, p, *r, brush.hardness)
+                        let mut p = p.clone();
+                        p.dedup();
+                        weights_3d_within(&tris, w, h, &p, *r, brush.hardness, &mut work)?
                     }
                 }
             }
@@ -558,7 +646,9 @@ impl Model {
         let status = self.uv_status(&faces)?;
         // what the faces look like now (before an unwrap moves their coordinates), per corner
         let frames = self.texture_frames();
-        let images = crate::texmap::Images::load(self);
+        // pictures are decoded only to bake the faces' present look, and only those the faces wear
+        let worn: std::collections::HashSet<&str> = if matches!(base, Base::Material) { faces.iter().filter_map(|id| self.faces[id].material.as_deref()).collect() } else { Default::default() };
+        let images = crate::texmap::Images::load_if(self, |n| worn.contains(n));
         let mut old: Vec<OldLook> = Vec::new();
         if matches!(base, Base::Material) {
             for id in &faces {

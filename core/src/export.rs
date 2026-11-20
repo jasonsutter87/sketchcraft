@@ -52,6 +52,7 @@ pub fn write_obj(m: &Model, path: &str) -> Result<usize> {
     // textures: one material per image, the image beside the OBJ
     let tex_dir_name = format!("{}_textures", p.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "model".into()));
     let mut tex_mats: std::collections::BTreeMap<String, String> = Default::default();
+    let mut tex_files = crate::texmap::FileNames::default();
     let mut vt = 0usize;
     for (name, faces) in objects {
         writeln!(obj, "o {}", obj_token(&name))?;
@@ -62,7 +63,7 @@ pub fn write_obj(m: &Model, path: &str) -> Result<usize> {
                     return Some((id.clone(), t));
                 }
                 let (ext, data) = crate::texmap::bytes(t).ok()?;
-                let file = crate::texmap::file_name(mname, ext);
+                let file = tex_files.name(mname, ext);
                 let dir = p.with_file_name(&tex_dir_name);
                 std::fs::create_dir_all(&dir).ok()?;
                 std::fs::write(dir.join(&file), data).ok()?;

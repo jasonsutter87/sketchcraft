@@ -316,6 +316,7 @@ pub fn write_fbx(m: &Model, path: &str, binary: bool) -> Result<FbxStats> {
     let mut mats: Vec<Mat> = Vec::new();
     let mut mat_ix: HashMap<String, usize> = HashMap::new();
     let mut tex_written: HashMap<String, String> = HashMap::new();
+    let mut tex_files = crate::texmap::FileNames::default();
     let mut objects: Vec<N> = Vec::new();
     let mut conns: Vec<N> = Vec::new();
     let part_ids: Vec<i64> = parts.iter().map(|_| id()).collect();
@@ -355,7 +356,7 @@ pub fn write_fbx(m: &Model, path: &str, binary: bool) -> Result<FbxStats> {
                     file = tex_written.get(mname).cloned();
                     if file.is_none() {
                         if let Ok((ext, data)) = crate::texmap::bytes(t) {
-                            let name = crate::texmap::file_name(mname, ext);
+                            let name = tex_files.name(mname, ext);
                             let dir = pth.with_file_name(&tex_dir);
                             if std::fs::create_dir_all(&dir).is_ok() && std::fs::write(dir.join(&name), data).is_ok() {
                                 tex_written.insert(mname.to_string(), name.clone());

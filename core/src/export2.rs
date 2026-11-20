@@ -44,6 +44,7 @@ pub fn write_dae(m: &Model, path: &str) -> Result<usize> {
     let color_of = |f: &WFace| f.color.unwrap_or(DEFAULT);
     // textured materials come after the colors: (material name, image file)
     let mut texs: Vec<(String, String)> = vec![];
+    let mut tex_files = crate::texmap::FileNames::default();
     let p = std::path::Path::new(path);
     let tex_dir = format!("{}_textures", p.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "model".into()));
     for fs in objs.values() {
@@ -51,7 +52,7 @@ pub fn write_dae(m: &Model, path: &str) -> Result<usize> {
             if let Some((name, t)) = crate::texmap::of_face(m, f) {
                 if !texs.iter().any(|(n, _)| n == name) {
                     if let Ok((ext, data)) = crate::texmap::bytes(t) {
-                        let file = crate::texmap::file_name(name, ext);
+                        let file = tex_files.name(name, ext);
                         let dir = p.with_file_name(&tex_dir);
                         std::fs::create_dir_all(&dir)?;
                         std::fs::write(dir.join(&file), data)?;

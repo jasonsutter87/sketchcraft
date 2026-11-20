@@ -32,7 +32,9 @@ impl Engine {
                 };
                 // a placed component is painted in its own frame (every placement of it shows the colours)
                 let (placed, direct): (Vec<Id>, Vec<Id>) = ids.iter().partition(|id| m.instances.contains_key(id));
-                let (mut nf, mut nc) = if direct.is_empty() { (0, 0) } else { m.vertex_paint(&direct, &stroke)? };
+                // one budget for the whole command, however many placed components it reaches
+                let mut work = 0u64;
+                let (mut nf, mut nc) = if direct.is_empty() { (0, 0) } else { m.vertex_paint_within(&direct, &stroke, &mut work)? };
                 for i in placed {
                     m.check_unlocked(&[i])?;
                     let inst = &m.instances[&i];
@@ -41,7 +43,7 @@ impl Engine {
                     let local = Stroke { points: stroke.points.iter().map(|p| back.transform_point3(*p)).collect(), radius: stroke.radius / scale, ..stroke.clone() };
                     let dm = std::sync::Arc::make_mut(&mut m.definitions.get_mut(&def).unwrap().model);
                     let all: Vec<Id> = dm.faces.keys().copied().collect();
-                    let (a, b) = dm.vertex_paint(&all, &local)?;
+                    let (a, b) = dm.vertex_paint_within(&all, &local, &mut work)?;
                     nf += a;
                     nc += b;
                 }

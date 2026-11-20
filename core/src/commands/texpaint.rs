@@ -68,14 +68,17 @@ impl Engine {
                 json!({"faces": s.faces, "without": s.without, "overlap": s.overlap, "outside": s.outside, "paintable": s.ok()})
             }
             Command::TexturePixels { material, x, y, w, h } => {
-                let c: Canvas = self.model.texture_canvas(&material)?;
                 let (x, y, w, h) = (x.unwrap_or(0), y.unwrap_or(0), w.unwrap_or(1), h.unwrap_or(1));
+                // in u64, so no size wraps around
+                let (x, y, w, h) = (x as u64, y as u64, w as u64, h as u64);
                 if w == 0 || h == 0 || w * h > 4096 {
                     bail!("read at most 4096 pixels at a time (w * h)");
                 }
-                if x + w > c.w || y + h > c.h {
+                let c: Canvas = self.model.texture_canvas(&material)?;
+                if x + w > c.w as u64 || y + h > c.h as u64 {
                     bail!("that block is outside the {} x {} picture", c.w, c.h);
                 }
+                let (x, y, w, h) = (x as u32, y as u32, w as u32, h as u32);
                 let rows: Vec<Vec<[u8; 4]>> = (y..y + h).map(|yy| (x..x + w).map(|xx| c.get(xx, yy)).collect()).collect();
                 json!({"width": c.w, "height": c.h, "pixels": rows, "hash": format!("{:016x}", c.hash())})
             }
