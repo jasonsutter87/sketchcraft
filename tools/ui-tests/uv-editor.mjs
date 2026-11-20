@@ -30,6 +30,8 @@ const problems = [];
 const ctx = await b.newContext({ locale: 'en-US', viewport: { width: 1500, height: 950 }, deviceScaleFactor: 1, reducedMotion: 'reduce' });
 const p = await ctx.newPage();
 p.on('pageerror', (e) => problems.push(String(e)));
+// React's warnings (e.g. "Maximum update depth exceeded") arrive as console errors: they fail the run like a page error
+p.on('console', (m) => m.type() === 'error' && !/Failed to load resource/.test(m.text()) && problems.push(`console error: ${m.text().slice(0, 140)}`));
 p.on('dialog', (d) => d.dismiss().catch(() => {}));
 const X = (c) => pageExec(p, c);
 

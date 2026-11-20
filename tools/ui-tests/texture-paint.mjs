@@ -33,8 +33,8 @@ const problems = [];
 const ctx = await b.newContext({ locale: 'en-US', viewport: { width: 1500, height: 950 }, deviceScaleFactor: 1, reducedMotion: 'reduce' });
 const p = await ctx.newPage();
 p.on('pageerror', (e) => problems.push(String(e)));
-// React's warnings arrive as console errors: they are printed (a note), not failed on
-p.on('console', (m) => m.type() === 'error' && !/Failed to load resource/.test(m.text()) && console.log(`note: [after: ${step}] console error: ${m.text().slice(0, 140)}`));
+// React's warnings (e.g. "Maximum update depth exceeded") arrive as console errors: they fail the run like a page error
+p.on('console', (m) => m.type() === 'error' && !/Failed to load resource/.test(m.text()) && problems.push(`[after: ${step}] console error: ${m.text().slice(0, 140)}`));
 const X = (c) => pageExec(p, c);
 const until = async (pred, ms = 8000) => {
   let s = await pageScene(p);
@@ -121,6 +121,11 @@ await panel.getByTestId('tp-needs').waitFor({ timeout: 5000 });
 check(((await panel.getByTestId('tp-needs').innerText()) || '').includes('no UVs'), 'the panel says the faces have no UVs and what unwrapping does');
 check((await (await pageScene(p)).materials.filter((m) => m.name.startsWith('Paint')).length) === 0, 'nothing was made yet');
 await panel.getByTestId('tp-newbase').selectOption('material');
+// the message is a toast that fades: record every toast the page shows, so a slow machine can't miss it
+await p.evaluate(() => {
+  window.__toasts = [];
+  new MutationObserver(() => document.querySelectorAll('.toast').forEach((t) => window.__toasts.push(t.textContent ?? ''))).observe(document.body, { childList: true, subtree: true, characterData: true });
+});
 await panel.getByTestId('tp-unwrap-new').click();
 const sc = await until((st) => st.materials.some((m) => m.name === 'Paint 1' && m.texture));
 const mat = sc.materials.find((m) => m.name === 'Paint 1');
@@ -129,7 +134,8 @@ const st0 = await pic('Paint 1');
 check(st0.ok && st0.width === 1024 && st0.height === 1024, `the picture is 1024 x 1024 (${st0.width} x ${st0.height})`);
 const onCrate = sc.faces.filter((f) => f.material === 'Paint 1').length;
 check(onCrate === 204, `all 204 faces of the crate wear it (${onCrate})`);
-check(((await p.locator('.toast').innerText().catch(() => '')) || '').includes('Paint 1'), 'a message says what was made');
+await p.waitForFunction(() => window.__toasts.some((t) => t.includes('Paint 1')), null, { timeout: 8000 }).catch(() => {});
+check((await p.evaluate(() => window.__toasts)).some((t) => t.includes('Paint 1')), 'a message says what was made');
 
 // ---- paint in the 3D view ----------------------------------------------------------------------------------------------------
 await p.locator('.viewport canvas').hover();
