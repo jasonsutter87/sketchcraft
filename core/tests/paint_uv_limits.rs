@@ -381,6 +381,44 @@ fn an_array_into_a_big_model_is_quick_and_welds_as_before() {
     assert_eq!(count(&e), (v0, e0, f0 + 1));
 }
 
+/// `n` copies of one rect, all in the same place (each with its own corners).
+fn stack(e: &mut Engine, z: f64, n: usize) -> Vec<Id> {
+    let one = rect(e, 0.0, z);
+    let mut ids = vec![one];
+    ids.extend(run(e, json!({"cmd": "array", "ids": [one], "by": [0, 0, 0], "count": 199}))["ids"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap() as Id));
+    let base = ids.clone();
+    ids.extend(run(e, json!({"cmd": "array", "ids": base, "by": [0, 0, 0], "count": n / 200 - 1}))["ids"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap() as Id));
+    assert_eq!(ids.len(), n);
+    ids
+}
+
+#[test]
+fn copying_a_pile_of_copies_onto_another_pile_is_answered_quickly() {
+    let mut e = Engine::new();
+    stack(&mut e, 0.0, 20_000);
+    let other = stack(&mut e, 10.0, 20_000);
+    // every copied corner lands just past the weld distance from the corners piled below it
+    let t = Instant::now();
+    let err = refused(&mut e, json!({"cmd": "duplicate", "ids": other, "by": [1.5e-6, 0, -10]}));
+    let took = t.elapsed();
+    assert!(err.contains("coincident"), "{err}");
+    let limit = Duration::from_secs(1);
+    assert!(took < limit, "{took:?}");
+    // the same through array
+    let t = Instant::now();
+    let err = refused(&mut e, json!({"cmd": "array", "ids": other, "by": [1.5e-6, 0, -10], "count": 1}));
+    assert!(err.contains("coincident"), "{err}");
+    assert!(t.elapsed() < limit, "{:?}", t.elapsed());
+    // a smaller pile still copies and welds as before
+    let mut e = Engine::new();
+    stack(&mut e, 0.0, 400);
+    let other = stack(&mut e, 10.0, 400);
+    let (v0, e0, f0) = (e.model.vertices.len(), e.model.edges.len(), e.model.faces.len());
+    run(&mut e, json!({"cmd": "duplicate", "ids": other, "by": [1.5e-6, 0, -10]}));
+    // the copies share one set of new corners and sides among themselves
+    assert_eq!((e.model.vertices.len(), e.model.edges.len(), e.model.faces.len()), (v0 + 4, e0 + 4, f0 + 400));
+}
+
 // ---- size budgets ------------------------------------------------------------------------------------------------
 
 #[test]
