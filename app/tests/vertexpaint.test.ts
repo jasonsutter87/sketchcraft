@@ -6,7 +6,7 @@ import { autoRadius, clampRadius, clampStrength, DEFAULT_VPAINT, effectiveRadius
 
 describe("brush size", () => {
   it("picks a size from the model, and never an absurd one", () => {
-    expect(autoRadius(10)).toBeCloseTo(0.4);
+    expect(autoRadius(10)).toBeCloseTo(0.6);
     expect(autoRadius(0)).toBe(0.1);
     expect(autoRadius(NaN)).toBe(0.1);
     expect(autoRadius(1e9)).toBe(1000);
@@ -14,7 +14,7 @@ describe("brush size", () => {
   });
 
   it("uses the setting, or the automatic size while it is 0", () => {
-    expect(effectiveRadius({ ...DEFAULT_VPAINT, radius: 0 }, 10)).toBeCloseTo(0.4);
+    expect(effectiveRadius({ ...DEFAULT_VPAINT, radius: 0 }, 10)).toBeCloseTo(0.6);
     expect(effectiveRadius({ ...DEFAULT_VPAINT, radius: 0.25 }, 10)).toBe(0.25);
   });
 

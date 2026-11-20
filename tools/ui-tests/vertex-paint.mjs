@@ -46,27 +46,55 @@ const menu = async (top, item) => {
   await p.getByRole('menuitem', { name: top, exact: true }).click();
   await p.getByRole('menuitem', { name: item }).click();
 };
-/** every corner's colour, via the engine: the faces of the placed globe */
-const corners = async (inst) => {
-  const r = await X({ cmd: 'vertex_colors', faces: [inst] });
-  const out = [];
-  for (const rgba of Object.values(r.colors ?? {})) for (const c of rgba ?? []) out.push(c);
-  return out;
-};
-const total = async (inst) => {
-  const r = await X({ cmd: 'vertex_colors', faces: [inst] });
-  return Object.values(r.colors ?? {}).reduce((n, v) => n + (v ? v.length : 0), 0);
+/** per face of the placed globe: the corner colours, or null for a face with none */
+const faceColors = async (inst) => (await X({ cmd: 'vertex_colors', faces: [inst] })).colors ?? {};
+/** every painted corner's colour, via the engine */
+const corners = async (inst) => Object.values(await faceColors(inst)).flatMap((v) => v ?? []);
+/** how many faces carry colours, and how many faces there are */
+const faceCount = async (inst) => {
+  const f = Object.values(await faceColors(inst));
+  return [f.filter((v) => v).length, f.length];
 };
 const painted = (cs) => cs.filter((c) => c.some((x) => x < 0.999));
+/** the middle of the model (from the scene's own bounds) and how big it is */
+const bounds = async () => {
+  const pos = (await pageScene(p)).positions;
+  const lo = [Infinity, Infinity, Infinity];
+  const hi = [-Infinity, -Infinity, -Infinity];
+  for (let i = 0; i < pos.length; i += 3) for (let k = 0; k < 3; k++) (lo[k] = Math.min(lo[k], pos[i + k]), (hi[k] = Math.max(hi[k], pos[i + k])));
+  return { mid: lo.map((v, k) => (v + hi[k]) / 2), size: Math.hypot(...hi.map((v, k) => v - lo[k])) };
+};
+/** stand in front of the model, close, looking at its middle, so it fills the view */
+const closeUp = async () => {
+  const { mid, size } = await bounds();
+  await p.evaluate(([m, d]) => {
+    const T = window.__sketchcraftView.current;
+    T.controls.target.set(...m);
+    T.persp.position.set(m[0], m[1] - d, m[2] + d * 0.1);
+    T.persp.up.set(0, 0, 1);
+    T.persp.lookAt(...m);
+    T.controls.update();
+  }, [mid, size * 1.1]);
+  await wait(500);
+};
+/** where the middle of the model is on the screen */
+const centre = async () => {
+  const { mid } = await bounds();
+  return p.evaluate(([x, y, z]) => {
+    const T = window.__sketchcraftView.current;
+    const v = T.camera.position.clone().set(x, y, z).project(T.camera);
+    const r = document.querySelector('.viewport canvas').getBoundingClientRect();
+    return [r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height];
+  }, mid);
+};
 /** a drag with the real pointer across the middle of the model */
 const stroke = async (opts = {}) => {
-  const r = await p.locator('.viewport canvas').boundingBox();
-  const [cx, cy] = [r.x + r.width / 2, r.y + r.height / 2];
+  const [cx, cy] = await centre();
   if (opts.alt) await p.keyboard.down('Alt');
-  await p.mouse.move(cx - 70, cy + 4);
+  await p.mouse.move(cx - 40, cy + 4);
   await p.mouse.down();
   await p.mouse.move(cx, cy - 4, { steps: 10 });
-  await p.mouse.move(cx + 70, cy + 4, { steps: 10 });
+  await p.mouse.move(cx + 40, cy + 4, { steps: 10 });
   await p.mouse.up();
   if (opts.alt) await p.keyboard.up('Alt');
   await wait(400);
@@ -78,30 +106,29 @@ await wait(800);
 await X({ cmd: 'new' });
 const ins = await X({ cmd: 'insert', asset: 'globe', at: [0, 0, 0] });
 check(ins.ok === true, 'the globe from the Texturing test set is in the model');
-const inst = ins.instance;
 await p.reload();
 await p.waitForSelector('.viewport canvas');
 await wait(1000);
-await p.locator('.viewport').click({ position: { x: 20, y: 400 } });
-await p.keyboard.press('Shift+Z');
-await wait(900);
+const inst = (await until((st) => st.instances.length === 1)).instances[0]?.id;
+check(typeof inst === 'number', `the globe is one placed component (${inst})`);
+await closeUp();
 
 // ---- pick the tool from the Tools menu ---------------------------------------------------------------------------------
 await menu('Tools', /Vertex Paint/);
 await panel.waitFor({ timeout: 5000 });
 check(await panel.isVisible(), 'Tools > Vertex Paint opens the brush panel');
 check(((await p.locator('.coach').innerText().catch(() => '')) || '').includes('brush the colour'), 'the step hint explains the tool (drag, brush the colour on)');
-check((await total(inst)) > 0 && (await corners(inst)).length > 0 && painted(await corners(inst)).length === 0, 'nothing is painted yet');
+const [none, faceTotal] = await faceCount(inst);
+check(faceTotal > 20 && none === 0, `nothing is painted yet (${faceTotal} faces)`);
 
 // ---- drag a stroke across it ------------------------------------------------------------------------------------------
 await p.locator('.viewport canvas').hover();
 await stroke();
-let cs = await corners(inst);
-const n = await total(inst);
-let hit = painted(cs).length;
-check(hit > 0, `the stroke painted ${hit} corners (of ${n})`);
-check(hit < n, 'and only some of them: the brush is local');
-let s = await pageScene(p);
+const hit = painted(await corners(inst)).length;
+const [paintedFaces] = await faceCount(inst);
+check(hit > 0, `the stroke painted ${hit} corners on ${paintedFaces} faces`);
+check(paintedFaces > 0 && paintedFaces < faceTotal, `and only some of the faces (${paintedFaces} of ${faceTotal}): the brush is local`);
+const s = await pageScene(p);
 check((s.vcolors ?? []).length === (s.positions ?? []).length && (s.vcolors ?? []).some((x) => x < 0.999), 'the viewport scene carries the tint per vertex');
 await p.screenshot({ path: path.join(shots, 'vertex-paint-stroke.png') });
 
@@ -142,14 +169,16 @@ await p.locator('.viewport').click({ position: { x: 20, y: 400 } });
 await p.keyboard.press('Control+a');
 await wait(300);
 await panel.getByTestId('vp-fill').click();
+await wait(300);
 await wait(500);
-check(painted(await corners(inst)).length === n, 'Fill paints every corner of the selection');
+check((await faceCount(inst))[0] === faceTotal, 'Fill paints every face of the selection');
 await panel.getByTestId('vp-clear').click();
 await wait(500);
-check(painted(await corners(inst)).length === 0, 'Clear takes the colours off again');
+check((await faceCount(inst))[0] === 0, 'Clear takes the colours off again');
 
 // ---- the display toggle ---------------------------------------------------------------------------------------------------------
 await panel.getByTestId('vp-fill').click();
+await wait(300);
 await wait(400);
 await p.getByRole('menuitem', { name: 'View', exact: true }).click();
 const item = p.getByRole('menuitemcheckbox', { name: /Vertex colours/ });
@@ -158,8 +187,25 @@ await item.click();
 await wait(300);
 await p.getByRole('menuitem', { name: 'View', exact: true }).click();
 check((await p.getByRole('menuitemcheckbox', { name: /Vertex colours/ }).getAttribute('aria-checked')) === 'false', 'and one click turns it off');
-await p.keyboard.press('Escape');
-await menu('View', /Vertex colours/);
+await p.getByRole('menuitemcheckbox', { name: /Vertex colours/ }).click();
+await wait(300);
+
+// the viewport really shows them: the globe filled red looks different with the display on and off
+await X({ cmd: 'vertex_paint', faces: [inst], color: [1, 0, 0], strength: 1 });
+await wait(600);
+const [gx, gy] = await centre();
+const clip = { x: gx - 60, y: gy - 60, width: 120, height: 120 };
+const redOn = await p.screenshot({ clip, animations: 'disabled' });
+await p.getByRole('menuitem', { name: 'View', exact: true }).click();
+await p.getByRole('menuitemcheckbox', { name: /Vertex colours/ }).click();
+await wait(600);
+const redOff = await p.screenshot({ clip, animations: 'disabled' });
+fs.writeFileSync(path.join(shots, 'vertex-paint-red-on.png'), redOn);
+fs.writeFileSync(path.join(shots, 'vertex-paint-red-off.png'), redOff);
+check(!redOn.equals(redOff), 'the model looks different with View > Vertex colours on and off');
+await p.getByRole('menuitem', { name: 'View', exact: true }).click();
+await p.getByRole('menuitemcheckbox', { name: /Vertex colours/ }).click();
+await wait(300);
 
 // the visual reference: the panel itself (macOS only; Linux gets its references from a Linux run)
 await wait(300);

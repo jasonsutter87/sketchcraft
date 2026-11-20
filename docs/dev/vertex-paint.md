@@ -69,7 +69,7 @@ path is drawn and each new point is laid along the line from the last one every 
 (`extendStroke`). The stroke goes on mouse up as one `vertex_paint` command (at most 1500 points, thinned evenly), which
 is one undo step. Targets are the faces, groups or components the brush went over. **[** / **]** change the size by a
 quarter; Alt (held at any moment of the drag) erases. The colour is the paint colour chip's. The panel
-(`vertexpaintpanel.tsx`) has Size (a log slider; "Auto" until set: about 4% of the model's diagonal), Strength, the edge,
+(`vertexpaintpanel.tsx`) has Size (a log slider; "Auto" until set: about 6% of the model's diagonal), Strength, the edge,
 and Fill / Clear for the selection. Step hints are `guide.vpaint.*` and the panel's words `vp.*`, in the English and
 Italian locale files.
 

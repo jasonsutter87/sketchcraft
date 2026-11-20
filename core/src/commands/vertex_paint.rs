@@ -66,7 +66,7 @@ impl Engine {
             }
             Command::VertexColors { faces } => {
                 let mut out = serde_json::Map::new();
-                let mut one = |out: &mut serde_json::Map<String, Value>, id: Id, f: &crate::model::Face| -> Result<()> {
+                let one = |out: &mut serde_json::Map<String, Value>, id: Id, f: &crate::model::Face| -> Result<()> {
                     out.insert(id.to_string(), serde_json::to_value(f.vcol.as_ref().filter(|u| u.fits(f)).map(|u| &u.outer))?);
                     Ok(())
                 };

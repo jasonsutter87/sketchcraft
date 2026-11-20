@@ -43,10 +43,10 @@ export function sceneDiagonal(s: Pick<Scene, "positions">): number {
   return d;
 }
 
-/** A brush radius for a model whose bounding box has this diagonal (metres): about 4% of it, never absurd. */
+/** A brush radius for a model whose bounding box has this diagonal (metres): about 6% of it, never absurd. */
 export function autoRadius(diagonal: number): number {
   if (!(diagonal > 0) || !Number.isFinite(diagonal)) return 0.1;
-  return clampRadius(diagonal * 0.04);
+  return clampRadius(diagonal * 0.06);
 }
 
 export function clampRadius(r: number): number {
