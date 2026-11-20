@@ -63,6 +63,8 @@ export interface Styles {
   background?: Backdrop;
   /** vertex colours shown (default on) */
   vertexColors?: boolean;
+  /** a checker over every face that has its own UVs, to see how a picture stretches (the UV editor's Checker) */
+  checker?: boolean;
   /** hidden edges shown dashed (SketchUp's Back Edges, K) */
   backEdges: boolean;
   /** draw tag and edge line weights and styles (default on) */

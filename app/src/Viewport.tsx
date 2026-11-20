@@ -30,7 +30,7 @@ import { combine, EMPTY, selIds, selMode, toggle, type Sel } from "./selection";
 import { formatLength, parseLengths } from "./units";
 import { autoTagColor, ACCENT, BACKGROUNDS } from "./viewport/colors";
 import { styledEdges, averagedNormals, smoothNormals } from "./viewport/edges";
-import { profileMaterial, textureFor } from "./viewport/materials";
+import { checkerTexture, profileMaterial, textureFor } from "./viewport/materials";
 import { UP, r4, arr, circleThrough, bulgeThrough, basis, arcPoints, offsetOutline } from "./viewport/geometry";
 import { selectMarquee } from "./viewport/marquee";
 import { isMac, isTypingTarget } from "./keymap";
@@ -390,7 +390,7 @@ export default function Viewport(props: Props) {
     T.catcher.visible = styles.shadows;
     buildModel();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [styles.xray, styles.shadows, styles.edges, styles.parallel, styles.backEdges, styles.face, styles.profiles, styles.vertexColors, styles.sketchy, styles.extensions, styles.background, styles.byTag, styles.notes, styles.hideRest, styles.lineWeights]);
+  }, [styles.xray, styles.shadows, styles.edges, styles.parallel, styles.backEdges, styles.face, styles.profiles, styles.vertexColors, styles.checker, styles.sketchy, styles.extensions, styles.background, styles.byTag, styles.notes, styles.hideRest, styles.lineWeights]);
 
   // ---------------------------------------------------------------- labels
   /** Keep one DOM label per spec; positions are updated every frame. */
@@ -832,6 +832,35 @@ export default function Viewport(props: Props) {
         mesh.receiveShadow = live.current.styles.shadows;
         T.model.add(mesh);
       }
+    }
+
+    // the UV editor's checker: faces with their own UVs wear a checker, so stretching shows in the model (never saved)
+    if (sty.checker && faceStyle !== "wireframe" && s.triUv?.some((u) => u === 1)) {
+      const pos: number[] = [];
+      const uv: number[] = [];
+      s.triUv.forEach((u, tri) => {
+        if (u !== 1) return;
+        for (let k = 0; k < 9; k++) pos.push(s.positions[tri * 9 + k]);
+        for (let k = 0; k < 6; k++) uv.push(s.uvs[tri * 6 + k]);
+      });
+      const cg = new THREE.BufferGeometry();
+      cg.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+      cg.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+      cg.setAttribute("normal", new THREE.BufferAttribute(smoothNormals(pos), 3));
+      const cm = new THREE.Mesh(cg, new THREE.MeshLambertMaterial({ map: checkerTexture(), side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1, clippingPlanes: clip }));
+      cm.name = "uv-checker";
+      T.model.add(cm);
+    }
+
+    // marked UV seams, in red
+    if (s.seams?.length && faceStyle !== "hiddenline") {
+      const sg = new THREE.BufferGeometry();
+      sg.setAttribute("position", new THREE.Float32BufferAttribute(s.seams, 3));
+      const seamLines = new THREE.LineSegments(sg, new THREE.LineBasicMaterial({ color: 0xe5383b, clippingPlanes: clip, depthTest: false }));
+      seamLines.name = "uv-seams";
+      seamLines.renderOrder = 5;
+      seamLines.raycast = () => {};
+      T.model.add(seamLines);
     }
 
     if (sty.edges || faceStyle === "wireframe" || faceStyle === "hiddenline") {

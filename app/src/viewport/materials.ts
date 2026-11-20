@@ -33,3 +33,19 @@ export function textureFor(name: string, data: string): THREE.Texture {
   }
   return t;
 }
+
+let checker: THREE.Texture | null = null;
+/** An 8 x 8 checker over 0..1 (the UV editor's Checker), repeating outside it. */
+export function checkerTexture(): THREE.Texture {
+  if (!checker) {
+    const c = document.createElement("canvas");
+    c.width = c.height = 256;
+    const g = c.getContext("2d")!;
+    for (let j = 0; j < 8; j++) for (let i = 0; i < 8; i++) ((g.fillStyle = (i + j) % 2 ? "#6f7385" : "#d9dce6"), g.fillRect(i * 32, j * 32, 32, 32));
+    checker = new THREE.CanvasTexture(c);
+    checker.wrapS = checker.wrapT = THREE.RepeatWrapping;
+    checker.colorSpace = THREE.SRGBColorSpace;
+    checker.anisotropy = 8;
+  }
+  return checker;
+}

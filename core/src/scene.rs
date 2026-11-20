@@ -23,6 +23,9 @@ pub fn build(root: &Model, ctx: Option<u32>) -> Value {
     let mut vcolors: Vec<f32> = Vec::new();
     let mut any_vcol = false;
     let mut tri_tex: Vec<i32> = Vec::new();
+    // faces with their own texture coordinates (an unwrap): 1 per triangle; the viewport's checker uses them
+    let mut tri_uv: Vec<u8> = Vec::new();
+    let mut any_own_uv = false;
     // roughness and metalness per triangle, for the physically based style
     let mut pbr: Vec<f32> = Vec::new();
     let mut textures: Vec<Value> = Vec::new();
@@ -60,6 +63,8 @@ pub fn build(root: &Model, ctx: Option<u32>) -> Value {
         let back = f.color.map(|c| [c[0] * 0.85, c[1] * 0.85, c[2] * 0.85]).unwrap_or(BACK_COLOR);
         let vc = crate::vertex_paint::CornerColors::of(&f);
         any_vcol |= vc.any();
+        let own = crate::texmap::Lightmap::own(&f);
+        any_own_uv |= own.any();
         for t in geom::triangulate(&f.outer, &f.holes, f.normal) {
             // one color per triangle (the app spreads it to the corners)
             colors.extend(color);
@@ -67,12 +72,17 @@ pub fn build(root: &Model, ctx: Option<u32>) -> Value {
             pbr.extend([rough, metal]);
             for p in t {
                 positions.extend([p.x as f32, p.y as f32, p.z as f32]);
-                let uv = map.as_ref().map(|mp| mp.uv(p)).unwrap_or([p.x, p.y]);
-                uvs.extend([uv[0] as f32, uv[1] as f32]);
+                if own.any() && map.is_none() {
+                    uvs.extend(own.at(p));
+                } else {
+                    let uv = map.as_ref().map(|mp| mp.uv(p)).unwrap_or([p.x, p.y]);
+                    uvs.extend([uv[0] as f32, uv[1] as f32]);
+                }
                 vcolors.extend(vc.tint(p));
             }
             tri_face.push(f.owner);
             tri_tex.push(ti);
+            tri_uv.push(own.any() as u8);
         }
     }
     let (mut edges, mut edge_ids, mut soft_edges) = (Vec::<f32>::new(), Vec::<u32>::new(), Vec::<f32>::new());
@@ -161,7 +171,7 @@ pub fn build(root: &Model, ctx: Option<u32>) -> Value {
         .edges
         .iter()
         .map(|(&id, e)| {
-            json!({"draft": e.draft, "id": id, "a": t.transform_point3(m.p(e.a)).to_array(), "b": t.transform_point3(m.p(e.b)).to_array(), "va": e.a, "vb": e.b, "soft": e.soft, "group": e.group, "curve": e.curve})
+            json!({"seam": e.seam, "draft": e.draft, "id": id, "a": t.transform_point3(m.p(e.a)).to_array(), "b": t.transform_point3(m.p(e.b)).to_array(), "va": e.a, "vb": e.b, "soft": e.soft, "group": e.group, "curve": e.curve})
         })
         .collect();
     let groups: Vec<Value> = root
@@ -187,7 +197,12 @@ pub fn build(root: &Model, ctx: Option<u32>) -> Value {
     // Rounded so big imports stay a few MB of JSON: 0.01 mm positions,
     // 1/1000 colors; texture coordinates only when something is textured.
     let q = |v: &[f32], step: f64| -> Vec<f64> { v.iter().map(|x| (*x as f64 / step).round() * step).map(|x| (x * 1e6).round() / 1e6).collect() };
-    let textured = tri_tex.iter().any(|t| *t >= 0);
+    let textured = tri_tex.iter().any(|t| *t >= 0) || any_own_uv;
+    // marked UV seams, as line segments in world space (the viewport draws them red)
+    let seams: Vec<f32> = m.edges.values().filter(|e| e.seam).flat_map(|e| {
+        let (a, b) = (t.transform_point3(m.p(e.a)), t.transform_point3(m.p(e.b)));
+        [a.x as f32, a.y as f32, a.z as f32, b.x as f32, b.y as f32, b.z as f32]
+    }).collect();
     // point clouds: what they are and where; the points come by cloud_data
     let clouds: Vec<Value> = root
         .clouds
@@ -255,6 +270,8 @@ pub fn build(root: &Model, ctx: Option<u32>) -> Value {
         "units": root.units,
     });
     // (set apart from the big literal above: json! stops expanding past a recursion limit)
+    out["triUv"] = json!(if any_own_uv { tri_uv } else { Vec::new() });
+    out["seams"] = json!(seams);
     out["vcolors"] = json!(if any_vcol { q(&vcolors, 1e-3) } else { Vec::new() });
     out["tagStyles"] = json!(root.drafting.tag_styles);
     out["edgeStyle"] = json!(if style_table.is_empty() { vec![] } else { edge_style });

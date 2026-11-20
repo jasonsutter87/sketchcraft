@@ -26,6 +26,8 @@ export interface EdgeInfo {
   va?: number;
   vb?: number;
   soft: boolean;
+  /** a UV seam */
+  seam?: boolean;
   group: number | null;
   /** edges of one arc, circle or welded curve share this */
   curve?: number | null;
@@ -175,6 +177,10 @@ export interface Scene {
   cages?: Record<string, { points: number[][]; faces: number[][]; materials: (string | null)[]; creases: number[][]; levels: number; symmetry: { axis: number; center: number } | null }>;
   /** texture coordinates, two per vertex */
   uvs: number[];
+  /** per triangle: 1 when its face holds its own texture coordinates (an unwrap); the checker shows those; empty when none do */
+  triUv?: number[];
+  /** marked UV seams: line segments (6 numbers each), world space */
+  seams?: number[];
   /** vertex colours: an rgb tint per vertex (3 numbers each, like `positions`); empty when nothing is painted */
   vcolors?: number[];
   /** per triangle: index into `textures`, or -1 */

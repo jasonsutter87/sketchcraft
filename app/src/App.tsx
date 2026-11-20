@@ -53,6 +53,7 @@ import { ProjectionPanel } from "./projectionpanel";
 import { VertexPaintPanel } from "./vertexpaintpanel";
 import { DEFAULT_VPAINT, effectiveRadius, sceneDiagonal, type VPaintSettings } from "./vertexpaint";
 import { PositionPanel } from "./positionpanel";
+import { UvPanel } from "./uvpanel";
 import { RestoreDialog } from "./restore";
 import { TimelinePanel } from "./timeline";
 import { LearnCenter, LessonCard, lessonsDone, useLearnCtx } from "./learn";
@@ -193,6 +194,8 @@ function ModelingApp() {
   const [showText3d, setShowText3d] = useState(false);
   // Project texture: the panel is about the selection it opened on
   const [showProjection, setShowProjection] = useState(false);
+  // the UV editor
+  const [showUv, setShowUv] = useState(false);
   const [vpaint, setVPaint] = useState<VPaintSettings>(DEFAULT_VPAINT);
   // Position texture: the face being positioned
   const [positionFace, setPositionFace] = useState<number | null>(null);
@@ -320,6 +323,7 @@ function ModelingApp() {
     if (!sel.faces.length && !sel.groups.length && !sel.instances.length) return say(tr("proj.select"), true);
     setShowProjection(true);
   };
+  const askUv = () => setShowUv(true);
   const askPosition = () => {
     const f = sel.faces.length === 1 && !sel.groups.length && !sel.instances.length ? scene?.faces.find((x) => x.id === sel.faces[0]) : null;
     if (!f) return say(tr("pos.select"), true);
@@ -595,6 +599,7 @@ function ModelingApp() {
         },
       },
       { id: "tools.positiontexture", label: "Position texture…", hint: "Tools · move, rotate, scale and skew the picture on the selected face (also right-click a textured face: Texture › Position)", run: askPosition },
+      { id: "tools.uveditor", label: "UV editor", hint: "Tools · a 2D view of the selected faces' UVs: mark seams, unwrap, pack, move islands, make the lightmap UVs", run: askUv },
       { id: "tools.projecttexture", label: "Project texture…", hint: "Tools · lay a picture on the selection: planar, box, cylinder or sphere", run: askProjection },
       { label: "Subdivide…", hint: `Tools · smooth the selected group or component into a SubD shape. ${SUBD_HOW}`, run: askSubdivide },
       { label: "SubD box", hint: `Tools · a cube cage to shape. ${SUBD_HOW}`, run: () => void addSubdBox() },
@@ -711,6 +716,7 @@ function ModelingApp() {
       text3d: () => setShowText3d(true),
       projection: askProjection,
       positionTexture: askPosition,
+      uvEditor: askUv,
       plugins: () => (reloadPlugins(), setShowPlugins(true)),
       themes: () => setShowSkins(true),
       keys: () => setShowKeys(true),
@@ -1196,6 +1202,7 @@ function ModelingApp() {
         {showRestore && <RestoreDialog run={run} onClose={() => setShowRestore(false)} onToast={say} />}
         {tool === "vpaint" && scene && !inLayout && <VertexPaintPanel settings={vpaint} set={setVPaint} radius={effectiveRadius(vpaint, sceneDiagonal(scene))} sel={sel} color={color} run={run} onToast={say} />}
         {positionFace != null && scene && api.current && <PositionPanel scene={scene} face={positionFace} run={run} api={api.current} onClose={() => setPositionFace(null)} onToast={say} />}
+        {showUv && scene && <UvPanel scene={scene} sel={sel} setSel={setSel} run={run} checker={!!styles.checker} setChecker={(on) => setStyles((s) => ({ ...s, checker: on }))} onClose={() => setShowUv(false)} onToast={say} />}
         {showProjection && scene && <ProjectionPanel scene={scene} sel={sel} run={run} camera={() => api.current!.camera()} onClose={() => setShowProjection(false)} onToast={say} />}
         {showText3d && scene && <Text3dDialog scene={scene} run={run} camera={() => api.current!.camera()} onClose={() => setShowText3d(false)} onToast={say} />}
         {showRef && scene && <RefImageDialog scene={scene} run={run} onClose={() => setShowRef(false)} onToast={say} />}

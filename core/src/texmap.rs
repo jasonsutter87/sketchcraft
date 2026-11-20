@@ -116,8 +116,18 @@ pub struct Lightmap(Option<HashMap<[u64; 3], [f32; 2]>>);
 
 impl Lightmap {
     pub fn of(f: &WFace) -> Lightmap {
+        Lightmap::from(f, f.uv2.as_ref())
+    }
+
+    /// The face's own picture coordinates (`Face::uv`) the same way: the viewport's checker shows them on faces that have
+    /// no picture.
+    pub fn own(f: &WFace) -> Lightmap {
+        Lightmap::from(f, f.uv.as_ref())
+    }
+
+    fn from(f: &WFace, uv: Option<&(Vec<[f32; 2]>, Vec<Vec<[f32; 2]>>)>) -> Lightmap {
         let key = |p: &DVec3| [p.x.to_bits(), p.y.to_bits(), p.z.to_bits()];
-        Lightmap(f.uv2.as_ref().map(|(o, h)| {
+        Lightmap(uv.map(|(o, h)| {
             let mut m = HashMap::new();
             for (p, c) in f.outer.iter().zip(o) {
                 m.insert(key(p), *c);

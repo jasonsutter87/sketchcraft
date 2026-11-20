@@ -1,0 +1,170 @@
+@use "variables" as *;
+
+/* UV editor: a floating (or docked) window with the picture and the UVs of the selected faces. Plain boxes, no accent
+   stripes on the hint line. */
+
+.uv-panel {
+  position: fixed;
+  z-index: 28;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 620px;
+  height: 640px;
+  min-width: 380px;
+  min-height: 360px;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100vh - 16px);
+  resize: both;
+  overflow: hidden;
+  padding: 10px;
+  border-radius: $radius-lg;
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 6px 24px rgba(20, 22, 40, 0.22), 0 0 0 1px rgba(20, 22, 40, 0.08);
+  font-size: $font-xl;
+
+  &.docked {
+    right: 0;
+    top: 0;
+    bottom: 0;
+    height: auto;
+    max-height: none;
+    border-radius: 0;
+    resize: horizontal;
+  }
+
+  .uv-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: grab;
+    user-select: none;
+  }
+
+  &.docked .uv-head {
+    cursor: default;
+  }
+
+  .uv-spacer {
+    flex: 1;
+  }
+
+  .uv-step {
+    padding: 6px 8px;
+    border-radius: $radius-md;
+    background: var(--field, rgba(120, 124, 150, 0.12));
+    font-size: $font-l;
+    line-height: 1.35;
+  }
+
+  .uv-bar,
+  .uv-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 10px;
+  }
+
+  .uv-group {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .seg {
+    display: flex;
+
+    button {
+      padding: 4px 8px;
+    }
+  }
+
+  .uv-angle {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+
+    input {
+      width: 52px;
+    }
+  }
+
+  .uv-stage {
+    position: relative;
+    flex: 1;
+    min-height: 160px;
+    overflow: hidden;
+    border-radius: $radius-md;
+    outline: none;
+    cursor: crosshair;
+    touch-action: none;
+    background: #2b2e3a;
+
+    &:focus-visible {
+      box-shadow: 0 0 0 2px var(--accent, #4c6ef5);
+    }
+  }
+
+  .uv-bg,
+  .uv-svg {
+    position: absolute;
+    left: 0;
+    top: 0;
+  }
+
+  .uv-svg {
+    overflow: hidden;
+  }
+
+  .uv-island {
+    fill: color-mix(in srgb, var(--tint) 16%, transparent);
+    stroke: color-mix(in srgb, var(--tint) 85%, black);
+    stroke-width: 1;
+    vector-effect: non-scaling-stroke;
+
+    &.on {
+      fill: color-mix(in srgb, var(--tint) 42%, transparent);
+      stroke: #fff;
+      stroke-width: 1.8;
+    }
+  }
+
+  .uv-pt {
+    fill: #fff;
+    stroke: rgba(0, 0, 0, 0.55);
+    stroke-width: 1;
+
+    &.on {
+      fill: #ffb703;
+    }
+  }
+
+  .uv-edge.on {
+    stroke: #ffb703;
+    stroke-width: 3;
+  }
+
+  .uv-pin circle {
+    fill: #e5383b;
+    stroke: #fff;
+    stroke-width: 1.5;
+  }
+
+  .uv-pin path {
+    stroke: #fff;
+    stroke-width: 1.5;
+    fill: none;
+  }
+
+  .uv-marquee {
+    fill: rgba(255, 255, 255, 0.12);
+    stroke: rgba(255, 255, 255, 0.8);
+    stroke-dasharray: 4 3;
+  }
+
+  .uv-foot {
+    padding: 0 2px;
+  }
+}
