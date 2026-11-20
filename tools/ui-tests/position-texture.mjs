@@ -108,6 +108,7 @@ await wait(1000);
 await camera([2, 1.9995, 60], [2, 2, 0]);
 await wait(300);
 
+await p.locator('nav.toolbar button[aria-label="Select"]').first().click();
 const before = await frame(face);
 check(before.pic.length === 4 && before.own === false, 'the painted face starts on the material\'s own placement');
 
@@ -116,12 +117,14 @@ const [fx, fy] = await px([2, 2, 0]);
 await p.mouse.click(fx, fy);
 await wait(300);
 await p.mouse.click(fx, fy, { button: 'right' });
-await p.getByRole('menuitem', { name: 'Texture › Position' }).click();
+await wait(500);
+await wait(400);
+await p.locator('.menu button', { hasText: 'Texture › Position' }).click();
 await overlay.waitFor({ timeout: 5000 });
 check(await overlay.isVisible(), 'right-click > Texture > Position opens Position mode');
 for (const k of ['red', 'green', 'blue', 'yellow']) check((await p.locator(`[data-testid="pos-pin-${k}"]`).count()) === 1, `the ${k} pin is there`);
 check(((await p.locator('.pos-bar').innerText()) || '').includes('Red pin: move'), 'the hint bar explains the pins');
-check((await p.locator('.pos-pin title').allInnerTexts()).some((x) => x.includes('Green pin')), 'each pin says what it does');
+check((await p.locator('.pos-pin title').evaluateAll((e) => e.map((t) => t.textContent))).some((x) => x.includes('Green pin')), 'each pin says what it does');
 
 // the visual reference: the hint bar (macOS only; Linux gets its references from a Linux run)
 const png = await p.locator('.pos-bar').screenshot({ animations: 'disabled', caret: 'hide' });
@@ -186,20 +189,20 @@ await overlay.waitFor({ state: 'detached', timeout: 5000 });
 const after = await frame(face);
 const dxs = after.pic.map((q, i) => q[0] - before.pic[i][0]);
 const dys = after.pic.map((q, i) => q[1] - before.pic[i][1]);
-check(dxs.every((d) => Math.abs(d - dxs[0]) < 1e-5) && Math.abs(dxs[0]) > 0.5, `Enter keeps it: every corner's u shifted by the same ${dxs[0].toFixed(2)} m`);
-check(dys.every((d) => Math.abs(d) < 0.15), 'and v did not move (a drag along x)');
-check(dxs[0] < 0, 'the picture followed the pointer: it moved right, so each corner now reads further left in it');
+// on a face looking up the picture's u runs along -y and its v along +x, so a drag to the right moves v
+check(dys.every((d) => Math.abs(d - dys[0]) < 1e-5) && Math.abs(dys[0]) > 0.5, `Enter keeps it: every corner's v shifted by the same ${dys[0].toFixed(2)} m`);
+check(dxs.every((d) => Math.abs(d) < 0.15), 'and u did not move (a drag along x)');
+check(dys[0] < 0, 'the picture followed the pointer: it moved right, so each corner now reads lower down in it');
 
 // one Undo takes the whole session back
-await p.locator('.viewport').click({ position: { x: 20, y: 400 } });
-await p.keyboard.press('Control+z');
+await p.locator('button.icon-btn[title^="Undo"]').click();
 await wait(500);
 const undone = await frame(face);
 check(same(undone.pic, before.pic) && undone.own === false, 'one Undo takes the whole Position session back');
-await p.keyboard.press('Control+Shift+z');
+await p.locator('button.icon-btn[title^="Redo"]').click();
 await wait(500);
 check(same((await frame(face)).pic, after.pic), 'and Redo brings it back');
-await p.keyboard.press('Control+z');
+await p.locator('button.icon-btn[title^="Undo"]').click();
 await wait(500);
 
 // ---- Esc leaves it as it was --------------------------------------------------------------------------------------------
@@ -223,11 +226,11 @@ check(same(esc.pic, before.pic) && esc.own === false, '...and Esc takes it all b
 await p.mouse.click(fx, fy);
 await wait(300);
 await p.mouse.click(fx, fy, { button: 'right' });
-await p.getByRole('menuitem', { name: 'Texture › Position' }).click();
+await p.locator('.menu button', { hasText: 'Texture › Position' }).click();
 await overlay.waitFor({ timeout: 5000 });
 const [qx, qy] = await centre(p.locator('[data-testid="pos-quad"]'));
 await p.mouse.click(qx, qy, { button: 'right' });
-await p.getByRole('menuitem', { name: 'Flip left/right' }).click();
+await p.locator('.menu button', { hasText: 'Flip left/right' }).click();
 await wait(600);
 const flipped = await frame(face);
 check(flipped.own === true && !same(flipped.pic, before.pic), 'Flip left/right in the menu changes the coordinates');
@@ -242,7 +245,7 @@ await p.mouse.click(bx, by);
 await wait(300);
 await p.mouse.click(bx, by, { button: 'right' });
 await wait(300);
-check((await p.getByRole('menuitem', { name: 'Texture › Position' }).count()) === 0, 'a face with no picture has no Texture > Position in its menu');
+check((await p.locator('.menu button', { hasText: 'Texture › Position' }).count()) === 0, 'a face with no picture has no Texture > Position in its menu');
 await p.keyboard.press('Escape');
 await p.getByRole('menuitem', { name: 'Tools', exact: true }).click();
 await p.getByRole('menuitem', { name: /Position texture/ }).click();

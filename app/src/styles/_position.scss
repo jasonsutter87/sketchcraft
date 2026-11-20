@@ -63,6 +63,10 @@
     pointer-events: none;
   }
 
+  .menu-scrim {
+    pointer-events: all;
+  }
+
   .pos-bar {
     position: fixed;
     top: 12px;
