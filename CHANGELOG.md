@@ -7,6 +7,19 @@ What changed in each SketchCraft release, newest first. The format follows
 ## [Unreleased]
 
 ### Added
+- **UV editor: unwrap, pack and edit a model's UVs.** **Tools > UV editor** (or **Window > UV editor**) opens a floating
+  2D view of the selected faces with the material's picture under their UVs. Mark seams on edges (**Mark seam** on edges
+  you chose in the 3D view or here, or **Auto seams** for every hard edge), press **Unwrap** and the model is cut along
+  the seams, each piece flattened without stretching it (and cut further where a surface cannot be flattened whole) and
+  all pieces packed into the square. Click an island to select its faces in the 3D view (and the other way round), drag
+  islands, points or edges, move / turn / scale with **G / R / S** or the arrow keys, flip and turn 90, **Pin** points and
+  unwrap again to keep them where they are, **Pack** again after moving things, **Reset**. The **Checker** toggle shows a
+  checker here and on the model so stretching is easy to see. Every edit is one Undo step. Seams show red in the 3D view.
+  Seams and UVs are saved in the model (older versions open such a file read-only). Agents use `uv_seam`, `uv_unwrap`,
+  `uv_pack`, `uv_set`, `uv_transform` and `uv_info`.
+- **Lightmap UVs.** **Lightmap UVs** in the UV editor makes a second UV set with no overlaps, packed into the square, for
+  baked light. It is never drawn on the model; glTF / GLB carries it as `TEXCOORD_1` and FBX as a second UV layer
+  ("LightmapUV"). Agents use `uv_lightmap`.
 - **Vertex painting.** **Tools > Vertex Paint** (or search for it) lays colour straight onto the corners of faces with a
   brush: drag over the model and every corner inside the brush circle moves toward the colour you picked, fading out
   toward the circle's edge. **[** and **]** change the brush size, the panel has Strength and the edge (soft, linear,

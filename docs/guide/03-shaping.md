@@ -90,6 +90,25 @@ back. Right-click inside for **Flip left/right**, **Flip up/down**, **Rotate 90/
 still orbit by dragging away from the picture. It works on faces painted with the Paint Bucket, carried on by paint-through
 or laid by a projection. The yellow pin skews rather than bending the picture in perspective.
 
+## Unwrapping a model (the UV editor)
+
+To put a picture exactly where you want it on a whole model, unwrap it. Select the faces (or a group) and choose **Tools ›
+UV editor**. A window opens with the picture, or a checker, under the outlines of the selected faces' UVs.
+
+1. **Mark seams** where the surface should be cut, like the seam of a shirt: choose edges in the 3D view (or in the UV
+   window) and press **Mark seam**. **Auto seams** marks every hard edge for you. Seams show red in the 3D view.
+2. Press **Unwrap**. The model is cut along the seams, each piece is flattened without stretching it, and the pieces
+   (islands) are fitted into the square. A surface that cannot be flattened in one piece, such as a closed sphere with no
+   seams, is cut further for you.
+3. Click an island to select it, and its faces in the 3D view. Drag it, or press **G** to move, **R** to turn and **S** to
+   scale (click to keep, **Esc** to cancel); the arrow keys nudge. **1 / 2 / 3** switch between points, edges and islands.
+   **Pin** (**P**) holds points in place so the next **Unwrap** leaves them where they are. **Pack** fits the islands in again
+   after you move things. Every change is one Undo step.
+4. Turn on **Checker** to see how the picture stretches, on the model too.
+
+**Lightmap UVs** makes a second set for baked light: no overlaps, packed into the square. It is not shown on the model;
+glTF / GLB (as `TEXCOORD_1`) and FBX (a second UV layer) carry it, so Blender, Unity and Unreal can bake into it.
+
 ## Terrain
 
 The Sandbox tools shape ground: **Smoove** raises and lowers it, **Stamp**

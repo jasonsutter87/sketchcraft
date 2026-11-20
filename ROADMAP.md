@@ -51,8 +51,8 @@ complaint about LayOut is that it's slow and loses your dimensions. So:
 ## 0.3.9: Texturing
 
 1. **Blocky Beaver** and a **texturing test set** (dice, can, globe, crate, soccer ball): every feature below is built and tested on them
-2. **glTF / GLB export** with UVs and vertex colours, plus **FBX** and a **lightmap UV channel**
-3. **UV unwrap** with a UV view
+2. **glTF / GLB export** with UVs and vertex colours, plus **FBX** and a **lightmap UV channel** (all built: the lightmap is `uv_lightmap`, exported as `TEXCOORD_1` and a second FBX UV layer)
+3. **UV unwrap** with a UV view (built: seams, LSCM unwrap, packing, the UV editor)
 4. **Position Texture**: move, rotate, scale and skew a texture on a face (built)
 5. **Paint-through** across connected faces
 6. **Projection mapping**: planar, box, cylinder, sphere
