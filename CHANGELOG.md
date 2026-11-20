@@ -6,6 +6,8 @@ What changed in each SketchCraft release, newest first. The format follows
 
 ## [Unreleased]
 
+## [0.3.9] - 2026-11-20
+
 ### Added
 - **A SketchUp-like Classic look, and a right-click that always works.** New models start in a **Classic** style: a light
   blue sky over a grey-green ground, thick dark profiles on outlines, thin dark edges elsewhere, no line weights, off-white
@@ -776,7 +778,8 @@ The first build with installers (never published as a release).
   import and export, and PNG renders with dimensions and labels.
 - Installers for macOS, Windows and Linux, and the CLI for each.
 
-[Unreleased]: https://github.com/jasonsutter87/sketchcraft/compare/v0.3.8...HEAD
+[Unreleased]: https://github.com/jasonsutter87/sketchcraft/compare/v0.3.9...HEAD
+[0.3.9]: https://github.com/jasonsutter87/sketchcraft/compare/v0.3.8...v0.3.9
 [0.3.8]: https://github.com/jasonsutter87/sketchcraft/compare/v0.3.7...v0.3.8
 [0.3.7]: https://github.com/jasonsutter87/sketchcraft/compare/v0.3.6...v0.3.7
 [0.3.6]: https://github.com/jasonsutter87/sketchcraft/compare/v0.3.5...v0.3.6
