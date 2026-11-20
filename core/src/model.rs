@@ -1436,6 +1436,62 @@ impl Model {
             out.extend(self.faces.iter().filter(|(_, f)| !f.hidden && keys.contains(&(f.group, f.material.as_deref()))).map(|(&k, _)| k));
             return Ok(out.into_iter().collect());
         }
+        if scope == "object" {
+            // each connected piece is walked once, however many seeds (and materials) it holds; then every face of a
+            // seed's piece that wears that seed's material is kept
+            let mut piece: HashMap<Id, usize> = HashMap::new();
+            let mut members: Vec<Vec<Id>> = Vec::new();
+            let mut wanted: BTreeMap<usize, std::collections::HashSet<Option<&str>>> = BTreeMap::new();
+            for &s in &seeds {
+                let sf = &self.faces[&s];
+                let mat = sf.material.as_deref();
+                // a hidden seed is kept itself and reaches the pieces next to it
+                let starts: Vec<Id> = if sf.hidden {
+                    out.insert(s);
+                    let mut next = Vec::new();
+                    for l in sf.loops() {
+                        for (a, b) in pairs(l) {
+                            next.extend(by_edge.get(&(sf.group, a.min(b), a.max(b))).into_iter().flatten().copied());
+                        }
+                    }
+                    next
+                } else {
+                    vec![s]
+                };
+                for start in starts {
+                    let k = match piece.get(&start) {
+                        Some(&k) => k,
+                        None => {
+                            let k = members.len();
+                            let group = self.faces[&start].group;
+                            piece.insert(start, k);
+                            let mut all = vec![start];
+                            let mut todo = vec![start];
+                            while let Some(id) = todo.pop() {
+                                for l in self.faces[&id].loops() {
+                                    for (a, b) in pairs(l) {
+                                        for &n in by_edge.get(&(group, a.min(b), a.max(b))).into_iter().flatten() {
+                                            if let std::collections::hash_map::Entry::Vacant(v) = piece.entry(n) {
+                                                v.insert(k);
+                                                all.push(n);
+                                                todo.push(n);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            members.push(all);
+                            k
+                        }
+                    };
+                    wanted.entry(k).or_default().insert(mat);
+                }
+            }
+            for (k, mats) in &wanted {
+                out.extend(members[*k].iter().copied().filter(|id| mats.contains(&self.faces[id].material.as_deref())));
+            }
+            return Ok(out.into_iter().collect());
+        }
         for &s in &seeds {
             // a seed already reached from an earlier one gives the same faces again (the walk stays in its group, and
             // a face it kept wears the same material)
@@ -1444,14 +1500,13 @@ impl Model {
             }
             let sf = &self.faces[&s];
             let (group, mat) = (sf.group, sf.material.clone());
-            let through_other = scope == "object";
             let mut seen: BTreeSet<Id> = BTreeSet::from([s]);
             let mut todo = vec![s];
             while let Some(id) = todo.pop() {
                 for l in self.faces[&id].loops() {
                     for (a, b) in pairs(l) {
                         for &n in by_edge.get(&(group, a.min(b), a.max(b))).into_iter().flatten() {
-                            if (through_other || self.faces[&n].material == mat) && seen.insert(n) {
+                            if self.faces[&n].material == mat && seen.insert(n) {
                                 todo.push(n);
                             }
                         }
