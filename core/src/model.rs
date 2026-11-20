@@ -592,13 +592,16 @@ impl Face {
 
 /// Vertices by place and edges by their ends, for commands that add many of them: the answers are the ones `vertex_in`
 /// and `find_edge` give (the lowest id that fits), without going over the whole model each time. Ids only grow, so it
-/// takes in whatever was added since it last looked; nothing may be moved or removed while one is in use.
+/// takes in whatever was added since it last looked; nothing may be moved or removed while one is in use. One Lookup
+/// serves one command, which may look at only so many listed points in all (`LOOKS`).
 #[derive(Default)]
 pub(crate) struct Lookup {
     vertices_to: Option<Id>,
-    cells: HashMap<(Option<Id>, [i64; 3]), Vec<Id>>,
+    /// each cell's points in id order, with where they are
+    cells: HashMap<(Option<Id>, [i64; 3]), Vec<(Id, DVec3)>>,
     edges_to: Option<Id>,
     ends: HashMap<(Id, Id), Id>,
+    looks: u64,
 }
 
 impl Lookup {
@@ -614,9 +617,13 @@ impl Lookup {
         (last.map_or(Unbounded, Excluded), Unbounded)
     }
 
-    fn vertex(&mut self, m: &Model, p: DVec3, group: Option<Id>) -> Option<Id> {
+    /// How many listed points one command may look at in all. Points in ordinary models are far apart next to the
+    /// weld distance, so one search looks at a handful; this leaves room for millions of searches through dense spots.
+    const LOOKS: u64 = 1 << 26;
+
+    fn vertex(&mut self, m: &Model, p: DVec3, group: Option<Id>) -> Result<Option<Id>> {
         for (&id, v) in m.vertices.range(Self::after(self.vertices_to)) {
-            self.cells.entry((v.group, Self::cell(v.p))).or_default().push(id);
+            self.cells.entry((v.group, Self::cell(v.p))).or_default().push((id, v.p));
             self.vertices_to = Some(id);
         }
         let c = Self::cell(p);
@@ -625,15 +632,27 @@ impl Lookup {
             for dy in -1..=1i64 {
                 for dz in -1..=1i64 {
                     let k = [c[0].saturating_add(dx), c[1].saturating_add(dy), c[2].saturating_add(dz)];
-                    for &id in self.cells.get(&(group, k)).into_iter().flatten() {
-                        if best.is_none_or(|b| id < b) && m.vertices.get(&id).is_some_and(|v| v.group == group && v.p.distance(p) < WELD) {
-                            best = Some(id);
+                    let Some(list) = self.cells.get(&(group, k)) else { continue };
+                    // in id order: once past the best so far, nothing further in this cell can beat it
+                    let mut seen = 0u64;
+                    for &(id, q) in list {
+                        if best.is_some_and(|b| id >= b) {
+                            break;
                         }
+                        seen += 1;
+                        if q.distance(p) < WELD {
+                            best = Some(id);
+                            break;
+                        }
+                    }
+                    self.looks += seen;
+                    if self.looks > Self::LOOKS {
+                        bail!("too many coincident points to weld; spread the copies apart or copy fewer at once");
                     }
                 }
             }
         }
-        best
+        Ok(best)
     }
 
     fn edge(&mut self, m: &Model, a: Id, b: Id) -> Option<Id> {
@@ -680,13 +699,13 @@ impl Model {
     }
 
     /// `vertex_in` through `look`: the same vertex, found without going over every vertex.
-    pub(crate) fn vertex_with(&mut self, p: DVec3, group: Option<Id>, look: &mut Lookup) -> Id {
-        if let Some(id) = look.vertex(self, p, group) {
-            return id;
+    pub(crate) fn vertex_with(&mut self, p: DVec3, group: Option<Id>, look: &mut Lookup) -> Result<Id> {
+        if let Some(id) = look.vertex(self, p, group)? {
+            return Ok(id);
         }
         let id = self.new_id();
         self.vertices.insert(id, Vertex { p, group });
-        id
+        Ok(id)
     }
 
     /// `find_edge` through `look`.
@@ -2476,7 +2495,7 @@ mod lookup_tests {
                 let p = place(&mut r, k);
                 let group = (k % 4 == 0).then_some(9);
                 let scan = m.vertices.iter().find(|(_, v)| v.group == group && v.p.distance(p) < WELD).map(|(&id, _)| id);
-                assert_eq!(look.vertex(&m, p, group), scan, "round {round} point {k}");
+                assert_eq!(look.vertex(&m, p, group).unwrap(), scan, "round {round} point {k}");
                 let (a, b) = (ids[(r() * ids.len() as f64) as usize], ids[(r() * ids.len() as f64) as usize]);
                 assert_eq!(look.edge(&m, a, b), m.find_edge(a, b));
             }
@@ -2484,6 +2503,73 @@ mod lookup_tests {
             let some: Vec<(Id, Id)> = m.edges.values().map(|e| (e.a, e.b)).collect();
             for (a, b) in some {
                 assert_eq!(look.edge(&m, b, a), m.find_edge(b, a));
+            }
+        }
+    }
+
+    /// `duplicate` of loose faces the plain way: a full scan for every corner and side.
+    fn duplicate_by_scan(m: &mut Model, ids: &[Id], by: DVec3) {
+        let mut map: HashMap<Id, Id> = HashMap::new();
+        for fid in ids {
+            let f = m.faces[fid].clone();
+            let mut remap = |m: &mut Model, l: &[Id]| -> Vec<Id> {
+                l.iter()
+                    .map(|v| {
+                        *map.entry(*v).or_insert_with(|| {
+                            let p = m.p(*v) + by;
+                            if by.length() < WELD {
+                                let id = m.new_id();
+                                m.vertices.insert(id, Vertex { p, group: f.group });
+                                id
+                            } else {
+                                m.vertex_in(p, f.group)
+                            }
+                        })
+                    })
+                    .collect()
+            };
+            let outer = remap(m, &f.outer);
+            let holes = f.holes.iter().map(|h| remap(m, h)).collect();
+            m.insert_face(Face { outer, holes, ..f.clone() });
+        }
+    }
+
+    fn tables(m: &Model) -> String {
+        serde_json::to_string(&(&m.vertices, &m.edges, &m.faces)).unwrap()
+    }
+
+    #[test]
+    fn copies_through_the_lookup_match_copies_by_full_scan() {
+        let mut r = stream(11);
+        for seed in 0..40 {
+            let mut a = Model::default();
+            // a few unit squares side by side, some in a group, each piled a few times in place
+            let mut faces = Vec::new();
+            for k in 0..4 {
+                let group = (k % 3 == 2).then_some(5);
+                let x = k as f64 + [0.0, 1e9 - 7.0, -12345.678][seed % 3];
+                let c = [DVec3::new(x, 0.0, 0.0), DVec3::new(x + 1.0, 0.0, 0.0), DVec3::new(x + 1.0, 1.0, 0.0), DVec3::new(x, 1.0, 0.0)];
+                let outer = c.iter().map(|p| a.vertex_in(*p, group)).collect();
+                faces.push(a.insert_face(Face { outer, group, ..Default::default() }));
+            }
+            let mut b = a.clone();
+            for step in 0..5 {
+                let pick: Vec<Id> = faces.iter().copied().filter(|_| r() < 0.7).collect();
+                let noise = [0.0, 1e-9, 0.999e-6, 1.001e-6, 1.5e-6, 3.999e-6, 4.001e-6][(r() * 7.0) as usize];
+                let by = match step % 3 {
+                    0 => DVec3::new(noise, 0.0, 0.0),
+                    1 => DVec3::new(1.0 + noise, -noise, 0.0),
+                    _ => DVec3::new(-noise, 1.0, noise),
+                };
+                let count = if step == 4 { 3 } else { 1 };
+                let new = if count > 1 { a.array(&pick, by, count).unwrap() } else { a.duplicate(&pick, by).unwrap() };
+                let before: BTreeSet<Id> = b.faces.keys().copied().collect();
+                for k in 1..=count {
+                    duplicate_by_scan(&mut b, &pick, by * k as f64);
+                }
+                assert_eq!(tables(&a), tables(&b), "seed {seed} step {step} by {by}");
+                assert_eq!(new, b.faces.keys().copied().filter(|f| !before.contains(f)).collect::<Vec<_>>());
+                faces.extend(new);
             }
         }
     }

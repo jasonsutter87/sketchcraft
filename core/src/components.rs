@@ -357,7 +357,7 @@ impl Model {
         let mut map: HashMap<Id, Id> = HashMap::new();
         let mut look = crate::model::Lookup::default();
         for v in &verts {
-            map.insert(*v, def.vertex_with(self.p(*v) - lo, None, &mut look));
+            map.insert(*v, def.vertex_with(self.p(*v) - lo, None, &mut look)?);
         }
         for f in &faces {
             let face = &self.faces[f];

@@ -215,26 +215,29 @@ impl Model {
         let mut map: HashMap<Id, Id> = HashMap::new();
         for fid in loose {
             let f = self.faces[&fid].clone();
-            let mut remap = |m: &mut Model, l: &[Id]| -> Vec<Id> {
+            let mut remap = |m: &mut Model, l: &[Id]| -> Result<Vec<Id>> {
                 l.iter()
                     .map(|v| {
-                        *map.entry(*v).or_insert_with(|| {
-                            let p = m.p(*v) + by;
-                            if by.length() < crate::model::WELD {
-                                // a copy in place (to rotate, or paste): its own
-                                // vertices, or moving it would drag the original
-                                let id = m.new_id();
-                                m.vertices.insert(id, crate::model::Vertex { p, group: f.group });
-                                id
-                            } else {
-                                m.vertex_with(p, f.group, look)
-                            }
-                        })
+                        if let Some(&id) = map.get(v) {
+                            return Ok(id);
+                        }
+                        let p = m.p(*v) + by;
+                        let id = if by.length() < crate::model::WELD {
+                            // a copy in place (to rotate, or paste): its own
+                            // vertices, or moving it would drag the original
+                            let id = m.new_id();
+                            m.vertices.insert(id, crate::model::Vertex { p, group: f.group });
+                            id
+                        } else {
+                            m.vertex_with(p, f.group, look)?
+                        };
+                        map.insert(*v, id);
+                        Ok(id)
                     })
                     .collect()
             };
-            let outer = remap(self, &f.outer);
-            let holes = f.holes.iter().map(|h| remap(self, h)).collect();
+            let outer = remap(self, &f.outer)?;
+            let holes = f.holes.iter().map(|h| remap(self, h)).collect::<Result<_>>()?;
             out.push(self.insert_face_with(Face { outer, holes, ..f.clone() }, look));
         }
         Ok(out)
