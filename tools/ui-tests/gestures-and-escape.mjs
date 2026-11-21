@@ -186,6 +186,46 @@ const selectedTitle = (p) => p.locator('.section-title', { hasText: /selected|^F
   await ctx.close();
 }
 
+// ---- an idle view draws (almost) nothing ---------------------------------------------------
+// The view draws a frame only when the picture would change. Drawing every frame kept a machine without a GPU
+// (WebGL on the CPU, as on Linux CI) busy on every core and slowed everything else in the page (engine round trips,
+// a plugin's commands) by 10 to 60 times. CI draws with SwiftShader, so this runs there as a user's VM would.
+{
+  const { p, ctx } = await open({ 'sketchcraft.help': 'off' });
+  await X(p, { cmd: 'new' });
+  const r = await X(p, { cmd: 'rect', from: [-2, -2, 0], to: [2, 2, 0] });
+  await X(p, { cmd: 'pushpull', face: r.face, distance: 2 });
+  await fit(p);
+  await p.mouse.move(5, 5); // off the model: no hover changes
+  await wait(1000);
+  const drawn = () => p.evaluate(() => window.__sketchcraftFrames?.drawn ?? -1);
+  const d0 = await drawn();
+  const idle = await p.evaluate(async () => {
+    const t0 = performance.now();
+    let frames = 0;
+    await new Promise((res) => {
+      const f = () => (++frames, performance.now() - t0 < 3000 ? requestAnimationFrame(f) : res());
+      requestAnimationFrame(f);
+    });
+    const a = performance.now();
+    for (let i = 0; i < 50; i++) await new Promise((r) => setTimeout(r, 0));
+    return { frames, hop: (performance.now() - a) / 50 };
+  });
+  const idleDrawn = (await drawn()) - d0;
+  console.log(`note: idle for 3 s, the view drew ${idleDrawn} of ${idle.frames} animation frames; a setTimeout(0) took ${idle.hop.toFixed(1)} ms`);
+  check(d0 > 0 && idleDrawn >= 0 && idleDrawn <= 5, `an idle view draws only now and then, not every frame (${idleDrawn} frames drawn in 3 s)`);
+  const shot = () => p.locator('.viewport canvas').screenshot();
+  const before = await shot();
+  const d1 = await drawn();
+  const [cx, cy] = await screen(p, [0, 0, 1]);
+  await p.mouse.move(cx, cy);
+  await p.mouse.wheel(0, -400);
+  await wait(800);
+  check((await drawn()) > d1, `zooming draws again (${(await drawn()) - d1} frames)`);
+  check(!before.equals(await shot()), 'and the picture shows the new view');
+  await ctx.close();
+}
+
 // ---- bad saved settings never stop the app starting ------------------------------------------
 for (const [what, storage] of [
   ['workspace edits: tools not a list', { 'sketchcraft.workspaceEdits': '{"model":{"tools":"x"}}' }],
