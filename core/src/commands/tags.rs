@@ -310,13 +310,14 @@ impl Engine {
                 let m: &mut Model = active_model!(self);
                 // edges named, or the edges around faces named
                 let mut edges: Vec<Id> = Vec::new();
+                let mut look = crate::model::Lookup::default();
                 for id in &ids {
                     if m.edges.contains_key(id) {
                         edges.push(*id);
                     } else if let Some(f) = m.faces.get(id).cloned() {
                         for l in f.loops() {
                             for (p, q) in crate::model::pairs(l) {
-                                edges.extend(m.find_edge(p, q));
+                                edges.extend(m.find_edge_with(p, q, &mut look));
                             }
                         }
                     } else {

@@ -504,6 +504,7 @@ impl Model {
 
     pub fn soften(&mut self, ids: &[Id], soft: bool) -> Result<usize> {
         let mut n = 0;
+        let mut look = crate::model::Lookup::default();
         for id in ids {
             if let Some(e) = self.edges.get_mut(id) {
                 e.soft = soft;
@@ -512,7 +513,7 @@ impl Model {
                 // a face: soften its edges shared with coplanar neighbours
                 for l in f.loops() {
                     for (a, b) in crate::model::pairs(l) {
-                        if let Some(e) = self.find_edge(a, b) {
+                        if let Some(e) = self.find_edge_with(a, b, &mut look) {
                             self.edges.get_mut(&e).unwrap().soft = soft;
                             n += 1;
                         }
