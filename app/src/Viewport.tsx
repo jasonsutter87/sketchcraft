@@ -339,7 +339,8 @@ export default function Viewport(props: Props) {
       }
       turnFigures();
       // render on demand: a frame only when the picture would change (see viewport/framewatch.ts)
-      const draw = frames.shouldDraw(performance.now(), renderer, world, cam, [live.current.styles.ao ? 1 : 0]);
+      const extra = [live.current.styles.ao ? 1 : 0];
+      const draw = frames.shouldDraw(performance.now(), renderer, world, cam, extra);
       if (!draw) {
         // nothing to draw
       } else if (live.current.styles.ao) {
@@ -361,6 +362,7 @@ export default function Viewport(props: Props) {
         ao.current.gt.camera = cam;
         ao.current.composer.render();
       } else renderer.render(world, cam);
+      if (draw) frames.drew(renderer, world, cam, extra);
       updateCoach();
       placeLabels();
       raf = requestAnimationFrame(loop);

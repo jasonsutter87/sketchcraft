@@ -196,7 +196,9 @@ const selectedTitle = (p) => p.locator('.section-title', { hasText: /selected|^F
   const r = await X(p, { cmd: 'rect', from: [-2, -2, 0], to: [2, 2, 0] });
   await X(p, { cmd: 'pushpull', face: r.face, distance: 2 });
   await fit(p);
-  await p.mouse.move(5, 5); // off the model: no hover changes
+  // resting on the box: the Select tool's see-through hover highlight is in the picture (it once kept the view drawing)
+  const [hx, hy] = await screen(p, [0, 0, 2]);
+  await p.mouse.move(hx, hy, { steps: 3 });
   await wait(1000);
   const drawn = () => p.evaluate(() => window.__sketchcraftFrames?.drawn ?? -1);
   const d0 = await drawn();
@@ -217,8 +219,6 @@ const selectedTitle = (p) => p.locator('.section-title', { hasText: /selected|^F
   const shot = () => p.locator('.viewport canvas').screenshot();
   const before = await shot();
   const d1 = await drawn();
-  const [cx, cy] = await screen(p, [0, 0, 1]);
-  await p.mouse.move(cx, cy);
   await p.mouse.wheel(0, -400);
   await wait(800);
   check((await drawn()) > d1, `zooming draws again (${(await drawn()) - d1} frames)`);

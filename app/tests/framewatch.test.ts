@@ -86,6 +86,32 @@ describe("render on demand (FrameWatch)", () => {
     expect(drawn).toBe(1);
   });
 
+  it("is not woken by what drawing itself changes (a see-through two-sided material is drawn in two passes)", () => {
+    const { scene, cam, r, w } = setup();
+    const m = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.3, side: THREE.DoubleSide });
+    scene.add(new THREE.Mesh(new THREE.PlaneGeometry(1, 1), m));
+    let now = 0;
+    /** a frame, drawn the way three.js draws it: back, then front, each a material change */
+    const frame = () => {
+      const d = w.shouldDraw((now += 16), r, scene, cam);
+      if (d) {
+        m.side = THREE.BackSide;
+        m.needsUpdate = true;
+        m.side = THREE.DoubleSide;
+        m.needsUpdate = true;
+        w.drew(r, scene, cam);
+      }
+      return d;
+    };
+    expect(frame()).toBe(true);
+    let drawn = 0;
+    for (let i = 0; i < 30; i++) drawn += +frame();
+    expect(drawn).toBe(0);
+    m.opacity = 0.5;
+    expect(frame()).toBe(true);
+    expect(frame()).toBe(false);
+  });
+
   it("draws when an object moves, hides, arrives or leaves", () => {
     const { frame, mesh, scene } = setup();
     frame();

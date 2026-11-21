@@ -64,6 +64,28 @@ export class FrameWatch {
    * depends on (the view's own switches). Counts the frame as drawn when it says yes.
    */
   shouldDraw(now: number, renderer: RendererState, scene: THREE.Scene, camera: THREE.Camera, extra: readonly number[] = []): boolean {
+    this.read(renderer, scene, camera, extra);
+    const v = this.cur;
+    const changed = this.force || v.length !== this.prev.length || v.some((x, i) => !same(x, this.prev[i]));
+    if (!changed && now - this.lastDrawn < this.heartbeatMs) return false;
+    [this.prev, this.cur] = [this.cur, this.prev];
+    this.force = false;
+    this.lastDrawn = now;
+    this.drawn++;
+    return true;
+  }
+
+  /**
+   * After drawing: read the frame again, as drawing left it. The renderer changes some of what it draws (a
+   * see-through, two-sided material is drawn back then front, and each pass counts as a material change), and
+   * that is not a reason to draw the next frame.
+   */
+  drew(renderer: RendererState, scene: THREE.Scene, camera: THREE.Camera, extra: readonly number[] = []) {
+    this.read(renderer, scene, camera, extra);
+    [this.prev, this.cur] = [this.cur, this.prev];
+  }
+
+  private read(renderer: RendererState, scene: THREE.Scene, camera: THREE.Camera, extra: readonly number[]) {
     scene.updateMatrixWorld();
     if (camera.parent === null) camera.updateMatrixWorld();
     const v = this.cur;
@@ -78,13 +100,6 @@ export class FrameWatch {
     v.push(bg ? ((bg as THREE.Color).isColor ? (bg as THREE.Color).getHex() : this.texture(bg as THREE.Texture)) : -1);
     v.push(scene.environment ? this.texture(scene.environment) : -1, scene.fog ? scene.fog.color.getHex() : -1);
     scene.traverseVisible((o) => this.object(o));
-    const changed = this.force || v.length !== this.prev.length || v.some((x, i) => !same(x, this.prev[i]));
-    if (!changed && now - this.lastDrawn < this.heartbeatMs) return false;
-    [this.prev, this.cur] = [this.cur, this.prev];
-    this.force = false;
-    this.lastDrawn = now;
-    this.drawn++;
-    return true;
   }
 
   private object(o: THREE.Object3D) {
