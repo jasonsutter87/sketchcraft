@@ -80,6 +80,9 @@ function traced(browser) {
   return browser;
 }
 
+/** Chromium flags for WebGL drawn on the CPU (SwiftShader), the way a machine without a GPU draws. */
+export const SOFTWARE_GL_ARGS = ['--disable-gpu', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'];
+
 export async function launch() {
   return traced(await launchRaw());
 }
@@ -87,16 +90,18 @@ export async function launch() {
 async function launchRaw() {
   const c = await chromium();
   const cache = path.join(realHome, 'Library/Caches/ms-playwright');
-  const attempts = [() => c.launch()];
+  // SKETCHCRAFT_SOFTWARE_GL=1 draws with SwiftShader (no GPU), as a Linux CI runner or a VM does
+  const args = process.env.SKETCHCRAFT_SOFTWARE_GL ? SOFTWARE_GL_ARGS : [];
+  const attempts = [() => c.launch({ args })];
   if (fs.existsSync(cache)) {
     for (const rev of fs.readdirSync(cache).filter((d) => /^chromium-\d+$/.test(d)).sort().reverse()) {
       for (const sub of ['chrome-mac-arm64', 'chrome-mac', 'chrome-mac-x64']) {
         const exe = path.join(cache, rev, sub, 'Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing');
-        if (fs.existsSync(exe)) attempts.push(() => c.launch({ executablePath: exe }));
+        if (fs.existsSync(exe)) attempts.push(() => c.launch({ executablePath: exe, args }));
       }
     }
   }
-  attempts.push(() => c.launch({ channel: 'chrome' }));
+  attempts.push(() => c.launch({ channel: 'chrome', args }));
   let last;
   for (const a of attempts) {
     try {
