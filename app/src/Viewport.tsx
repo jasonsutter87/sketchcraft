@@ -29,6 +29,7 @@ import { AXES, AXIS_COLORS, closestOnLine, infer, rayFrom, setDrawingAxes, V, ty
 import { combine, EMPTY, selIds, selMode, toggle, type Sel } from "./selection";
 import { formatLength, parseLengths } from "./units";
 import { autoTagColor, ACCENT, BACKGROUNDS, skyDome } from "./viewport/colors";
+import { FrameWatch } from "./viewport/framewatch";
 import { styledEdges, averagedNormals, smoothNormals } from "./viewport/edges";
 import { adoptPainted, checkerTexture, forgetPainted, profileMaterial, textureFor } from "./viewport/materials";
 import { DEFAULT_TPAINT, decodePixels, Painter, sampleRgba, stroke3DCommand, trisOf, uvAt } from "./texturepaint";
@@ -181,8 +182,12 @@ export default function Viewport(props: Props) {
     labelEls: Map<string, HTMLDivElement>;
   }>({ press: null, labels: [], liveLabels: [], labelEls: new Map(), op: null, last: null, lock: null, hover: null, hoverEdge: null, wall: null, rooms: [], cutaway: null, snap: null, shiftLock: false, zoomY: null, space: false, spaceUsed: false, fitted: false, fitNext: false, section: null, segs: { circle: 24, polygon: 6 }, rightDown: null, menuAt: -1e9, panAt: -1e9, selOverride: null });
 
-  // dev builds: inspect the tool state from the console (window.__sketchcraft)
-  if (import.meta.env.DEV) Object.assign(window as unknown as Record<string, unknown>, { __sketchcraft: st, __sketchcraftView: t });
+  /** render on demand: decides each animation frame whether the view needs drawing */
+  const frameWatch = useRef<FrameWatch | null>(null);
+  if (!frameWatch.current) frameWatch.current = new FrameWatch();
+
+  // dev builds: inspect the tool state from the console (window.__sketchcraft); the UI tests count frames drawn
+  if (import.meta.env.DEV) Object.assign(window as unknown as Record<string, unknown>, { __sketchcraft: st, __sketchcraftView: t, __sketchcraftFrames: frameWatch.current });
 
   // ---------------------------------------------------------------- setup
   useEffect(() => {
@@ -194,6 +199,8 @@ export default function Viewport(props: Props) {
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.localClippingEnabled = true;
     el.appendChild(renderer.domElement);
+    const frames = frameWatch.current!;
+    renderer.domElement.addEventListener("webglcontextrestored", () => frames.invalidate());
 
     const persp = new THREE.PerspectiveCamera(40, 1, 0.05, 20000);
     persp.up.set(0, 0, 1);
@@ -305,6 +312,7 @@ export default function Viewport(props: Props) {
     const resize = () => {
       const { clientWidth: w, clientHeight: h } = el;
       renderer.setSize(w, h);
+      frames.invalidate(); // a resized canvas starts blank, even at the same size
       ao.current?.composer.setSize(w, h);
       ao.current?.gt.setSize(w, h);
       persp.aspect = w / Math.max(h, 1);
@@ -319,6 +327,7 @@ export default function Viewport(props: Props) {
     const loop = () => {
       // put away under the Layout workspace: nothing moves, nothing is drawn, until it shows again
       if (live.current.paused) {
+        frames.invalidate();
         raf = requestAnimationFrame(loop);
         return;
       }
@@ -328,7 +337,12 @@ export default function Viewport(props: Props) {
         sky.position.copy(cam.position);
         sky.scale.setScalar(Math.max(cam.near * 10, Math.min(cam.far * 0.5, 5000)));
       }
-      if (live.current.styles.ao) {
+      turnFigures();
+      // render on demand: a frame only when the picture would change (see viewport/framewatch.ts)
+      const draw = frames.shouldDraw(performance.now(), renderer, world, cam, [live.current.styles.ao ? 1 : 0]);
+      if (!draw) {
+        // nothing to draw
+      } else if (live.current.styles.ao) {
         // ambient occlusion: render through a post-processing chain (built on first use)
         if (!ao.current) {
           const size = renderer.getSize(new THREE.Vector2());
@@ -349,7 +363,6 @@ export default function Viewport(props: Props) {
       } else renderer.render(world, cam);
       updateCoach();
       placeLabels();
-      turnFigures();
       raf = requestAnimationFrame(loop);
     };
     loop();
@@ -1825,6 +1838,7 @@ export default function Viewport(props: Props) {
     }
     r.setPixelRatio(ratio);
     r.setSize(prev.x, prev.y, false);
+    frameWatch.current!.invalidate(); // the view's own frame was drawn over and the canvas resized: draw it again
     if (cam.isPerspectiveCamera) {
       cam.aspect = aspect;
       cam.updateProjectionMatrix();
