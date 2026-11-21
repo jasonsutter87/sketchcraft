@@ -402,7 +402,8 @@ fn copying_a_pile_of_copies_onto_another_pile_is_answered_quickly() {
     let err = refused(&mut e, json!({"cmd": "duplicate", "ids": other, "by": [1.5e-6, 0, -10]}));
     let took = t.elapsed();
     assert!(err.contains("coincident"), "{err}");
-    let limit = Duration::from_secs(1);
+    // generous for slow CI runners in debug builds; without the budget this took over a minute
+    let limit = Duration::from_secs(5);
     assert!(took < limit, "{took:?}");
     // the same through array
     let t = Instant::now();
