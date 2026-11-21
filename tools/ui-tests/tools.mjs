@@ -1153,8 +1153,11 @@ await scenario('plugin', ['plugin'], async () => {
   await wait(500);
   await click([0, 0, 0]);
   await click([4, 0, 0]);
-  // every board is a command of its own: a slow machine (CI) takes a while, so wait for the count to reach what it should
-  const s = await until((s) => s.groups.length >= 14, 45000);
+  // every board is a command of its own: a slow machine (CI) takes a while, so wait for the count to reach what it should,
+  // and say how long it took so a slowdown shows up in the log rather than as a flaky failure
+  const t0 = Date.now();
+  const s = await until((s) => s.groups.length >= 14, 120000);
+  console.log(`note: the stud wall took ${((Date.now() - t0) / 1000).toFixed(1)} s for ${s.groups.length} groups`);
   // 4 m at 0.4064 m: a bottom plate, a double top plate and eleven studs
   check(s.groups.length >= 12, `two clicks build a stud wall: plates and studs, every board its own group (${s.groups.length} groups)`);
   await key('Escape');
