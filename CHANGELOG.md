@@ -141,6 +141,11 @@ What changed in each SketchCraft release, newest first. The format follows
   as `wall_pull`. Italian wording for the new tool is welcome from Italian speakers.
 
 ### Fixed
+- **A fast app on computers without a graphics card.** The model view now draws a picture only when something in it
+  changes (the camera, the model, a highlight, a style), instead of redrawing it 60 times a second while nothing moves.
+  On a virtual machine or an older laptop that draws 3D on the processor, an idle view used to keep every core busy and
+  slow everything else down: a plugin's stud wall took a minute or more, and is now a few seconds again. With a graphics
+  card nothing looks different; the computer just does less work while you think.
 - On Linux, right-dragging to pan no longer opens the context menu, and clicking a submenu's name after hovering it no longer shuts it again.
 - **The top bar fits a 1366-pixel laptop screen.** On wider system fonts (Linux) the menus ran under the workspace
   switch at that width. The product name now steps aside below 1400 pixels, and a long file name is shortened with an
