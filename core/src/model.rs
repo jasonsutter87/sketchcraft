@@ -1017,6 +1017,9 @@ impl Model {
                 hole.reverse();
                 self.faces.get_mut(&pid).unwrap().holes.push(hole);
             } else {
+                // the loop touches the face's outline: share whole edges with the
+                // faces across it, or the solid opens along that outline
+                lp = self.stitch_loop(&lp);
                 self.cut_from(pid, &lp)?;
             }
         } else if n.z < -0.999 {

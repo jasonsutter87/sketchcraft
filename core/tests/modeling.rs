@@ -216,6 +216,76 @@ fn band_across_wall_splits_it_in_two() {
     assert!((total - 48.0).abs() < 1e-6);
 }
 
+/// A 4 x 1 x 1 board in its own group, left open so more can be drawn on it.
+fn open_board(e: &mut Engine) -> u64 {
+    let g = run(e, json!({"cmd":"begin_group","name":"Board"}))["group"].as_u64().unwrap();
+    let f = run(e, json!({"cmd":"rect","from":[0,0,0],"to":[4,1,0]}))["face"].clone();
+    run(e, json!({"cmd":"pushpull","face":f,"distance":1,"toward":[0,0,1]}));
+    assert!((volume(e, g) - 4.0).abs() < 1e-9);
+    g
+}
+
+#[test]
+fn rect_at_a_face_edge_keeps_the_solid() {
+    // a post's footprint at the end of a board: the square's corners land in the
+    // middle of the top's long edges, which the side faces share
+    let mut e = Engine::new();
+    let g = open_board(&mut e);
+    let post = run(&mut e, json!({"cmd":"rect","from":[0,0,1],"to":[1,1,1]}))["face"].clone();
+    assert!((volume(&mut e, g) - 4.0).abs() < 1e-9, "splitting the top leaves the board a solid");
+    run(&mut e, json!({"cmd":"pushpull","face":post,"distance":1,"toward":[0,0,1]}));
+    assert!((volume(&mut e, g) - 5.0).abs() < 1e-9, "and so does pulling the post up");
+    run(&mut e, json!({"cmd":"end_group"}));
+    // the solid tools take it
+    let b = box_group(&mut e, [2.0, 0.25, 1.0], [3.0, 0.75, 1.5], "Block");
+    let u = run(&mut e, json!({"cmd":"solid","op":"union","ids":[g,b]}))["group"].as_u64().unwrap();
+    assert!((volume(&mut e, u) - 5.25).abs() < 1e-9);
+}
+
+#[test]
+fn rect_at_a_face_edge_undoes_in_one_step() {
+    let mut e = Engine::new();
+    let g = open_board(&mut e);
+    let before = run(&mut e, json!({"cmd":"info"}));
+    run(&mut e, json!({"cmd":"rect","from":[0,0,1],"to":[1,1,1]}));
+    let split = run(&mut e, json!({"cmd":"info"}));
+    assert_eq!(split["faces"], 7, "the top is two faces now");
+    assert_eq!(split["vertices"], 10, "two new corners, on the top's long edges");
+    run(&mut e, json!({"cmd":"undo"}));
+    let after = run(&mut e, json!({"cmd":"info"}));
+    for k in ["faces", "edges", "vertices"] {
+        assert_eq!(after[k], before[k], "{k} back to the plain board");
+    }
+    assert!((volume(&mut e, g) - 4.0).abs() < 1e-9);
+}
+
+#[test]
+fn rect_edge_over_an_existing_corner_keeps_the_solid() {
+    // a line down the front leaves a corner in the middle of the top's front edge;
+    // a rectangle on the top whose side runs over that corner has to pick it up
+    let mut e = Engine::new();
+    let g = open_board(&mut e);
+    run(&mut e, json!({"cmd":"line","points":[[2,0,0],[2,0,1]]}));
+    assert!((volume(&mut e, g) - 4.0).abs() < 1e-9);
+    let notch = run(&mut e, json!({"cmd":"rect","from":[1,0,1],"to":[3,0.5,1]}))["face"].clone();
+    assert!((volume(&mut e, g) - 4.0).abs() < 1e-9, "the board is still a solid");
+    run(&mut e, json!({"cmd":"pushpull","face":notch,"distance":0.5,"toward":[0,0,1]}));
+    assert!((volume(&mut e, g) - 4.5).abs() < 1e-9, "and the block pulled up from it is part of it");
+}
+
+#[test]
+fn door_at_ground_keeps_the_box_a_solid() {
+    // the door of door_at_ground_splits_wall_and_recesses, on a box in a group:
+    // its foot lands on the edge the wall shares with the floor
+    let mut e = Engine::new();
+    let g = run(&mut e, json!({"cmd":"begin_group","name":"House"}))["group"].as_u64().unwrap();
+    make_box(&mut e); // 8 x 12 x 6
+    let door = run(&mut e, json!({"cmd":"rect","from":[2,0,0],"to":[3,0,2.2]}))["face"].clone();
+    assert!((volume(&mut e, g) - 576.0).abs() < 1e-9);
+    run(&mut e, json!({"cmd":"pushpull","face":door,"distance":-0.3}));
+    assert!((volume(&mut e, g) - (576.0 - 2.2 * 0.3)).abs() < 1e-9, "the recessed doorway is carved out of the solid");
+}
+
 #[test]
 fn line_across_top_then_raise_ridge_makes_gable() {
     let mut e = Engine::new();

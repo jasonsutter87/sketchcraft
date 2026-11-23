@@ -6,7 +6,7 @@
 //!  - A line that closes a flat loop of lines makes a face.
 
 use crate::geom;
-use crate::model::{Face, Id, Model, WELD};
+use crate::model::{pairs, Face, Id, Model, WELD};
 use anyhow::Result;
 use glam::DVec3;
 use std::collections::{BTreeSet, HashMap};
@@ -66,6 +66,39 @@ impl Model {
             }
         }
         v
+    }
+
+    /// Make a new loop share whole edges with what it touches: a corner of `lp`
+    /// in the middle of an existing edge splits that edge (in every face using
+    /// it), and a vertex already lying along one of `lp`'s sides joins the loop.
+    /// A rectangle drawn at a face's edge would otherwise leave the faces across
+    /// that edge with the long, unsplit edge, and the solid would count as open.
+    pub(crate) fn stitch_loop(&mut self, lp: &[Id]) -> Vec<Id> {
+        for &v in lp {
+            let p = self.p(v);
+            if let Some(e) = self.edge_through(p) {
+                self.split_edge(e, p);
+            }
+        }
+        let g = self.active_group;
+        let mut out = Vec::with_capacity(lp.len());
+        for (a, b) in pairs(lp) {
+            out.push(a);
+            let (pa, pb) = (self.p(a), self.p(b));
+            let ab = pb - pa;
+            let mut along: Vec<(f64, Id)> = self
+                .vertices
+                .iter()
+                .filter(|(id, v)| v.group == g && !lp.contains(id))
+                .filter_map(|(&id, v)| {
+                    let t = (v.p - pa).dot(ab) / ab.length_squared();
+                    (t > 1e-9 && t < 1.0 - 1e-9 && (pa + ab * t).distance(v.p) < ON_EDGE).then_some((t, id))
+                })
+                .collect();
+            along.sort_by(|x, y| x.0.total_cmp(&y.0));
+            out.extend(along.into_iter().map(|(_, id)| id));
+        }
+        out
     }
 
     /// A vertex at `p`: an existing one, one splitting an edge, or a new one.
