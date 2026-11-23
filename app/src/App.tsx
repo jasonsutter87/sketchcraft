@@ -59,6 +59,7 @@ import { DEFAULT_TPAINT, paintMaterialOf, type TPaintSettings } from "./texturep
 import { exportTexture, TexturePaintPanel } from "./texturepaintpanel";
 import { editInPhotoCraft, photocraftHere } from "./photocraft";
 import { targetIds } from "./projection";
+import { fixCommand, fixSummary, type FixReply } from "./fixmodel";
 import { PositionPanel } from "./positionpanel";
 import { UvPanel } from "./uvpanel";
 import { RestoreDialog } from "./restore";
@@ -336,6 +337,13 @@ function ModelingApp() {
     if (!photocraftHere) return say(tr("pc.desktop"), true);
     if (!scene) return;
     void editInPhotoCraft(scene, targetIds(sel), sel, run, say, tr);
+  };
+  // Fix model / Check model: one engine command (one undo step); the toast says what it did
+  const askFixModel = async (dryRun: boolean) => {
+    const r = await run(fixCommand(sel, dryRun));
+    if (!r.ok) return;
+    const said = fixSummary(r as FixReply, tr);
+    say(said.text, said.bad, !dryRun && ((r.changes as number) ?? 0) > 0);
   };
   const askExportTexture = () => {
     const name = scene ? paintMaterialOf(scene, sel) ?? scene.materials.find((m) => m.texture && m.name.startsWith("Paint "))?.name ?? null : null;
@@ -645,6 +653,8 @@ function ModelingApp() {
       { id: "tools.photocraft", label: "Edit texture in PhotoCraft…", hint: "Tools · open the selection's picture in PhotoCraft with its UV layout as a guide layer; save there and it comes back", run: askPhotoCraft },
       { id: "tools.newpainttexture", label: "New paint texture…", hint: "Tools · make a paint texture for the selected faces (unwraps them if needed), then paint on it with Texture Paint", run: askNewPaintTexture },
       { id: "file.exporttexture", label: "Export texture…", hint: "File · save the selected faces' picture (or the first paint texture) as a PNG", run: askExportTexture },
+      { id: "tools.fixmodel", label: "Fix model", hint: "Tools · repair the selection (or the whole model): close holes, turn reversed faces, join flat neighbours, remove repeated and inside faces and stray lines. One undo step", run: () => void askFixModel(false) },
+      { id: "tools.checkmodel", label: "Check model", hint: "Tools · say what keeps the selection (or the whole model) from being a solid, without changing anything", run: () => void askFixModel(true) },
       { id: "tools.uveditor", label: "UV editor", hint: "Tools · a 2D view of the selected faces' UVs: mark seams, unwrap, pack, move islands, make the lightmap UVs", run: askUv },
       { id: "tools.projecttexture", label: "Project texture…", hint: "Tools · lay a picture on the selection: planar, box, cylinder or sphere", run: askProjection },
       { label: "Subdivide…", hint: `Tools · smooth the selected group or component into a SubD shape. ${SUBD_HOW}`, run: askSubdivide },
@@ -768,6 +778,8 @@ function ModelingApp() {
       uvEditor: askUv,
       newPaintTexture: askNewPaintTexture,
       photocraft: askPhotoCraft,
+      fixModel: () => void askFixModel(false),
+      checkModel: () => void askFixModel(true),
       plugins: () => (reloadPlugins(), setShowPlugins(true)),
       themes: () => setShowSkins(true),
       keys: () => setShowKeys(true),

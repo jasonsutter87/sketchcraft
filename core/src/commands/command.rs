@@ -1298,6 +1298,22 @@ pub enum Command {
     SaveImage { path: String, data: String },
     /// Volume of a closed group / component (m³), or not a solid.
     Volume { id: Id },
+    /// Repair the geometry in one undo step and list every change: repeated and inside faces, fins on shared edges,
+    /// reversed faces, flat neighbours joined, holes closed, stray lines. `ids`: groups or faces to limit it to
+    /// (none: the whole model); `dry_run`: only report what it would do.
+    FixModel {
+        #[serde(default)]
+        ids: Vec<Id>,
+        #[serde(default)]
+        dry_run: bool,
+        #[serde(default = "yes")]
+        stray_edges: bool,
+    },
+    /// Read-only: is this geometry a solid, and where it isn't (open edges, shared edges, reversed faces, inward shells).
+    CheckSolid {
+        #[serde(default)]
+        ids: Vec<Id>,
+    },
     /// Import a binary FBX (7.x): `path`, or the file as base64 in `data`.
     /// The file becomes one component; each mesh a group inside it.
     ImportFbx {

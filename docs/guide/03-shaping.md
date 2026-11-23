@@ -31,6 +31,17 @@ Select two solids (closed groups or components) and right-click: **Union**,
 **Intersect Faces**, **Flip Along**, **Soften** edges, and **Bevel** in the
 Design workspace.
 
+## Fix model (clean up and make solid)
+
+**Tools › Fix model** repairs a messy model in one step: it closes holes, turns reversed faces the right way round,
+joins flat faces that were split, and removes repeated faces, faces trapped inside a solid, fins hanging off shared
+edges and stray lines. Pick a group or some faces first to fix only those; pick nothing to fix the whole model
+(components too). The message says how many of each it did, and **Undo** takes the whole repair back in one go.
+**Tools › Check model** only reports what is wrong and changes nothing. Things it cannot settle by itself (a hole
+that is too big, an edge shared by three shapes, a flat sheet that is meant to be open) are listed as still wrong.
+Faces with different paint or pictures stay separate, and locked groups are left alone. Agents can run `fix_model`
+with `dry_run: true` to look first, and `check_solid` to list the problems with their places.
+
 ## Curved and organic shapes
 
 ![Subdivision surfaces](../demos/subdivision.gif)

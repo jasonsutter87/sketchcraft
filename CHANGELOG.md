@@ -7,6 +7,11 @@ What changed in each SketchCraft release, newest first. The format follows
 ## [Unreleased]
 
 ### Added
+- **Fix model.** **Tools › Fix model** cleans up and makes a messy model solid in one step: it closes holes, turns
+  reversed faces back, joins flat faces that were split, and removes repeated faces, faces trapped inside a solid, fins
+  on shared edges and stray lines. It works on what you picked, or the whole model, and one Undo takes it all back.
+  **Tools › Check model** only tells you what is wrong. Agents get `fix_model` (with a look-first `dry_run`) and
+  `check_solid`, each change listed with its ids and where it is. (Makers, #22)
 - **Name things in Properties.** Select a group or component and type its name in **Properties › Name**; select loose
   faces and naming them groups them under that name.
 - **SketchCraft AI (labs, hidden).** The local AI box is in the app but switched off while the model is trained and

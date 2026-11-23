@@ -45,6 +45,7 @@ pub mod matchphoto;
 pub mod model;
 pub mod nesting;
 pub mod openings;
+pub mod fix;
 pub mod floorplan;
 pub mod photomodel;
 pub mod photoproject;

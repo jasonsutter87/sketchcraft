@@ -108,10 +108,14 @@ fn hex_rgb(s: &str) -> Result<[f32; 3]> {
 
 impl Command {
     pub fn mutates(&self) -> bool {
+        if let Command::FixModel { dry_run: true, .. } = self {
+            return false;
+        }
         !matches!(
             self,
             Command::Faces { .. }
                 | Command::Volume { .. }
+                | Command::CheckSolid { .. }
                 | Command::Photoreal { .. }
                 | Command::SaveImage { .. }
                 | Command::Sun { .. }
@@ -1058,7 +1062,7 @@ impl Engine {
                 Command::Text3d { .. } | Command::Subd { .. } | Command::CageEdit { .. } |
                 Command::Subdivide { .. } | Command::FlipEdge { .. } | Command::Bevel { .. } |
                 Command::Divide { .. } | Command::Slice { .. } | Command::Intersect { .. } | Command::Flip { .. } |
-                Command::Solid { .. } | Command::Volume { .. }
+                Command::Solid { .. } | Command::Volume { .. } | Command::FixModel { .. } | Command::CheckSolid { .. }
             ) => self.run_shape(c),
             c @ (
                 Command::RaiseWalls { .. } | Command::DoorSwing { .. } | Command::TerrainFromContours { .. } |

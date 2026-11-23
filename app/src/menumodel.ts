@@ -219,6 +219,9 @@ export const MENUS: Menu[] = [
       act("tools.photocraft", "menu.photocraft"),
       tool("erase"),
       tool("section"),
+      SEP,
+      act("tools.fixmodel", "menu.fixModel"),
+      act("tools.checkmodel", "menu.checkModel"),
     ],
   },
   {

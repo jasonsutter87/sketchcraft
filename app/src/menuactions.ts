@@ -89,7 +89,7 @@ export interface MenuCtx {
   setLayout: (l: Layout) => void;
   setLanguage: (l: string) => void;
   // dialogs and links
-  open: Record<"restore" | "render" | "sheets" | "layout" | "timeline" | "location" | "text3d" | "projection" | "positionTexture" | "uvEditor" | "newPaintTexture" | "photocraft" | "plugins" | "themes" | "keys" | "keyEditor" | "palette" | "learn" | "about" | "customize", () => void>;
+  open: Record<"restore" | "render" | "sheets" | "layout" | "timeline" | "location" | "text3d" | "projection" | "positionTexture" | "uvEditor" | "newPaintTexture" | "photocraft" | "fixModel" | "checkModel" | "plugins" | "themes" | "keys" | "keyEditor" | "palette" | "learn" | "about" | "customize", () => void>;
   checkForUpdates: () => void;
   openLink: (which: "issues") => void;
 }
@@ -196,6 +196,9 @@ export function buildMenuActions(c: MenuCtx): Record<string, MenuAction> {
   add("tools.newpainttexture", c.open.newPaintTexture, model && has);
   // Edit texture in PhotoCraft: the selection's picture, with its UV layout as a guide; saved there, it comes back
   add("tools.photocraft", c.open.photocraft, model && has && c.desktop);
+  // Fix model and Check model: the engine repairs (or only reports on) the selection, or the whole model
+  add("tools.fixmodel", c.open.fixModel, model);
+  add("tools.checkmodel", c.open.checkModel, model);
   add("file.exporttexture", c.file.exportTexture, model);
   add("win.uveditor", c.open.uvEditor, model);
 

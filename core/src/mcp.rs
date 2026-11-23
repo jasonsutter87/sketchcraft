@@ -84,6 +84,7 @@ DRAFTING RECIPE (a dimensioned, hatched plan set): 1 inspect: sketchcraft_info, 
 - weld {edges} / explode_curve {edges}: join a chain of edges into one curve, or split it
 - make_unique {id}: a component placement gets its own definition
 - orient_faces {face}: flip a surface to face the same way as that face
+- fix_model {ids?: groups or faces to limit it to (none: the whole model, components too), dry_run?, stray_edges?=true}: ONE undo step that repairs what stops a model being a solid and lists every change with ids and places: repeated faces, faces inside the solid, fins on shared edges, reversed faces, flat neighbours joined, holes closed, stray lines. dry_run: true only reports. The reply's remaining says what is still wrong (notes explain). check_solid {ids?}: read-only, {solid, open_edges, non_manifold_edges, inconsistent_edges, inward_shells, duplicate_faces, loose_edges} with places
 - text_3d {rings:[[[x,y]..]..], at, right?, up?, depth?}: 3D text from outlines (holes = rings inside rings)
 - opacity {material, value 0-1}: see-through in the view (reference image boards)
 - environment {kind: suburban|city|park|desert|waterfront|studio|none}: a ready-made setting around the model (locked group tagged Environment; studio = seamless backdrop + softbox lights, renders without sky/sun). pushpull also takes toward:[x,y,z]

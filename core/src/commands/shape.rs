@@ -136,6 +136,25 @@ impl Engine {
                 Some(v) => json!({"solid": true, "volume": v}),
                 None => json!({"solid": false}),
             },
+            Command::FixModel { ids, dry_run, stray_edges } => {
+                let opts = crate::fix::FixOptions { stray_edges };
+                // inside `edit` or with ids it works on that model's own geometry; with neither, components too
+                let scope = m.fix_scope(&ids)?;
+                let whole = ids.is_empty() && self.ctx.is_none();
+                let run = |m: &mut Model| if whole { m.fix_everything(&opts) } else { m.fix_model(&scope, &opts) };
+                let mut report = if dry_run { run(&mut m.clone()) } else { run(m) };
+                report.dry_run = dry_run;
+                let mut v = serde_json::to_value(&report)?;
+                v["changes"] = json!(report.changes());
+                if dry_run || report.changes() == 0 {
+                    v["unchanged"] = json!(true);
+                }
+                v
+            }
+            Command::CheckSolid { ids } => {
+                let scope = m.fix_scope(&ids)?;
+                serde_json::to_value(m.solid_check(&scope))?
+            }
             other => unreachable!("command routed to the wrong group: {other:?}"),
         })
     }
