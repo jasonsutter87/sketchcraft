@@ -78,6 +78,10 @@ What changed in each SketchCraft release, newest first. The format follows
   native speakers are welcome.
 
 ### Fixed
+- **SketchUp 6 files with guide lines open.** A SketchUp 6 model with a guide line in it (a "Shed" from 2007) failed
+  with "this SketchUp file looks damaged": the reader didn't know guide lines and could not read the model's list past
+  the first one. It now reads them and goes on (guide lines themselves are not brought in), so the model opens with
+  all its parts and dimensions. Thanks to Tim Rowledge for the file. (Refs #200)
 - **SketchUp 2017 files with dimensions open.** A SketchUp 2017 model whose own list starts with a dimension failed
   with "this SketchUp file looks damaged": the reader didn't take a list that starts with a dimension or a text for the
   model's, and lost its way inside it. It also now reads what 2017 files add to a dimension (the components between it

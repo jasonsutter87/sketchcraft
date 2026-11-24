@@ -49,6 +49,8 @@ enum Kind {
     ArcCurve,
     Instance,
     ConstructionPoint,
+    /// a guide line (CConstructionLine): read so the list goes on, not placed
+    ConstructionLine,
     /// a section plane (CSectionPlane): read so the list goes on, not placed
     SectionPlane,
     /// the dictionaries an entity may carry (named attribute sets)
@@ -77,6 +79,7 @@ fn kind_of(name: &str) -> Option<Kind> {
         // an Image is a placement of a definition that holds the picture's face, laid out like a component
         "CComponentInstance" | "CGroup" | "CImage" => Kind::Instance,
         "CConstructionPoint" => Kind::ConstructionPoint,
+        "CConstructionLine" => Kind::ConstructionLine,
         "CSectionPlane" => Kind::SectionPlane,
         "CAttributeContainer" => Kind::AttrContainer,
         "CAttributeNamed" => Kind::AttrNamed,
@@ -483,6 +486,13 @@ impl<'a> Reader<'a> {
             Kind::ConstructionPoint => {
                 self.head()?;
                 self.skip(10 + 48 + 1)?;
+                Obj::Curve
+            }
+            Kind::ConstructionLine => {
+                // entity header, 10 bytes, a point and a direction (3 doubles each), the two ends it runs to (2
+                // doubles, about +-1e30 when it is endless), 4 bytes; checked on a SketchUp 6 file (#200)
+                self.head()?;
+                self.skip(10 + 64 + 4)?;
                 Obj::Curve
             }
             Kind::SectionPlane => {
