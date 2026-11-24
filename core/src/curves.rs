@@ -89,7 +89,7 @@ pub fn bezier_points(control: &[DVec3], closed: bool, segments: usize) -> Result
     if control.iter().any(|p| !p.is_finite()) {
         bail!("a bezier point is not a number");
     }
-    if control.len() < 4 || (control.len() - 1) % 3 != 0 {
+    if control.len() < 4 || !(control.len() - 1).is_multiple_of(3) {
         bail!("a bezier takes 4, 7, 10... control points: anchor, handle, handle, anchor (then handle, handle, anchor for each next piece); got {}", control.len());
     }
     if closed && control[0].distance(*control.last().unwrap()) > 1e-6 {

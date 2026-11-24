@@ -253,8 +253,7 @@ impl Model {
             while let Some(v) = stack.pop() {
                 members.push(v);
                 for &w in &nb[&v] {
-                    if !comp_of.contains_key(&w) {
-                        comp_of.insert(w, c);
+                    if comp_of.insert(w, c).is_none() {
                         stack.push(w);
                     }
                 }
