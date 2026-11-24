@@ -49,7 +49,8 @@ sketchy to blueprint, section cuts and floor plans, drawing sheets at real scale
 ![A Craftsman house modeled in SketchCraft](docs/craftsman_street.png)
 
 **Plan the build.** The **Cut list** plugin lists every board to cut and roughly
-how many sheets and boards to buy.
+how many sheets and boards to buy, and **Tools › Cut plan…** packs them onto real sheets and boards with cutting
+diagrams, prices and printable part labels.
 
 <p align="center"><img src="docs/demos/shelves-cut-list.gif" alt="The Shelves plugin builds a bookcase; Cut list lists its boards and what to buy" width="860"></p>
 

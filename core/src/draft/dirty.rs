@@ -378,6 +378,8 @@ pub fn changes(before: &Model, after: &Model) -> Dirty {
         active_section,
         axes: _,
         drafting,
+        // what the cut plan buys is never drawn on a sheet
+        cut_stock: _,
         sheets: _,
         sheet_items: _,
         title_blocks: _,

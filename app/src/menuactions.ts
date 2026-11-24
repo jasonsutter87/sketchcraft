@@ -89,7 +89,7 @@ export interface MenuCtx {
   setLayout: (l: Layout) => void;
   setLanguage: (l: string) => void;
   // dialogs and links
-  open: Record<"restore" | "render" | "sheets" | "layout" | "timeline" | "location" | "text3d" | "projection" | "positionTexture" | "uvEditor" | "newPaintTexture" | "photocraft" | "fixModel" | "checkModel" | "printCheck" | "makeFaces" | "flatten" | "plugins" | "themes" | "keys" | "keyEditor" | "palette" | "learn" | "about" | "customize", () => void>;
+  open: Record<"restore" | "render" | "sheets" | "layout" | "timeline" | "location" | "text3d" | "projection" | "positionTexture" | "uvEditor" | "newPaintTexture" | "photocraft" | "fixModel" | "checkModel" | "printCheck" | "cutPlan" | "makeFaces" | "flatten" | "plugins" | "themes" | "keys" | "keyEditor" | "palette" | "learn" | "about" | "customize", () => void>;
   checkForUpdates: () => void;
   openLink: (which: "issues") => void;
 }
@@ -201,6 +201,8 @@ export function buildMenuActions(c: MenuCtx): Record<string, MenuAction> {
   add("tools.checkmodel", c.open.checkModel, model);
   // Print check: solid, thin walls, overhangs, size, with Fix model one click away
   add("tools.printcheck", c.open.printCheck, model);
+  // Cut plan: the cut list packed onto sheets and boards, with prices, diagrams and labels
+  add("tools.cutplan", c.open.cutPlan, model);
   // Make faces and Flatten to height: the engine closes loops of loose lines / moves the picked points to one height
   add("tools.makefaces", c.open.makeFaces, model);
   add("tools.flatten", c.open.flatten, model);

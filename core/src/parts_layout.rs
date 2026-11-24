@@ -33,6 +33,14 @@ fn default_gap(parts: &[Measured]) -> f64 {
     (0.04 * longest).clamp(0.005, 0.1)
 }
 
+/// Longest first; the same size (to the millimeter) and material is the key Cut list counts by, so equal parts end up
+/// next to each other; then by name and id, so the order never depends on how the model is stored. The cut plan numbers
+/// its parts in this order too.
+pub fn sort_parts(parts: &mut [Measured]) {
+    let mm = |p: &Measured| p.size.map(|x| (x * 1000.0).round() as i64);
+    parts.sort_by(|a, b| mm(b).cmp(&mm(a)).then_with(|| a.material.cmp(&b.material)).then_with(|| a.name.cmp(&b.name)).then_with(|| a.id.cmp(&b.id)));
+}
+
 /// Lay out `ids` (groups or components), or every part when there are none. Returns the parts in lay-out order and
 /// the gap used. The lay-out sits under the parts: the same middle seen from above, resting at their lowest point.
 pub fn lay_out(m: &Model, ids: &[Id], gap: Option<f64>) -> Result<(Vec<Laid>, f64)> {
@@ -43,10 +51,7 @@ pub fn lay_out(m: &Model, ids: &[Id], gap: Option<f64>) -> Result<(Vec<Laid>, f6
     }
     let mut parts = measure(m, ids);
     let gap = gap.unwrap_or_else(|| default_gap(&parts));
-    // longest first; the same size (to the millimeter) and material is the key Cut list counts by, so equal parts
-    // end up next to each other; then by name and id, so the order never depends on how the model is stored
-    let mm = |p: &Measured| p.size.map(|x| (x * 1000.0).round() as i64);
-    parts.sort_by(|a, b| mm(b).cmp(&mm(a)).then_with(|| a.material.cmp(&b.material)).then_with(|| a.name.cmp(&b.name)).then_with(|| a.id.cmp(&b.id)));
+    sort_parts(&mut parts);
     // where the parts are now
     let (mut lo, mut hi) = (DVec3::splat(f64::MAX), DVec3::splat(f64::MIN));
     for p in &parts {

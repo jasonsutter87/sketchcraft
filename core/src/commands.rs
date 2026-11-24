@@ -31,6 +31,7 @@ macro_rules! active_model {
 }
 
 mod annotate;
+mod woodworker;
 mod build;
 mod command;
 mod draw;
@@ -136,6 +137,9 @@ impl Command {
                 | Command::Info
                 | Command::Parts { .. }
                 | Command::PartsLayout { .. }
+                | Command::CutPlan { .. }
+                | Command::ExportCutDiagrams { .. }
+                | Command::ExportCutLabels { .. }
                 | Command::LayOutParts { .. }
                 | Command::RoomInfo { .. }
                 | Command::Plugins
@@ -1107,6 +1111,7 @@ impl Engine {
                 Command::Section { .. } | Command::SectionPlane { .. } | Command::SectionEdit { .. } |
                 Command::SectionOff { .. }
             ) => self.run_sections(c),
+            c @ (Command::CutStock { .. } | Command::CutPlan { .. } | Command::ExportCutDiagrams { .. } | Command::ExportCutLabels { .. }) => self.run_woodworker(c),
             c @ (
                 Command::Guide { .. } | Command::Dimension { .. } | Command::Text { .. } | Command::Units { .. } |
                 Command::ClearGuides { .. } | Command::ShowView { .. } | Command::SaveView { .. } |

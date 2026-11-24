@@ -191,6 +191,39 @@ pub enum Command {
         #[serde(default)]
         gap: Option<f64>,
     },
+    /// Set what the cut plan buys (saved with the model, one undo step): `kerf`, `trim` (meters), `sheet` [length, width],
+    /// `board_lengths` [meters], `lengths_by_size` {"2×4": [..]}, `currency`, `materials` {name: {sheet_price, board_price,
+    /// board_foot_price, grain, sheet, board_lengths}} (a material given as null is removed), `reset`.
+    CutStock {
+        #[serde(default)] kerf: Option<f64>,
+        #[serde(default)] trim: Option<f64>,
+        #[serde(default)] sheet: Option<Value>,
+        #[serde(default)] board_lengths: Option<Value>,
+        #[serde(default)] lengths_by_size: Option<Value>,
+        #[serde(default)] currency: Option<String>,
+        #[serde(default)] materials: Option<Value>,
+        #[serde(default)] reset: bool,
+    },
+    /// Read-only: the parts packed onto sheets and boards by the model's stock (`kerf` and `trim` may be tried without
+    /// saving): what is placed where, waste, and what it costs. `ids` (groups or components), or every part.
+    CutPlan {
+        #[serde(default)] ids: Vec<Id>,
+        #[serde(default)] kerf: Option<f64>,
+        #[serde(default)] trim: Option<f64>,
+    },
+    /// Write the cutting diagrams: a .pdf (a summary, a page per sheet, boards), or an .svg (the pages one under another).
+    /// `paper` "a4" or "letter".
+    ExportCutDiagrams {
+        path: String,
+        #[serde(default)] ids: Vec<Id>,
+        #[serde(default)] paper: Option<String>,
+    },
+    /// Write the part labels as a printable .pdf: number, name, size, material, which sheet or board, and a grain arrow.
+    ExportCutLabels {
+        path: String,
+        #[serde(default)] ids: Vec<Id>,
+        #[serde(default)] paper: Option<String>,
+    },
     /// Show the parts laid out flat (`on`: true) or the model as it is (false). Laid out, the view and `render`
     /// draw every part where `parts_layout` puts it, leave out what is not a part, and changes are refused until
     /// it is switched off (New and Open switch it off). Nothing in the model moves; not an undo step, never saved.

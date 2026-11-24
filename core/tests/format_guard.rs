@@ -48,6 +48,7 @@ fn full_model() -> Engine {
     v["clouds"] = json!({"88": {"name": "Scan", "points": "AACAPwAAAEAAAEBA", "colors": "", "hidden": false, "version": 1}});
     v["sections"] = json!([{"id": 99, "name": "Section 1", "origin": [0.0, 0.0, 1.0], "normal": [0.0, 0.0, 1.0]}]);
     v["active_section"] = json!(99);
+    v["cut_stock"] = json!({"kerf": 0.004, "materials": {"Birch ply": {"sheet_price": 52.5}}});
     v["axes"] = json!([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]);
     // next_id stays above every id used
     v["next_id"] = json!(200);

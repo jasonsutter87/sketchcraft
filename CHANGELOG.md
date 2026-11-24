@@ -7,6 +7,13 @@ What changed in each SketchCraft release, newest first. The format follows
 ## [Unreleased]
 
 ### Added
+- **Cut plan: cutting diagrams, labels and cost.** **Tools › Cut plan…** (also a button on the Cut list's result) packs
+  your parts onto real sheets and boards and shows each sheet drawn to scale with every part numbered, how much is waste,
+  and what to buy. Set the saw kerf, the trim, the sheet size, the board lengths you can buy, and a price per sheet, per
+  board or per board foot for each material, plus whether it has a grain (so parts are not turned the wrong way). All of
+  it is saved with the model. **Export diagrams** writes a PDF (or SVG) with a page per sheet, and **Print labels**
+  writes a sheet of part labels with the number, name, size, material, which sheet it is cut from and a grain arrow.
+  Agents get `cut_stock`, a read-only `cut_plan`, `export_cut_diagrams` and `export_cut_labels`. (Makers, #24)
 - **An example to open: the Townhouse.** **Library › Examples** has a finished two-storey townhouse with its fixtures,
   to open, walk through and take apart. It takes the place of the model you have open (after asking; that one is kept
   in File › Restore from backup…), opens as Untitled, and File › Save As… keeps a copy. `open` takes a model's

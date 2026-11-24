@@ -62,6 +62,7 @@ import { targetIds } from "./projection";
 import { fixCommand, fixSummary, type FixReply } from "./fixmodel";
 import { flattenCommand, flattenHeight, flattenSummary, flattenTargets, makeFacesCommand, makeFacesSummary } from "./smalltools";
 import { PrintCheckDialog } from "./printcheckdialog";
+import { CutPlanDialog } from "./cutplandialog";
 import { PositionPanel } from "./positionpanel";
 import { UvPanel } from "./uvpanel";
 import { RestoreDialog } from "./restore";
@@ -210,6 +211,7 @@ function ModelingApp() {
   const [showLearn, setShowLearn] = useState(false);
   const [showAbout, setShowAbout] = useState(false);
   const [showPrintCheck, setShowPrintCheck] = useState(false);
+  const [showCutPlan, setShowCutPlan] = useState(false);
   const { preference, setPreference, t: tr } = useLocale();
   const [lesson, setLesson] = useState<string | null>(null);
   const [showWs, setShowWs] = useState(false);
@@ -680,6 +682,7 @@ function ModelingApp() {
       { id: "tools.makefaces", label: "Make faces", hint: "Tools · close every closed loop of loose lines (the ones you picked, or all of them) with a face; a loop inside another becomes a hole. One undo step", run: () => void askMakeFaces() },
       { id: "tools.flatten", label: "Flatten to height…", hint: "Tools · move the picked lines, faces or groups to one height (imported DWG/DXF linework drawn at odd heights); points that land together join. One undo step", run: () => void askFlatten() },
       { id: "tools.checkmodel", label: "Check model", hint: "Tools · say what keeps the selection (or the whole model) from being a solid, without changing anything", run: () => void askFixModel(true) },
+      { id: "tools.cutplan", label: "Cut plan…", hint: "Tools · pack the cut list onto sheets and boards: cutting diagrams, stock and prices, a cost, and part labels to print", run: () => setShowCutPlan(true) },
       { id: "tools.printcheck", label: "Print check…", hint: "Tools · is it solid, any thin walls or overhangs, the size in mm, then export 3MF or STL for a slicer", run: () => setShowPrintCheck(true) },
       { id: "tools.uveditor", label: "UV editor", hint: "Tools · a 2D view of the selected faces' UVs: mark seams, unwrap, pack, move islands, make the lightmap UVs", run: askUv },
       { id: "tools.projecttexture", label: "Project texture…", hint: "Tools · lay a picture on the selection: planar, box, cylinder or sphere", run: askProjection },
@@ -807,6 +810,7 @@ function ModelingApp() {
       fixModel: () => void askFixModel(false),
       checkModel: () => void askFixModel(true),
       printCheck: () => setShowPrintCheck(true),
+      cutPlan: () => setShowCutPlan(true),
       makeFaces: () => void askMakeFaces(),
       flatten: () => void askFlatten(),
       plugins: () => (reloadPlugins(), setShowPlugins(true)),
@@ -1346,7 +1350,7 @@ function ModelingApp() {
         {showPlugins && <PluginsDialog list={plugins} reload={reloadPlugins} onClose={() => setShowPlugins(false)} onToast={say} commandsOf={(p) => livePlugins.find((x) => x.id === p.id)?.commands ?? p.commands} />}
         {pluginShown && (
           <ErrorBoundary onError={() => setPluginShown(null)} fallback={() => null}>
-            <PluginResultDialog result={pluginShown.result} plugin={pluginShown.plugin} onClose={() => setPluginShown(null)} onToast={say} />
+            <PluginResultDialog result={pluginShown.result} plugin={pluginShown.plugin} onClose={() => setPluginShown(null)} onToast={say} onCutPlan={() => (setPluginShown(null), setShowCutPlan(true))} />
           </ErrorBoundary>
         )}
         {showWs && <WorkspaceDialog ws={ws} onChange={editWs} onReset={() => editWs(null)} onClose={() => setShowWs(false)} />}
@@ -1382,6 +1386,7 @@ function ModelingApp() {
             onClose={() => setSubdividing(null)}
           />
         )}
+        {showCutPlan && <CutPlanDialog sel={sel} units={scene?.units || "m"} run={run} onSay={say} onClose={() => setShowCutPlan(false)} />}
         {showPrintCheck && (
           <PrintCheckDialog
             sel={sel}

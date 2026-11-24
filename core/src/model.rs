@@ -487,6 +487,9 @@ pub struct Model {
     /// Drafting styles (tag line weights, hatches, dimension and text styles): see `drafting`
     #[serde(default, skip_serializing_if = "crate::drafting::Drafting::is_empty")]
     pub drafting: crate::drafting::Drafting,
+    /// What the cut plan buys: sheet and board sizes, saw kerf, trim and prices per material (see `cutplan`)
+    #[serde(default, skip_serializing_if = "crate::cutplan::CutStock::is_default")]
+    pub cut_stock: crate::cutplan::CutStock,
     /// Drawing sheets (page records), by id. What is on them is in `sheet_items`.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub sheets: BTreeMap<Id, crate::drafting::Sheet>,

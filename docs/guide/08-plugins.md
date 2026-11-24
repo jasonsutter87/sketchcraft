@@ -12,8 +12,36 @@ name in **Shift+S**.
   material, and roughly how many 4×8 sheets and 8-foot boards to buy. Boards
   that are real dimensional lumber show by name (2×4, 1×6, 4×4…), and every
   board line has its board feet, with a total. Copy the table or save it as CSV.
+  The **Cut plan…** button on its result (also **Tools › Cut plan…**) goes on from
+  there: see [Cut plan](#cut-plan).
 - **Shelf unit:** a bookcase from a few sizes, every board its own group, ready
   for the cut list.
+
+## Cut plan
+
+**Tools › Cut plan…** packs the cut list's parts onto real sheets and boards, for
+what you have picked or the whole model. It has three views:
+
+- **Cutting diagram:** each sheet and board drawn to scale with every part
+  numbered and sized. Parts are numbered longest first, the same order as the
+  Parts view. Parts that fit nowhere (bigger than a sheet, or longer than any
+  board) are listed in red, never dropped quietly.
+- **Stock & prices:** the saw **kerf**, the **trim** cut away around a sheet's
+  edge, the sheet size (default 4×8 ft, 2440 × 1220 mm), the board lengths you
+  can buy, and per material a price per sheet, per board or per board foot, and
+  whether it has a **grain**. A material with grain keeps every part's length
+  along the sheet's length; without it parts may turn a quarter turn to fit
+  better. A price per board foot wins over a price per board. All of it is saved
+  with the model, and **Update plan** is one Undo step.
+- **What to buy:** sheets, boards, board feet and the cost per material, and the
+  total. A material without a price is marked, and counts as zero.
+
+**Export diagrams (PDF)** writes a summary page, a page for each sheet and pages of
+boards; **Export diagrams (SVG)** writes the same pages one under another.
+**Print labels (PDF)** writes sheets of 63.5 × 38.1 mm labels (21 to an A4 page),
+one for each part: its number, name, size, material, which sheet or board it is
+cut from, and a grain arrow. Sheets are packed so every cut runs from edge to
+edge, which a panel saw can do.
 
 ## Adding and managing plugins
 

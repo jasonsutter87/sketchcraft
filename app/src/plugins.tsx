@@ -7,6 +7,7 @@ import { useRef, useState } from "react";
 import { confirm } from "./ask";
 import { exec } from "./engine";
 import { pickSave } from "./files";
+import { useLocale } from "./locale";
 import { cleanForm, cleanResult, type PluginField, type PluginForm, type PluginResult } from "./pluginclean";
 
 export { cleanForm, cleanResult };
@@ -90,8 +91,9 @@ export const csvCell = (v: string | number) => {
 };
 
 /** What a plugin showed: its text and table, to copy or save as CSV. */
-export function PluginResultDialog({ result, plugin, onClose, onToast }: { result: PluginResult; plugin: Plugin; onClose: () => void; onToast: (t: string, bad?: boolean) => void }) {
+export function PluginResultDialog({ result, plugin, onClose, onToast, onCutPlan }: { result: PluginResult; plugin: Plugin; onClose: () => void; onToast: (t: string, bad?: boolean) => void; onCutPlan?: () => void }) {
   const [copied, setCopied] = useState(false);
+  const { t: tr } = useLocale();
   const t = result.table;
   const csv = t ? [t.columns, ...t.rows].map((r) => r.map(csvCell).join(",")).join("\n") + "\n" : "";
   const save = async () => {
@@ -149,6 +151,11 @@ export function PluginResultDialog({ result, plugin, onClose, onToast }: { resul
               Save CSV…
             </button>
           </>
+        )}
+        {plugin.builtin && plugin.id === "cutlist" && onCutPlan && (
+          <button className="btn small primary" data-action="cut-plan" onClick={onCutPlan}>
+            {tr("menu.cutPlan")}
+          </button>
         )}
         <button className="btn small ghost" onClick={onClose}>
           Close

@@ -65,6 +65,7 @@ pub mod sandbox;
 pub mod safety;
 pub mod scene;
 pub mod parts_layout;
+pub mod cutplan;
 pub mod plugins;
 pub mod policy;
 pub mod section;

@@ -30,7 +30,7 @@ pub const KNOWN_KEYS: &[&str] = &[
     "next_id", "vertices", "edges", "faces", "groups", "materials", "active_group", "tags", "environment", "tag_colors", "definitions",
     "instances", "guides", "photo_points", "cages", "photo_edges", "photo_guides", "views", "timeline", "annotations", "units", "classes",
     "location", "clouds", "sections", "active_section", "axes",
-    "drafting", "sheets", "sheet_items", "title_blocks",
+    "drafting", "cut_stock", "sheets", "sheet_items", "title_blocks",
 ];
 
 /// What the person is told, as it appears in the app.

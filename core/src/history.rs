@@ -282,7 +282,7 @@ const TYPED: [&str; 10] = ["vertices", "edges", "faces", "groups", "materials", 
 /// The model with the big maps left empty (what is left is small, or at least rarely changes).
 fn skeleton(m: &Model) -> Model {
     // every field is named, so a field added to the model is a compile error here until it is placed
-    let Model { next_id, vertices: _, edges: _, faces: _, groups: _, materials: _, active_group, tags, environment, tag_colors, definitions: _, instances: _, guides, photo_points, cages, photo_edges, photo_guides, views, timeline, annotations, units, classes, location, clouds: _, sections, active_section, axes, drafting, sheets: _, sheet_items: _, title_blocks, deadline: _, remaps: _ } = m;
+    let Model { next_id, vertices: _, edges: _, faces: _, groups: _, materials: _, active_group, tags, environment, tag_colors, definitions: _, instances: _, guides, photo_points, cages, photo_edges, photo_guides, views, timeline, annotations, units, classes, location, clouds: _, sections, active_section, axes, drafting, cut_stock, sheets: _, sheet_items: _, title_blocks, deadline: _, remaps: _ } = m;
     Model {
         next_id: *next_id,
         vertices: Default::default(),
@@ -312,6 +312,7 @@ fn skeleton(m: &Model) -> Model {
         active_section: *active_section,
         axes: *axes,
         drafting: drafting.clone(),
+        cut_stock: cut_stock.clone(),
         sheets: Default::default(),
         sheet_items: Default::default(),
         // a handful of small records: compared as part of the skeleton, entry by entry like any map by id
