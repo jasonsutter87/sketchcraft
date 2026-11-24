@@ -930,6 +930,7 @@ pub struct Item {
 fn cut_free(free: &mut Vec<Rect>, used: &Rect) {
     let mut next: Vec<Rect> = Vec::with_capacity(free.len() + 4);
     for f in free.iter() {
+        crate::deadline::poll();
         if !f.overlaps(used) {
             next.push(*f);
             continue;
@@ -950,7 +951,9 @@ fn cut_free(free: &mut Vec<Rect>, used: &Rect) {
     // drop rectangles that sit inside another
     let mut keep = vec![true; next.len()];
     for i in 0..next.len() {
+        crate::deadline::poll();
         for j in 0..next.len() {
+            crate::deadline::poll();
             if i != j && keep[j] && next[j].contains(&next[i]) && (next[i] != next[j] || j < i) {
                 keep[i] = false;
                 break;
@@ -971,6 +974,7 @@ pub fn pack_at(items: &[Item], scale: f64, margin: f64, blocked: &[Rect]) -> Opt
     order.sort_by(|a, b| (items[*b].w.max(items[*b].h)).partial_cmp(&items[*a].w.max(items[*a].h)).unwrap_or(std::cmp::Ordering::Equal).then(a.cmp(b)));
     let mut out = vec![(Rect { x: 0.0, y: 0.0, w: 0.0, h: 0.0 }, false); items.len()];
     for i in order {
+        crate::deadline::poll();
         let it = items[i];
         let mut best: Option<(f64, f64, Rect, bool)> = None;
         for rot in [false, true] {
@@ -980,6 +984,7 @@ pub fn pack_at(items: &[Item], scale: f64, margin: f64, blocked: &[Rect]) -> Opt
             let (w, h) = if rot { (it.h * scale, it.w * scale) } else { (it.w * scale, it.h * scale) };
             let (pw, ph) = (w + margin, h + margin);
             for f in &free {
+                crate::deadline::poll();
                 if pw <= f.w + 1e-12 && ph <= f.h + 1e-12 {
                     let (lw, lh) = (f.w - pw, f.h - ph);
                     let (short, long) = (lw.min(lh), lw.max(lh));
@@ -1125,12 +1130,14 @@ fn shelf_at(order: &[usize], dims: &[(f64, f64, bool)], scale: f64, margin: f64,
     let mut out = vec![(Rect { x: 0.0, y: 0.0, w: 0.0, h: 0.0 }, false); dims.len()];
     let (mut x, mut y, mut shelf) = (0.0f64, 0.0f64, 0.0f64);
     for &i in order {
+        crate::deadline::poll();
         let (w, h, rot) = dims[i];
         let (pw, ph) = (w * scale + margin, h * scale + margin);
         if pw > 1.0 + 1e-12 || ph > 1.0 + 1e-12 {
             return None;
         }
         loop {
+            crate::deadline::poll();
             if blocks.spent() {
                 return None;
             }
@@ -1171,6 +1178,7 @@ pub fn pack(items: &[Item], margin: f64, blocked: &[Rect]) -> Option<Packed> {
         return None;
     }
     for _ in 0..8 {
+        crate::deadline::poll();
         if let Some(b) = blocks.as_mut() {
             b.margin = margin;
         }
@@ -1186,6 +1194,7 @@ pub fn pack(items: &[Item], margin: f64, blocked: &[Rect]) -> Option<Packed> {
         let mut best = try_at(0.0).map(|p| (0.0, p));
         if best.is_some() {
             for _ in 0..28 {
+                crate::deadline::poll();
                 let mid = (lo + hi) * 0.5;
                 match try_at(mid) {
                     Some(p) => {
@@ -1260,12 +1269,14 @@ impl Model {
     pub fn set_seams(&mut self, edges: &[Id], on: bool) -> Result<usize> {
         self.check_unlocked(edges)?;
         for e in edges {
+            crate::deadline::poll();
             if !self.edges.contains_key(e) {
                 bail!("{e} is not an edge");
             }
         }
         let mut n = 0;
         for e in edges {
+            crate::deadline::poll();
             let ed = self.edges.get_mut(e).unwrap();
             n += (ed.seam != on) as usize;
             ed.seam = on;
@@ -1280,6 +1291,7 @@ impl Model {
         let mut out: Vec<Id> = vec![];
         let by_key: HashMap<(Id, Id), Id> = self.edges.iter().map(|(&id, e)| ((e.a.min(e.b), e.a.max(e.b)), id)).collect();
         for l in &soup.links {
+            crate::deadline::poll();
             if l.angle > angle {
                 let a = soup.faces[l.f].verts[l.fc[0]];
                 let b = soup.faces[l.f].verts[l.fc[1]];
@@ -1320,6 +1332,7 @@ impl Model {
         too_many_islands(comps.len())?;
         let mut ctx = Ctx { soup: &soup, opts, cut: &cut, pins, out: vec![], split: 0, ignored: 0, pinned: 0 };
         for c in comps {
+            crate::deadline::poll();
             ctx.solve(c, 0.0);
         }
         let (mut pieces, split, ignored, pinned) = (std::mem::take(&mut ctx.out), ctx.split, ctx.ignored, ctx.pinned);
@@ -1337,6 +1350,7 @@ impl Model {
         let mut k = 0;
         let mut result: Vec<(Id, Corners)> = vec![];
         for p in &pieces {
+            crate::deadline::poll();
             if p.fixed {
                 for (f, c) in &p.faces {
                     result.push((soup.faces[*f].id, c.clone()));
@@ -1380,6 +1394,7 @@ impl Model {
         // edge -> (face, uv of each end)
         let mut ends: HashMap<(Id, Id), Vec<FaceEnds>> = HashMap::new();
         for (fi, &id) in faces.iter().enumerate() {
+            crate::deadline::poll();
             let f = &self.faces[&id];
             let c = corners_of(self.uv_of(id, set).unwrap());
             let mut off = 0;
@@ -1406,6 +1421,7 @@ impl Model {
         let mut groups: Vec<(usize, Vec<Id>)> = vec![];
         let mut at: HashMap<usize, usize> = HashMap::new();
         for (i, &id) in faces.iter().enumerate() {
+            crate::deadline::poll();
             let r = find(&mut uf, i);
             let g = *at.entry(r).or_insert_with(|| {
                 groups.push((i, vec![]));
@@ -1435,6 +1451,7 @@ impl Model {
         let items: Vec<Item> = boxes.iter().map(|b| Item { w: b.w.max(1e-9), h: b.h.max(1e-9), rotatable: false }).collect();
         let Some((scale, _, place)) = pack(&items, margin, &[]) else { bail!("the islands do not fit the sheet: use a smaller margin") };
         for (i, isl) in islands.iter().enumerate() {
+            crate::deadline::poll();
             let (b, (r, _)) = (boxes[i], place[i]);
             for f in isl {
                 let c: Corners = corners_of(self.uv_of(*f, set).unwrap()).iter().map(|p| [r.x + (p[0] - b.x) * scale, r.y + (p[1] - b.y) * scale]).collect();
@@ -1477,6 +1494,7 @@ impl Model {
         let only: Option<HashSet<Id>> = only.map(|o| o.iter().copied().collect());
         let mut done = vec![];
         for id in faces {
+            crate::deadline::poll();
             let Some(u) = self.uv_of(id, set) else { bail!("face {id} has no UVs yet: unwrap it first") };
             let f = &self.faces[&id];
             let verts: Vec<Id> = f.loops().flatten().copied().collect();

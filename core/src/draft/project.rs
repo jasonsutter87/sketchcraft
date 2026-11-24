@@ -194,6 +194,7 @@ fn cut_region(cv: &mut Cv, m: &Model, tag: Option<&str>, rings: Vec<Vec<[f64; 2]
 fn stairs(cv: &mut Cv, m: &Model, pens: &Pens, floor: f64, to: &dyn Fn(f64, f64) -> (f64, f64)) {
     let ink = pens.ink;
     for (gid, g) in &m.groups {
+        crate::deadline::poll();
         if !g.name.to_ascii_lowercase().contains("stair") || g.name.to_ascii_lowercase().contains("rail") {
             continue;
         }
@@ -201,6 +202,7 @@ fn stairs(cv: &mut Cv, m: &Model, pens: &Pens, floor: f64, to: &dyn Fn(f64, f64)
         let Some(first) = es.first() else { continue };
         let (mut lo, mut hi) = (first.0, first.0);
         for (a, b) in &es {
+            crate::deadline::poll();
             lo = lo.min(*a).min(*b);
             hi = hi.max(*a).max(*b);
         }
@@ -254,12 +256,14 @@ fn stairs(cv: &mut Cv, m: &Model, pens: &Pens, floor: f64, to: &dyn Fn(f64, f64)
 fn overhead(cv: &mut Cv, m: &Model, pens: &Pens, floor: f64, z: f64, to: &dyn Fn(f64, f64) -> (f64, f64)) {
     let pen = pens.ink(pens.thin).dashed(&[2.0 / PT, 1.5 / PT]);
     for (gid, g) in &m.groups {
+        crate::deadline::poll();
         let n = g.name.to_ascii_lowercase();
         let furniture = matches!(m.classes.get(gid).map(|s| s.as_str()), Some("IfcFurniture") | Some("IfcCovering"));
         if !(furniture || ["shelf", "closet", "cabinet", "upper"].iter().any(|w| n.contains(w))) {
             continue;
         }
         for e in m.edges.values().filter(|e| e.group == Some(*gid) && !e.soft) {
+            crate::deadline::poll();
             let (a, b) = (m.p(e.a), m.p(e.b));
             if a.z.min(b.z) <= z || a.z.max(b.z) > floor + 2.8 || (a.x - b.x).hypot(a.y - b.y) < 0.01 {
                 continue;

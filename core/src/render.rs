@@ -189,6 +189,7 @@ impl Canvas {
                 continue;
             }
             for y in y0..=y1 as usize {
+                crate::deadline::poll();
                 for x in x0..=x1 as usize {
                     let (px, py) = (x as f64 + 0.5, y as f64 + 0.5);
                     let w0 = ((sb.0 - px) * (sc.1 - py) - (sb.1 - py) * (sc.0 - px)) / area;
@@ -225,6 +226,7 @@ impl Canvas {
             return;
         }
         for y in y0..=y1 as usize {
+            crate::deadline::poll();
             for x in x0..=x1 as usize {
                 let (px, py) = (x as f64 + 0.5, y as f64 + 0.5);
                 let w0 = ((b.0 - px) * (c.1 - py) - (b.1 - py) * (c.0 - px)) / area;
@@ -493,6 +495,7 @@ pub fn render(model: &Model, opts: &RenderOpts) -> RgbImage {
 
     let mut color = Vec::with_capacity(w * h);
     for y in 0..h {
+        crate::deadline::poll();
         let t = y as f32 / h as f32;
         let (top, bot) = if opts.blueprint {
             (BLUEPRINT, BLUEPRINT)
@@ -539,6 +542,7 @@ pub fn render(model: &Model, opts: &RenderOpts) -> RgbImage {
     // textured faces show their images (not in blueprint or paper drawings)
     let images = if opts.blueprint || opts.paper { None } else { Some(crate::texmap::Images::load(model)) };
     for f in model.world_faces() {
+        crate::deadline::poll();
         let n = f.normal;
         let front = (eye - geom::centroid(&f.outer)).dot(n) >= 0.0;
         let base = f.color.unwrap_or(DEFAULT_FRONT);
@@ -596,6 +600,7 @@ pub fn render(model: &Model, opts: &RenderOpts) -> RgbImage {
 
     if opts.edges {
         for e in model.world_edges().into_iter().filter(|e| !e.soft) {
+            crate::deadline::poll();
             let (mut a, mut b) = (e.a, e.b);
             if let Some((o, d)) = clip {
                 let (da, db) = ((a - o).dot(d), (b - o).dot(d));
@@ -618,6 +623,7 @@ pub fn render(model: &Model, opts: &RenderOpts) -> RgbImage {
     // downsample
     let mut img = RgbImage::new(opts.width.max(16), opts.height.max(16));
     for (x, y, px) in img.enumerate_pixels_mut() {
+        crate::deadline::poll();
         let mut acc = [0f32; 3];
         for sy in 0..SS {
             for sx in 0..SS {

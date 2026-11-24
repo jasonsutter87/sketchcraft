@@ -23,6 +23,7 @@ impl Model {
     pub fn edge_through(&self, p: DVec3) -> Option<Id> {
         let g = self.active_group;
         self.edges.iter().find_map(|(&id, e)| {
+            crate::deadline::poll();
             if e.group != g {
                 return None;
             }
@@ -104,7 +105,10 @@ impl Model {
     /// A vertex at `p`: an existing one, one splitting an edge, or a new one.
     pub fn vertex_on(&mut self, p: DVec3) -> Id {
         let g = self.active_group;
-        if let Some((&id, _)) = self.vertices.iter().find(|(_, v)| v.group == g && v.p.distance(p) < WELD) {
+        if let Some((&id, _)) = self.vertices.iter().find(|(_, v)| {
+            crate::deadline::poll();
+            v.group == g && v.p.distance(p) < WELD
+        }) {
             return id;
         }
         match self.edge_through(p) {
@@ -123,7 +127,10 @@ impl Model {
             .edges
             .values()
             .filter(|e| e.group == g)
-            .filter_map(|e| crossing(p, q, self.p(e.a), self.p(e.b)))
+            .filter_map(|e| {
+                crate::deadline::poll();
+                crossing(p, q, self.p(e.a), self.p(e.b))
+            })
             .collect();
         cuts.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
         cuts.dedup_by(|a, b| a.1.distance(b.1) < WELD);
@@ -154,6 +161,7 @@ impl Model {
         // a chord across an existing face?
         let mid = (self.p(a) + self.p(b)) * 0.5;
         let chord = self.faces.iter().find_map(|(&id, f)| {
+            crate::deadline::poll();
             let n = f.outer.len();
             let ia = f.outer.iter().position(|&v| v == a)?;
             let ib = f.outer.iter().position(|&v| v == b)?;
@@ -207,6 +215,7 @@ impl Model {
         let g = self.active_group;
         let mut adj: HashMap<Id, Vec<Id>> = HashMap::new();
         for e in self.edges.values().filter(|e| e.group == g) {
+            crate::deadline::poll();
             adj.entry(e.a).or_default().push(e.b);
             adj.entry(e.b).or_default().push(e.a);
         }
@@ -226,6 +235,7 @@ impl Model {
             if *budget == 0 || path.len() > 14 || out.len() > 64 {
                 return;
             }
+            crate::deadline::poll();
             *budget -= 1;
             let cur = *path.last().unwrap();
             for &nx in adj.get(&cur).map(|v| v.as_slice()).unwrap_or(&[]) {
@@ -268,6 +278,18 @@ impl Model {
 
         let mut made: Vec<Id> = Vec::new();
         let mut used: Vec<Vec<DVec3>> = Vec::new();
+        // each face's plane, worked out once (not once per candidate loop): the cover test below only looks at faces in the loop's plane
+        let mut planes: Vec<(Id, DVec3, DVec3)> = if cands.is_empty() {
+            Vec::new()
+        } else {
+            self.faces
+                .iter()
+                .map(|(&id, f)| {
+                    crate::deadline::poll();
+                    (id, geom::newell(&self.pts(&f.outer)), self.p(f.outer[0]))
+                })
+                .collect()
+        };
         for (_, c) in cands {
             if made.len() == 2 {
                 break;
@@ -285,11 +307,13 @@ impl Model {
             // and must not cover an existing coplanar face. (A loop drawn
             // inside a face is fine: add_face makes it a hole in that face
             // plus a new face, like a rectangle drawn on a wall.)
-            let covers = self.faces.values().any(|f| {
-                let fp = self.pts(&f.outer);
-                if geom::newell(&fp).dot(n).abs() < 1.0 - 1e-9 || (fp[0] - pts[0]).dot(n).abs() > 1e-6 {
+            let covers = planes.iter().any(|(id, fnorm, fp0)| {
+                crate::deadline::poll();
+                if fnorm.dot(n).abs() < 1.0 - 1e-9 || (*fp0 - pts[0]).dot(n).abs() > 1e-6 {
                     return false;
                 }
+                let f = &self.faces[id];
+                let fp = self.pts(&f.outer);
                 // covered = its whole outline is within the new loop
                 geom::to2d(&fp, u, v).iter().all(|q| geom::inside_or_on(*q, &poly)) && geom::inside(geom::to2d(&[interior_point(&fp, n)], u, v)[0], &poly)
             });
@@ -297,6 +321,9 @@ impl Model {
                 continue;
             }
             if let Ok(id) = self.add_face(c.clone()) {
+                if let Some(f) = self.faces.get(&id) {
+                    planes.push((id, geom::newell(&self.pts(&f.outer)), self.p(f.outer[0])));
+                }
                 made.push(id);
                 used.push(pts);
             }

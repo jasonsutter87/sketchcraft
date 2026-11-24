@@ -172,6 +172,11 @@ What changed in each SketchCraft release, newest first. The format follows
     long or grow too big. A very large model (tens of thousands of groups) reaches the window quickly, and the Outliner
     shows a limited number of rows with a translated "more rows" line (search to reach the rest). Copying a face together
     with its group copies it once, and hidden characters in group names no longer reach notices or replies.
+  - Every command an agent or a plugin runs now has a time limit, and is undone if it runs out; a whole call from an agent
+    has a limit too, and is undone as a whole if it runs out, so many quick commands can't add up to minutes. Your own
+    commands have no limit. Intersect is fast on big models and a sweep (Follow me) too large for the model is refused
+    before any of it is built. Text sent to an agent drops hidden characters (the stored names are unchanged), and Flip
+    and Bevel are quicker on big models.
 
 ## [0.3.9] - 2026-11-20
 

@@ -257,6 +257,8 @@ pub fn apply(live: &mut Live, answer: &Value) -> Value {
             return json!({"ok": false, "error": format!("couldn't start: {}", begin["error"].as_str().unwrap_or("busy")), "rows": rows});
         }
         let mut stopped = false;
+        // the whole answer has one time limit, like an agent's call
+        let _call = sketchcraft::deadline::call_guard(sketchcraft::deadline::AGENT_CALL_SECONDS);
         for (i, c) in runnable {
             if stopped {
                 rows[i]["status"] = json!("skipped");

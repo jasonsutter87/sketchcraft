@@ -12,8 +12,8 @@ use anyhow::{bail, Result};
 use glam::{DVec2, DVec3};
 
 /// Does this world face belong to one of `ids` (a face, a group, an instance)?
-fn picked(f: &WFace, ids: &[Id]) -> bool {
-    ids.iter().any(|&id| f.owner == id || f.group == Some(id) || f.face == Some(id))
+fn picked(f: &WFace, ids: &std::collections::HashSet<Id>) -> bool {
+    ids.contains(&f.owner) || f.group.is_some_and(|g| ids.contains(&g)) || f.face.is_some_and(|x| ids.contains(&x))
 }
 
 /// Parameter intervals of the line `o + d t` inside a face (outline minus holes).
@@ -95,25 +95,146 @@ pub fn face_crossing(a: &WFace, b: &WFace) -> Vec<(DVec3, DVec3)> {
     out
 }
 
+/// Most crossing lines one `intersect` will collect before it is refused (each is then drawn into the faces it crosses).
+const MAX_LINES: usize = 200_000;
+
+/// The box around a face (a little padded, so faces that only touch are still candidates).
+fn face_box(f: &WFace) -> (DVec3, DVec3) {
+    let mut lo = DVec3::splat(f64::INFINITY);
+    let mut hi = DVec3::splat(f64::NEG_INFINITY);
+    for p in &f.outer {
+        lo = lo.min(*p);
+        hi = hi.max(*p);
+    }
+    (lo - DVec3::splat(1e-6), hi + DVec3::splat(1e-6))
+}
+
+fn boxes_meet(a: &(DVec3, DVec3), b: &(DVec3, DVec3)) -> bool {
+    a.0.cmple(b.1).all() && b.0.cmple(a.1).all()
+}
+
+/// A uniform grid over boxes: which of them lie in each cell. A box that would fill more than `BIG_CELLS` cells is kept
+/// aside and offered to every query.
+struct Grid {
+    cell: f64,
+    origin: DVec3,
+    cells: std::collections::HashMap<(i64, i64, i64), Vec<u32>>,
+    big: Vec<u32>,
+}
+
+const BIG_CELLS: f64 = 512.0;
+
+type Cells = ((i64, i64, i64), (i64, i64, i64));
+
+impl Grid {
+    fn new(boxes: &[(DVec3, DVec3)], members: &[usize]) -> Grid {
+        let mut lo = DVec3::splat(f64::INFINITY);
+        let mut hi = DVec3::splat(f64::NEG_INFINITY);
+        let mut longest = 0.0;
+        for &i in members {
+            lo = lo.min(boxes[i].0);
+            hi = hi.max(boxes[i].1);
+            longest += (boxes[i].1 - boxes[i].0).max_element();
+        }
+        let extent = if members.is_empty() { 1.0 } else { (hi - lo).max_element() };
+        let avg = if members.is_empty() { 1.0 } else { longest / members.len() as f64 };
+        // about the size of one face, and never so small that the grid has more than 256 cells along its longest side
+        let cell = avg.max(extent / 256.0).max(1e-6);
+        let mut g = Grid { cell, origin: if members.is_empty() { DVec3::ZERO } else { lo }, cells: Default::default(), big: vec![] };
+        for (k, &i) in members.iter().enumerate() {
+            match g.range(&boxes[i]) {
+                Some((a, b)) => {
+                    for x in a.0..=b.0 {
+                        for y in a.1..=b.1 {
+                            for z in a.2..=b.2 {
+                                g.cells.entry((x, y, z)).or_default().push(k as u32);
+                            }
+                        }
+                    }
+                }
+                None => g.big.push(k as u32),
+            }
+        }
+        g
+    }
+
+    /// The cells a box covers, or None when it covers too many.
+    fn range(&self, b: &(DVec3, DVec3)) -> Option<Cells> {
+        let f = |p: DVec3| ((p - self.origin) / self.cell).floor();
+        let (lo, hi) = (f(b.0), f(b.1));
+        let n = (hi.x - lo.x + 1.0) * (hi.y - lo.y + 1.0) * (hi.z - lo.z + 1.0);
+        if !n.is_finite() || n > BIG_CELLS {
+            return None;
+        }
+        Some(((lo.x as i64, lo.y as i64, lo.z as i64), (hi.x as i64, hi.y as i64, hi.z as i64)))
+    }
+}
+
 impl Model {
     /// Intersect the picked faces / groups with the model (or only each
     /// other). Returns how many lines were drawn.
     pub fn intersect(&mut self, ids: &[Id], with_model: bool) -> Result<usize> {
         let all = self.world_faces();
-        let mine: Vec<&WFace> = all.iter().filter(|f| picked(f, ids)).collect();
+        let idset: std::collections::HashSet<Id> = ids.iter().copied().collect();
+        let boxes: Vec<(DVec3, DVec3)> = all.iter().map(face_box).collect();
+        let mine: Vec<usize> = (0..all.len()).filter(|&i| picked(&all[i], &idset)).collect();
         if mine.is_empty() {
             bail!("pick the faces, groups or components to intersect");
         }
-        let others: Vec<&WFace> = if with_model { all.iter().collect() } else { mine.clone() };
+        // the faces to test against, as indices into `all` (ascending, so pairs come in the same order as ever)
+        let others: Vec<usize> = if with_model { (0..all.len()).collect() } else { mine.clone() };
+        // within the selection each pair is done once: where a face sits in the selection
+        let rank: std::collections::HashMap<usize, usize> = mine.iter().enumerate().map(|(r, &i)| (i, r)).collect();
+        let grid = Grid::new(&boxes, &others);
+        let mut stamp = vec![usize::MAX; others.len()];
         // (face to draw into, its context, segment)
         let mut lines: Vec<(Option<Id>, (DVec3, DVec3))> = Vec::new();
-        for (i, a) in mine.iter().enumerate() {
-            for b in &others {
-                if std::ptr::eq(*a, *b) || (a.owner == b.owner && a.face.is_none() && b.face.is_none()) {
+        let mut cand: Vec<u32> = Vec::new();
+        for (r, &ai) in mine.iter().enumerate() {
+            let a = &all[ai];
+            // the candidates: what shares a grid cell with this face's box (and the big ones), by box overlap
+            cand.clear();
+            let mut take = |k: u32, cand: &mut Vec<u32>| {
+                if stamp[k as usize] != r {
+                    stamp[k as usize] = r;
+                    if boxes_meet(&boxes[ai], &boxes[others[k as usize]]) {
+                        cand.push(k);
+                    }
+                }
+            };
+            match grid.range(&boxes[ai]) {
+                Some((lo, hi)) => {
+                    for x in lo.0..=hi.0 {
+                        for y in lo.1..=hi.1 {
+                            for z in lo.2..=hi.2 {
+                                if let Some(c) = grid.cells.get(&(x, y, z)) {
+                                    for &k in c {
+                                        take(k, &mut cand);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    for &k in &grid.big {
+                        take(k, &mut cand);
+                    }
+                }
+                None => {
+                    for k in 0..others.len() as u32 {
+                        take(k, &mut cand);
+                    }
+                }
+            }
+            cand.sort_unstable();
+            for &k in &cand {
+                crate::deadline::poll();
+                self.check_deadline()?;
+                let bi = others[k as usize];
+                let b = &all[bi];
+                if ai == bi || (a.owner == b.owner && a.face.is_none() && b.face.is_none()) {
                     continue; // same face, or both inside the same component
                 }
-                // within the selection, each pair once
-                if !with_model && mine.iter().position(|x| std::ptr::eq(*x, *b)).map_or(false, |j| j < i) {
+                if !with_model && rank.get(&bi).is_some_and(|&j| j < r) {
                     continue;
                 }
                 let segs = face_crossing(a, b);
@@ -129,14 +250,22 @@ impl Model {
                         }
                     }
                 }
+                if lines.len() > MAX_LINES {
+                    bail!("those faces cross in more than {MAX_LINES} places, which is too many to draw at once: pick fewer faces");
+                }
             }
         }
         let prev = self.active_group;
         let mut drawn = 0;
         for (ctx, (p, q)) in lines {
             self.active_group = ctx;
-            if self.draw_line(p, q).is_ok() {
-                drawn += 1;
+            match self.draw_line(p, q) {
+                Ok(_) => drawn += 1,
+                Err(e) if self.over_deadline() => {
+                    self.active_group = prev;
+                    return Err(e);
+                }
+                Err(_) => {}
             }
         }
         self.active_group = prev;
@@ -146,9 +275,10 @@ impl Model {
     /// Mirror the picked things across their own middle, along an axis
     /// (0 red / x, 1 green / y, 2 blue / z).
     pub fn flip(&mut self, ids: &[Id], axis: usize) -> Result<usize> {
-        let faces: Vec<WFace> = self.world_faces().into_iter().filter(|f| picked(f, ids)).collect();
+        let idset: std::collections::HashSet<Id> = ids.iter().copied().collect();
+        let faces: Vec<WFace> = self.world_faces().into_iter().filter(|f| picked(f, &idset)).collect();
         let pts: Vec<DVec3> = faces.iter().flat_map(|f| f.outer.iter().copied()).collect();
-        let edges: Vec<DVec3> = self.edges.iter().filter(|(k, _)| ids.contains(k)).flat_map(|(_, e)| [self.p(e.a), self.p(e.b)]).collect();
+        let edges: Vec<DVec3> = self.edges.iter().filter(|(k, _)| idset.contains(k)).flat_map(|(_, e)| [self.p(e.a), self.p(e.b)]).collect();
         let all: Vec<DVec3> = pts.into_iter().chain(edges).collect();
         if all.is_empty() {
             bail!("nothing to flip");

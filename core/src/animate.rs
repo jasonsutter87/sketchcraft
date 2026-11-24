@@ -90,22 +90,26 @@ pub fn animate_cams(m: &Model, path: &str, cams: &[CameraSpec], fps: f64, base: 
     let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).min(8);
     let next = std::sync::atomic::AtomicUsize::new(0);
     let failed = std::sync::Mutex::new(None::<String>);
+    let lim = crate::deadline::current();
     std::thread::scope(|s| {
         for _ in 0..threads {
-            s.spawn(|| loop {
-                let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                if i >= cams.len() {
-                    break;
-                }
-                let mut o = base.clone();
-                o.camera = Some(cams[i].clone());
-                if let Err(e) = render::render(m, &o).save(dir.join(format!("frame_{i:05}.png"))) {
-                    *failed.lock().unwrap() = Some(e.to_string());
-                    break;
-                }
+            s.spawn(|| {
+                crate::deadline::in_worker(lim, || loop {
+                    let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    if i >= cams.len() || crate::deadline::over() {
+                        break;
+                    }
+                    let mut o = base.clone();
+                    o.camera = Some(cams[i].clone());
+                    if let Err(e) = render::render(m, &o).save(dir.join(format!("frame_{i:05}.png"))) {
+                        *failed.lock().unwrap() = Some(e.to_string());
+                        break;
+                    }
+                });
             });
         }
     });
+    crate::deadline::poll_now();
     if let Some(e) = failed.into_inner().unwrap() {
         bail!("rendering a frame failed: {e}");
     }

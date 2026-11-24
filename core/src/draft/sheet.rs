@@ -128,8 +128,9 @@ pub fn draw_viewports(m: &Model, bm: &Model, vps: &[ViewportSpec], pens: &Pens, 
     let mut out: Vec<Option<Result<Arc<Vec<Prim>>>>> = (0..vps.len()).map(|i| cache.and_then(|c| c.get(&keys[i])).map(Ok)).collect();
     let missing: Vec<usize> = (0..vps.len()).filter(|i| out[*i].is_none()).collect();
     for group in missing.chunks(threads) {
+        let lim = crate::deadline::current();
         let got: Vec<Result<Vec<Prim>>> = std::thread::scope(|s| {
-            let hs: Vec<_> = group.iter().map(|i| s.spawn(|| viewport(m, bm, &vps[*i], pens, sh))).collect();
+            let hs: Vec<_> = group.iter().map(|i| s.spawn(move || crate::deadline::in_worker(lim, || viewport(m, bm, &vps[*i], pens, sh)).unwrap_or_else(|| Err(anyhow::anyhow!("that took too long, so it was stopped (use fewer or simpler outlines, or a smaller model)"))))).collect();
             hs.into_iter().map(|h| h.join().unwrap_or_else(|_| Err(anyhow::anyhow!("a viewport's drawing stopped unexpectedly")))).collect()
         });
         for (i, r) in group.iter().zip(got) {

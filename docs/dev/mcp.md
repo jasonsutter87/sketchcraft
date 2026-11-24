@@ -54,7 +54,35 @@ person at the keyboard:
   to any file), `reveal`, `skins`, `video_frame`/`video_finish`;
 - numbers outside +/-1e9, over-long strings and URL or pipe paths are refused
   for everyone;
-- names and text read from the model are marked as data in the tool output.
+- names and text read from the model are marked as data in the tool output, and the model's own words in a reply
+  (group names, tags, labels) lose control, direction and invisible characters;
+- every command it runs, read-only ones too, has a time limit, and so does a whole `sketchcraft_run` call (below).
+
+### Time limits for agents and plugins
+
+One engine-wide limit holds for everything an agent or a plugin asks for (`core/src/deadline.rs`). The person's own
+commands from the app have none.
+
+- **Where it is set.** `Engine::exec_value_inner` (`commands.rs`) knows the caller: for anything but the app's own user
+  it runs the command inside `deadline::command_scope`, 10 s for most commands and 25 s for the two that are slow by
+  nature (`photoreal`, `animate`). `mcp.rs` wraps a whole `sketchcraft_run` call in `deadline::call_scope` (30 s for
+  all its commands together), and the picture tools (`sketchcraft_render`) run under the same command limit. The app's
+  AI box holds its answer to the call limit too. The limit is per thread, so the loops of the engine reach it without
+  being handed anything.
+- **What checks it.** `Model::check_deadline` and `over_deadline` read it (so every older `check_deadline` call in a
+  loop sees it, with the command's own, shorter, budgets still applying where they protect memory: curves 8 s,
+  solids 10 s, copies, text). Loops that cannot return an error call `deadline::poll()`: a counter that reads the clock
+  every 64th call and, past the limit, unwinds out of the command. `Model::new_id` polls, so anything that creates
+  geometry is covered; the rest are the scans of drawing and splitting lines, the loop search, intersect, sweeps,
+  booleans (their own thread honours it), importers, raster and render loops, unwrap and packing, texture painting,
+  sheet drawing (its worker threads take the limit with them), terrain and walls. A new loop that can run long should
+  call `poll()` (or `check_deadline()` where it returns a `Result`).
+- **What happens when it expires.** The engine catches the unwind, puts the model back exactly as it was before the
+  command (the same restore that a failed command uses) and replies with an error that says it ran out of time and that
+  nothing changed (`timed_out: true`). If the whole call's limit was the one that ran out, the call stops and
+  everything it did is undone (`Live::rollback_call`), with a line saying so; work from earlier calls stays.
+- **What the person gets.** Nothing changes: no clock, no refusal, no rollback.
+- Tests set the limits shorter with `deadline::set_limits_for_tests` rather than waiting for the real ones.
 
 ## Claude Code
 

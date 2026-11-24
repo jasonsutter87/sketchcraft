@@ -65,6 +65,7 @@ impl<'a> Mesh<'a> {
 
     /// A polygon with optional holes. Not flat: split into a triangle fan.
     pub fn face(&mut self, outer: &[DVec3], holes: &[Vec<DVec3>], material: Option<String>) {
+        crate::deadline::poll();
         let n = geom::newell(outer);
         if n == DVec3::ZERO {
             self.skipped += 1;

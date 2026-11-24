@@ -305,6 +305,7 @@ impl View<'_> {
         let pr = &self.proj;
         let mut edges = Vec::new();
         for e in all.iter().filter(|e| !e.soft) {
+            crate::deadline::poll();
             let (mut ta, mut tb) = (0.0f64, 1.0f64);
             if let Some((o, d)) = self.clip {
                 let (da, db) = ((e.a - o).dot(d), (e.b - o).dot(d));
@@ -333,6 +334,7 @@ impl View<'_> {
         let work = |chunk: &[Item]| -> Vec<Prim> {
             let mut out = Vec::new();
             for it in chunk {
+                crate::deadline::poll();
                 let Item { e: we, a, b, t0, t1, len, ta, tb } = it;
                 // the pen for this edge (edge override, then its tag, then the default) and its provenance, made once
                 // something of it is drawn
@@ -364,17 +366,19 @@ impl View<'_> {
             return Ok(work(&edges));
         }
         let per = edges.len().div_ceil(threads);
+        let lim = crate::deadline::current();
         std::thread::scope(|s| {
             let hs: Vec<_> = edges.chunks(per).enumerate().map(|(i, c)| s.spawn(move || {
                 if self.inject_panic && i == 0 {
                     panic!("injected");
                 }
-                work(c)
+                crate::deadline::in_worker(lim, || work(c))
             })).collect();
             let mut out = Vec::new();
             for h in hs {
                 // a worker that stopped would leave a hole in the drawing: fail the whole drawing
-                out.extend(h.join().map_err(|_| anyhow::anyhow!("a hidden-line worker stopped unexpectedly, so the drawing would be incomplete"))?);
+                let part = h.join().map_err(|_| anyhow::anyhow!("a hidden-line worker stopped unexpectedly, so the drawing would be incomplete"))?;
+                out.extend(part.ok_or_else(|| anyhow::anyhow!("that took too long, so it was stopped (use fewer or simpler outlines, or a smaller model)"))?);
             }
             Ok(out)
         })

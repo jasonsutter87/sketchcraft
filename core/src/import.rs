@@ -27,6 +27,7 @@ pub fn parse_mtl(text: &str) -> HashMap<String, [f32; 3]> {
     let mut out = HashMap::new();
     let mut cur: Option<String> = None;
     for line in text.lines() {
+        crate::deadline::poll();
         let mut it = line.split_whitespace();
         match it.next() {
             Some("newmtl") => cur = Some(it.collect::<Vec<_>>().join(" ")),
@@ -50,6 +51,7 @@ pub fn import_obj(m: &mut Model, text: &str, dir: Option<&Path>, name: &str, y_u
     let mut material: Option<String> = None;
     let mut skipped = 0;
     for line in text.lines() {
+        crate::deadline::poll();
         let mut it = line.split_whitespace();
         match it.next() {
             Some("v") => {
@@ -105,6 +107,7 @@ pub fn import_obj(m: &mut Model, text: &str, dir: Option<&Path>, name: &str, y_u
     let mut def = Model::default();
     let mut faces = 0;
     for (oname, list) in &objects {
+        crate::deadline::poll();
         let g = def.begin_group(oname.clone());
         let mut mesh = Mesh::new(&mut def, Some(g));
         for (idx, mat) in list {

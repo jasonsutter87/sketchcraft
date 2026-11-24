@@ -210,6 +210,7 @@ pub fn raster(t: &[[f64; 2]; 3], w: u32, h: u32, lo: [f64; 2], hi: [f64; 2], f: 
 pub fn raster_with(t: &[[f64; 2]; 3], w: u32, h: u32, lo: [f64; 2], hi: [f64; 2], bleed: f64, mut f: impl FnMut(u32, u32, [f64; 3])) {
     let Some((x0, x1, y0, y1)) = raster_span(t, w, h, lo, hi, bleed) else { return };
     for y in y0..=y1 {
+        crate::deadline::poll();
         for x in x0..=x1 {
             let q = [x as f64 + 0.5, y as f64 + 0.5];
             let Some(mut l) = bary(t, q) else { return };
@@ -337,6 +338,7 @@ pub fn weights_3d(tris: &[Tri], w: u32, h: u32, points: &[DVec3], radius: f64, h
 pub fn weights_3d_within(tris: &[Tri], w: u32, h: u32, points: &[DVec3], radius: f64, hardness: f64, work: &mut u64) -> Result<Weights> {
     // the work is counted first (the dabs' boxes, without painting), so a stroke over the budget is refused at once
     for t in tris {
+        crate::deadline::poll();
         spend(work, points.len() as u64)?;
         for (_, lo, hi) in dabs_3d(t, points, radius) {
             spend(work, raster_area(&t.px, w, h, lo, hi, BLEED))?;
@@ -344,6 +346,7 @@ pub fn weights_3d_within(tris: &[Tri], w: u32, h: u32, points: &[DVec3], radius:
     }
     let mut out = Weights::new(w, h);
     for t in tris {
+        crate::deadline::poll();
         for (q, lo, hi) in dabs_3d(t, points, radius) {
             raster(&t.px, w, h, lo, hi, |x, y, l| {
                 let p = t.p[0] * l[0] + t.p[1] * l[1] + t.p[2] * l[2];
@@ -396,8 +399,10 @@ pub fn weights_2d_within(w: u32, h: u32, points: &[[f64; 2]], radius: f64, hardn
         return Ok(out);
     }
     for p in points {
+        crate::deadline::poll();
         let (c, x0, x1, y0, y1) = boxes(p);
         for y in y0..=y1 {
+            crate::deadline::poll();
             for x in x0..=x1 {
                 let d = ((x as f64 + 0.5 - c[0]).powi(2) + (y as f64 + 0.5 - c[1]).powi(2)).sqrt();
                 let wt = falloff(d, r, hardness);
@@ -415,6 +420,7 @@ pub fn apply(c: &mut Canvas, wt: &Weights, b: &Brush) -> usize {
     let target = if b.erase { b.base } else { b.color };
     let mut n = 0;
     for y in 0..c.h {
+        crate::deadline::poll();
         for x in 0..c.w {
             let w = wt.v[(y * c.w + x) as usize] as f64;
             if w <= 0.0 {
@@ -452,6 +458,7 @@ pub enum Base {
 fn tris_of(m: &Model, ids: &[Id], name: Option<&str>, frames: &Frames, w: u32, h: u32) -> Vec<Tri> {
     let mut out = Vec::new();
     for id in ids {
+        crate::deadline::poll();
         let Some(f) = m.faces.get(id) else { continue };
         if f.hidden || (name.is_some() && f.material.as_deref() != name) {
             continue;
@@ -527,6 +534,7 @@ impl Model {
         let mut st = UvStatus { faces: faces.len(), ..Default::default() };
         let mut cover = vec![0u8; (G * G) as usize];
         for id in &faces {
+            crate::deadline::poll();
             let f = &self.faces[id];
             let Some(u) = f.uv.as_ref().filter(|u| u.fits(f)) else {
                 st.without.push(*id);
@@ -652,6 +660,7 @@ impl Model {
         let mut old: Vec<OldLook> = Vec::new();
         if matches!(base, Base::Material) {
             for id in &faces {
+                crate::deadline::poll();
                 let f = &self.faces[id];
                 let mat = f.material.clone();
                 let colour = mat.as_deref().and_then(|n| self.find_material(n)).map_or([0.8, 0.8, 0.8], |m| m.color);
@@ -692,6 +701,7 @@ impl Model {
             let (mut sum, mut cnt) = ([0.0f64; 3], 0.0f64);
             let mut covered = vec![false; (size * size) as usize];
             for (id, map, colour, tex) in &old {
+                crate::deadline::poll();
                 let f = &self.faces[id];
                 let loops: Vec<Vec<DVec3>> = f.loops().map(|l| self.pts(l)).collect();
                 let u = f.uv.as_ref().filter(|u| u.fits(f)).context("the unwrap left a face without UVs")?;

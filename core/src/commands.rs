@@ -267,6 +267,15 @@ pub struct Engine {
     pub drawings: crate::draft::cache::Drawings,
 }
 
+/// What `Engine::call_snapshot` keeps.
+pub struct CallSnapshot {
+    model: Model,
+    ctx: Option<Id>,
+    names: HashMap<String, Id>,
+    undo_len: usize,
+    batch_open: bool,
+}
+
 /// Whose an open batch is. A batch groups ONE client's commands into one undo step; another client's commands never join it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum BatchKind {
@@ -448,7 +457,10 @@ impl Engine {
             return json!({"ok": false, "error": e.to_string()});
         }
         dedupe_ids(&mut v);
+        let limit = crate::deadline::command_seconds(v.get("cmd").and_then(Value::as_str).unwrap_or(""));
         let r = match serde_json::from_value::<Command>(v) {
+            // an agent's or a plugin's command (read-only ones too) runs under the engine-wide limit; the person's has none
+            Ok(cmd) if self.untrusted => crate::deadline::command_scope(limit, || self.exec(cmd)),
             Ok(cmd) => self.exec(cmd),
             Err(e) => {
                 crate::policy::settle(caller, false);
@@ -598,6 +610,30 @@ impl Engine {
         }
     }
 
+    /// Everything needed to undo a whole call of an agent's commands (see `rollback_call`).
+    pub fn call_snapshot(&self) -> CallSnapshot {
+        CallSnapshot { model: self.model.clone(), ctx: self.ctx, names: self.names.clone(), undo_len: self.undo.len(), batch_open: self.batch.is_some() }
+    }
+
+    /// Put the model back as it was when `call_snapshot` was taken: what the commands of one call did is thrown
+    /// away (it is not a step to undo). A batch the call opened is dropped with it.
+    pub fn rollback_call(&mut self, s: CallSnapshot) {
+        self.model = s.model;
+        self.ctx = s.ctx;
+        self.names = s.names;
+        self.undo.truncate(s.undo_len);
+        self.step_origins.truncate(s.undo_len);
+        if !s.batch_open && self.batch.is_some() {
+            self.batch = None;
+            self.batch_kind = BatchKind::None;
+            self.batch_origin = None;
+        }
+        self.redo.clear();
+        self.redo_origins.clear();
+        self.drawings.clear();
+        self.revision += 1;
+    }
+
     /// Close an open batch now (the person went on working): what it did becomes one undo step.
     pub fn close_batch(&mut self) {
         self.end_batch();
@@ -710,11 +746,15 @@ impl Engine {
     pub fn environment(&mut self, kind: &str) -> Result<Value> {
         let (was, outer) = (self.nested_untrusted, self.untrusted);
         self.nested_untrusted = outer;
-        let r = self.environment_inner(kind);
+        // (also when it unwinds: the command ran out of its time, say)
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.environment_inner(kind)));
         self.nested_untrusted = was;
         // the nested commands set the flag as they ran: it goes back to what the caller's own command had
         self.untrusted = outer;
-        r
+        match r {
+            Ok(r) => r,
+            Err(p) => std::panic::resume_unwind(p),
+        }
     }
 
     fn environment_inner(&mut self, kind: &str) -> Result<Value> {
@@ -937,6 +977,12 @@ impl Engine {
             Ok(Err(e)) => {
                 restore(self, saved);
                 json!({"ok": false, "error": e.to_string()})
+            }
+            Err(panic) if crate::deadline::is_exceeded(&*panic) => {
+                restore(self, saved);
+                self.model.deadline = None;
+                self.oversize = oversize_before;
+                json!({"ok": false, "error": format!("that took longer than the time an agent's or a plugin's command is given ({} s), so it was stopped and nothing was changed (use fewer or simpler parts, or a smaller model, or do it in steps)", crate::deadline::AGENT_COMMAND_SECONDS.as_secs()), "timed_out": true})
             }
             Err(panic) => {
                 let msg = panic.downcast_ref::<&str>().map(|s| s.to_string()).or_else(|| panic.downcast_ref::<String>().cloned()).unwrap_or_else(|| "unknown".into());

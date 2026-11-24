@@ -69,7 +69,8 @@ impl Model {
         let segments = segments.clamp(1, 64);
         // cutters per group
         let mut by_group: BTreeMap<Id, Vec<Vec<Poly>>> = BTreeMap::new();
-        let mut world = None;
+        // every world face once, and where each plain face sits in that list (so an edge finds its face without a scan)
+        let mut world: Option<(Vec<crate::components::WFace>, std::collections::HashMap<Id, usize>)> = None;
         let mut by_edge: Option<HashMap<(Id, Id), Vec<Id>>> = None;
         for (i, &eid) in edges.iter().enumerate() {
             if i % 64 == 0 {
@@ -145,8 +146,17 @@ impl Model {
             };
             let ext = 1e-4;
             let start: Vec<DVec3> = profile.iter().map(|q| *q - dir * ext).collect();
-            let wfs = world.get_or_insert_with(|| self.world_faces());
-            let mat = wfs.iter().find(|w| w.face == Some(faces[0])).and_then(|w| csg::material_key(self, w));
+            let (wfs, at) = world.get_or_insert_with(|| {
+                let all = self.world_faces();
+                let mut at = std::collections::HashMap::new();
+                for (i, w) in all.iter().enumerate() {
+                    if let Some(f) = w.face {
+                        at.entry(f).or_insert(i);
+                    }
+                }
+                (all, at)
+            });
+            let mat = at.get(&faces[0]).and_then(|&i| csg::material_key(self, &wfs[i]));
             by_group.entry(g).or_default().push(csg::prism(&start, along + dir * 2.0 * ext, mat));
         }
         let mut out = Vec::new();

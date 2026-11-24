@@ -384,6 +384,7 @@ pub fn expanded(items: &[Prim]) -> std::borrow::Cow<'_, [Prim]> {
     }
     let mut out = Vec::with_capacity(items.len());
     for p in items {
+        crate::deadline::poll();
         match p {
             Prim::Lines(l) => out.extend((0..l.len()).map(|i| Prim::Path(l.path(i)))),
             other => out.push(other.clone()),
@@ -401,6 +402,7 @@ pub fn pack(items: Vec<Prim>) -> Vec<Prim> {
         }
         let mut l = Lines { ends: Vec::with_capacity(run.len()), pen: Vec::with_capacity(run.len()), ..Default::default() };
         for p in run.drain(..) {
+            crate::deadline::poll();
             if let Err(p) = l.push(p) {
                 // a table is full: start another
                 out.push(Prim::Lines(std::mem::take(&mut l)));
@@ -415,6 +417,7 @@ pub fn pack(items: Vec<Prim>) -> Vec<Prim> {
     let mut out: Vec<Prim> = Vec::new();
     let mut run: Vec<PathPrim> = Vec::new();
     for p in items {
+        crate::deadline::poll();
         match p {
             Prim::Path(pp) if Lines::takes(&pp) => run.push(pp),
             other => {
@@ -473,6 +476,7 @@ impl Page {
     pub fn walk(&self, f: &mut dyn FnMut(&Prim)) {
         fn go(items: &[Prim], f: &mut dyn FnMut(&Prim)) {
             for p in items {
+                crate::deadline::poll();
                 match p {
                     Prim::Group(g) => {
                         f(p);
@@ -493,6 +497,7 @@ impl Page {
     pub fn visit(&self, f: &mut dyn FnMut(&Prim)) {
         fn go(items: &[Prim], f: &mut dyn FnMut(&Prim)) {
             for p in items {
+                crate::deadline::poll();
                 f(p);
                 if let Prim::Group(g) = p {
                     go(&g.children, f);

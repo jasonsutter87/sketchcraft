@@ -179,6 +179,7 @@ impl<'a> Reader<'a> {
             n.props.push(self.prop()?);
         }
         while self.p < end {
+            crate::deadline::poll();
             match self.node(depth + 1)? {
                 Some(k) => n.kids.push(k),
                 None => break,
@@ -203,6 +204,7 @@ pub(crate) fn parse(d: &[u8]) -> Result<Node> {
     let mut r = Reader { d, p: 27, wide: version >= 7500 };
     let mut root = Node { name: "root".into(), ..Default::default() };
     while r.p + 13 < d.len() {
+        crate::deadline::poll();
         match r.node(0)? {
             Some(n) => root.kids.push(n),
             None => break,
@@ -250,6 +252,7 @@ pub fn import(m: &mut Model, d: &[u8], name: &str, at: DVec3) -> Result<FbxResul
     let mut models: HashMap<i64, (&Node, String)> = HashMap::new();
     let mut mats: HashMap<i64, [f32; 3]> = HashMap::new();
     for n in &objects.kids {
+        crate::deadline::poll();
         let (id, nm) = ident(n);
         match n.name.as_str() {
             "Geometry" if n.props.get(2).map(|p| p.str()) == Some("Mesh") => {
@@ -313,6 +316,7 @@ pub fn import(m: &mut Model, d: &[u8], name: &str, at: DVec3) -> Result<FbxResul
     let mut ids: Vec<&i64> = geom_of.keys().collect();
     ids.sort();
     for mid in ids {
+        crate::deadline::poll();
         let g = geoms[&geom_of[mid]];
         let (_, mname) = &models[mid];
         let verts = match g.get("Vertices").and_then(|v| v.props.first()) {
@@ -343,6 +347,7 @@ pub fn import(m: &mut Model, d: &[u8], name: &str, at: DVec3) -> Result<FbxResul
         let mut poly: Vec<DVec3> = Vec::new();
         let mut k = 0;
         for &i in &index {
+            crate::deadline::poll();
             let (v, last) = if i < 0 { ((-i - 1) as usize, true) } else { (i as usize, false) };
             if let Some(p) = pts.get(v) {
                 poly.push(*p);

@@ -679,6 +679,7 @@ struct Root {
 impl Model {
     pub(crate) fn new_id(&mut self) -> Id {
         // never wraps (a wrapped id would overwrite something that is there): past the end the command fails and is undone
+        crate::deadline::poll();
         match self.next_id.checked_add(1) {
             Some(n) => {
                 self.next_id = n;
@@ -914,7 +915,15 @@ impl Model {
 
     /// True once the deadline set by the command in progress has passed.
     pub fn over_deadline(&self) -> bool {
-        self.deadline.is_some_and(|d| std::time::Instant::now() >= d)
+        self.deadline.is_some_and(|d| std::time::Instant::now() >= d) || crate::deadline::over()
+    }
+
+    /// The earliest of the command's own limit and the engine-wide one (see `deadline`), for work that runs on another thread.
+    pub fn effective_deadline(&self) -> Option<std::time::Instant> {
+        match (self.deadline, crate::deadline::current()) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        }
     }
 
     /// Run `f` with a time limit of `limit` (None: no new limit; an earlier deadline still stands), then put the
@@ -987,7 +996,10 @@ impl Model {
             bail!("points are not on one plane");
         }
         let group = self.active_group;
-        if let Some((&id, _)) = self.faces.iter().find(|(_, f)| f.group == group && same_set(&f.outer, &lp)) {
+        if let Some((&id, _)) = self.faces.iter().find(|(_, f)| {
+            crate::deadline::poll();
+            f.group == group && same_set(&f.outer, &lp)
+        }) {
             return Ok(id);
         }
 

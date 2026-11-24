@@ -401,6 +401,7 @@ fn build_scene(m: &Model, o: &PtOpts) -> Scene {
     let mut tris = Vec::new();
     let mut zmin = f32::MAX;
     for f in m.world_faces() {
+        crate::deadline::poll();
         let name = f.material.clone().unwrap_or_default();
         let color = f.color.unwrap_or(DEFAULT);
         // an image laid on the face maps along the face: one entry per direction
@@ -744,11 +745,16 @@ fn denoise(color: &[Vec3], albedo: &[Vec3], normal: &[Vec3], w: usize, h: usize)
         let sigma_l = 4.0 / (1 << pass) as f32 + 0.5;
         let src = &src;
         // rows in parallel: each thread fills its own band of `light`
+        let lim = crate::deadline::current();
         std::thread::scope(|s| {
             for (band, out) in light.chunks_mut(rows_per * w).enumerate() {
                 s.spawn(move || {
+                    crate::deadline::adopt(lim);
                     let y0 = band * rows_per;
                     for (r, row) in out.chunks_mut(w).enumerate() {
+                        if crate::deadline::over() {
+                            return;
+                        }
                         let y = y0 + r;
                         for x in 0..w {
                             let i = y * w + x;
@@ -900,10 +906,15 @@ fn pass(scene: &Scene, o: &PtOpts, w: usize, h: usize, seed: u32, spp: u32) -> (
         for (i, p) in parts.into_iter().enumerate() {
             buckets[i % threads].push(p);
         }
+        let lim = crate::deadline::current();
         for bucket in buckets {
             s.spawn(move || {
+                crate::deadline::adopt(lim);
                 for (cs, als, ns, sks, ys) in bucket {
                     for (row, &y) in ys.iter().enumerate() {
+                        if crate::deadline::over() {
+                            return;
+                        }
                         for x in 0..w {
                             let mut r = Rng::new(((y * w + x) as u64) << 8 | 1 ^ (seed as u64).wrapping_mul(0x2545_F491_4F6C_DD1D));
                             let (mut acc, mut aa, mut an, mut miss) = (Vec3::ZERO, Vec3::ZERO, Vec3::ZERO, 0.0f32);
@@ -932,6 +943,7 @@ fn pass(scene: &Scene, o: &PtOpts, w: usize, h: usize, seed: u32, spp: u32) -> (
             });
         }
     });
+    crate::deadline::poll_now();
     (color, albedo, normal, skyc)
 }
 

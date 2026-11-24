@@ -311,6 +311,7 @@ fn plain_text(raw: &str) -> String {
     let mut out = String::new();
     let mut it = raw.chars().peekable();
     while let Some(c) = it.next() {
+        crate::deadline::poll();
         match c {
             '\\' => match it.next() {
                 Some('P') | Some('p') | Some('~') | Some('X') => out.push(' '),
@@ -391,6 +392,7 @@ fn pairs(text: &str) -> Result<Vec<(i32, String)>> {
     let mut out = Vec::new();
     let mut lines = text.lines();
     while let Some(code) = lines.next() {
+        crate::deadline::poll();
         let code = code.trim();
         if code.is_empty() {
             continue;
@@ -851,6 +853,7 @@ fn import_inner(m: &mut Model, text: &str, name: &str, units: Option<&str>, at: 
     let mut ents_raw: Vec<(i32, String)> = vec![];
     let mut i = 0;
     while i < ps.len() {
+        crate::deadline::poll();
         if ps[i].0 == 0 && ps[i].1.trim() == "SECTION" && i + 1 < ps.len() && ps[i + 1].0 == 2 {
             let which = ps[i + 1].1.trim().to_string();
             let start = i + 2;
@@ -918,6 +921,7 @@ fn import_inner(m: &mut Model, text: &str, name: &str, units: Option<&str>, at: 
     STOPPED.with(|s| s.set(false));
     WORK.with(|w| w.set(0));
     for e in entities(&ents_raw) {
+        crate::deadline::poll();
         shapes(&e, &blocks, t, "0", 0, &mut shapes_out, &mut skipped);
         if OVER.with(|o| o.get()) {
             break;
@@ -1075,10 +1079,12 @@ pub const WINDOW: &str = "Window opening";
 fn window_pairs(lines: &[(DVec3, DVec3)]) -> Vec<[DVec3; 4]> {
     let mut cands = vec![];
     for i in 0..lines.len() {
+        crate::deadline::poll();
         if tick(lines.len() - i) {
             return vec![];
         }
         for j in i + 1..lines.len() {
+            crate::deadline::poll();
             let (p, q) = lines[i];
             let (mut r, mut t) = lines[j];
             let (di, dj) = (q - p, t - r);
@@ -1106,6 +1112,7 @@ fn window_pairs(lines: &[(DVec3, DVec3)]) -> Vec<[DVec3; 4]> {
     let mut used = std::collections::HashSet::new();
     let mut out = vec![];
     for (_, i, j, quad) in cands {
+        crate::deadline::poll();
         if used.insert(i) && used.insert(j) {
             out.push(quad);
         } 
@@ -1131,6 +1138,7 @@ fn mark_windows(m: &mut Model, b: &Bulk) {
     };
     let mut hits = vec![];
     for (id, f) in &m.faces {
+        crate::deadline::poll();
         if f.group != Some(b.group) || !f.holes.is_empty() {
             continue;
         }
@@ -1146,6 +1154,7 @@ fn mark_windows(m: &mut Model, b: &Bulk) {
     }
     m.materials.entry(WINDOW.into()).or_insert(crate::model::Material { color: [0.62, 0.78, 0.92], ..Default::default() });
     for id in hits {
+        crate::deadline::poll();
         if let Some(f) = m.faces.get_mut(&id) {
             f.material = Some(WINDOW.into());
         }
@@ -1177,6 +1186,7 @@ fn add_hatches(m: &mut Model, bulks: &mut [Bulk], hatches: Vec<(usize, Vec<Vec<D
     };
     let mut made = 0;
     for (bi, mut loops) in hatches {
+        crate::deadline::poll();
         let Some(b) = bulks.get_mut(bi) else { continue };
         loops.retain(|l| l.len() >= 3 && area(l).abs() > 1e-10);
         loops.sort_by(|x, y| area(y).abs().total_cmp(&area(x).abs()));
@@ -1264,6 +1274,7 @@ fn cut_across_layers(m: &mut Model, bulks: &mut [Bulk]) -> usize {
     let layer_of: std::collections::HashMap<Id, usize> = bulks.iter().enumerate().map(|(li, b)| (b.group, li)).collect();
     {
         for (id, f) in m.faces.iter() {
+            crate::deadline::poll();
             if tick(1) {
                 return 0;
             }
@@ -1317,6 +1328,7 @@ fn cut_across_layers(m: &mut Model, bulks: &mut [Bulk]) -> usize {
     let mut by_x: Vec<usize> = (0..flats.len()).collect();
     by_x.sort_by(|a, b| flats[*a].lo.x.total_cmp(&flats[*b].lo.x));
     for oi in 0..flats.len() {
+        crate::deadline::poll();
         if tick(8) {
             return added;
         }
@@ -1325,6 +1337,7 @@ fn cut_across_layers(m: &mut Model, bulks: &mut [Bulk]) -> usize {
         let first = by_x.partition_point(|&g| flats[g].lo.x < outer.lo.x - 1e-9);
         let mut cands: Vec<usize> = vec![];
         for &gi in &by_x[first..] {
+            crate::deadline::poll();
             if flats[gi].lo.x > outer.hi.x + 1e-9 {
                 break;
             }
@@ -1461,6 +1474,7 @@ impl Bulk {
         let pts: Vec<(Id, DVec3)> = nb.keys().map(|v| (*v, m.p(*v))).collect();
         let mut fixed = std::collections::HashSet::new();
         for (e, p, _) in &ends {
+            crate::deadline::poll();
             let near = pts.iter().filter(|(v, q)| v != e && !nb[e].contains(v) && q.distance(*p) < SLIP).min_by(|a, b| a.1.distance(*p).total_cmp(&b.1.distance(*p)));
             if let Some((v, _)) = near {
                 if self.edge(m, *e, *v) {
@@ -1473,6 +1487,7 @@ impl Bulk {
         let ends: Vec<(Id, DVec3, DVec3)> = ends.into_iter().filter(|(e, ..)| !fixed.contains(e)).collect();
         let mut pairs = vec![];
         for (i, (a, pa, da)) in ends.iter().enumerate() {
+            crate::deadline::poll();
             for (b, pb, db) in &ends[i + 1..] {
                 let gap = *pb - *pa;
                 let d = gap.length();
@@ -1516,6 +1531,7 @@ impl Bulk {
         // long zigzag, would otherwise put every segment in a whole column of cells)
         let (mut sx, mut sy) = (0.0, 0.0);
         for (a, b) in &seg {
+            crate::deadline::poll();
             sx += (a.x - b.x).abs();
             sy += (a.y - b.y).abs();
         }
@@ -1534,6 +1550,7 @@ impl Bulk {
         };
         let mut grid: HashMap<(usize, usize), Vec<usize>> = HashMap::new();
         for (i, (a, b)) in seg.iter().enumerate() {
+            crate::deadline::poll();
             let (c0, c1) = (at(a.min(*b) - TOL), at(a.max(*b) + TOL));
             // a long diagonal would fill a big block of cells; that's still bounded by g²
             if tick((c1.0 - c0.0 + 1) * (c1.1 - c0.1 + 1)) {
@@ -1550,6 +1567,7 @@ impl Bulk {
         let mut ncuts = 0usize;
         let bbox: Vec<(DVec2, DVec2)> = seg.iter().map(|(a, b)| (a.min(*b) - DVec2::splat(TOL), a.max(*b) + DVec2::splat(TOL))).collect();
         for (&cellkey, list) in grid.iter() {
+            crate::deadline::poll();
             if tick(list.len()) {
                 // out of time: leave the lines as they were (the build is being abandoned)
                 return es.to_vec();
@@ -1612,6 +1630,7 @@ impl Bulk {
         }
         let mut out = Vec::with_capacity(n);
         for (i, &(a, b)) in es.iter().enumerate() {
+            crate::deadline::poll();
             if cuts[i].is_empty() {
                 out.push((a, b));
                 continue;
@@ -1714,6 +1733,7 @@ fn faces_in_plan(m: &mut Model, es: &[(Id, Id)], group: Id) -> usize {
     // peel the dangling ends with a work list (rescanning every vertex per round made a long open chain quadratic)
     let mut work: Vec<Id> = nb.iter().filter(|(_, v)| v.len() < 2).map(|(k, _)| *k).collect();
     while let Some(v) = work.pop() {
+        crate::deadline::poll();
         if let Some(ns) = nb.remove(&v) {
             for n in ns {
                 if let Some(l) = nb.get_mut(&n) {
@@ -1742,6 +1762,7 @@ fn faces_in_plan(m: &mut Model, es: &[(Id, Id)], group: Id) -> usize {
     let mut neg: Vec<Vec<Id>> = vec![];
     let starts: Vec<(Id, Id)> = nb.iter().flat_map(|(v, ns)| ns.iter().map(move |n| (*v, *n))).collect();
     for (a0, b0) in starts {
+        crate::deadline::poll();
         if used.contains(&(a0, b0)) {
             continue;
         }
@@ -1802,6 +1823,7 @@ fn faces_in_plan(m: &mut Model, es: &[(Id, Id)], group: Id) -> usize {
     let mut grid: HashMap<(usize, usize), Vec<usize>> = HashMap::new();
     if !neg.is_empty() {
         for (i, (_, lo, hi)) in polys.iter().enumerate() {
+            crate::deadline::poll();
             let (c0, c1) = (cell_of(*lo), cell_of(*hi));
             if tick((c1.0 - c0.0 + 1) * (c1.1 - c0.1 + 1)) {
                 return 0;
@@ -1838,6 +1860,7 @@ fn faces_in_plan(m: &mut Model, es: &[(Id, Id)], group: Id) -> usize {
         return 0;
     }
     for (i, (outer, _)) in pos.into_iter().enumerate() {
+        crate::deadline::poll();
         let id = m.new_id();
         m.faces.insert(id, crate::model::Face { outer, holes: holes.remove(&i).unwrap_or_default(), group: Some(group), ..Default::default() });
     }
@@ -1935,8 +1958,10 @@ pub fn raise_walls_with(m: &mut Model, group: Id, height: f64, max_thickness: f6
     let named: Vec<Id> = all.iter().copied().filter(|g| wallish(&m.groups[g].name) || m.groups[g].tag.as_deref().is_some_and(wallish)).collect();
     let look: Vec<Id> = if named.is_empty() { all } else { named };
     let mut picked = vec![];
+    let look_set: std::collections::HashSet<Id> = look.iter().copied().collect();
     for (id, f) in &m.faces {
-        if !f.group.is_some_and(|g| look.contains(&g)) || f.hidden {
+        crate::deadline::poll();
+        if !f.group.is_some_and(|g| look_set.contains(&g)) || f.hidden {
             continue;
         }
         let n = m.normal(*id);
@@ -1971,6 +1996,7 @@ pub fn raise_walls_with(m: &mut Model, group: Id, height: f64, max_thickness: f6
     let mut walls = 0;
     let mut windows = 0;
     for (id, up, window) in picked {
+        crate::deadline::poll();
         let Some(f) = m.faces.get(&id).cloned() else { continue };
         // loops counter-clockwise about +Z for the outline, clockwise for holes
         let mut loops: Vec<Vec<Id>> = f.loops().cloned().collect();

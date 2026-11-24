@@ -185,10 +185,11 @@ impl Model {
     pub fn rooms(&self) -> Vec<RoomInfo> {
         let mut out = Vec::new();
         for (&id, g) in &self.groups {
+            crate::deadline::poll();
             if g.tag.as_deref() != Some(ROOMS_TAG) {
                 continue;
             }
-            let Some((&floor, f)) = self.faces.iter().find(|(&fid, f)| f.group == Some(id) && f.outer.len() >= 3 && self.normal(fid).z.abs() > 0.9999) else { continue };
+            let Some((&floor, f)) = self.faces.iter().find(|(&fid, f)| { crate::deadline::poll(); true } && f.group == Some(id) && f.outer.len() >= 3 && self.normal(fid).z.abs() > 0.9999) else { continue };
             let pts = self.pts(&f.outer);
             let z = pts.iter().fold(f64::MAX, |a, p| a.min(p.z));
             let xy: Vec<Pt> = pts.iter().map(|p| [p.x, p.y]).collect();
@@ -216,6 +217,7 @@ impl Model {
     fn room_thickness(&self, room: Id) -> f64 {
         let walls: Vec<Id> = self.groups.iter().filter(|(_, g)| g.parent == Some(room)).map(|(&k, _)| k).collect();
         for (&fid, f) in &self.faces {
+            crate::deadline::poll();
             if f.group.is_some_and(|g| walls.contains(&g)) && f.outer.len() >= 3 && self.normal(fid).z.abs() < 1e-4 {
                 if let Ok(p) = self.wall_plan(fid) {
                     return p.thickness;
@@ -232,6 +234,7 @@ impl Model {
         // (runs along x?, the face's coordinate across it, its extent along it)
         let mut long: Vec<(bool, f64, f64, f64)> = Vec::new();
         for (&fid, f) in &self.faces {
+            crate::deadline::poll();
             if !f.group.is_some_and(|g| groups.contains(&g)) || f.outer.len() < 3 {
                 continue;
             }

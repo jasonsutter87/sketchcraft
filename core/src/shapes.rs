@@ -113,6 +113,10 @@ impl Model {
             bail!("the path needs at least two points");
         }
         let prof = self.pts(&f.outer);
+        // what the sweep will make is known before any of it is built: a ring of profile points at every path corner, the
+        // faces between rings and the edges around them (about four new things per profile point per corner). Refused
+        // here when that is over the limits, so a long profile along a long path costs nothing.
+        self.check_room(w.len().saturating_mul(prof.len()).saturating_mul(4))?;
         let pn = geom::newell(&prof);
         let pc = geom::centroid(&prof);
         if closed {
@@ -155,6 +159,8 @@ impl Model {
         let first = if closed { project(&prof, seg(0), w[0], miter(0)) } else { prof.clone() };
         rings.push(first);
         for k in 0..nseg {
+            crate::deadline::poll();
+            self.check_deadline()?;
             let next = (k + 1) % m;
             let ring = project(rings.last().unwrap(), seg(k), w[next], if closed && next == 0 { miter(0) } else { miter(next) });
             rings.push(ring);
@@ -171,6 +177,8 @@ impl Model {
         let steps = if closed { nr } else { nr - 1 };
         let np = prof.len();
         for k in 0..steps {
+            crate::deadline::poll();
+            self.check_deadline()?;
             let (r0, r1) = (&ids[k], &ids[(k + 1) % nr]);
             for i in 0..np {
                 let j = (i + 1) % np;

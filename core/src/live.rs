@@ -569,6 +569,23 @@ impl Live {
         r
     }
 
+    /// Take back everything an agent's call did (it ran out of its time): the model goes back to `snap`, and the file
+    /// with it.
+    pub fn rollback_call(&mut self, snap: crate::commands::CallSnapshot) {
+        self.engine.rollback_call(snap);
+        if self.engine.in_batch() {
+            self.unsaved_batch = true;
+        } else if self.persist && self.engine.read_only.is_none() {
+            match self.save_with(None) {
+                Ok(()) => self.dirty = false,
+                Err(e) => {
+                    self.dirty = true;
+                    self.set_notice(format!("Couldn't save your model: {e}"));
+                }
+            }
+        }
+    }
+
     /// Write the model to the live file (atomically), keeping backups.
     pub fn save(&mut self, force_backup: bool) -> Result<(), String> {
         self.save_with(force_backup.then_some(Force { origin: Origin::Ui, kind: "big", big: true }))

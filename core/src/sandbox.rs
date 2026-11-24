@@ -37,6 +37,7 @@ impl Model {
         let gid = self.begin_group(name.to_string());
         let mut mesh = Mesh::new(self, Some(gid));
         for t in tris {
+            crate::deadline::poll();
             let mut tri = [pts[t[0]], pts[t[1]], pts[t[2]]];
             if geom::newell(&tri).z < 0.0 {
                 tri.swap(1, 2); // face up
@@ -98,6 +99,7 @@ impl Model {
             }
         };
         for (a, b) in &segs {
+            crate::deadline::poll();
             let n = ((a.distance(*b) / spacing).ceil() as usize).max(1);
             for k in 0..=n {
                 add(a.lerp(*b, k as f64 / n as f64), &mut pts);
@@ -153,6 +155,7 @@ impl Model {
         let vs: BTreeSet<Id> = fs.iter().flat_map(|f| self.faces[f].outer.clone()).collect();
         let mut touched = BTreeSet::new();
         for v in vs {
+            crate::deadline::poll();
             let p = self.p(v);
             let d = DVec2::new(p.x - at.x, p.y - at.y).length();
             if d < radius {
@@ -191,6 +194,7 @@ impl Model {
         };
         let mut touched = BTreeSet::new();
         for v in vs {
+            crate::deadline::poll();
             let p = self.p(v);
             let q = p.truncate();
             let new_z = if geom::inside_or_on(q, &poly) {
@@ -232,7 +236,8 @@ impl Model {
 
     fn drape_segments(&mut self, group: Id, segs: &[(DVec3, DVec3)]) -> Result<usize> {
         let fs = self.terrain_faces(group)?;
-        let world: Vec<_> = self.world_faces().into_iter().filter(|f| f.face.map_or(false, |id| fs.contains(&id))).collect();
+        let fset: std::collections::HashSet<Id> = fs.iter().copied().collect();
+        let world: Vec<_> = self.world_faces().into_iter().filter(|f| f.face.is_some_and(|id| fset.contains(&id))).collect();
         let mut pieces: Vec<(DVec3, DVec3)> = Vec::new();
         for &(a, b) in segs {
             let along = DVec3::new(b.x - a.x, b.y - a.y, 0.0);
@@ -245,6 +250,7 @@ impl Model {
             let (t0, t1) = (a.dot(along.normalize()), b.dot(along.normalize()));
             let dir = along.normalize();
             for f in &world {
+                crate::deadline::poll();
                 for (p, q) in crate::intersect::plane_crossing(f, n, w) {
                     // keep the part over the edge itself
                     let (tp, tq) = (p.dot(dir), q.dot(dir));
@@ -261,8 +267,13 @@ impl Model {
         self.active_group = Some(group);
         let mut drawn = 0;
         for (p, q) in pieces {
-            if self.draw_line(p, q).is_ok() {
-                drawn += 1;
+            match self.draw_line(p, q) {
+                Ok(_) => drawn += 1,
+                Err(e) if self.over_deadline() => {
+                    self.active_group = prev;
+                    return Err(e);
+                }
+                Err(_) => {}
             }
         }
         self.active_group = prev;

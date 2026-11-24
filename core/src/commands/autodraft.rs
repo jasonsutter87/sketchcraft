@@ -48,6 +48,7 @@ fn candidates(m: &Model) -> Vec<Cand> {
     let mut seen = std::collections::HashSet::new();
     let mut out = Vec::new();
     for e in m.world_edges() {
+        crate::deadline::poll();
         for (w, v) in [(e.a, e.v[0]), (e.b, e.v[1])] {
             if seen.insert((e.path.to_vec(), v)) {
                 out.push(Cand { w, path: e.path.to_vec(), v });
@@ -168,6 +169,7 @@ impl Engine {
         let mut pts: Vec<(f64, [f64; 2], DVec3, &'static str, Value)> = Vec::new();
         if kinds.iter().any(|k| k == "vertex") {
             for c in candidates(&bm) {
+                crate::deadline::poll();
                 if shown(c.w) {
                     let depth = if matches!(v.view, ViewKind::Plan { .. }) { -c.w.z } else { c.w.dot(toward) };
                     pts.push((depth, proj.xy(c.w), c.w, "vertex", c.arg()));
@@ -176,6 +178,7 @@ impl Engine {
         }
         if kinds.iter().any(|k| k == "midpoint") {
             for e in bm.world_edges() {
+                crate::deadline::poll();
                 let w = (e.a + e.b) / 2.0;
                 if shown(w) && e.a.distance(e.b) > 1e-6 {
                     let depth = if matches!(v.view, ViewKind::Plan { .. }) { -w.z } else { w.dot(toward) };
@@ -191,6 +194,7 @@ impl Engine {
             let ViewKind::Plan { cut_z, floor_z, .. } = v.view else { bail!("opening points are for plan viewports (this is a {})", view_name(&v)) };
             let cands: Vec<Cand> = candidates(&bm).into_iter().filter(|c| c.w.z >= floor_z - 0.05 && c.w.z <= cut_z + 0.05).collect();
             for o in crate::callouts::on_floor(&crate::callouts::openings(&bm), floor_z) {
+                crate::deadline::poll();
                 let c = o.center();
                 for s in [-1.0, 1.0] {
                     let target = if o.along_x { DVec3::new(c.x + s * o.width / 2.0, c.y, floor_z) } else { DVec3::new(c.x, c.y + s * o.width / 2.0, floor_z) };
@@ -276,11 +280,13 @@ impl Engine {
         let mut empty: Vec<Value> = Vec::new();
         let (chains, _) = crate::callouts::auto_chains(&bm, &ops, floor_z, outline);
         for sc in &scopes {
+            crate::deadline::poll();
             let before = wants.len();
             match sc.as_str() {
                 "openings" | "exterior" => {
                     let kind = if sc == "openings" { ChainKind::Openings } else { ChainKind::Overall };
                     for c in chains.iter().filter(|c| c.kind == kind) {
+                        crate::deadline::poll();
                         let stops: Vec<f64> = c.stops.iter().map(|p| if horizontal(c.side) { p.x } else { p.y }).collect();
                         let (anchors, missed) = chain(c.side, &stops);
                         let tier = if kind == ChainKind::Openings { first } else { first + TIER_MM };
@@ -348,6 +354,7 @@ impl Engine {
         let mut removed = vec![];
         if refresh {
             for (id, part) in &mine {
+                crate::deadline::poll();
                 if scopes.iter().any(|s| part.split('/').next() == Some(s.as_str())) {
                     self.model.sheet_items.remove(id);
                     removed.push(*id);
@@ -357,6 +364,7 @@ impl Engine {
         let who = self.made_by();
         let (mut added, mut kept, mut skipped) = (vec![], vec![], vec![]);
         for w in wants {
+            crate::deadline::poll();
             if let Some((id, _)) = mine.iter().find(|(id, p)| *p == w.part && !removed.contains(id)) {
                 kept.push(json!({"id": id, "part": w.part}));
                 continue;
@@ -495,6 +503,7 @@ fn grid_points(m: &Model, floor_z: f64, cut_z: f64) -> (Vec<Anchor>, Vec<Anchor>
     // the corners at each column's foot
     let mut feet: BTreeMap<Id, Vec<Cand>> = BTreeMap::new();
     for e in m.world_edges() {
+        crate::deadline::poll();
         let Some(col) = column_of(&e) else { continue };
         for (w, v) in [(e.a, e.v[0]), (e.b, e.v[1])] {
             if w.z >= floor_z - 0.05 && w.z <= cut_z {
@@ -507,12 +516,14 @@ fn grid_points(m: &Model, floor_z: f64, cut_z: f64) -> (Vec<Anchor>, Vec<Anchor>
     }
     let mut points: Vec<(DVec3, Anchor)> = Vec::new();
     for list in feet.values() {
+        crate::deadline::poll();
         let low = list.iter().map(|c| c.w.z).fold(f64::MAX, f64::min);
         let foot: Vec<&Cand> = list.iter().filter(|c| c.w.z < low + 1e-3).collect();
         // the centre: halfway along the longest diagonal of the foot (a square's corners, a circle's opposite points)
         let mut best: Option<(f64, &Cand, &Cand)> = None;
         for (i, a) in foot.iter().enumerate() {
             for b in &foot[i + 1..] {
+                crate::deadline::poll();
                 let d = a.w.distance(b.w);
                 if a.path == b.path && best.is_none_or(|(bd, ..)| d > bd + 1e-9) {
                     best = Some((d, a, b));

@@ -86,6 +86,7 @@ impl Cloud {
         let has = self.colors.len() == self.points.len();
         let (mut p, mut c) = (Vec::with_capacity(n / k * 3 + 3), Vec::new());
         for i in (0..n).step_by(k) {
+            crate::deadline::poll();
             p.extend_from_slice(&self.points[i * 3..i * 3 + 3]);
             if has {
                 c.extend_from_slice(&self.colors[i * 3..i * 3 + 3]);
@@ -155,6 +156,7 @@ fn ascii(bytes: &[u8]) -> Result<Raw> {
     let mut colors = vec![];
     let mut colored = true;
     for line in text.lines() {
+        crate::deadline::poll();
         let nums: Vec<f64> = line.split(|c: char| c.is_whitespace() || c == ',' || c == ';').filter(|s| !s.is_empty()).map_while(|s| s.parse().ok()).collect();
         if nums.len() < 3 {
             continue; // a header, a count line (PTS), or junk
@@ -365,6 +367,7 @@ fn las(b: &[u8]) -> Result<Raw> {
     let mut wide = false;
     let mut raw_c = vec![];
     for k in 0..count {
+        crate::deadline::poll();
         let r = &b[offset + k * rec..offset + (k + 1) * rec];
         let i = |o: usize| i32::from_le_bytes(r[o..o + 4].try_into().unwrap()) as f64;
         points.push(DVec3::new(i(0) * scale.x + off.x, i(4) * scale.y + off.y, i(8) * scale.z + off.z));
