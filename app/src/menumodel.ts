@@ -35,6 +35,7 @@ export const EXPORT_FORMATS: [string, string][] = [
   ["fbx", "FBX (.fbx)…"],
   ["obj", "OBJ…"],
   ["stl", "STL (mm)…"],
+  ["3mf", "3MF (mm)…"],
   ["dae", "Collada (.dae)…"],
   ["dxf", "3D DXF (mm)…"],
   ["dwg", "DWG (AutoCAD)…"],
@@ -222,6 +223,7 @@ export const MENUS: Menu[] = [
       SEP,
       act("tools.fixmodel", "menu.fixModel"),
       act("tools.checkmodel", "menu.checkModel"),
+      act("tools.printcheck", "menu.printCheck"),
     ],
   },
   {

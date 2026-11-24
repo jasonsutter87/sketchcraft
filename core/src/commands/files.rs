@@ -66,6 +66,12 @@ impl Engine {
                 json!({"path": path, "meshes": r.meshes, "triangles": r.triangles, "binary": binary.unwrap_or(true)})
             }
             Command::ExportStl { path, scale } => json!({"path": path, "triangles": export::write_stl(&self.model, &path, scale)?}),
+            Command::Export3mf { path, units } => {
+                let w = crate::threemf::write_3mf(&self.model, &path, units.as_deref().unwrap_or("millimeter"))?;
+                // a model that is not solid slices badly: say so here, the print check says where
+                let solid = self.model.everything_is_solid();
+                json!({"path": path, "objects": w.objects, "triangles": w.triangles, "vertices": w.vertices, "unit": w.unit, "solid": solid})
+            }
             Command::ImportDxf { path, text, units, at, name } => {
                 let text = match (text, &path) {
                     (Some(t), _) => t,

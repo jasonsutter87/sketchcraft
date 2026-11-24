@@ -60,6 +60,7 @@ import { exportTexture, TexturePaintPanel } from "./texturepaintpanel";
 import { editInPhotoCraft, photocraftHere } from "./photocraft";
 import { targetIds } from "./projection";
 import { fixCommand, fixSummary, type FixReply } from "./fixmodel";
+import { PrintCheckDialog } from "./printcheckdialog";
 import { PositionPanel } from "./positionpanel";
 import { UvPanel } from "./uvpanel";
 import { RestoreDialog } from "./restore";
@@ -207,6 +208,7 @@ function ModelingApp() {
   const [showTimeline, setShowTimeline] = useState(false);
   const [showLearn, setShowLearn] = useState(false);
   const [showAbout, setShowAbout] = useState(false);
+  const [showPrintCheck, setShowPrintCheck] = useState(false);
   const { preference, setPreference, t: tr } = useLocale();
   const [lesson, setLesson] = useState<string | null>(null);
   const [showWs, setShowWs] = useState(false);
@@ -598,7 +600,7 @@ function ModelingApp() {
       { id: "file.saveas", label: "Save As…", hint: "File", run: () => file.save(true) },
       { label: "Restore from backup…", hint: "File · earlier copies of this model, and work set aside", run: () => setShowRestore(true) },
       { id: "file.import", label: "Import…", hint: "File · SketchUp, DWG/DXF, IFC, FBX, OBJ, point clouds", run: file.import },
-      ...(["glb", "fbx", "obj", "stl", "dae", "dxf", "dwg", "pdf", "ifc"] as const).map((k) => ({ label: `Export ${k.toUpperCase()}…`, hint: "File", run: () => file.export(k) })),
+      ...(["glb", "fbx", "obj", "stl", "3mf", "dae", "dxf", "dwg", "pdf", "ifc"] as const).map((k) => ({ label: `Export ${k.toUpperCase()}…`, hint: "File", run: () => file.export(k) })),
       { id: "file.render", label: "Render…", hint: "Photoreal render", run: () => setShowRender(true) },
       { id: "file.timeline", label: "Timeline (video)…", hint: "Turntables, walkthroughs, sun studies", run: () => setShowTimeline(true) },
       { label: "Drawing sheets (PDF)…", hint: "File", run: () => setShowSheets(true) },
@@ -655,6 +657,7 @@ function ModelingApp() {
       { id: "file.exporttexture", label: "Export texture…", hint: "File · save the selected faces' picture (or the first paint texture) as a PNG", run: askExportTexture },
       { id: "tools.fixmodel", label: "Fix model", hint: "Tools · repair the selection (or the whole model): close holes, turn reversed faces, join flat neighbours, remove repeated and inside faces and stray lines. One undo step", run: () => void askFixModel(false) },
       { id: "tools.checkmodel", label: "Check model", hint: "Tools · say what keeps the selection (or the whole model) from being a solid, without changing anything", run: () => void askFixModel(true) },
+      { id: "tools.printcheck", label: "Print check…", hint: "Tools · is it solid, any thin walls or overhangs, the size in mm, then export 3MF or STL for a slicer", run: () => setShowPrintCheck(true) },
       { id: "tools.uveditor", label: "UV editor", hint: "Tools · a 2D view of the selected faces' UVs: mark seams, unwrap, pack, move islands, make the lightmap UVs", run: askUv },
       { id: "tools.projecttexture", label: "Project texture…", hint: "Tools · lay a picture on the selection: planar, box, cylinder or sphere", run: askProjection },
       { label: "Subdivide…", hint: `Tools · smooth the selected group or component into a SubD shape. ${SUBD_HOW}`, run: askSubdivide },
@@ -780,6 +783,7 @@ function ModelingApp() {
       photocraft: askPhotoCraft,
       fixModel: () => void askFixModel(false),
       checkModel: () => void askFixModel(true),
+      printCheck: () => setShowPrintCheck(true),
       plugins: () => (reloadPlugins(), setShowPlugins(true)),
       themes: () => setShowSkins(true),
       keys: () => setShowKeys(true),
@@ -1347,6 +1351,15 @@ function ModelingApp() {
             component={subdividing.component}
             onGo={doSubdivide}
             onClose={() => setSubdividing(null)}
+          />
+        )}
+        {showPrintCheck && (
+          <PrintCheckDialog
+            sel={sel}
+            run={run}
+            onFix={() => askFixModel(false)}
+            onSelect={(s) => setSel({ ...EMPTY, ...s })}
+            onClose={() => setShowPrintCheck(false)}
           />
         )}
         {showAbout && <AboutDialog onClose={() => setShowAbout(false)} />}

@@ -215,7 +215,7 @@ export function useFileActions({ run, say, refresh, api, scene, figure, currentF
       const path = await pickOpen();
       if (path) await importPath(path);
     },
-    export: async (kind: "obj" | "glb" | "fbx" | "stl" | "dae" | "dxf" | "dwg" | "pdf" | "ifc") => {
+    export: async (kind: "obj" | "glb" | "fbx" | "stl" | "3mf" | "dae" | "dxf" | "dwg" | "pdf" | "ifc") => {
       const base = modelBase(currentFile);
       const path = await pickSave(`${base}.${kind}`, kind, kind.toUpperCase());
       if (!path) return;
@@ -226,7 +226,10 @@ export function useFileActions({ run, say, refresh, api, scene, figure, currentF
             ? { cmd: "export_pdf", path, width: 2400, height: 1500, camera: api.current!.camera(), title: base }
             : { cmd: `export_${kind}`, path };
       const r = await run(cmd);
-      if (r.ok) say(`Exported ${path.split("/").pop()}`);
+      if (!r.ok) return;
+      // a 3MF that is not solid still opens in a slicer but prints badly: say so, and where to look
+      if (kind === "3mf" && r.solid === false) say(`Exported ${path.split("/").pop()}, but the model is not solid. Tools > Print check says what to fix.`, true);
+      else say(`Exported ${path.split("/").pop()}`);
     },
     section: async (kind: "svg" | "dxf") => {
       const plane = api.current?.sectionPlane();

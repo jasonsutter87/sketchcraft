@@ -116,7 +116,7 @@ the walls go up, with openings where the windows are.
 
 ## Exporting
 
-**File › Export ▸**: glTF (`.glb`), FBX (`.fbx`), OBJ, STL (for 3D printing), Collada
+**File › Export ▸**: glTF (`.glb`), FBX (`.fbx`), OBJ, STL and 3MF (for 3D printing, in millimetres: see [Print check](03-shaping.md#print-check-ready-for-a-slicer)), Collada
 (`.dae`), 3D DXF, DWG, IFC, a PDF or PNG of the view, a scene tour (MP4), and
 section cuts (SVG, DXF). Also on the File menu: **Make blueprint (PDF)**,
 **Drawing sheets (PDF)** at true scale, and **Generate report (CSV)**.

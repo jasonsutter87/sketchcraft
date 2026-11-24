@@ -116,6 +116,7 @@ impl Command {
             Command::Faces { .. }
                 | Command::Volume { .. }
                 | Command::CheckSolid { .. }
+                | Command::PrintCheck { .. }
                 | Command::Photoreal { .. }
                 | Command::SaveImage { .. }
                 | Command::Sun { .. }
@@ -154,6 +155,7 @@ impl Command {
                 | Command::ExportGlb { .. }
                 | Command::ExportFbx { .. }
                 | Command::ExportStl { .. }
+                | Command::Export3mf { .. }
                 | Command::ExportDae { .. }
                 | Command::ExportIfc { .. }
                 | Command::ExportSheets { .. }
@@ -1062,7 +1064,7 @@ impl Engine {
                 Command::Text3d { .. } | Command::Subd { .. } | Command::CageEdit { .. } |
                 Command::Subdivide { .. } | Command::FlipEdge { .. } | Command::Bevel { .. } |
                 Command::Divide { .. } | Command::Slice { .. } | Command::Intersect { .. } | Command::Flip { .. } |
-                Command::Solid { .. } | Command::Volume { .. } | Command::FixModel { .. } | Command::CheckSolid { .. }
+                Command::Solid { .. } | Command::Volume { .. } | Command::FixModel { .. } | Command::CheckSolid { .. } | Command::PrintCheck { .. }
             ) => self.run_shape(c),
             c @ (
                 Command::RaiseWalls { .. } | Command::DoorSwing { .. } | Command::TerrainFromContours { .. } |
@@ -1113,7 +1115,7 @@ impl Engine {
                 Command::Finish { .. } | Command::Options { .. } | Command::Report { .. }
             ) => self.run_annotate(c),
             c @ (
-                Command::Save { .. } | Command::Open { .. } | Command::ExportGlb { .. } | Command::ExportFbx { .. } | Command::ExportStl { .. } |
+                Command::Save { .. } | Command::Open { .. } | Command::ExportGlb { .. } | Command::ExportFbx { .. } | Command::ExportStl { .. } | Command::Export3mf { .. } |
                 Command::ImportDxf { .. } | Command::ImportDwg { .. } | Command::ExportDwg { .. } |
                 Command::ExportIfc { .. } | Command::ExportDae { .. } | Command::ExportDxf { .. } |
                 Command::ExportPdf { .. } | Command::ImportObj { .. } | Command::ImportSkp { .. } |

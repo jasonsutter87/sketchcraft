@@ -42,6 +42,22 @@ that is too big, an edge shared by three shapes, a flat sheet that is meant to b
 Faces with different paint or pictures stay separate, and locked groups are left alone. Agents can run `fix_model`
 with `dry_run: true` to look first, and `check_solid` to list the problems with their places.
 
+## Print check (ready for a slicer)
+
+**Tools › Print check…** looks at the selection (or the whole model) and says, in millimetres: whether it is a closed
+solid with no holes, whether any walls are thinner than a limit (0.8 mm to start with), which faces overhang past an
+angle (45° from vertical) and will need supports, how big it is, and whether that size looks like the wrong units (a
+model under 1 mm or over 3 m across). The two limits can be changed in the box. When the model is not solid, **Fix
+model** is one click away in the same box (the same repair as Tools › Fix model, one Undo step). **Select open edges**,
+**Select thin faces** and **Select overhangs** pick the problem spots so you can see them.
+
+Then **File › Export › 3MF (mm)…** (or STL) and open the file in your slicer. A 3MF carries its units, so the part
+comes in at its real size; each group and each placed component is its own object. If the model is not solid, the
+export still works but tells you to run the check first. Thin walls are measured straight through the surface, so a
+sloped wall reads thicker than it is across, and very thin slivers between sample points can be missed: treat the check
+as a safety net, and look at the slicer's preview before a long print. Agents can run `print_check` (read-only) and
+`export_3mf`.
+
 ## Curved and organic shapes
 
 ![Subdivision surfaces](../demos/subdivision.gif)

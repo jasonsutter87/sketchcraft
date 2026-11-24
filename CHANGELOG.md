@@ -7,6 +7,12 @@ What changed in each SketchCraft release, newest first. The format follows
 ## [Unreleased]
 
 ### Added
+- **Print check and 3MF export.** **Tools › Print check…** tells you if a model is ready for a slicer: is it a closed
+  solid, are any walls thinner than your limit, which faces overhang and need supports, how big it is in millimetres
+  (with a nudge when it looks like the wrong units), and whether it fits your printer. If it is not solid, **Fix model**
+  is one click away, and buttons pick the problem faces so you can see them. **File › Export › 3MF** writes a file that
+  carries its units, one object per group and component, next to the existing STL. Agents get a read-only
+  `print_check` and `export_3mf`. (Makers, #23)
 - **Fix model.** **Tools › Fix model** cleans up and makes a messy model solid in one step: it closes holes, turns
   reversed faces back, joins flat faces that were split, and removes repeated faces, faces trapped inside a solid, fins
   on shared edges and stray lines. It works on what you picked, or the whole model, and one Undo takes it all back.

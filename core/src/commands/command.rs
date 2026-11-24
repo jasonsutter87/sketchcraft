@@ -356,6 +356,10 @@ pub enum Command {
     ExportFbx { path: String, #[serde(default)] binary: Option<bool> },
     /// Binary STL for 3D printing; `scale` 1000 gives millimeters.
     ExportStl { path: String, #[serde(default = "one")] scale: f64 },
+    /// 3MF (.3mf) for slicers: one object per group and placed component. `units`: millimeter (default), centimeter,
+    /// meter, inch, foot, micron, or "model" for the model's own units.
+    #[serde(rename = "export_3mf")]
+    Export3mf { path: String, #[serde(default)] units: Option<String> },
     /// Animation through saved views (or a turntable): `path` .mp4/.mov
     /// (needs ffmpeg) or a folder for PNG frames. Render options apply.
     Animate {
@@ -1313,6 +1317,18 @@ pub enum Command {
     CheckSolid {
         #[serde(default)]
         ids: Vec<Id>,
+    },
+    /// Read-only 3D printing check: solid, thin walls (`min_wall` mm, default 0.8), overhangs (`overhang_angle` degrees from
+    /// vertical, default 45), size in mm with a wrong-units hint, and whether it fits `build` (mm x y z).
+    PrintCheck {
+        #[serde(default)]
+        ids: Vec<Id>,
+        #[serde(default)]
+        min_wall: Option<f64>,
+        #[serde(default)]
+        overhang_angle: Option<f64>,
+        #[serde(default)]
+        build: Option<[f64; 3]>,
     },
     /// Import a binary FBX (7.x): `path`, or the file as base64 in `data`.
     /// The file becomes one component; each mesh a group inside it.

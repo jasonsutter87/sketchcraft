@@ -155,6 +155,16 @@ impl Engine {
                 let scope = m.fix_scope(&ids)?;
                 serde_json::to_value(m.solid_check(&scope))?
             }
+            Command::PrintCheck { ids, min_wall, overhang_angle, build } => {
+                let scope = m.fix_scope(&ids)?;
+                let d = crate::print::PrintOptions::default();
+                let opts = crate::print::PrintOptions {
+                    min_wall_mm: min_wall.unwrap_or(d.min_wall_mm).clamp(0.0, 1000.0),
+                    overhang_deg: overhang_angle.unwrap_or(d.overhang_deg).clamp(0.0, 90.0),
+                    build_mm: build,
+                };
+                serde_json::to_value(m.print_check(&scope, &opts))?
+            }
             other => unreachable!("command routed to the wrong group: {other:?}"),
         })
     }
