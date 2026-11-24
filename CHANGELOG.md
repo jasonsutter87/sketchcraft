@@ -141,7 +141,11 @@ What changed in each SketchCraft release, newest first. The format follows
     after updates: layers you made are kept, with no move to a backup on the first run after an update.
   - The SketchCraft AI box cleans names from the model before the local model reads them, and its debug log has a size
     limit and keeps only recent days.
-  - The plugin safety check counts a probe as blocked only when the policy blocked it, not for any error.
+  - The plugin safety check counts a probe as blocked only when the policy blocked it, not for any error, and a bare
+    "load failed" counts only when the window's own policy was seen forbidding that load.
+  - PhotoCraft reads its small bookkeeping file with a size limit and without following links. The AI box also drops
+    hidden text characters from names and won't append to a debug file that has other links.
+  - Updated a dependency (`cookie`) to its fixed release.
   - Android: the app shares less through its file provider.
 
 ## [0.3.9] - 2026-11-20

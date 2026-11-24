@@ -16,6 +16,8 @@
 // A throw only counts as the policy when it LOOKS like the policy (isPolicyBlock below): a probe that fails
 // for another reason (a missing feature, a typo, "not supported in this context") is not proof of anything.
 
+const DATA_MODULE: string = "data:text/javascript,export default 1";
+
 const PROBE = `
 const hits = { fetch: false, import: false, eval: false };
 let key = "";
@@ -44,7 +46,11 @@ const probe = async (name, f) => {
  * the load failed (a `data:` URL needs no network, so a failed load is the policy). Anything else (ReferenceError,
  * SyntaxError, "not supported", "is not a function") is not proof, so it does not count.
  */
-export function isPolicyBlock(kind: "fetch" | "import" | "eval", err: { name?: string; message?: string } | null | undefined): boolean {
+export function isPolicyBlock(
+  kind: "fetch" | "import" | "eval",
+  err: { name?: string; message?: string } | null | undefined,
+  windowEnforces = false,
+): boolean {
   if (!err) return false;
   const name = String(err.name ?? "");
   const msg = String(err.message ?? "").toLowerCase();
@@ -52,7 +58,34 @@ export function isPolicyBlock(kind: "fetch" | "import" | "eval", err: { name?: s
   const policy = /content security policy|csp|refused to|violates|unsafe-eval|connect-src|script-src|blocked/.test(msg);
   if (kind === "eval") return name === "EvalError" || (policy && ["EvalError", "TypeError", "SecurityError", "EvalError"].includes(name));
   if (!["TypeError", "SecurityError", "NetworkError"].includes(name)) return false;
-  return policy || /failed to fetch|load failed|networkerror|network error/.test(msg);
+  if (policy) return true;
+  // The engines' bare "load failed" wording (WebKit, Chrome, Firefox) says nothing about WHY. It counts only for these
+  // exact messages, and only when the window itself saw its policy forbid the same kind of load (windowEnforces).
+  const bare = /^(failed to fetch|load failed|networkerror when attempting to fetch resource\.?|failed to fetch dynamically imported module.*|importing a module script failed\.?)$/;
+  return windowEnforces && bare.test(msg.trim());
+}
+
+/** Ask the window (where WebKit does report them) whether its own policy forbids a `data:` fetch and a `data:` import. */
+function windowPolicyProbe(): Promise<{ fetch: boolean; import: boolean }> {
+  return new Promise((resolve) => {
+    const seen = { fetch: false, import: false };
+    const on = (e: Event) => {
+      const v = e as SecurityPolicyViolationEvent;
+      const d = String(v.effectiveDirective || v.violatedDirective || "");
+      if (d.startsWith("connect-src")) seen.fetch = true;
+      if (d.startsWith("script-src")) seen.import = true;
+    };
+    try {
+      document.addEventListener("securitypolicyviolation", on);
+      const quiet = (p: Promise<unknown>) => p.then(() => undefined, () => undefined);
+      Promise.all([
+        quiet(fetch("data:text/plain,csp-window-probe")),
+        quiet(import(/* @vite-ignore */ DATA_MODULE)),
+      ]).then(() => setTimeout(() => { document.removeEventListener("securitypolicyviolation", on); resolve(seen); }, 50));
+    } catch {
+      resolve(seen);
+    }
+  });
 }
 
 let verdict: Promise<{ ok: boolean; why?: string }> | null = null;
@@ -76,8 +109,10 @@ export function pluginSandboxHolds(): Promise<{ ok: boolean; why?: string }> {
         const d = e.data ?? {};
         const h = d.hits ?? {};
         const errs = d.errors ?? {};
-        const open = (["fetch", "import", "eval"] as const).filter((k) => !h[k] && !isPolicyBlock(k, errs[k]));
-        done(open.length ? { ok: false, why: `SketchCraft couldn't confirm that plugins are walled off from the network on this system (${open.join(", ")} not blocked), so it won't run them; everything else works as usual` } : { ok: true });
+        void windowPolicyProbe().then((win) => {
+          const open = (["fetch", "import", "eval"] as const).filter((k) => !h[k] && !isPolicyBlock(k, errs[k], k === "eval" ? false : win[k]));
+          done(open.length ? { ok: false, why: `SketchCraft couldn't confirm that plugins are walled off from the network on this system (${open.join(", ")} not blocked), so it won't run them; everything else works as usual` } : { ok: true });
+        });
       };
     } catch (e) {
       if (url) URL.revokeObjectURL(url);

@@ -96,12 +96,22 @@ fn ident(name: &str) -> String {
     name.trim().to_lowercase().chars().map(|c| if c == ' ' || c == '-' { '_' } else { c }).filter(|c| c.is_ascii_alphanumeric() || *c == '_').take(32).collect()
 }
 
+/// Unicode format characters (category Cf) the prompt must not carry: zero-width and direction marks, the tag block
+/// (U+E0000..E007F, which can hide text), joiners, invisible operators, BOM, soft hyphen and the other format marks.
+fn is_format_char(c: char) -> bool {
+    matches!(c,
+        '\u{00AD}' | '\u{0600}'..='\u{0605}' | '\u{061C}' | '\u{06DD}' | '\u{070F}' | '\u{0890}'..='\u{0891}' | '\u{08E2}'
+        | '\u{180E}' | '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2060}'..='\u{2064}' | '\u{2066}'..='\u{206F}'
+        | '\u{FEFF}' | '\u{FFF9}'..='\u{FFFB}' | '\u{110BD}' | '\u{110CD}' | '\u{13430}'..='\u{1343F}' | '\u{1BCA0}'..='\u{1BCA3}'
+        | '\u{1D173}'..='\u{1D17A}' | '\u{E0000}'..='\u{E007F}')
+}
+
 /// A name from the file, made safe to put in the prompt as data: no control or invisible/direction characters, no
 /// quotes or backslashes (so it can't close the quotes it sits in), at most 40 characters.
 pub fn clean_name(name: &str) -> String {
     let s: String = name
         .chars()
-        .filter(|c| !c.is_control() && !matches!(c, '"' | '\\' | '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}' | '\u{FEFF}'))
+        .filter(|c| !c.is_control() && !is_format_char(*c) && !matches!(c, '"' | '\\' | '\u{2028}' | '\u{2029}'))
         .take(40)
         .collect();
     s.trim().to_string()
@@ -110,6 +120,15 @@ pub fn clean_name(name: &str) -> String {
 /// Most days of AI debug files kept, and the most bytes one day's file may hold.
 pub const LOG_KEEP_FILES: usize = 14;
 pub const LOG_MAX_FILE_BYTES: u64 = 8 << 20;
+
+#[cfg(unix)]
+fn link_count(m: &std::fs::Metadata) -> u64 {
+    std::os::unix::fs::MetadataExt::nlink(m)
+}
+#[cfg(not(unix))]
+fn link_count(_: &std::fs::Metadata) -> u64 {
+    1
+}
 
 /// Append `line` to the day's debug file unless that would pass `max_bytes`, then drop the oldest `.jsonl` files
 /// beyond `keep`. Never writes through a link.
@@ -128,6 +147,10 @@ pub fn append_log(dir: &std::path::Path, day: &str, line: &str, max_bytes: u64, 
         return Err("today's AI debug file is full".into());
     }
     let mut f = std::fs::OpenOptions::new().create(true).append(true).open(&path).map_err(|e| e.to_string())?;
+    // checked on the open file (not the path): a hardlink to another file is refused, nothing is written through it
+    if !f.metadata().is_ok_and(|m| m.is_file() && link_count(&m) <= 1) {
+        return Err("the AI debug file has other links; nothing is written through it".into());
+    }
     f.write_all(line.as_bytes()).and_then(|_| f.write_all(b"\n")).map_err(|e| e.to_string())?;
     let mut files: Vec<(std::time::SystemTime, std::path::PathBuf)> = std::fs::read_dir(dir)
         .map_err(|e| e.to_string())?
@@ -444,6 +467,27 @@ mod tests {
         assert!(!st.contains('\n') && !st.contains('\u{202E}'), "{st}");
         assert!(!st.contains(&"x".repeat(41)), "{st}");
         assert!(st.contains("named \"Box"), "{st}");
+    }
+
+    #[test]
+    fn invisible_tag_and_separator_characters_are_stripped() {
+        let hidden = "Door\u{E0041}\u{E0042}\u{E007F}\u{2028}\u{2029}\u{2060}\u{00AD}\u{FEFF}!";
+        assert_eq!(clean_name(hidden), "Door!");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_debug_log_refuses_a_hardlinked_file() {
+        let dir = std::env::temp_dir().join(format!("sc-ailog-hl-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let victim = dir.join("victim.txt");
+        std::fs::write(&victim, "keep me").unwrap();
+        std::fs::hard_link(&victim, dir.join("2026-11-07.jsonl")).unwrap();
+        assert!(append_log(&dir, "2026-11-07", "{}", 1000, 3).is_err());
+        assert_eq!(std::fs::read_to_string(&victim).unwrap(), "keep me");
+        assert!(append_log(&dir, "2026-11-08", "{}", 1000, 3).is_ok());
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

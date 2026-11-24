@@ -197,7 +197,7 @@ fn photocraft_open(state: tauri::State<App>, material: String, texture: String, 
     let ora = photocraft::ora_path(&textures_dir(&state), &material);
     let tex = photocraft::decode_data_url(&texture)?;
     let current = photocraft::hash_of(&tex);
-    let stored = std::fs::read_to_string(last_hash_path(&ora)).ok();
+    let stored = photocraft::read_hash_file(&last_hash_path(&ora))?;
     let reuse = ora.is_file() && photocraft::stored_hash_matches(stored.as_deref(), &tex);
     if reuse && stored.as_deref().is_some_and(|h| !photocraft::is_tagged(h)) {
         // a hash file from before the tagged format: keep the layers and upgrade the file (once)

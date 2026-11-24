@@ -85,6 +85,33 @@ pub fn hash_of(bytes: &[u8]) -> String {
     s
 }
 
+/// Most bytes of a hash file that are read (the tagged line is about 71).
+const MAX_HASH_FILE: u64 = 256;
+
+/// Read the hash file beside an `.ora`: `Ok(None)` when it is missing or too big to be one (a mismatch, so the
+/// layers are kept as a backup, never lost); an error when it is a link or anything but a plain file (a device or
+/// pipe would never end). Reads at most `MAX_HASH_FILE` bytes.
+pub fn read_hash_file(path: &Path) -> Result<Option<String>, String> {
+    use std::io::Read;
+    let meta = match std::fs::symlink_metadata(path) {
+        Ok(m) => m,
+        Err(_) => return Ok(None),
+    };
+    if meta.file_type().is_symlink() {
+        return Err(format!("{} is a link; SketchCraft won't read through it", path.display()));
+    }
+    if !meta.is_file() {
+        return Err(format!("{} is not a plain file", path.display()));
+    }
+    let mut buf = Vec::new();
+    let f = std::fs::File::open(path).map_err(|e| format!("can't read {}: {e}", path.display()))?;
+    f.take(MAX_HASH_FILE + 1).read_to_end(&mut buf).map_err(|e| format!("can't read {}: {e}", path.display()))?;
+    if buf.len() as u64 > MAX_HASH_FILE {
+        return Ok(None);
+    }
+    Ok(String::from_utf8(buf).ok())
+}
+
 /// Does a stored hash carry an algorithm tag (the current format)?
 pub fn is_tagged(stored: &str) -> bool {
     stored.trim().starts_with(HASH_TAG)
@@ -568,6 +595,30 @@ mod tests {
         write_file_safely(&hf, hash_of(b"pic").as_bytes()).unwrap();
         assert!(is_tagged(&std::fs::read_to_string(&hf).unwrap()));
         assert!(ora.is_file() && !ora.with_extension("ora.bak").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn hash_file_read_is_bounded_and_refuses_links() {
+        let dir = std::env::temp_dir().join(format!("sc-hashread-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let good = dir.join("a.ora.sketchcraft");
+        std::fs::write(&good, hash_of(b"x")).unwrap();
+        assert_eq!(read_hash_file(&good).unwrap().as_deref(), Some(hash_of(b"x").as_str()));
+        assert_eq!(read_hash_file(&dir.join("none")).unwrap(), None);
+        // too big to be a hash file: a mismatch, not an error and not read whole
+        let big = dir.join("b.ora.sketchcraft");
+        std::fs::write(&big, vec![b'a'; 100_000]).unwrap();
+        assert_eq!(read_hash_file(&big).unwrap(), None);
+        #[cfg(unix)]
+        {
+            let start = std::time::Instant::now();
+            let link = dir.join("c.ora.sketchcraft");
+            std::os::unix::fs::symlink("/dev/zero", &link).unwrap();
+            assert!(read_hash_file(&link).is_err());
+            assert!(start.elapsed().as_secs() < 2);
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
