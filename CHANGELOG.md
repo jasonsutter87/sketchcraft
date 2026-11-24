@@ -177,6 +177,7 @@ What changed in each SketchCraft release, newest first. The format follows
     commands have no limit. Intersect is fast on big models and a sweep (Follow me) too large for the model is refused
     before any of it is built. Text sent to an agent drops hidden characters (the stored names are unchanged), and Flip
     and Bevel are quicker on big models.
+  - Intersect works again on many overlapping solids (a stale entry in a cache stopped it).
 
 ## [0.3.9] - 2026-11-20
 

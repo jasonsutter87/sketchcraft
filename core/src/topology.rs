@@ -278,18 +278,18 @@ impl Model {
 
         let mut made: Vec<Id> = Vec::new();
         let mut used: Vec<Vec<DVec3>> = Vec::new();
-        // each face's plane, worked out once (not once per candidate loop): the cover test below only looks at faces in the loop's plane
-        let mut planes: Vec<(Id, DVec3, DVec3)> = if cands.is_empty() {
-            Vec::new()
-        } else {
-            self.faces
+        // each face's plane, worked out once per set of faces (add_face can split or replace faces, so it is
+        // worked out again after each loop is added, at most twice): the cover test below only looks at faces in the loop's plane
+        let plane_cache = |m: &Model| -> Vec<(Id, DVec3, DVec3)> {
+            m.faces
                 .iter()
                 .map(|(&id, f)| {
                     crate::deadline::poll();
-                    (id, geom::newell(&self.pts(&f.outer)), self.p(f.outer[0]))
+                    (id, geom::newell(&m.pts(&f.outer)), m.p(f.outer[0]))
                 })
                 .collect()
         };
+        let mut planes: Vec<(Id, DVec3, DVec3)> = if cands.is_empty() { Vec::new() } else { plane_cache(self) };
         for (_, c) in cands {
             if made.len() == 2 {
                 break;
@@ -312,7 +312,7 @@ impl Model {
                 if fnorm.dot(n).abs() < 1.0 - 1e-9 || (*fp0 - pts[0]).dot(n).abs() > 1e-6 {
                     return false;
                 }
-                let f = &self.faces[id];
+                let Some(f) = self.faces.get(id) else { return false };
                 let fp = self.pts(&f.outer);
                 // covered = its whole outline is within the new loop
                 geom::to2d(&fp, u, v).iter().all(|q| geom::inside_or_on(*q, &poly)) && geom::inside(geom::to2d(&[interior_point(&fp, n)], u, v)[0], &poly)
@@ -321,8 +321,8 @@ impl Model {
                 continue;
             }
             if let Ok(id) = self.add_face(c.clone()) {
-                if let Some(f) = self.faces.get(&id) {
-                    planes.push((id, geom::newell(&self.pts(&f.outer)), self.p(f.outer[0])));
+                if made.is_empty() {
+                    planes = plane_cache(self);
                 }
                 made.push(id);
                 used.push(pts);
