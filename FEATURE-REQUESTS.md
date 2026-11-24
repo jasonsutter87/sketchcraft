@@ -1,8 +1,8 @@
 # Feature requests
 
 What people have asked for, where it came from, and where it stands. The
-current sprint is worked top to bottom. Android is tracked separately as
-**SketchCraft Lite** (its own app).
+current sprint is worked top to bottom. Every item from 0.3.8 on is a GitHub issue in its
+release's [milestone](https://github.com/jasonsutter87/sketchcraft/milestones).
 
 Status: `todo` · `in progress` · `done` · `later` · `won't do`
 
@@ -53,55 +53,92 @@ The suite grows with the app: from here on every feature lands with its tests. I
 ## Sprint 3: 0.3.8, drafting (from 2026-11-17)
 
 LayOut-class documentation. People who draft for a living say the money is here, and SketchUp's LayOut does it badly.
-Tracked on GitHub as the **0.3.8 — Drafting** milestone.
+Tracked on GitHub as the **0.3.8 — Drafting** milestone. Shipped in **0.3.8** (2026-11-19).
 
 | # | Feature | Asked by | Added | Status | Completed |
 | - | ------- | -------- | ----- | ------ | --------- |
-| 1 | **Line weight and line style per tag and per edge**, printed at true weight, no stacked viewports | hardluxe (Reddit) | 2026-11-17 | planned | |
-| 2 | **.pat hatches per tag**, with hatch colour, thickness, scale and angle | hardluxe (Reddit) | 2026-11-17 | planned | |
-| 3 | **Cut fill per tag** in sections (poché) | hardluxe (Reddit) | 2026-11-17 | planned | |
-| 4 | **Opacity per viewport** on sheets, for hybrid drawings without fog | hardluxe (Reddit) | 2026-11-17 | planned | |
-| 5 | **Tables and text blocks** on sheets (schedules, drawing index) | Relative-Fondant6544 (Reddit) | 2026-11-17 | planned | |
-| 6 | **Large documents stay fast**: A1, 50+ pages, lots of text, with a performance test | Relative-Fondant6544 (Reddit) | 2026-11-17 | planned | |
-| 7 | **Interactive sheet editor**: place and size viewports, text, dimensions, tables, title blocks by mouse | Jason | 2026-11-17 | planned | |
-| 8 | **AI drafting**: "dimension this plan", "hatch by tag", "lay out a permit set" through the agents | hardluxe (Reddit) | 2026-11-17 | planned | |
-| 9 | **Dimensions and viewports stay attached** when the model changes | SketchUp pain-point research | 2026-11-17 | planned | |
-| 10 | **Trim, extend and continuous dimensions** on sheets | SketchUp pain-point research | 2026-11-17 | planned | |
+| 1 | **Line weight and line style per tag and per edge**, printed at true weight, no stacked viewports | hardluxe (Reddit) | 2026-11-17 | done | 2026-11-18 |
+| 2 | **.pat hatches per tag**, with hatch colour, thickness, scale and angle | hardluxe (Reddit) | 2026-11-17 | done | 2026-11-18 |
+| 3 | **Cut fill per tag** in sections (poché) | hardluxe (Reddit) | 2026-11-17 | done | 2026-11-18 |
+| 4 | **Opacity per viewport** on sheets, for hybrid drawings without fog | hardluxe (Reddit) | 2026-11-17 | done (opacity; hybrid viewports not yet) | 2026-11-18 |
+| 5 | **Tables and text blocks** on sheets (schedules, drawing index) | Relative-Fondant6544 (Reddit) | 2026-11-17 | done | 2026-11-18 |
+| 6 | **Large documents stay fast**: A1, 50+ pages, lots of text, with a performance test | Relative-Fondant6544 (Reddit) | 2026-11-17 | done | 2026-11-18 |
+| 7 | **Interactive sheet editor**: place and size viewports, text, dimensions, tables, title blocks by mouse | Jason | 2026-11-17 | done | 2026-11-18 |
+| 8 | **AI drafting**: "dimension this plan", "hatch by tag", "lay out a permit set" through the agents | hardluxe (Reddit) | 2026-11-17 | done | 2026-11-18 |
+| 9 | **Dimensions and viewports stay attached** when the model changes | SketchUp pain-point research | 2026-11-17 | done | 2026-11-18 |
+| 10 | **Trim, extend and continuous dimensions** on sheets | SketchUp pain-point research | 2026-11-17 | done | 2026-11-18 |
+| 11 | **Cut intersection priority per tag** (like Archicad's building-material priority) (#88) | hardluxe (Reddit) | 2026-11-18 | done | 2026-11-18 |
+| 12 | **Dimensions and text labels from SketchUp files** (#59) | Jason | 2026-11-17 | done (linear dimensions and labels; radial and leaders not yet) | 2026-11-18 |
+| 13 | **Customizable keyboard shortcuts**, with SketchUp's imported (#60) | Jason | 2026-11-18 | done | 2026-11-18 |
 
 ## Sprint 4: 0.3.9, texturing (from 2026-11-17)
 
 Built-in UV and material tools for rendering and game assets, so the half-dozen texture add-ons aren't needed.
-Tracked on GitHub as the **0.3.9 — Texturing** milestone.
+Tracked on GitHub as the **0.3.9 — Texturing** milestone. Shipped in **0.3.9** (2026-11-21).
 
 | # | Feature | Asked by | Added | Status | Completed |
 | - | ------- | -------- | ----- | ------ | --------- |
-| 1 | **Position Texture**: move, rotate, scale and skew a texture on a face with pins | Relative-Fondant6544 (Reddit) | 2026-11-17 | planned | |
-| 2 | **Projection mapping**: planar, box, cylinder, sphere | Relative-Fondant6544 (Reddit) | 2026-11-17 | planned | |
-| 3 | **Paint-through**: continuous textures across connected faces | Relative-Fondant6544 (Reddit) | 2026-11-17 | planned | |
-| 4 | **UV unwrap** with a UV view | Relative-Fondant6544 (Reddit) | 2026-11-17 | planned | |
-| 5 | **Vertex painting** | Relative-Fondant6544 (Reddit) | 2026-11-17 | planned | |
-| 6 | **glTF / GLB export** with UVs and vertex colours, for game engines | Relative-Fondant6544 (Reddit) | 2026-11-17 | planned | |
-| 7 | **Textures in SketchUp 2017–2020 imports** | timrowledge (GitHub #1) | 2026-11-17 | planned | |
-| 8 | **Lightmap UV channel (UV2)** for game engines | SketchUp pain-point research | 2026-11-17 | planned | |
-| 9 | **FBX export** | SketchUp pain-point research | 2026-11-17 | planned | |
-| 10 | **Blocky Beaver**: a voxel-style mascot with a pixel-art skin and a skin template, the test model for every texturing feature (#47) | Jason | 2026-11-17 | planned | |
-| 11 | **Texturing test set**: dice, can, globe, crate, soccer ball, with reference renders in the tests (#48) | Jason | 2026-11-17 | planned | |
+| 1 | **Position Texture**: move, rotate, scale and skew a texture on a face with pins | Relative-Fondant6544 (Reddit) | 2026-11-17 | done | 2026-11-20 |
+| 2 | **Projection mapping**: planar, box, cylinder, sphere | Relative-Fondant6544 (Reddit) | 2026-11-17 | done | 2026-11-20 |
+| 3 | **Paint-through**: continuous textures across connected faces | Relative-Fondant6544 (Reddit) | 2026-11-17 | done | 2026-11-20 |
+| 4 | **UV unwrap** with a UV view | Relative-Fondant6544 (Reddit) | 2026-11-17 | done | 2026-11-20 |
+| 5 | **Vertex painting** | Relative-Fondant6544 (Reddit) | 2026-11-17 | done | 2026-11-20 |
+| 6 | **glTF / GLB export** with UVs and vertex colours, for game engines | Relative-Fondant6544 (Reddit) | 2026-11-17 | done | 2026-11-20 |
+| 7 | **Textures in SketchUp 2017–2020 imports** (#17) | timrowledge (GitHub #1) | 2026-11-17 | todo (moved to the Compatibility milestone) | |
+| 8 | **Lightmap UV channel (UV2)** for game engines | SketchUp pain-point research | 2026-11-17 | done | 2026-11-20 |
+| 9 | **FBX export** | SketchUp pain-point research | 2026-11-17 | done | 2026-11-20 |
+| 10 | **Blocky Beaver**: a voxel-style mascot with a pixel-art skin and a skin template, the test model for every texturing feature (#47) | Jason | 2026-11-17 | done | 2026-11-20 |
+| 11 | **Texturing test set**: dice, can, globe, crate, soccer ball, with reference renders in the tests (#48) | Jason | 2026-11-17 | done | 2026-11-20 |
+| 12 | **Room mode, Pull wall, fixtures & furniture**: draw rooms by dragging, like The Sims | Jason | 2026-11-19 | done | 2026-11-20 |
+| 13 | **A real menu bar** (File, Edit, View, Camera, Draw, Tools, Window, Help) and **Help › About** | Jason | 2026-11-19 | done | 2026-11-20 |
 
-Sprints 5 to 9 come from research into what SketchUp users complain about most (forums, reviews, extension stores). See [ROADMAP.md](ROADMAP.md) for the why.
+Sprints 5 to 10 come from research into what SketchUp users complain about most (forums, reviews, extension stores). See [ROADMAP.md](ROADMAP.md) for the why.
 
-## Sprint 5: 0.3.10, makers (from 2026-11-17)
+## Sprint 5: makers (from 2026-11-17)
 
-Quick wins for woodworkers and 3D printing, the people most likely to switch.
-Tracked on GitHub as the **0.3.10 — Makers** milestone.
+Quick wins for woodworkers and 3D printing, the people most likely to switch. Built ahead of the Compatibility
+work and shipping in **0.3.10**. Tracked on GitHub as the **0.4.1 — Makers** milestone (#22–#25).
 
 | # | Feature | Asked by | Added | Status | Completed |
 | - | ------- | -------- | ----- | ------ | --------- |
-| 1 | **Fix model**: one undoable command to make a model clean and solid | SketchUp pain-point research | 2026-11-17 | planned | |
-| 2 | **3D printing check** and **3MF export** | SketchUp pain-point research | 2026-11-17 | planned | |
-| 3 | **Woodworker pack**: cutting diagrams, labels, cost, CNC parts, joinery | SketchUp pain-point research | 2026-11-17 | planned | |
-| 4 | **Small tools**: Bezier curves, make faces, flatten to a height | SketchUp pain-point research | 2026-11-17 | planned | |
+| 1 | **Fix model**: one undoable command to make a model clean and solid, and **Check model** (#22) | SketchUp pain-point research | 2026-11-17 | done (in 0.3.10) | 2026-11-23 |
+| 2 | **3D printing check** and **3MF export** (#23) | SketchUp pain-point research | 2026-11-17 | done (in 0.3.10) | 2026-11-23 |
+| 3 | **Woodworker pack**: cut plan with cutting diagrams, labels and cost; CNC files per part with dog-bones; dado, rabbet and tenon (#24) | SketchUp pain-point research | 2026-11-17 | done (in 0.3.10) | 2026-11-23 |
+| 3b | **The cut list knows lumber**: 2×4, 1×6… by name, and board feet (#24) | SketchUp pain-point research | 2026-11-17 | done (in 0.3.10) | 2026-11-23 |
+| 4 | **Small tools**: Curve (smooth curves through points), Make faces, Flatten to height (#25) | SketchUp pain-point research | 2026-11-17 | done (in 0.3.10) | 2026-11-23 |
 
-## Sprint 6: 0.4.0, no extension tax (from 2026-11-17)
+## Asked for since 0.3.9 (from 2026-11-20)
+
+Requests and reports that came in on GitHub while 0.3.9 and 0.3.10 were being built.
+
+| # | Feature | Asked by | Added | Status | Completed |
+| - | ------- | -------- | ----- | ------ | --------- |
+| 1 | **More languages**: French, Spanish, German, Portuguese (#158) | bertrandpoissenot-dotcom (GitHub) | 2026-11-22 | done (in 0.3.10) | 2026-11-23 |
+| 2 | **Simplified Chinese** (#126) | 652436962 (GitHub, contributed it) | 2026-11-20 | done (in 0.3.10) | 2026-11-23 |
+| 3 | **Italian** (#75) | Kad26 (GitHub, contributed it) | 2026-11-18 | done | 2026-11-21 |
+| 4 | **Linux on arm64** (#160) | batoceragaming (GitHub) | 2026-11-23 | done (in 0.3.10) | 2026-11-23 |
+| 5 | **Android** (#125) | Avbpp (GitHub) | 2026-11-20 | in progress (tablets, early, in 0.3.10; phones later) | |
+| 6 | **From Points**: find the middle of a board or a floor by lining up with two points (#164) | telcopro (GitHub, contributed it) | 2026-11-23 | done (in 0.3.10) | 2026-11-23 |
+| 7 | **Lay out parts**: every part laid flat on the ground, and back with one click (#169) | telcopro (GitHub, contributed it) | 2026-11-23 | done (in 0.3.10) | 2026-11-23 |
+| 8 | A rectangle drawn at a face's edge kept the solid closed (bug, #162) | telcopro (GitHub) | 2026-11-23 | done | 2026-11-23 |
+| 9 | SketchUp files that failed to open: Ashling Rd (2017, #187), Tim's workbench (SketchUp 7, #188), Shed (SketchUp 6, #200), Rustic Pine Bed (SketchUp 8, #201) | timrowledge (GitHub) | 2026-11-24 | done (in 0.3.10) | 2026-11-24 |
+| 10 | **Distribution through ArtCraft Launcher** (#139) | Kad26 (GitHub) | 2026-11-20 | todo (under discussion; Edit texture in PhotoCraft already uses the Launcher's PhotoCraft) | |
+
+## Sprint 6: compatibility (from 2026-11-17)
+
+For people leaving SketchUp over price. Tracked on GitHub as the **0.3.10 — Compatibility** milestone; the 0.3.10
+release shipped the Makers sprint instead, so these are still to come.
+
+| # | Feature | Asked by | Added | Status | Completed |
+| - | ------- | -------- | ----- | ------ | --------- |
+| 1 | **Textures in SketchUp 2017–2020 imports** (#17) | timrowledge (GitHub #1) | 2026-11-17 | planned | |
+| 2 | **SketchUp import report** (#36) | SketchUp pain-point research | 2026-11-17 | planned | |
+| 3 | **Run the top free SketchUp extensions** (#37) | SketchUp pain-point research | 2026-11-17 | planned | |
+| 4 | **Save as older SketchUp versions** (research) (#38) | SketchUp pain-point research | 2026-11-17 | planned | |
+| 5 | **Coming from SketchUp Make 2017** guide (#40) | SketchUp pain-point research | 2026-11-17 | planned | |
+| 6 | **3D mouse** (3Dconnexion SpaceMouse) (#58) | Jason | 2026-11-17 | planned | |
+
+## Sprint 7: 0.4.0, no extension tax (from 2026-11-17)
 
 The paid add-ons people buy most, built in.
 Tracked on GitHub as the **0.4.0 — No extension tax** milestone.
@@ -114,10 +151,10 @@ Tracked on GitHub as the **0.4.0 — No extension tax** milestone.
 | 4 | **Bend, taper and twist** | SketchUp pain-point research | 2026-11-17 | planned | |
 | 5 | **Parametric profiles, railings and stairs** | SketchUp pain-point research | 2026-11-17 | planned | |
 
-## Sprint 7: 0.4.1, big models (from 2026-11-17)
+## Sprint 8: 0.4.2, big models (from 2026-11-17)
 
 Big models stay fast; the Rust core is the advantage.
-Tracked on GitHub as the **0.4.1 — Big models** milestone.
+Tracked on GitHub as the **0.4.2 — Big models** milestone.
 
 | # | Feature | Asked by | Added | Status | Completed |
 | - | ------- | -------- | ----- | ------ | --------- |
@@ -127,24 +164,20 @@ Tracked on GitHub as the **0.4.1 — Big models** milestone.
 | 4 | **Incremental viewport updates** | SketchUp pain-point research | 2026-11-17 | planned | |
 | 5 | **Public big-model benchmark** | SketchUp pain-point research | 2026-11-17 | planned | |
 
-## Sprint 8: 0.4.2, switchers & your own AI (from 2026-11-17)
+## Sprint 9: 0.4.3, your own AI (from 2026-11-17)
 
-For people leaving SketchUp over price and AI credits.
-Tracked on GitHub as the **0.4.2 — Switchers & your own AI** milestone.
+AI without credits.
+Tracked on GitHub as the **0.4.3 — Your own AI** milestone.
 
 | # | Feature | Asked by | Added | Status | Completed |
 | - | ------- | -------- | ----- | ------ | --------- |
-| 1 | **SketchUp import report** | SketchUp pain-point research | 2026-11-17 | planned | |
-| 2 | **Run the top free SketchUp extensions** | SketchUp pain-point research | 2026-11-17 | planned | |
-| 3 | **Save as older SketchUp versions** (research) | SketchUp pain-point research | 2026-11-17 | planned | |
-| 4 | **Bring your own AI**: setup guide and recipes | SketchUp pain-point research | 2026-11-17 | planned | |
-| 5 | **Coming from SketchUp Make 2017** guide | SketchUp pain-point research | 2026-11-17 | planned | |
-| 6 | **Open CC0 asset library** | SketchUp pain-point research | 2026-11-17 | planned | |
+| 1 | **Bring your own AI**: setup guide and recipes (#39) | SketchUp pain-point research | 2026-11-17 | planned | |
+| 2 | **Open CC0 asset library** (#41) | SketchUp pain-point research | 2026-11-17 | planned | |
 
-## Sprint 9: 0.4.3, rendering (from 2026-11-17)
+## Sprint 10: 0.4.4, rendering (from 2026-11-17)
 
 Better renders without a paid plugin.
-Tracked on GitHub as the **0.4.3 — Rendering** milestone.
+Tracked on GitHub as the **0.4.4 — Rendering** milestone.
 
 | # | Feature | Asked by | Added | Status | Completed |
 | - | ------- | -------- | ----- | ------ | --------- |
@@ -156,10 +189,10 @@ Tracked on GitHub as the **0.4.3 — Rendering** milestone.
 
 | Feature | Asked by | Added | Status | Notes |
 | ------- | -------- | ----- | ------ | ----- |
-| SketchCraft Lite (Android) | RuliAvo25, Lasm998 (Reddit) | 2026-11-16 | later | Its own app; touch-first push/pull |
+| SketchCraft on Android | RuliAvo25, Lasm998 (Reddit); Avbpp (GitHub #125) | 2026-11-16 | in progress | Tablets build and run (early, 0.3.10); a touch-first phone interface comes later |
 | More of SketchUp's Ruby API: mouse tools (Sketchup::Tool), HtmlDialog, observers, followme, textures | rats4final (Reddit) | 2026-11-16 | later | The geometry-building core runs (sprint 2, #7) |
 | Library of scale figures (people, cyclists, cars) for pathways | EuphoricPenguin22 (Reddit) | 2026-11-16 | done (2026-11-16) | Ten figures in Library › Scale figures; original art drawn from simple shapes by tools/scale_figures/scale_figures.py, not traced from photos |
-| 2D drafting done right: a dimension style editor (arrows, text, units, precision) and fonts for text and tables, what people miss in CADCraft | Waste-Affect5021 (r/ArtCraftAI, about CADCraft) | 2026-11-16 | in 0.3.8 | Part of sprint 3 (drafting) |
+| 2D drafting done right: a dimension style editor (arrows, text, units, precision) and fonts for text and tables, what people miss in CADCraft | Waste-Affect5021 (r/ArtCraftAI, about CADCraft) | 2026-11-16 | in 0.3.8, partly | Sprint 3 shipped line weights, styles and hatches; a full dimension style editor and fonts are still to do |
 
 ## Done before this list
 
