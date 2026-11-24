@@ -165,6 +165,14 @@ const dialogs = [
     await p.getByRole('menuitem', { name: /Manage plugins/ }).click();
   }],
   ['restore', async (p) => {
+    // the list is the Backups folder next to the scratch model, and how many files it holds (and how big they are)
+    // depends on everything the earlier shots and suites did: put in a fixed set so the picture is the same every run
+    const dir = path.join(path.dirname(process.env.SKETCHCRAFT_DOC), 'Backups');
+    const stem = path.basename(process.env.SKETCHCRAFT_DOC).replace(/\.[^.]*$/, '');
+    fs.mkdirSync(dir, { recursive: true });
+    for (const f of fs.readdirSync(dir)) fs.rmSync(path.join(dir, f), { force: true });
+    const now = Math.floor(Date.now() / 1000);
+    ['new', 'new', 'del', 'new', 'open', 'new'].forEach((kind, i) => fs.writeFileSync(path.join(dir, `${stem}-${now - 30 - i * 40}-pre-${kind}.sketchcraft`), 'x'.repeat(2048 * (i + 1))));
     await p.getByRole('menuitem', { name: 'File', exact: true }).click();
     await p.getByRole('menuitem', { name: /Restore from backup/ }).click();
     await p.waitForSelector('[role=dialog][aria-label="Restore from backup"]');
