@@ -26,6 +26,10 @@ const MAX_HOLE_EDGES: usize = 512;
 /// Past this many faces in scope the coplanar merge is skipped (a note says so).
 const MAX_MERGE_FACES: usize = 300_000;
 const MAX_MERGE_PASSES: usize = 64;
+/// Most loose lines the report lists one by one; the rest are counted in `more_stray_edges`.
+const MAX_LISTED: usize = 1_000;
+/// Flat regions with a hole or a pinch are joined pair by pair, which costs more: past this many faces they are left.
+const MAX_PAIRWISE_FACES: usize = 2_000;
 
 /// What to look at: everything, or only some groups (each with everything nested in it).
 #[derive(Clone, Debug, Default)]
@@ -107,8 +111,11 @@ pub struct FixReport {
     pub merged_faces: Vec<Change>,
     /// holes closed (`id` is the first new face, `with` any other new faces of that hole)
     pub filled_holes: Vec<Change>,
-    /// loose lines removed
+    /// loose lines removed (the first few; see `more_stray_edges`)
     pub stray_edges: Vec<Change>,
+    /// loose lines removed beyond those listed
+    #[serde(skip_serializing_if = "is_zero")]
+    pub more_stray_edges: usize,
     /// things that could not be repaired automatically, in words
     pub notes: Vec<String>,
     /// what is still wrong afterwards (for a dry run: what is wrong now)
@@ -125,7 +132,12 @@ impl FixReport {
             + self.merged_faces.len()
             + self.filled_holes.len()
             + self.stray_edges.len()
+            + self.more_stray_edges
     }
+}
+
+fn is_zero(n: &usize) -> bool {
+    *n == 0
 }
 
 type Key = (Id, Id);
@@ -517,15 +529,162 @@ impl Model {
         }
     }
 
-    /// Join neighbours lying in one plane: same look, no holes, one shared edge.
+    /// Join neighbours lying in one plane: same look, no holes. Flat regions are found once (faces that can join across
+    /// a shared edge) and each region whose outline is one simple loop becomes one face, in a single linear pass.
+    /// Regions with a hole or a pinch fall back to joining pair by pair (on those faces only).
     fn fix_merge_coplanar(&mut self, scope: &FixScope, r: &mut FixReport) {
-        if self.faces_in(scope).len() > MAX_MERGE_FACES {
+        let faces = self.faces_in(scope);
+        if faces.len() > MAX_MERGE_FACES {
             r.notes.push("coplanar faces were not merged: the model is too big for that step".into());
             return;
         }
+        let uses = self.edge_uses(&faces);
+        let eid = self.edge_ids();
+        // which faces may join across which edges
+        let mut normals: HashMap<Id, DVec3> = HashMap::new();
+        let mut parent: HashMap<Id, Id> = HashMap::new();
+        fn root(p: &mut HashMap<Id, Id>, mut f: Id) -> Id {
+            while let Some(&q) = p.get(&f) {
+                if q == f {
+                    break;
+                }
+                let g = p.get(&q).copied().unwrap_or(q);
+                p.insert(f, g);
+                f = g;
+            }
+            f
+        }
+        let mut joins: Vec<(Key, Id, Id)> = Vec::new();
+        for (k, u) in &uses {
+            if u.len() != 2 || u[0].forward == u[1].forward {
+                continue;
+            }
+            let (f, g) = (u[0].face, u[1].face);
+            if f == g || !self.joinable(f, g, *k, &eid, &mut normals) {
+                continue;
+            }
+            joins.push((*k, f, g));
+            for x in [f, g] {
+                parent.entry(x).or_insert(x);
+            }
+            let (a, b) = (root(&mut parent, f), root(&mut parent, g));
+            if a != b {
+                parent.insert(a.max(b), a.min(b));
+            }
+        }
+        if joins.is_empty() {
+            return;
+        }
+        let mut regions: BTreeMap<Id, Vec<Id>> = BTreeMap::new();
+        let members: Vec<Id> = parent.keys().copied().collect();
+        for f in members {
+            let rt = root(&mut parent, f);
+            regions.entry(rt).or_default().push(f);
+        }
+        let mut join_keys: HashMap<Id, Vec<Key>> = HashMap::new();
+        for (k, f, _) in &joins {
+            let rt = root(&mut parent, *f);
+            join_keys.entry(rt).or_default().push(*k);
+        }
         let mut merged: BTreeMap<Id, Vec<Id>> = BTreeMap::new();
+        let mut leftover: BTreeSet<Id> = BTreeSet::new();
+        for (rt, mut fs) in regions {
+            fs.sort_unstable();
+            let inner: HashSet<Key> = join_keys.get(&rt).map(|v| v.iter().copied().collect()).unwrap_or_default();
+            match self.region_outline(&fs, &inner) {
+                Some(outline) => {
+                    let keep = fs[0];
+                    self.faces.get_mut(&keep).unwrap().outer = outline;
+                    for &g in &fs[1..] {
+                        self.faces.remove(&g);
+                    }
+                    for k in &inner {
+                        if let Some(e) = eid.get(k) {
+                            self.edges.remove(e);
+                        }
+                    }
+                    merged.insert(keep, fs[1..].to_vec());
+                }
+                None => leftover.extend(fs),
+            }
+        }
+        if !leftover.is_empty() {
+            if leftover.len() <= MAX_PAIRWISE_FACES {
+                self.merge_pairwise(&leftover, &mut merged);
+            } else {
+                r.notes.push("some flat areas were not merged: they are too tangled for that step".into());
+            }
+        }
+        for (keep, with) in merged {
+            if self.faces.contains_key(&keep) {
+                r.merged_faces.push(Change { id: keep, at: self.face_spot(keep), with });
+            }
+        }
+    }
+
+    /// The faces of a region joined across `inner` edges, as one loop of corners: None when the outline is not one
+    /// simple loop (a hole in the middle, or a corner the outline passes twice).
+    fn region_outline(&self, fs: &[Id], inner: &HashSet<Key>) -> Option<Vec<Id>> {
+        let mut next: HashMap<Id, Id> = HashMap::new();
+        let mut count = 0usize;
+        for &f in fs {
+            let o = &self.faces[&f].outer;
+            for (a, b) in pairs(o) {
+                if a == b {
+                    return None;
+                }
+                if inner.contains(&key(a, b)) {
+                    continue;
+                }
+                if next.insert(a, b).is_some() {
+                    return None;
+                }
+                count += 1;
+            }
+        }
+        if count < 3 {
+            return None;
+        }
+        let start = self.faces[&fs[0]].outer.iter().copied().find(|v| next.contains_key(v))?;
+        let mut out = vec![start];
+        let mut cur = *next.get(&start)?;
+        while cur != start {
+            out.push(cur);
+            if out.len() > count {
+                return None;
+            }
+            cur = *next.get(&cur)?;
+        }
+        (out.len() == count).then_some(out)
+    }
+
+    /// Whether two faces may join across edge `k` (everything but the shape of the result).
+    fn joinable(&self, f: Id, g: Id, k: Key, eid: &HashMap<Key, Id>, normals: &mut HashMap<Id, DVec3>) -> bool {
+        let (a, b) = (&self.faces[&f], &self.faces[&g]);
+        if a.group != b.group || !a.holes.is_empty() || !b.holes.is_empty() || a.material != b.material || a.hidden != b.hidden {
+            return false;
+        }
+        if a.tex.is_some() || b.tex.is_some() || a.uv.is_some() || b.uv.is_some() || a.uv2.is_some() || b.uv2.is_some() || a.vcol.is_some() || b.vcol.is_some() {
+            return false;
+        }
+        if let Some(e) = eid.get(&k).and_then(|id| self.edges.get(id)) {
+            if e.seam || e.draft.is_some() {
+                return false;
+            }
+        }
+        let na = *normals.entry(f).or_insert_with(|| self.normal(f));
+        let nb = *normals.entry(g).or_insert_with(|| self.normal(g));
+        if na == DVec3::ZERO || na.dot(nb) < COPLANAR_DOT {
+            return false;
+        }
+        let p0 = self.p(a.outer[0]);
+        b.outer.iter().all(|&v| (self.p(v) - p0).dot(na).abs() < COPLANAR_DIST)
+    }
+
+    /// The pair-by-pair join: for the few regions whose outline is not one simple loop.
+    fn merge_pairwise(&mut self, only: &BTreeSet<Id>, merged: &mut BTreeMap<Id, Vec<Id>>) {
         for _ in 0..MAX_MERGE_PASSES {
-            let faces = self.faces_in(scope);
+            let faces: BTreeSet<Id> = only.iter().copied().filter(|f| self.faces.contains_key(f)).collect();
             let uses = self.edge_uses(&faces);
             let eid = self.edge_ids();
             let mut touched: HashSet<Id> = HashSet::new();
@@ -551,11 +710,6 @@ impl Model {
                 break;
             }
         }
-        for (keep, with) in merged {
-            if self.faces.contains_key(&keep) {
-                r.merged_faces.push(Change { id: keep, at: self.face_spot(keep), with });
-            }
-        }
     }
 
     fn mergeable(&self, f: Id, g: Id, k: Key, eid: &HashMap<Key, Id>) -> bool {
@@ -572,7 +726,8 @@ impl Model {
             }
         }
         // exactly one edge in common (two would pinch the result)
-        let shared = pairs(&a.outer).filter(|&(x, y)| b.outer.iter().zip(b.outer.iter().cycle().skip(1)).any(|(&p, &q)| (p == x && q == y) || (p == y && q == x))).count();
+        let in_b: HashSet<Key> = pairs(&b.outer).map(|(p, q)| key(p, q)).collect();
+        let shared = pairs(&a.outer).filter(|&(x, y)| in_b.contains(&key(x, y))).count();
         if shared != 1 {
             return false;
         }
@@ -720,26 +875,40 @@ impl Model {
         let used: HashSet<Key> = self.faces.values().flat_map(|f| f.loops().flat_map(|l| pairs(l).map(|(a, b)| key(a, b)).collect::<Vec<_>>()).collect::<Vec<_>>()).collect();
         let face_verts: HashSet<Id> = self.faces.values().flat_map(|f| f.loops().flatten().copied().collect::<Vec<_>>()).collect();
         let loose: Vec<Id> = self.edges.iter().filter(|(_, e)| scope.has(e.group) && !used.contains(&key(e.a, e.b))).map(|(&id, _)| id).collect();
-        // chains of loose lines, grown from the vertices the faces use
-        let mut touching: HashSet<Id> = face_verts;
+        // chains of loose lines, grown from the vertices the faces use (a breadth-first walk over what hangs off each corner)
+        let mut at: HashMap<Id, Vec<Id>> = HashMap::new();
+        for &id in &loose {
+            let e = &self.edges[&id];
+            at.entry(e.a).or_default().push(id);
+            at.entry(e.b).or_default().push(id);
+        }
         let mut stray: BTreeSet<Id> = BTreeSet::new();
-        loop {
-            let before = stray.len();
-            for &id in &loose {
+        let mut seen: HashSet<Id> = HashSet::new();
+        let mut queue: Vec<Id> = face_verts.into_iter().filter(|v| at.contains_key(v)).collect();
+        seen.extend(queue.iter().copied());
+        while let Some(v) = queue.pop() {
+            for &id in &at[&v] {
+                if !stray.insert(id) {
+                    continue;
+                }
                 let e = &self.edges[&id];
-                if !stray.contains(&id) && (touching.contains(&e.a) || touching.contains(&e.b)) {
-                    stray.insert(id);
-                    touching.insert(e.a);
-                    touching.insert(e.b);
+                for w in [e.a, e.b] {
+                    if seen.insert(w) && at.contains_key(&w) {
+                        queue.push(w);
+                    }
                 }
             }
-            if stray.len() == before {
-                break;
+        }
+        let total = stray.len();
+        for (n, id) in stray.into_iter().enumerate() {
+            let e = self.edges.remove(&id).unwrap();
+            if n < MAX_LISTED {
+                r.stray_edges.push(Change { id, at: ((self.p(e.a) + self.p(e.b)) / 2.0).to_array(), with: vec![] });
             }
         }
-        for id in stray {
-            let e = self.edges.remove(&id).unwrap();
-            r.stray_edges.push(Change { id, at: ((self.p(e.a) + self.p(e.b)) / 2.0).to_array(), with: vec![] });
+        r.more_stray_edges = total - r.stray_edges.len();
+        if r.more_stray_edges > 0 {
+            r.notes.push(format!("{total} loose lines were removed; the first {} are listed", r.stray_edges.len()));
         }
     }
 
@@ -761,6 +930,7 @@ impl Model {
                 r.merged_faces.extend(inner.merged_faces);
                 r.filled_holes.extend(inner.filled_holes);
                 r.stray_edges.extend(inner.stray_edges);
+                r.more_stray_edges += inner.more_stray_edges;
             }
             r.notes.extend(inner.notes);
         }

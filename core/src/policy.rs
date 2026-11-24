@@ -423,6 +423,26 @@ fn reject_side_name(p: &Path) -> Result<(), String> {
     }
 }
 
+/// Most edges one `spline` or `bezier` from a plugin or an agent may make. Points are capped, but each span is cut into
+/// many pieces, so the edges are what costs.
+pub const MAX_CURVE_EDGES_UNTRUSTED: usize = 2_000;
+
+/// `spline` and `bezier`: for plugins and agents, count the edges the curve would make (pieces per span times spans).
+fn curve_limits(caller: &Caller, name: &str, cmd: &Value) -> Result<(), String> {
+    if !matches!(name, "spline" | "bezier") || matches!(caller, Caller::Ui) {
+        return Ok(());
+    }
+    let n = cmd.get("points").and_then(Value::as_array).map_or(0, Vec::len);
+    let closed = cmd.get("closed").and_then(Value::as_bool).unwrap_or(false);
+    let (spans, default_k) = if name == "spline" { (if closed { n } else { n.saturating_sub(1) }, 12) } else { (n.saturating_sub(1) / 3, 16) };
+    let k = cmd.get("segments").and_then(Value::as_f64).map_or(default_k, |s| if s.is_finite() { s.clamp(1.0, crate::curves::MAX_SPAN_SEGMENTS as f64) as usize } else { default_k });
+    let edges = spans.saturating_mul(k);
+    if edges > MAX_CURVE_EDGES_UNTRUSTED {
+        return Err(format!("that curve would have {edges} edges; \"{name}\" from a plugin or an agent may make at most {MAX_CURVE_EDGES_UNTRUSTED} (use fewer points or segments)"));
+    }
+    Ok(())
+}
+
 /// The sheet commands' own limits: pages (a model's sheets, and the pages one command describes) and the items one
 /// command from a plugin or an agent carries. `walk` has already bounded every list; these are the tighter, named ones.
 fn sheet_limits(caller: &Caller, name: &str, cmd: &Value) -> Result<(), String> {
@@ -505,6 +525,7 @@ pub fn vet(caller: &Caller, cmd: &mut Value) -> Result<(), String> {
     let data_max = if matches!(caller, Caller::Ui) { MAX_DATA_UI } else { MAX_DATA_UNTRUSTED };
     walk(cmd, &name, &mut Walk { data_max, trusted: matches!(caller, Caller::Ui), values: 0 }, 0, "")?;
     sheet_limits(caller, &name, cmd)?;
+    curve_limits(caller, &name, cmd)?;
     // a folder of CNC files is the person's to choose: an agent writes one .zip in its workspace
     if name == "export_cnc" && !matches!(caller, Caller::Ui) && cmd.get("dir").is_some_and(|d| !d.is_null()) {
         return Err("\"export_cnc\" writes one .zip (path) for agents and plugins; a folder (dir) is the person's".into());

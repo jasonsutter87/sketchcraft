@@ -108,6 +108,13 @@ What changed in each SketchCraft release, newest first. The format follows
   check now judges each probe by whether it was actually blocked, and if plugins ever do have to stay off, the message
   says so plainly and that everything else still works.
 
+### Security
+- **WildLeopard review of 0.3.10.**
+  - Work limits: curves from plugins and agents are limited by how many edges they make, and a curve that crosses itself
+    many times is refused, so a long curve can't freeze the app. Long curves are drawn in one pass.
+  - Fix model is much faster on big models: flat areas are joined in one pass and loose lines are cleared in one sweep,
+    and a very long list of loose lines is counted instead of listed one by one.
+
 ## [0.3.9] - 2026-11-20
 
 ### Added
