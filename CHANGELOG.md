@@ -6,6 +6,8 @@ What changed in each SketchCraft release, newest first. The format follows
 
 ## [Unreleased]
 
+## [0.3.10] - 2026-11-23
+
 ### Added
 - **Cut plan: cutting diagrams, labels and cost.** **Tools › Cut plan…** (also a button on the Cut list's result) packs
   your parts onto real sheets and boards and shows each sheet drawn to scale with every part numbered, how much is waste,
@@ -913,7 +915,8 @@ The first build with installers (never published as a release).
   import and export, and PNG renders with dimensions and labels.
 - Installers for macOS, Windows and Linux, and the CLI for each.
 
-[Unreleased]: https://github.com/jasonsutter87/sketchcraft/compare/v0.3.9...HEAD
+[Unreleased]: https://github.com/jasonsutter87/sketchcraft/compare/v0.3.10...HEAD
+[0.3.10]: https://github.com/jasonsutter87/sketchcraft/compare/v0.3.9...v0.3.10
 [0.3.9]: https://github.com/jasonsutter87/sketchcraft/compare/v0.3.8...v0.3.9
 [0.3.8]: https://github.com/jasonsutter87/sketchcraft/compare/v0.3.7...v0.3.8
 [0.3.7]: https://github.com/jasonsutter87/sketchcraft/compare/v0.3.6...v0.3.7
