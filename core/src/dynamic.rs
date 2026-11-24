@@ -428,14 +428,26 @@ pub fn fmt(v: f64) -> String {
 /// One row per group and component placement: what it is, how big, how much.
 pub fn report(m: &Model) -> Vec<BTreeMap<&'static str, String>> {
     let faces = m.world_faces();
+    // each group's faces and each placement's faces, found once (not by a pass over every face for every row)
+    let mut by_group: std::collections::HashMap<crate::model::Id, Vec<&crate::components::WFace>> = std::collections::HashMap::new();
+    let mut by_owner: std::collections::HashMap<crate::model::Id, Vec<&crate::components::WFace>> = std::collections::HashMap::new();
+    for f in &faces {
+        crate::deadline::poll();
+        if let (Some(g), Some(_)) = (f.group, f.face) {
+            by_group.entry(g).or_default().push(f);
+        }
+        by_owner.entry(f.owner).or_default().push(f);
+    }
     let mut scratch = m.clone(); // the solid check can add paint entries; keep them out of the model
     let mut rows = Vec::new();
     let mut add = |kind: &'static str, id: crate::model::Id, name: String, component: String, tag: Option<String>, attrs: String| {
-        let mine: Vec<_> = faces.iter().filter(|f| if kind == "Group" { f.group == Some(id) && f.face.is_some() } else { f.owner == id }).collect();
+        crate::deadline::poll();
+        let none = Vec::new();
+        let mine: &Vec<&crate::components::WFace> = if kind == "Group" { by_group.get(&id).unwrap_or(&none) } else { by_owner.get(&id).unwrap_or(&none) };
         let pts: Vec<DVec3> = mine.iter().flat_map(|f| f.outer.iter().copied()).collect();
         let size = if pts.is_empty() { DVec3::ZERO } else { pts.iter().fold((pts[0], pts[0]), |(lo, hi), p| (lo.min(*p), hi.max(*p))).1 - pts.iter().fold(pts[0], |lo, p| lo.min(*p)) };
         let area: f64 = mine.iter().map(|f| crate::geom::area(&f.outer) - f.holes.iter().map(|h| crate::geom::area(h)).sum::<f64>()).sum();
-        let volume = crate::csg::solid_info(&mut scratch, id).map(fmt).unwrap_or_default();
+        let volume = crate::csg::solid_info_of(&mut scratch, id, mine).map(fmt).unwrap_or_default();
         let mut r = BTreeMap::new();
         r.insert("type", kind.to_string());
         r.insert("id", id.to_string());

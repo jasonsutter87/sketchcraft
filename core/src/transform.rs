@@ -18,9 +18,24 @@ impl Model {
         self.check_unlocked(ids)?;
         // a group carries the components placed inside it
         let mut ids = ids.to_vec();
-        for g in ids.clone().iter().filter(|g| self.groups.contains_key(g)) {
-            let tree = self.subtree(*g);
-            ids.extend(self.instances.iter().filter(|(_, i)| i.parent.is_some_and(|p| tree.contains(&p))).map(|(&k, _)| k));
+        // every group named, and every group nested in one (the tree and the placements are worked out once, not once per group)
+        let mut in_moved_groups: BTreeSet<Id> = BTreeSet::new();
+        if ids.iter().any(|g| self.groups.contains_key(g)) {
+            let kids = self.group_children();
+            let mut placed: HashMap<Id, Vec<Id>> = HashMap::new();
+            for (&k, i) in &self.instances {
+                if let Some(p) = i.parent {
+                    placed.entry(p).or_default().push(k);
+                }
+            }
+            for g in ids.clone().iter().filter(|g| self.groups.contains_key(g)) {
+                crate::deadline::poll();
+                let tree = Self::subtree_in(&kids, *g);
+                for t in &tree {
+                    ids.extend(placed.get(t).into_iter().flatten().copied());
+                }
+                in_moved_groups.extend(tree);
+            }
         }
         ids.sort();
         ids.dedup();
@@ -28,10 +43,7 @@ impl Model {
         let vs = if geo.is_empty() { BTreeSet::new() } else { self.vertices_of(&geo)? };
         let opening_folds = self.plan_opening_folds(&vs, t)?;
         // subdivision cages follow their groups (and find their mirror plane again)
-        let mut moved_cages = std::collections::BTreeSet::new();
-        for g in ids.iter().filter(|g| self.groups.contains_key(g)) {
-            moved_cages.extend(self.subtree(*g).into_iter().filter(|x| self.cages.contains_key(x)));
-        }
+        let moved_cages: BTreeSet<Id> = self.cages.keys().copied().filter(|x| in_moved_groups.contains(x)).collect();
         for g in moved_cages {
             let c = self.cages.get_mut(&g).unwrap();
             for p in c.points.iter_mut() {

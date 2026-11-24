@@ -49,6 +49,29 @@ struct Force {
     big: bool,
 }
 
+/// What an agent is told when a call that ran out of time found somebody else's work in the model.
+const KEPT_THEIRS: &str = "This call used up its time, and someone else saved this model while it ran, so it was NOT put back as a whole: their work was kept.";
+
+/// How often the file is written while one agent call runs many commands (the last write is when the call ends).
+const CALL_FLUSH_EVERY: Duration = Duration::from_secs(2);
+
+/// One agent call in progress (see `Live::begin_call`).
+struct CallMode {
+    snap: crate::commands::CallSnapshot,
+    /// `Live::loads` when the call began: if it moved, somebody else's save is in the model
+    loads: u64,
+    was_dirty: bool,
+    start_weight: usize,
+    destructive: bool,
+    /// commands ran that the file doesn't hold yet
+    pending: bool,
+    /// the file was written during the call
+    flushed: bool,
+    /// somebody else saved while commands of the call were waiting to be written: theirs was kept
+    lost: bool,
+    last_flush: std::time::Instant,
+}
+
 pub struct Live {
     pub engine: Engine,
     pub doc: PathBuf,
@@ -83,6 +106,11 @@ pub struct Live {
     own_side: Vec<String>,
     /// this is the person's own window (the app, the dev bridge), the one that tells them what an agent changed
     person_view: bool,
+    /// how many times somebody else's file replaced what memory held (a call can tell its rollback must not write
+    /// the model it started with over their work)
+    loads: u64,
+    /// an agent call in progress: its commands are written to the file every few seconds and when it ends, not after each
+    call: Option<CallMode>,
 }
 
 /// "Left out: ..." for a notice: what was skipped, with the reasons.
@@ -159,7 +187,7 @@ impl Live {
     }
 
     fn blank(engine: Engine, doc: PathBuf, persist: bool) -> Self {
-        Live { engine, doc, seen: None, persist, last_backup: None, notice: None, notice_at: None, notice_repair: None, unsaved_batch: false, batch_weight: 0, batch_destructive: false, blocked: false, retry_after: None, dirty: false, sticky: None, last_forced: HashMap::new(), held: false, own_side: vec![], person_view: false }
+        Live { engine, doc, seen: None, persist, last_backup: None, notice: None, notice_at: None, notice_repair: None, unsaved_batch: false, batch_weight: 0, batch_destructive: false, blocked: false, retry_after: None, dirty: false, sticky: None, last_forced: HashMap::new(), held: false, own_side: vec![], person_view: false, loads: 0, call: None }
     }
 
     /// A model that is not saved anywhere.
@@ -211,6 +239,9 @@ impl Live {
             self.held = false;
             self.unsaved_batch = false;
             self.dirty = false;
+            if !at_start {
+                self.loads += 1;
+            }
             let mut lost = (0, 0);
             if let Some(h) = history {
                 lost = self.engine.install_history(h);
@@ -478,11 +509,20 @@ impl Live {
         }
         // someone else may have saved since we last looked: start from theirs. Never inside a batch (a
         // plugin run): the rest of its commands would land on their model; theirs is picked up when it ends.
+        let size = |e: &Engine| weight(&e.model);
+        // an agent's call (and a plugin's run) is weighed once, not after every command
+        let in_call = self.call.is_some() && !matches!(caller, Caller::Ui);
+        if in_call && self.persist && !self.engine.in_batch() && self.doc.exists() && !self.blocked && mtime(&self.doc) != self.seen {
+            // somebody else saved: the commands waiting to be written are set aside when theirs is loaded just below
+            if let Some(c) = self.call.as_mut().filter(|c| c.pending) {
+                c.lost = true;
+            }
+        }
         if !self.engine.in_batch() {
             self.sync();
         }
-        let size = |e: &Engine| weight(&e.model);
-        let (before, size_before, depth_before) = (self.engine.revision(), size(&self.engine), self.engine.undo_depth());
+        let weigh = (!in_call && !self.engine.in_batch()) || name == "begin_batch";
+        let (before, size_before, depth_before) = (self.engine.revision(), if weigh { size(&self.engine) } else { 0 }, self.engine.undo_depth());
         let destructive = DESTRUCTIVE.contains(&name);
         let mut r = self.engine.exec_value_as_from(caller, cmd.clone(), from);
         // the person starting over (or opening something else) after the model file couldn't be read: saving resumes
@@ -500,6 +540,22 @@ impl Live {
                 self.batch_destructive = true;
             }
             self.unsaved_batch |= changed;
+            return r;
+        }
+        if in_call {
+            let pending_batch = std::mem::take(&mut self.unsaved_batch);
+            let ok = r["ok"] == true;
+            if let Some(c) = self.call.as_mut() {
+                c.destructive |= destructive && ok;
+                c.pending |= ok && (changed || pending_batch);
+            }
+            if self.call.as_ref().is_some_and(|c| c.pending) {
+                // memory holds work the file doesn't yet: another program's save sets it aside before it is replaced
+                self.dirty = true;
+                if self.call.as_ref().is_some_and(|c| c.last_flush.elapsed() >= CALL_FLUSH_EVERY) {
+                    self.flush_call();
+                }
+            }
             return r;
         }
         let had_batch = self.unsaved_batch;
@@ -569,14 +625,166 @@ impl Live {
         r
     }
 
-    /// Take back everything an agent's call did (it ran out of its time): the model goes back to `snap`, and the file
-    /// with it.
-    pub fn rollback_call(&mut self, snap: crate::commands::CallSnapshot) {
-        self.engine.rollback_call(snap);
-        if self.engine.in_batch() {
+    /// An agent's call begins: its commands are written to the file every few seconds and once when it ends (not
+    /// after each one: on a big model each write and weigh costs a good part of a second), and `abort_call` can take
+    /// the call back without ever overwriting somebody else's save.
+    pub fn begin_call(&mut self) {
+        if self.call.is_some() {
+            return;
+        }
+        if !self.engine.in_batch() {
+            self.sync();
+        }
+        self.call = Some(CallMode {
+            snap: self.engine.call_snapshot(),
+            loads: self.loads,
+            was_dirty: self.dirty,
+            start_weight: if self.persist { weight(&self.engine.model) } else { 0 },
+            destructive: false,
+            pending: false,
+            flushed: false,
+            lost: false,
+            last_flush: std::time::Instant::now(),
+        });
+    }
+
+    /// Write what the call's commands did that the file doesn't hold yet. Another program's save since the last write
+    /// wins: what the call did is set aside (see `take_theirs`) and the call goes on from theirs.
+    fn flush_call(&mut self) {
+        let Some(c) = self.call.as_mut() else { return };
+        if !c.pending {
+            return;
+        }
+        c.last_flush = std::time::Instant::now();
+        c.pending = false;
+        let (start_weight, destructive) = (c.start_weight, c.destructive);
+        if !self.persist || self.engine.read_only.is_some() || self.engine.in_batch() {
+            if self.engine.in_batch() {
+                self.unsaved_batch = true;
+                if let Some(c) = self.call.as_mut() {
+                    c.pending = false;
+                }
+            }
+            return;
+        }
+        if self.doc.exists() && !self.blocked && mtime(&self.doc) != self.seen {
+            self.seen = mtime(&self.doc);
+            if let Some(c) = self.call.as_mut() {
+                c.lost = true;
+            }
+            self.take_theirs(true, "Another program saved the model while an agent was working.");
+            return;
+        }
+        let after = weight(&self.engine.model);
+        let shrank = start_weight > 0 && after * 4 < start_weight * 3;
+        let force = (shrank || destructive).then_some(Force { origin: Origin::Agent, kind: if destructive { "del" } else { "shr" }, big: false });
+        match self.save_with(force) {
+            Ok(()) => {
+                self.dirty = false;
+                if let Some(c) = self.call.as_mut() {
+                    c.flushed = true;
+                }
+                self.record_agent_change();
+                if self.notice.as_deref().is_some_and(|n| n.starts_with("Couldn't save")) {
+                    self.notice = None;
+                }
+                if self.notice.is_none() && self.sticky.is_none() && self.engine.model.entity_count() > BIG_MODEL {
+                    self.set_notice(big_model_text(self.engine.model.entity_count()));
+                }
+            }
+            Err(e) => {
+                self.dirty = true;
+                if !self.held {
+                    self.set_notice(format!("Couldn't save your model: {e}"));
+                }
+                if let Some(c) = self.call.as_mut() {
+                    c.pending = true;
+                }
+            }
+        }
+    }
+
+    /// The call ended well: write what is left. A line for the agent if somebody else's save was kept over part of it.
+    pub fn finish_call(&mut self) -> Option<String> {
+        self.flush_call();
+        let c = self.call.take()?;
+        c.lost.then(|| "Note: someone else saved this model while the call ran, so their version was kept, and what the call had done before that was set aside (the person was told).".to_string())
+    }
+
+    /// The call ran out of time: take back what it did, and never somebody else's work with it.
+    ///
+    /// When nobody else saved during the call, the model goes back to what it was when the call began and the file with it
+    /// (after a backup of the file as it is). When somebody did (the app, another engine: their save was loaded while the call
+    /// ran, or is in the file now), the call's own steps are undone one by one on the live model, which only takes back what
+    /// the call changed, and the result is saved normally; a save that would overwrite a newer file is not made. Returns what
+    /// to tell the agent when it is not a whole, clean rollback.
+    pub fn abort_call(&mut self) -> Option<String> {
+        let c = self.call.take()?;
+        let CallMode { snap, loads, was_dirty, flushed, lost, .. } = c;
+        let undo_len = Engine::snapshot_undo_len(&snap);
+        if !self.persist {
+            self.engine.rollback_call(snap);
+            return None;
+        }
+        if self.engine.in_batch() && Engine::snapshot_batch_open(&snap) {
+            // a batch that was open when the call began is still open: the file is written when it ends (and is checked then)
+            if self.loads != loads {
+                return Some(KEPT_THEIRS.into());
+            }
+            self.engine.rollback_call(snap);
             self.unsaved_batch = true;
-        } else if self.persist && self.engine.read_only.is_none() {
-            match self.save_with(None) {
+            return None;
+        }
+        let theirs_in_file = self.doc.exists() && !self.blocked && mtime(&self.doc) != self.seen;
+        let theirs_in_model = self.loads != loads || lost;
+        if !theirs_in_file && !theirs_in_model {
+            self.engine.rollback_call(snap);
+            if !flushed {
+                // the file never held any of it
+                self.dirty = was_dirty;
+                return None;
+            }
+            match self.save_with(Some(Force { origin: Origin::Agent, kind: "big", big: true })) {
+                Ok(()) => self.dirty = false,
+                Err(e) => {
+                    self.dirty = true;
+                    self.set_notice(format!("Couldn't save your model: {e}"));
+                }
+            }
+            return None;
+        }
+        // somebody else's work is in the picture: never write the model the call began with
+        if self.engine.in_batch() {
+            self.engine.close_batch();
+        }
+        if theirs_in_file {
+            self.seen = mtime(&self.doc);
+            if !self.take_theirs(true, "Another program saved the model while an agent was working.") {
+                return Some(format!("{KEPT_THEIRS} What the call did could not be taken back."));
+            }
+        }
+        let had = self.engine.undo_depth();
+        let mut complete = had >= undo_len;
+        let mut undone = 0;
+        if complete {
+            while self.engine.undo_depth() > undo_len {
+                let r = self.engine.exec_json(&json!({"cmd": "undo"}).to_string());
+                if r["ok"] != true {
+                    complete = false;
+                    break;
+                }
+                undone += 1;
+            }
+        }
+        self.engine.drop_redo();
+        if undone > 0 {
+            // the file is checked once more just before it is written: a newer one is loaded, never written over
+            if self.doc.exists() && !self.blocked && mtime(&self.doc) != self.seen {
+                self.seen = mtime(&self.doc);
+                self.take_theirs(true, "Another program saved the model while an agent was working.");
+                return Some(format!("{KEPT_THEIRS} What the call did could not be fully taken back."));
+            }
+            match self.save_with(Some(Force { origin: Origin::Agent, kind: "big", big: true })) {
                 Ok(()) => self.dirty = false,
                 Err(e) => {
                     self.dirty = true;
@@ -584,6 +792,7 @@ impl Live {
                 }
             }
         }
+        Some(if complete { format!("{KEPT_THEIRS} What the call did was taken back one step at a time.") } else { format!("{KEPT_THEIRS} Part of what the call did could not be taken back.") })
     }
 
     /// Write the model to the live file (atomically), keeping backups.
@@ -702,7 +911,8 @@ impl Live {
         if now.is_some() && now != self.seen {
             if self.blocked || self.dirty {
                 // memory may hold work the file doesn't: set it aside first (and don't reload if that fails)
-                let ok = self.take_theirs(false, "Another program saved this model while yours couldn't be saved.");
+                let why = if self.call.is_some() { "Another program saved this model while an agent was working." } else { "Another program saved this model while yours couldn't be saved." };
+                let ok = self.take_theirs(false, why);
                 if ok {
                     self.seen = now;
                 }

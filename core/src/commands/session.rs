@@ -30,6 +30,8 @@ impl Engine {
                 self.batch_last = Some(std::time::Instant::now());
                 self.batch = Some((self.model.clone(), self.revision, std::time::Instant::now()));
                 self.batch_seq += 1;
+                self.batch_used = (0, std::time::Duration::ZERO);
+                self.batch_dead = false;
                 json!({"batch": self.batch_seq})
             }
             Command::EndBatch { id } => {

@@ -257,11 +257,19 @@ pub fn apply(live: &mut Live, answer: &Value) -> Value {
             return json!({"ok": false, "error": format!("couldn't start: {}", begin["error"].as_str().unwrap_or("busy")), "rows": rows});
         }
         let mut stopped = false;
+        let mut ran_out = false;
         // the whole answer has one time limit, like an agent's call
-        let _call = sketchcraft::deadline::call_guard(sketchcraft::deadline::AGENT_CALL_SECONDS);
+        let _call = sketchcraft::deadline::call_guard(sketchcraft::deadline::call_seconds());
         for (i, c) in runnable {
             if stopped {
                 rows[i]["status"] = json!("skipped");
+                continue;
+            }
+            if sketchcraft::deadline::call_over() {
+                rows[i]["status"] = json!("error");
+                rows[i]["error"] = json!(format!("the answer used its {} seconds, so everything it did was undone", sketchcraft::deadline::call_seconds().as_secs()));
+                stopped = true;
+                ran_out = true;
                 continue;
             }
             let r = live.exec_as(&caller, &c);
@@ -272,9 +280,14 @@ pub fn apply(live: &mut Live, answer: &Value) -> Value {
                 rows[i]["status"] = json!("error");
                 rows[i]["error"] = json!(r["error"].as_str().unwrap_or("the engine refused it"));
                 stopped = true;
+                ran_out = sketchcraft::deadline::call_over();
             }
         }
         live.exec_as(&caller, &json!({"cmd": "end_batch"}));
+        // out of time: the answer was one undo step; take it back (only what it changed)
+        if ran_out && live.engine.undo_depth() != depth_before {
+            live.exec_as(&Caller::Ui, &json!({"cmd": "undo"}));
+        }
     }
     // did the answer change the model (a new undo step)? A question does not.
     let changed = live.engine.undo_depth() != depth_before;

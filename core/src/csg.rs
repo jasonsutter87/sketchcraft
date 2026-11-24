@@ -325,7 +325,18 @@ fn solid_polys_with_orientation(m: &mut Model, id: Id, require_outward: bool) ->
     if !is_group && !m.instances.contains_key(&id) {
         bail!("{id} is not a group or component");
     }
-    let faces: Vec<_> = m.world_faces().into_iter().filter(|f| if is_group { f.group == Some(id) && f.face.is_some() } else { f.owner == id }).collect();
+    let all = m.world_faces();
+    let faces: Vec<&crate::components::WFace> = all.iter().filter(|f| if is_group { f.group == Some(id) && f.face.is_some() } else { f.owner == id }).collect();
+    solid_polys_of(m, id, &faces, require_outward)
+}
+
+/// `solid_info` for a caller that has already picked the faces of `id` out of one `world_faces()` (a report over every
+/// group does that once, not once per group).
+pub fn solid_info_of(m: &mut Model, id: Id, faces: &[&crate::components::WFace]) -> Option<f64> {
+    solid_polys_of(m, id, faces, false).ok().map(|p| volume(&p))
+}
+
+pub(crate) fn solid_polys_of(m: &mut Model, id: Id, faces: &[&crate::components::WFace], require_outward: bool) -> Result<Vec<Poly>> {
     if faces.is_empty() {
         bail!("{id} has no faces");
     }
@@ -353,8 +364,9 @@ fn solid_polys_with_orientation(m: &mut Model, id: Id, require_outward: bool) ->
     }
     let mut out = Vec::new();
     let mut shells: BTreeMap<usize, Vec<Poly>> = BTreeMap::new();
-    for (face, f) in faces.into_iter().enumerate() {
-        let material = material_key(m, &f);
+    for (face, f) in faces.iter().enumerate() {
+        crate::deadline::poll();
+        let material = material_key(m, f);
         // straight runs don't matter to the boolean (the result gets its
         // shared corners back), and they'd triangulate into slivers
         let outer = simplify(&f.outer);

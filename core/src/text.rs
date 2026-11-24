@@ -11,11 +11,12 @@ pub fn is_format_char(c: char) -> bool {
 }
 
 /// Characters that draw nothing (or only a blank) but are not format characters or spaces: Hangul and Khmer fillers,
-/// the Braille blank, the combining grapheme joiner, Mongolian free variation selectors and the variation selectors.
+/// the Braille blank, the combining grapheme joiner, Mongolian free variation selectors and the variation selectors; also the
+/// line and paragraph separators (a name is one line) and the object replacement character (a placeholder box).
 pub fn is_invisible_filler(c: char) -> bool {
     matches!(c,
         '\u{034F}' | '\u{115F}' | '\u{1160}' | '\u{17B4}' | '\u{17B5}' | '\u{180B}'..='\u{180F}' | '\u{2800}' | '\u{3164}'
-        | '\u{FE00}'..='\u{FE0F}' | '\u{FFA0}' | '\u{E0100}'..='\u{E01EF}')
+        | '\u{FE00}'..='\u{FE0F}' | '\u{FFA0}' | '\u{E0100}'..='\u{E01EF}' | '\u{2028}' | '\u{2029}' | '\u{FFFC}')
 }
 
 /// Spaces other than the plain one (no-break, en and em, thin, ideographic ...): the plain one stands in for them.

@@ -1261,15 +1261,27 @@ impl Model {
     /// All vertex ids that belong to the given entities (faces, edges, groups, vertices).
     pub fn vertices_of(&self, ids: &[Id]) -> Result<BTreeSet<Id>> {
         let mut vs = BTreeSet::new();
+        let mut kids: Option<HashMap<Id, Vec<Id>>> = None;
+        let mut by_group: Option<HashMap<Id, Vec<Id>>> = None;
         for id in ids {
+            crate::deadline::poll();
             if let Some(f) = self.faces.get(id) {
                 vs.extend(f.loops().flatten().copied());
             } else if let Some(e) = self.edges.get(id) {
                 vs.insert(e.a);
                 vs.insert(e.b);
             } else if self.groups.contains_key(id) {
-                let tree = self.subtree(*id);
-                vs.extend(self.vertices.iter().filter(|(_, v)| v.group.is_some_and(|g| tree.contains(&g))).map(|(&k, _)| k));
+                let tree = Self::subtree_in(kids.get_or_insert_with(|| self.group_children()), *id);
+                let index = by_group.get_or_insert_with(|| {
+                    let mut m: HashMap<Id, Vec<Id>> = HashMap::new();
+                    for (&k, v) in &self.vertices {
+                        if let Some(g) = v.group {
+                            m.entry(g).or_default().push(k);
+                        }
+                    }
+                    m
+                });
+                vs.extend(tree.iter().flat_map(|g| index.get(g).into_iter().flatten().copied()));
             } else if self.vertices.contains_key(id) {
                 vs.insert(*id);
             } else {
@@ -1283,15 +1295,58 @@ impl Model {
         self.transform(ids, glam::DMat4::from_translation(by))
     }
 
+    /// Each group's child groups (one pass over the groups).
+    pub(crate) fn group_children(&self) -> HashMap<Id, Vec<Id>> {
+        let mut k: HashMap<Id, Vec<Id>> = HashMap::new();
+        for (&g, grp) in &self.groups {
+            if let Some(p) = grp.parent {
+                k.entry(p).or_default().push(g);
+            }
+        }
+        k
+    }
+
+    /// A group and every group nested in it, from `group_children`.
+    pub(crate) fn subtree_in(kids: &HashMap<Id, Vec<Id>>, root: Id) -> BTreeSet<Id> {
+        let mut tree: BTreeSet<Id> = BTreeSet::from([root]);
+        let mut stack = vec![root];
+        while let Some(x) = stack.pop() {
+            for &k in kids.get(&x).into_iter().flatten() {
+                if tree.insert(k) {
+                    stack.push(k);
+                }
+            }
+        }
+        tree
+    }
+
     /// Faces named directly, or every face of a named group.
     pub fn faces_of(&self, ids: &[Id]) -> Result<Vec<Id>> {
         let mut out = Vec::new();
+        // the group tree and the faces of each group, found once for the whole list (not by a pass over the whole model
+        // for every group named)
+        let mut kids: Option<HashMap<Id, Vec<Id>>> = None;
+        let mut by_group: Option<HashMap<Id, Vec<Id>>> = None;
         for id in ids {
+            crate::deadline::poll();
             if self.faces.contains_key(id) {
                 out.push(*id);
             } else if self.groups.contains_key(id) {
-                let tree = self.subtree(*id);
-                out.extend(self.faces.iter().filter(|(_, f)| f.group.is_some_and(|g| tree.contains(&g))).map(|(&k, _)| k));
+                let tree = Self::subtree_in(kids.get_or_insert_with(|| self.group_children()), *id);
+                let index = by_group.get_or_insert_with(|| {
+                    let mut m: HashMap<Id, Vec<Id>> = HashMap::new();
+                    for (&k, f) in &self.faces {
+                        if let Some(g) = f.group {
+                            m.entry(g).or_default().push(k);
+                        }
+                    }
+                    m
+                });
+                let mut found: Vec<Id> = tree.iter().flat_map(|g| index.get(g).into_iter().flatten().copied()).collect();
+                if tree.len() > 1 {
+                    found.sort_unstable();
+                }
+                out.extend(found);
             } else {
                 bail!("{id} is not a face or group");
             }

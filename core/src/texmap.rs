@@ -205,6 +205,9 @@ impl FileNames {
     }
 }
 
+/// The most picture pixels one render for an agent or a plugin decodes (about three seconds of work); the rest are drawn in their plain color.
+pub const AGENT_TEXTURE_PIXELS: u64 = 600_000_000;
+
 /// Decoded images for headless renders, by material name. Images are capped
 /// at 2048 px so a huge photo can't blow up memory.
 pub struct Images(HashMap<String, RgbImage>);
@@ -217,6 +220,10 @@ impl Images {
     /// Only the pictures of the materials `want` names (decoding is the expensive part).
     pub fn load_if(m: &Model, want: impl Fn(&str) -> bool) -> Images {
         let mut out = HashMap::new();
+        // for an agent or a plugin (a time limit is in force) the pictures of one picture's worth of work share a pixel budget,
+        // and the clock is read between decodes: a decode itself can't be interrupted
+        let limited = crate::deadline::current().is_some();
+        let mut pixels = 0u64;
         let all = m.materials.iter().chain(m.definitions.values().flat_map(|d| d.model.materials.iter()));
         for (name, mat) in all {
             let Some(t) = &mat.texture else { continue };
@@ -226,10 +233,19 @@ impl Images {
             if out.contains_key(name) {
                 continue;
             }
+            crate::deadline::poll_now();
             let Ok((_, data)) = bytes(t) else {
                 crate::safety::note_skipped(name, "its picture isn't readable, so it is drawn in its plain color");
                 continue;
             };
+            if limited {
+                let px = crate::safety::image_dimensions(&data).map(|(w, h)| w as u64 * h as u64).unwrap_or(0);
+                pixels = pixels.saturating_add(px);
+                if pixels > AGENT_TEXTURE_PIXELS {
+                    crate::safety::note_skipped(name, "the pictures in this model are too big to all be drawn at once here, so it is drawn in its plain color");
+                    continue;
+                }
+            }
             let img = match crate::safety::decode_image(&data, None) {
                 Ok(i) => i,
                 Err(e) => {

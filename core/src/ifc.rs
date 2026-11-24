@@ -123,15 +123,25 @@ pub fn write_ifc(m: &Model, path: &str, project: &str) -> Result<usize> {
     let faces = m.world_faces();
     let mut things: Vec<(u32, String, bool)> = m.groups.iter().map(|(k, gr)| (*k, gr.name.clone(), true)).collect();
     things.extend(m.instances.iter().map(|(k, i)| (*k, i.name.clone(), false)));
+    // each group's faces and each placement's faces, found once (not by a pass over every face for every element)
+    let mut by_group: std::collections::HashMap<u32, Vec<&crate::components::WFace>> = std::collections::HashMap::new();
+    let mut by_owner: std::collections::HashMap<u32, Vec<&crate::components::WFace>> = std::collections::HashMap::new();
+    for f in &faces {
+        crate::deadline::poll();
+        if let (Some(g), Some(_)) = (f.group, f.face) {
+            by_group.entry(g).or_default().push(f);
+        }
+        by_owner.entry(f.owner).or_default().push(f);
+    }
     let mut elements = Vec::new();
     for (eid, name, is_group) in things {
-        let mine: Vec<_> = faces.iter().filter(|f| if is_group { f.group == Some(eid) && f.face.is_some() } else { f.owner == eid }).collect();
-        if mine.is_empty() {
-            continue;
-        }
+        crate::deadline::poll();
+        let mine = if is_group { by_group.get(&eid) } else { by_owner.get(&eid) };
+        let Some(mine) = mine.filter(|v| !v.is_empty()) else { continue };
         let mut pts: Vec<[f64; 3]> = Vec::new();
         let mut tris: Vec<[usize; 3]> = Vec::new();
-        for f in &mine {
+        for f in mine {
+            crate::deadline::poll();
             for t in geom::triangulate(&f.outer, &f.holes, f.normal) {
                 let b = pts.len();
                 pts.extend(t.iter().map(|p| p.to_array()));

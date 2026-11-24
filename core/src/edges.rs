@@ -160,10 +160,23 @@ impl Model {
             by_group.entry(g).or_default().push(csg::prism(&start, along + dir * 2.0 * ext, mat));
         }
         let mut out = Vec::new();
+        // each group's faces, from the one list of world faces made above (not a new list for every group)
+        let mut faces_of_group: HashMap<Id, Vec<&crate::components::WFace>> = HashMap::new();
+        if let Some((wfs, _)) = &world {
+            for w in wfs {
+                if let (Some(g), Some(_)) = (w.group, w.face) {
+                    faces_of_group.entry(g).or_default().push(w);
+                }
+            }
+        }
         for (g, cutters) in by_group {
+            self.check_deadline()?;
             // Wedges that overlap (where edges meet at a corner) go one batch at a time; wedges far apart are
             // cut together, so a shape with hundreds of edges needs a handful of booleans, not one per edge.
-            let mut result = csg::solid_polys(self, g)?;
+            let mut result = match faces_of_group.get(&g) {
+                Some(fs) if self.groups.contains_key(&g) => csg::solid_polys_of(self, g, fs, false)?,
+                _ => csg::solid_polys(self, g)?,
+            };
             for batch in apart_batches(self, cutters)? {
                 result = csg::boolean_for(self, result, batch, Op::Subtract)?;
             }

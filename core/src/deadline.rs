@@ -6,8 +6,8 @@
 //!
 //! * `over()` says whether the limit has passed;
 //! * `check()` is the same as an error, for code that returns a `Result`;
-//! * `poll()` is for tight loops that can't return an error: it looks at the clock only every few dozen calls
-//!   and, once the limit has passed, unwinds out of the command (the engine catches that, puts the model back as
+//! * `poll()` is for tight loops that can't return an error: it looks at the clock every call when the work between
+//!   calls is heavy and only every few calls when it is light (see `poll`), and, once the limit has passed, unwinds out of the command (the engine catches that, puts the model back as
 //!   it was and says the command ran out of time).
 //!
 //! Threads a command starts for itself pick the limit up with `current()` and `adopt()`.
@@ -57,6 +57,8 @@ thread_local! {
     static TEST_COMMAND: Cell<Option<Duration>> = const { Cell::new(None) };
     static TEST_CALL: Cell<Option<Duration>> = const { Cell::new(None) };
     static TICKS: Cell<u32> = const { Cell::new(0) };
+    static STRIDE: Cell<u32> = const { Cell::new(1) };
+    static LAST_LOOK: Cell<Option<Instant>> = const { Cell::new(None) };
 }
 
 /// The limit now in force on this thread (to hand to a thread the command starts).
@@ -87,19 +89,36 @@ pub fn check() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// For tight loops: costs a counter, looks at the clock every 64th call, and unwinds once the limit has passed.
+/// The most calls of `poll` that may pass between two looks at the clock.
+const MAX_STRIDE: u32 = 16;
+
+/// For tight loops: costs a counter, and once the limit has passed unwinds. How often it looks at the clock follows
+/// the work: it starts by looking at every call, and only after seeing that the calls come very fast (a few
+/// microseconds apart) does it look at every 2nd, 4th ... up to every 16th. Heavy iterations (one poll per big step)
+/// therefore always read the clock, and the limit is overshot by at most a handful of light steps.
 #[inline]
 pub fn poll() {
-    if LIMIT.with(Cell::get).is_none() {
-        return;
-    }
+    let Some(limit) = LIMIT.with(Cell::get) else { return };
     let n = TICKS.with(|t| {
         let n = t.get().wrapping_add(1);
         t.set(n);
         n
     });
-    if n & 63 == 0 && over() {
+    if n < STRIDE.with(Cell::get) {
+        return;
+    }
+    TICKS.with(|t| t.set(0));
+    let now = Instant::now();
+    if now >= limit {
         std::panic::resume_unwind(Box::new(Exceeded));
+    }
+    let stride = STRIDE.with(Cell::get);
+    let since = LAST_LOOK.with(|l| l.replace(Some(now))).map(|t| now.duration_since(t));
+    if let Some(d) = since {
+        // per call of poll
+        let per = d / stride;
+        let next = if per > Duration::from_micros(20) { 1 } else if per < Duration::from_micros(3) { (stride * 2).min(MAX_STRIDE) } else { stride };
+        STRIDE.with(|s| s.set(next));
     }
 }
 
@@ -115,6 +134,7 @@ pub fn poll_now() {
 /// itself stops.
 pub fn in_worker<T>(limit: Option<Instant>, f: impl FnOnce() -> T) -> Option<T> {
     adopt(limit);
+    STRIDE.with(|s| s.set(1));
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
         Ok(v) => Some(v),
         Err(p) if is_exceeded(&*p) => None,
@@ -142,6 +162,9 @@ pub fn scope<T>(limit: Duration, f: impl FnOnce() -> T) -> T {
     let _back = Back(before, CALL_LIMIT.with(Cell::get));
     let d = Instant::now() + limit;
     LIMIT.with(|c| c.set(Some(before.map_or(d, |b| b.min(d)))));
+    STRIDE.with(|s| s.set(1));
+    TICKS.with(|t| t.set(0));
+    LAST_LOOK.with(|l| l.set(None));
     f()
 }
 

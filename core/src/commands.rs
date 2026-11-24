@@ -236,6 +236,12 @@ pub struct Engine {
     batch_last: Option<std::time::Instant>,
     /// counts batches, so an `end_batch` can say which one it means
     batch_seq: u64,
+    /// what the plugin commands in the open batch have used so far: how many, and how much engine time
+    batch_used: (usize, std::time::Duration),
+    /// the open plugin batch used up its limits and was taken back: every command until it ends is refused
+    batch_dead: bool,
+    /// the seconds the command now running is allowed when an agent or a plugin runs it (for the message when it is cut off)
+    limit_secs: u64,
     /// another client (the app, a plugin's run) was told to wait for an agent's batch and hasn't had its turn yet
     turn_waiting: bool,
     /// when an agent's batch last closed: while someone waits, the agent's next batch waits `BATCH_TURN` after it
@@ -266,6 +272,9 @@ pub struct Engine {
     /// drawings of sheet viewports and hatches kept between page views and exports (never saved; see `draft::cache`)
     pub drawings: crate::draft::cache::Drawings,
 }
+
+/// Most commands one plugin run may send (a whole run is one batch).
+pub const MAX_PLUGIN_COMMANDS: usize = 10_000;
 
 /// What `Engine::call_snapshot` keeps.
 pub struct CallSnapshot {
@@ -447,6 +456,9 @@ impl Engine {
         if let Err(e) = self.batch_gate(caller, &v) {
             return json!({"ok": false, "error": e});
         }
+        if let Some(e) = self.plugin_budget(caller, &v) {
+            return json!({"ok": false, "error": e, "timed_out": true});
+        }
         let name = v.as_object_mut().and_then(|o| o.remove("as")).and_then(|n| n.as_str().map(String::from));
         if let Err(e) = crate::policy::vet(caller, &mut v) {
             return json!({"ok": false, "error": e});
@@ -457,7 +469,14 @@ impl Engine {
             return json!({"ok": false, "error": e.to_string()});
         }
         dedupe_ids(&mut v);
-        let limit = crate::deadline::command_seconds(v.get("cmd").and_then(Value::as_str).unwrap_or(""));
+        let mut limit = crate::deadline::command_seconds(v.get("cmd").and_then(Value::as_str).unwrap_or(""));
+        // a plugin run's commands share one budget of engine time
+        let in_plugin_run = self.batch.is_some() && matches!(caller, Caller::Plugin);
+        if in_plugin_run {
+            limit = limit.min(crate::deadline::call_seconds().saturating_sub(self.batch_used.1));
+        }
+        self.limit_secs = limit.as_secs();
+        let started = std::time::Instant::now();
         let r = match serde_json::from_value::<Command>(v) {
             // an agent's or a plugin's command (read-only ones too) runs under the engine-wide limit; the person's has none
             Ok(cmd) if self.untrusted => crate::deadline::command_scope(limit, || self.exec(cmd)),
@@ -467,6 +486,9 @@ impl Engine {
                 return json!({"ok": false, "error": format!("bad command: {e}")});
             }
         };
+        if in_plugin_run {
+            self.batch_used.1 += started.elapsed();
+        }
         crate::policy::settle(caller, r["ok"] == true);
         if let (Some(n), true) = (name, r["ok"] == true) {
             if let Some(id) = ["face", "group", "instance", "guide", "dimension", "text", "sheet", "viewport"]
@@ -479,6 +501,41 @@ impl Engine {
             }
         }
         r
+    }
+
+    /// A plugin's run is one batch, and all of its commands share a count and a budget of engine time (the same seconds
+    /// an agent's call gets). When either runs out the batch is taken back whole and everything the plugin sends until
+    /// it ends is refused. Returns the refusal for this command, if any.
+    fn plugin_budget(&mut self, caller: &Caller, v: &Value) -> Option<String> {
+        if !matches!(caller, Caller::Plugin) || self.batch.is_none() {
+            return None;
+        }
+        if matches!(v.get("cmd").and_then(Value::as_str), Some("begin_batch" | "end_batch")) {
+            return None;
+        }
+        if self.batch_dead {
+            return Some("This plugin run was stopped (it used up its limits) and everything it did was undone.".into());
+        }
+        self.batch_used.0 += 1;
+        let over_count = self.batch_used.0 > MAX_PLUGIN_COMMANDS;
+        let over_time = self.batch_used.1 >= crate::deadline::call_seconds();
+        if !(over_count || over_time) {
+            return None;
+        }
+        if let Some(b) = self.batch.as_mut() {
+            self.model = b.0.clone();
+            self.revision += 1;
+            b.1 = self.revision;
+        }
+        self.redo.clear();
+        self.redo_origins.clear();
+        self.drawings.clear();
+        self.batch_dead = true;
+        Some(if over_count {
+            format!("This plugin sent more than {MAX_PLUGIN_COMMANDS} commands in one run, so the run was stopped and everything it did was undone.")
+        } else {
+            format!("This plugin used its {} seconds of work, so the run was stopped and everything it did was undone.", crate::deadline::call_seconds().as_secs())
+        })
     }
 
     /// Is the open batch past its limit: too long since it began, or (an app-made one) too long since it was last used?
@@ -632,6 +689,22 @@ impl Engine {
         self.redo_origins.clear();
         self.drawings.clear();
         self.revision += 1;
+    }
+
+    /// Was a batch open when the snapshot was taken?
+    pub fn snapshot_batch_open(s: &CallSnapshot) -> bool {
+        s.batch_open
+    }
+
+    /// How many undo steps there were when the snapshot was taken.
+    pub fn snapshot_undo_len(s: &CallSnapshot) -> usize {
+        s.undo_len
+    }
+
+    /// Forget the steps Redo would go forward through (after a call's own steps were taken back one by one).
+    pub fn drop_redo(&mut self) {
+        self.redo.clear();
+        self.redo_origins.clear();
     }
 
     /// Close an open batch now (the person went on working): what it did becomes one undo step.
@@ -982,7 +1055,7 @@ impl Engine {
                 restore(self, saved);
                 self.model.deadline = None;
                 self.oversize = oversize_before;
-                json!({"ok": false, "error": format!("that took longer than the time an agent's or a plugin's command is given ({} s), so it was stopped and nothing was changed (use fewer or simpler parts, or a smaller model, or do it in steps)", crate::deadline::AGENT_COMMAND_SECONDS.as_secs()), "timed_out": true})
+                json!({"ok": false, "error": format!("that took longer than the time an agent's or a plugin's command is given ({} s), so it was stopped and nothing was changed (use fewer or simpler parts, or a smaller model, or do it in steps)", if self.limit_secs > 0 { self.limit_secs } else { crate::deadline::AGENT_COMMAND_SECONDS.as_secs() }), "timed_out": true})
             }
             Err(panic) => {
                 let msg = panic.downcast_ref::<&str>().map(|s| s.to_string()).or_else(|| panic.downcast_ref::<String>().cloned()).unwrap_or_else(|| "unknown".into());
