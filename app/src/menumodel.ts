@@ -226,6 +226,7 @@ export const MENUS: Menu[] = [
       act("tools.checkmodel", "menu.checkModel"),
       act("tools.printcheck", "menu.printCheck"),
       act("tools.cutplan", "menu.cutPlan"),
+      { label: "menu.joinery", items: [act("tools.dado", "menu.dado"), act("tools.rabbet", "menu.rabbet"), act("tools.tenon", "menu.tenon")] },
       SEP,
       act("tools.makefaces", "menu.makeFaces"),
       act("tools.flatten", "menu.flatten"),

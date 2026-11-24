@@ -3,6 +3,7 @@
 // (cut_stock, cut_plan, export_cut_diagrams, export_cut_labels); the numbers and shapes are cutplan.ts.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { pickSave } from "./files";
+import { cncCommand, defaultToolText } from "./joinery";
 import { useLocale } from "./locale";
 import type { Run } from "./panelkit";
 import {
@@ -23,7 +24,7 @@ import {
 import type { Sel } from "./selection";
 import { Sheet, SheetHead } from "./sheet";
 
-type View = "diagram" | "stock" | "buy";
+type View = "diagram" | "stock" | "buy" | "cnc";
 const TINTS = ["#ecdec4", "#dee8d2", "#d2e0ec", "#eed6d6"];
 
 function DiagramSvg({ d, label }: { d: Diagram; label: string }) {
@@ -58,6 +59,8 @@ export function CutPlanDialog({ sel, units, run, onClose, onSay }: { sel: Sel; u
   const [form, setForm] = useState<StockForm | null>(null);
   const [pick, setPick] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [tool, setTool] = useState(defaultToolText(su));
+  const [dogbones, setDogbones] = useState(false);
 
   // the plan is asked for again when the picked parts change (by id, not by the selection object), never on a redraw
   const ask = JSON.stringify(planCommand(sel));
@@ -102,6 +105,19 @@ export function CutPlanDialog({ sel, units, run, onClose, onSay }: { sel: Sel; u
     const ids = [...sel.groups, ...sel.instances];
     const r = await run({ cmd: kind === "labels" ? "export_cut_labels" : "export_cut_diagrams", path, ...(ids.length ? { ids } : {}) });
     if (r.ok) onSay(t("cut.saved").replace("{file}", path.split("/").pop() ?? path));
+  };
+
+  const saveCnc = async () => {
+    const path = await pickSave(`${t("cut.cnc.file")}.zip`, "zip", "ZIP");
+    if (!path) return;
+    const made = cncCommand(sel, path, tool, dogbones, su);
+    if ("error" in made) {
+      setError(t(`cut.err.${made.error}`));
+      return;
+    }
+    setError(null);
+    const r = await run(made.cmd);
+    if (r.ok) onSay(t("cut.cnc.saved").replace("{file}", path.split("/").pop() ?? path).replace("{n}", String(r.count ?? "")));
   };
 
   const imperial = su === "in";
@@ -165,6 +181,26 @@ export function CutPlanDialog({ sel, units, run, onClose, onSay }: { sel: Sel; u
           <div className="row gap">
             <button className="btn small primary" onClick={() => void apply()}>{t("cut.apply")}</button>
           </div>
+        </div>
+      );
+    }
+    if (view === "cnc") {
+      return (
+        <div className="cut-cnc">
+          <p className="muted" style={{ margin: "2px 0 8px" }}>{t("cut.cnc.note")}</p>
+          <div className="row gap" style={{ flexWrap: "wrap", alignItems: "flex-end" }}>
+            <label className="field" style={{ width: 150 }}>
+              <span>{t("cut.cnc.tool")} ({su})</span>
+              <input value={tool} inputMode="decimal" onChange={(e) => setTool(e.target.value)} aria-label={t("cut.cnc.tool")} />
+            </label>
+            <label className="row gap" style={{ alignItems: "center" }}>
+              <input type="checkbox" checked={dogbones} onChange={(e) => setDogbones(e.target.checked)} aria-label={t("cut.cnc.dogbones")} />
+              <span>{t("cut.cnc.dogbones")}</span>
+            </label>
+          </div>
+          <p className="muted" style={{ margin: "6px 0" }}>{t("cut.cnc.dogbonesNote")}</p>
+          {error && <p role="alert" style={{ color: "var(--bad, #e5383b)" }}>{error}</p>}
+          <button className="btn small primary" data-action="cnc-save" onClick={() => void saveCnc()}>{t("cut.cnc.save")}</button>
         </div>
       );
     }
@@ -250,7 +286,7 @@ export function CutPlanDialog({ sel, units, run, onClose, onSay }: { sel: Sel; u
     <Sheet onClose={onClose} label={t("cut.title")} width={780} className="cut-plan">
       <SheetHead title={t("cut.title")} note={plan ? t("cut.note").replace("{parts}", String(plan.summary.parts)).replace("{sheets}", String(plan.summary.sheets)).replace("{boards}", String(plan.summary.boards)).replace("{total}", money(plan.cost.currency, plan.cost.total)) : ""} />
       <div className="row gap" role="tablist" style={{ margin: "8px 0" }}>
-        {(["diagram", "stock", "buy"] as const).map((v) => (
+        {(["diagram", "stock", "buy", "cnc"] as const).map((v) => (
           <button key={v} role="tab" aria-selected={view === v} className={`btn small${view === v ? " primary" : " ghost"}`} data-view={v} onClick={() => setView(v)}>
             {t(`cut.view.${v}`)}
           </button>
@@ -260,6 +296,7 @@ export function CutPlanDialog({ sel, units, run, onClose, onSay }: { sel: Sel; u
       <div className="row gap" style={{ flexWrap: "wrap", marginTop: 10 }}>
         <button className="btn small" data-action="export-diagrams" disabled={!plan || plan.summary.parts === 0} onClick={() => void save("diagrams")}>{t("cut.exportDiagrams")}</button>
         <button className="btn small" data-action="export-svg" disabled={!plan || plan.summary.parts === 0} onClick={() => void save("svg")}>{t("cut.exportSvg")}</button>
+        <button className="btn small" data-action="export-cnc" disabled={!plan || plan.summary.parts === 0} onClick={() => (setError(null), setView("cnc"))}>{t("cut.exportCnc")}</button>
         <button className="btn small" data-action="print-labels" disabled={!plan || plan.summary.parts === 0} onClick={() => void save("labels")}>{t("cut.printLabels")}</button>
         <button className="btn small ghost" onClick={onClose}>{t("cut.close")}</button>
       </div>

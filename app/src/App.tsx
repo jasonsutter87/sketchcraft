@@ -63,6 +63,9 @@ import { fixCommand, fixSummary, type FixReply } from "./fixmodel";
 import { flattenCommand, flattenHeight, flattenSummary, flattenTargets, makeFacesCommand, makeFacesSummary } from "./smalltools";
 import { PrintCheckDialog } from "./printcheckdialog";
 import { CutPlanDialog } from "./cutplandialog";
+import { JoineryDialog } from "./joinerydialog";
+import { jointBoards, type JointKind } from "./joinery";
+import { stockUnits } from "./cutplan";
 import { PositionPanel } from "./positionpanel";
 import { UvPanel } from "./uvpanel";
 import { RestoreDialog } from "./restore";
@@ -212,6 +215,7 @@ function ModelingApp() {
   const [showAbout, setShowAbout] = useState(false);
   const [showPrintCheck, setShowPrintCheck] = useState(false);
   const [showCutPlan, setShowCutPlan] = useState(false);
+  const [joint, setJoint] = useState<{ kind: JointKind; boards: [number, number] } | null>(null);
   const { preference, setPreference, t: tr } = useLocale();
   const [lesson, setLesson] = useState<string | null>(null);
   const [showWs, setShowWs] = useState(false);
@@ -356,6 +360,12 @@ function ModelingApp() {
     if (!r.ok) return;
     const said = makeFacesSummary(r, tr);
     say(said.text, said.bad, ((r.created as number) ?? 0) + ((r.split as number) ?? 0) > 0);
+  };
+  // Joinery: two boards picked (click one, Shift-click the other), then a small prompt for the sizes
+  const askJoint = (kind: JointKind) => {
+    const boards = jointBoards(sel);
+    if (!boards) return say(tr("joint.pick"), true);
+    setJoint({ kind, boards });
   };
   // Flatten to height: ask for the height (in the model's units, 0 is the ground), move the picked points there; one undo step
   const askFlatten = async () => {
@@ -683,6 +693,9 @@ function ModelingApp() {
       { id: "tools.flatten", label: "Flatten to height…", hint: "Tools · move the picked lines, faces or groups to one height (imported DWG/DXF linework drawn at odd heights); points that land together join. One undo step", run: () => void askFlatten() },
       { id: "tools.checkmodel", label: "Check model", hint: "Tools · say what keeps the selection (or the whole model) from being a solid, without changing anything", run: () => void askFixModel(true) },
       { id: "tools.cutplan", label: "Cut plan…", hint: "Tools · pack the cut list onto sheets and boards: cutting diagrams, stock and prices, a cost, and part labels to print", run: () => setShowCutPlan(true) },
+      { id: "tools.dado", label: "Dado…", hint: "Tools · Joinery · cut a groove in one of two touching boards where the other stands on it. One undo step", run: () => askJoint("dado") },
+      { id: "tools.rabbet", label: "Rabbet…", hint: "Tools · Joinery · cut a step along the edge of one of two touching boards where the other stands on it. One undo step", run: () => askJoint("rabbet") },
+      { id: "tools.tenon", label: "Tenon and mortise…", hint: "Tools · Joinery · a tenon on the end of one board and its mortise in the one it touches. One undo step", run: () => askJoint("tenon") },
       { id: "tools.printcheck", label: "Print check…", hint: "Tools · is it solid, any thin walls or overhangs, the size in mm, then export 3MF or STL for a slicer", run: () => setShowPrintCheck(true) },
       { id: "tools.uveditor", label: "UV editor", hint: "Tools · a 2D view of the selected faces' UVs: mark seams, unwrap, pack, move islands, make the lightmap UVs", run: askUv },
       { id: "tools.projecttexture", label: "Project texture…", hint: "Tools · lay a picture on the selection: planar, box, cylinder or sphere", run: askProjection },
@@ -811,6 +824,9 @@ function ModelingApp() {
       checkModel: () => void askFixModel(true),
       printCheck: () => setShowPrintCheck(true),
       cutPlan: () => setShowCutPlan(true),
+      dado: () => askJoint("dado"),
+      rabbet: () => askJoint("rabbet"),
+      tenon: () => askJoint("tenon"),
       makeFaces: () => void askMakeFaces(),
       flatten: () => void askFlatten(),
       plugins: () => (reloadPlugins(), setShowPlugins(true)),
@@ -1384,6 +1400,17 @@ function ModelingApp() {
             component={subdividing.component}
             onGo={doSubdivide}
             onClose={() => setSubdividing(null)}
+          />
+        )}
+        {joint && scene && (
+          <JoineryDialog
+            kind={joint.kind}
+            boards={joint.boards}
+            names={joint.boards.map((id) => scene.groups.find((g) => g.id === id)?.name ?? scene.instances.find((i) => i.id === id)?.name ?? `#${id}`) as [string, string]}
+            units={stockUnits(scene.units || "m")}
+            run={run}
+            onSay={say}
+            onClose={() => setJoint(null)}
           />
         )}
         {showCutPlan && <CutPlanDialog sel={sel} units={scene?.units || "m"} run={run} onSay={say} onClose={() => setShowCutPlan(false)} />}
