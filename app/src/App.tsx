@@ -60,6 +60,7 @@ import { exportTexture, TexturePaintPanel } from "./texturepaintpanel";
 import { editInPhotoCraft, photocraftHere } from "./photocraft";
 import { targetIds } from "./projection";
 import { fixCommand, fixSummary, type FixReply } from "./fixmodel";
+import { flattenCommand, flattenHeight, flattenSummary, flattenTargets, makeFacesCommand, makeFacesSummary } from "./smalltools";
 import { PrintCheckDialog } from "./printcheckdialog";
 import { PositionPanel } from "./positionpanel";
 import { UvPanel } from "./uvpanel";
@@ -346,6 +347,26 @@ function ModelingApp() {
     if (!r.ok) return;
     const said = fixSummary(r as FixReply, tr);
     say(said.text, said.bad, !dryRun && ((r.changes as number) ?? 0) > 0);
+  };
+  // Make faces: close every closed loop of loose lines (the ones picked, or all of them) with a face; one undo step
+  const askMakeFaces = async () => {
+    const r = await run(makeFacesCommand(sel));
+    if (!r.ok) return;
+    const said = makeFacesSummary(r, tr);
+    say(said.text, said.bad, ((r.created as number) ?? 0) + ((r.split as number) ?? 0) > 0);
+  };
+  // Flatten to height: ask for the height (in the model's units, 0 is the ground), move the picked points there; one undo step
+  const askFlatten = async () => {
+    if (!flattenTargets(sel).length) return say(tr("flatten.none"), true);
+    const units = scene?.units || "m";
+    const raw = await ask(tr("flatten.ask"), formatLength(0, units), tr("flatten.hint"), "flatten.ask");
+    if (raw == null) return;
+    const z = flattenHeight(raw, (text) => parseLength(text, units));
+    if (z == null) return say(tr("flatten.bad"), true);
+    const r = await run(flattenCommand(sel, z));
+    if (!r.ok) return;
+    const said = flattenSummary(r, formatLength(z, units), tr);
+    say(said.text, said.bad, !r.unchanged);
   };
   const askExportTexture = () => {
     const name = scene ? paintMaterialOf(scene, sel) ?? scene.materials.find((m) => m.texture && m.name.startsWith("Paint "))?.name ?? null : null;
@@ -656,6 +677,8 @@ function ModelingApp() {
       { id: "tools.newpainttexture", label: "New paint texture…", hint: "Tools · make a paint texture for the selected faces (unwraps them if needed), then paint on it with Texture Paint", run: askNewPaintTexture },
       { id: "file.exporttexture", label: "Export texture…", hint: "File · save the selected faces' picture (or the first paint texture) as a PNG", run: askExportTexture },
       { id: "tools.fixmodel", label: "Fix model", hint: "Tools · repair the selection (or the whole model): close holes, turn reversed faces, join flat neighbours, remove repeated and inside faces and stray lines. One undo step", run: () => void askFixModel(false) },
+      { id: "tools.makefaces", label: "Make faces", hint: "Tools · close every closed loop of loose lines (the ones you picked, or all of them) with a face; a loop inside another becomes a hole. One undo step", run: () => void askMakeFaces() },
+      { id: "tools.flatten", label: "Flatten to height…", hint: "Tools · move the picked lines, faces or groups to one height (imported DWG/DXF linework drawn at odd heights); points that land together join. One undo step", run: () => void askFlatten() },
       { id: "tools.checkmodel", label: "Check model", hint: "Tools · say what keeps the selection (or the whole model) from being a solid, without changing anything", run: () => void askFixModel(true) },
       { id: "tools.printcheck", label: "Print check…", hint: "Tools · is it solid, any thin walls or overhangs, the size in mm, then export 3MF or STL for a slicer", run: () => setShowPrintCheck(true) },
       { id: "tools.uveditor", label: "UV editor", hint: "Tools · a 2D view of the selected faces' UVs: mark seams, unwrap, pack, move islands, make the lightmap UVs", run: askUv },
@@ -784,6 +807,8 @@ function ModelingApp() {
       fixModel: () => void askFixModel(false),
       checkModel: () => void askFixModel(true),
       printCheck: () => setShowPrintCheck(true),
+      makeFaces: () => void askMakeFaces(),
+      flatten: () => void askFlatten(),
       plugins: () => (reloadPlugins(), setShowPlugins(true)),
       themes: () => setShowSkins(true),
       keys: () => setShowKeys(true),

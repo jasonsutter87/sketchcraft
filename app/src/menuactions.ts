@@ -89,7 +89,7 @@ export interface MenuCtx {
   setLayout: (l: Layout) => void;
   setLanguage: (l: string) => void;
   // dialogs and links
-  open: Record<"restore" | "render" | "sheets" | "layout" | "timeline" | "location" | "text3d" | "projection" | "positionTexture" | "uvEditor" | "newPaintTexture" | "photocraft" | "fixModel" | "checkModel" | "printCheck" | "plugins" | "themes" | "keys" | "keyEditor" | "palette" | "learn" | "about" | "customize", () => void>;
+  open: Record<"restore" | "render" | "sheets" | "layout" | "timeline" | "location" | "text3d" | "projection" | "positionTexture" | "uvEditor" | "newPaintTexture" | "photocraft" | "fixModel" | "checkModel" | "printCheck" | "makeFaces" | "flatten" | "plugins" | "themes" | "keys" | "keyEditor" | "palette" | "learn" | "about" | "customize", () => void>;
   checkForUpdates: () => void;
   openLink: (which: "issues") => void;
 }
@@ -182,7 +182,7 @@ export function buildMenuActions(c: MenuCtx): Record<string, MenuAction> {
   add("view.parallel", () => c.setStyles({ parallel: true }), model, !!s.parallel);
 
   // every tool a menu offers (Draw, Tools, Camera)
-  for (const id of ["orbit", "pan", "zoom", "zoomwindow", "position", "lookaround", "walk", "line", "freehand", "arc", "arccenter", "arc3", "pie", "rect", "rrect", "circle", "polygon", "wall", "room", "select", "move", "rotate", "scale", "push", "wallpull", "followme", "offset", "tape", "dimension", "text", "paint", "vpaint", "tpaint", "erase", "section"] as const) {
+  for (const id of ["orbit", "pan", "zoom", "zoomwindow", "position", "lookaround", "walk", "line", "freehand", "spline", "arc", "arccenter", "arc3", "pie", "rect", "rrect", "circle", "polygon", "wall", "room", "select", "move", "rotate", "scale", "push", "wallpull", "followme", "offset", "tape", "dimension", "text", "paint", "vpaint", "tpaint", "erase", "section"] as const) {
     add(`tool:${id}`, () => c.tool(id), model);
   }
 
@@ -201,6 +201,9 @@ export function buildMenuActions(c: MenuCtx): Record<string, MenuAction> {
   add("tools.checkmodel", c.open.checkModel, model);
   // Print check: solid, thin walls, overhangs, size, with Fix model one click away
   add("tools.printcheck", c.open.printCheck, model);
+  // Make faces and Flatten to height: the engine closes loops of loose lines / moves the picked points to one height
+  add("tools.makefaces", c.open.makeFaces, model);
+  add("tools.flatten", c.open.flatten, model);
   add("file.exporttexture", c.file.exportTexture, model);
   add("win.uveditor", c.open.uvEditor, model);
 

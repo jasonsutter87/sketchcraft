@@ -37,6 +37,7 @@ import { styledEdges, averagedNormals, smoothNormals } from "./viewport/edges";
 import { adoptPainted, checkerTexture, forgetPainted, profileMaterial, textureFor } from "./viewport/materials";
 import { DEFAULT_TPAINT, decodePixels, Painter, sampleRgba, stroke3DCommand, trisOf, uvAt } from "./texturepaint";
 import { UP, r4, arr, circleThrough, bulgeThrough, basis, arcPoints, offsetOutline } from "./viewport/geometry";
+import { DEFAULT_SPLINE_SEGMENTS, segmentCount, splinePoints } from "./curvemath";
 import { selectMarquee } from "./viewport/marquee";
 import { contextEventAction, isMenuKey, isRightClick } from "./viewport/rightclick";
 import { isMac, isTypingTarget } from "./keymap";
@@ -173,7 +174,7 @@ export default function Viewport(props: Props) {
     fitted: boolean;
     fitNext: boolean;
     section: THREE.Plane | null;
-    segs: { circle: number; polygon: number };
+    segs: { circle: number; polygon: number; spline: number };
     rightDown: { x: number; y: number; t: number; held: boolean } | null;
     /** when our context menu last opened, and when a right-drag pan last ended (performance.now) */
     menuAt: number;
@@ -183,7 +184,7 @@ export default function Viewport(props: Props) {
     labels: LabelSpec[];
     liveLabels: LabelSpec[];
     labelEls: Map<string, HTMLDivElement>;
-  }>({ press: null, labels: [], liveLabels: [], labelEls: new Map(), op: null, last: null, lock: null, hover: null, hoverEdge: null, wall: null, rooms: [], cutaway: null, snap: null, shiftLock: false, zoomY: null, space: false, spaceUsed: false, fitted: false, fitNext: false, section: null, segs: { circle: 24, polygon: 6 }, rightDown: null, menuAt: -1e9, panAt: -1e9, selOverride: null });
+  }>({ press: null, labels: [], liveLabels: [], labelEls: new Map(), op: null, last: null, lock: null, hover: null, hoverEdge: null, wall: null, rooms: [], cutaway: null, snap: null, shiftLock: false, zoomY: null, space: false, spaceUsed: false, fitted: false, fitNext: false, section: null, segs: { circle: 24, polygon: 6, spline: DEFAULT_SPLINE_SEGMENTS }, rightDown: null, menuAt: -1e9, panAt: -1e9, selOverride: null });
 
   /** render on demand: decides each animation frame whether the view needs drawing */
   const frameWatch = useRef<FrameWatch | null>(null);
@@ -1488,7 +1489,7 @@ export default function Viewport(props: Props) {
   function updateCoach() {
     const L = live.current;
     const op = st.current.op;
-    const stage = op?.t === "axes" ? (op.x ? 2 : 1) : op?.t === "arc" ? (op.b ? 2 : 1) : op?.t === "carc" ? (op.a ? 2 : 1) : op?.t === "arc3" ? (op.m ? 2 : 1) : op?.t === "rrect" ? (op.b ? 2 : 1) : op?.t === "rotate" ? (op.ref ? 2 : 1) : op?.t === "dim" ? (op.b ? 2 : 1) : undefined;
+    const stage = op?.t === "axes" ? (op.x ? 2 : 1) : op?.t === "arc" ? (op.b ? 2 : 1) : op?.t === "carc" ? (op.a ? 2 : 1) : op?.t === "arc3" ? (op.m ? 2 : 1) : op?.t === "rrect" ? (op.b ? 2 : 1) : op?.t === "rotate" ? (op.ref ? 2 : 1) : op?.t === "dim" ? (op.b ? 2 : 1) : op?.t === "spline" ? op.pts.length : undefined;
     const g =
       L.tool === "plugin" && L.pluginTool
         ? { title: L.pluginTool.name, step: L.pluginTool.hint || "Click in the model.", keys: [["Esc", "leave the tool"]] as [string, string][] }
@@ -1994,6 +1995,16 @@ export default function Viewport(props: Props) {
     const lens = parseLengths(s, units);
     const L = live.current;
 
+    // Curve: how many pieces between two clicked points ("24" or "24s")
+    if (L.tool === "spline") {
+      const m = /^(\d+)\s*s?$/i.exec(s);
+      const k = m ? segmentCount(Number(m[1])) : null;
+      if (k) {
+        st.current.segs.spline = k;
+        L.onToast(translate(localeRef.current, "spline.pieces").replace("{n}", String(k)));
+      }
+      return;
+    }
     // "24s": sides for circles and polygons
     const sides = /^(\d+)\s*s$/i.exec(s);
     if (sides) {
@@ -2556,6 +2567,26 @@ export default function Viewport(props: Props) {
     await run({ cmd: "wall", points: op.pts.map(arr), thickness: b.wallThickness, height: b.wallHeight, closed });
   }
 
+  /** Curve: send the clicked points to the engine's `spline` command (one undo step). */
+  async function commitSpline(closed: boolean) {
+    const op = st.current.op;
+    if (op?.t !== "spline") return;
+    st.current.op = null;
+    st.current.lock = null;
+    clearPreview();
+    live.current.onMeasure("", "");
+    if (op.pts.length < 2 || (closed && op.pts.length < 3)) return;
+    await run({ cmd: "spline", points: op.pts.map(arr), closed, segments: st.current.segs.spline });
+  }
+
+  /** Is the pointer on the first point of the curve in progress (so a click there closes it)? */
+  function nearSplineStart(e: { clientX: number; clientY: number }, op: Extract<Op, { t: "spline" }>) {
+    if (op.pts.length < 3) return false;
+    const r = rect();
+    const q = toScreen2(op.pts[0]);
+    return Math.hypot(q.x - (e.clientX - r.left), q.y - (e.clientY - r.top)) < 12;
+  }
+
   async function commitTape(p: THREE.Vector3) {
     const op = st.current.op;
     if (op?.t !== "tape") return;
@@ -2641,6 +2672,22 @@ export default function Viewport(props: Props) {
       else showSnap(sn);
       setLive([{ p: last.clone().add(sn.p).multiplyScalar(0.5), text: fmt(sn.p.distanceTo(last)) }]);
       L.onMeasure("Length", fmt(sn.p.distanceTo(last)));
+      return;
+    };
+    const moveSpline = ({ e, L, E, op, lock }: MoveArgs<"spline">) => {
+      const last = op.pts[op.pts.length - 1];
+      const sn = infer(E, e, { anchor: last, lock, plane: { origin: op.pts[0], normal: op.n } });
+      const closing = nearSplineStart(e, op);
+      op.cur = closing ? op.pts[0].clone() : sn.p;
+      const through = closing ? op.pts : [...op.pts, op.cur];
+      const v = (p: [number, number, number]) => new THREE.Vector3(p[0], p[1], p[2]);
+      const triples = through.map((p) => [p.x, p.y, p.z] as [number, number, number]);
+      // what the engine will draw, and the points it goes through
+      T.preview.add(polyline(splinePoints(triples, closing, st.current.segs.spline).map(v), ACCENT));
+      if (through.length > 1) T.preview.add(polyline(through, 0x8a8ea0, false, true));
+      if (closing) setHint({ ...toScreen2(op.pts[0]), label: translate(localeRef.current, "spline.close"), kind: "endpoint" });
+      else showSnap(sn);
+      L.onMeasure(translate(localeRef.current, "spline.measure"), `${through.length} · ${st.current.segs.spline}`);
       return;
     };
     const moveStairs = ({ e, L, E, op, lock }: MoveArgs<"stairs">) => {
@@ -3105,6 +3152,8 @@ export default function Viewport(props: Props) {
           return moveDim({ e, L: L as Live, E, op, lock });
         case "wall":
           return moveWall({ e, L: L as Live, E, op, lock });
+        case "spline":
+          return moveSpline({ e, L: L as Live, E, op, lock });
         case "stairs":
           return moveStairs({ e, L: L as Live, E, op, lock });
         case "text":
@@ -3142,7 +3191,7 @@ export default function Viewport(props: Props) {
       }
 
       // nothing in progress: show what a click would hit
-      if (["axes", "line", "freehand", "arc", "arccenter", "arc3", "pie", "rect", "rrect", "circle", "polygon", "tape", "dimension", "text", "move", "rotate", "scale", "place", "wall", "stairs", "column", "protractor"].includes(L.tool)) {
+      if (["axes", "line", "freehand", "spline", "arc", "arccenter", "arc3", "pie", "rect", "rrect", "circle", "polygon", "tape", "dimension", "text", "move", "rotate", "scale", "place", "wall", "stairs", "column", "protractor"].includes(L.tool)) {
         const sn = infer(E, e, {});
         showSnap(sn);
         // placing a fixture near a wall: say it will sit against it
@@ -3488,6 +3537,21 @@ export default function Viewport(props: Props) {
       st.current.op = { t: "wall", pts: [sn.p], cur: sn.p };
       return;
     };
+    const downSpline = async ({ e, E, op }: DownArgs) => {
+      if (op?.t === "spline") {
+        // a click on the first point closes the curve; a double-click ends it where it is
+        if (nearSplineStart(e, op)) return void (await commitSpline(true));
+        if (clicks.current >= 2) return void (await commitSpline(false));
+        const last = op.pts[op.pts.length - 1];
+        const sn = infer(E, e, { anchor: last, lock: st.current.lock, plane: { origin: op.pts[0], normal: op.n } });
+        if (sn.p.distanceTo(last) > 1e-4) op.pts.push(sn.p);
+        st.current.lock = null;
+        return;
+      }
+      const sn = infer(E, e, {});
+      st.current.op = { t: "spline", pts: [sn.p], n: sn.face ? V(sn.face.normal) : UP.clone(), cur: sn.p };
+      return;
+    };
     const downStairs = async ({ e, L, E, op }: DownArgs) => {
       if (op?.t === "stairs") {
         const d = op.cur.clone().sub(op.at);
@@ -3796,6 +3860,8 @@ export default function Viewport(props: Props) {
           return downText({ e, L: L as Live, E, op, sel });
         case "wall":
           return downWall({ e, L: L as Live, E, op, sel });
+        case "spline":
+          return downSpline({ e, L: L as Live, E, op, sel });
         case "stairs":
           return downStairs({ e, L: L as Live, E, op, sel });
         case "roof":
@@ -4027,6 +4093,11 @@ export default function Viewport(props: Props) {
         }
         if (e.key === "Enter") return exitCage();
         if (!e.metaKey && !e.ctrlKey && ed.key(e)) return;
+      }
+      if (e.key === "Enter" && st.current.op?.t === "spline") {
+        e.preventDefault();
+        void commitSpline(false);
+        return;
       }
       if (e.key === "Enter" && st.current.op?.t === "wall") {
         e.preventDefault();

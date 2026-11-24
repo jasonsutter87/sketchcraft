@@ -72,6 +72,14 @@ export const Icons = {
       <path d="M6 18V4" stroke="#3e63dd" />
     </Svg>
   ),
+  spline: () => (
+    <Svg>
+      <path d="M4 17C8 17 8 7 12 7s4 10 8 10" />
+      <circle cx="4" cy="17" r="1.3" />
+      <circle cx="12" cy="7" r="1.3" />
+      <circle cx="20" cy="17" r="1.3" />
+    </Svg>
+  ),
   freehand: () => (
     <Svg>
       <path d="M4 16c2-5 4 1 6-3s3-6 5-4 1 6 5 3" />

@@ -102,7 +102,7 @@ describe("presets", () => {
     expect(su["help.search"]).toBe("Shift+S");
   });
   it("leaves the tools SketchUp has no key for without one", () => {
-    for (const t of ["polygon", "followme", "dimension", "text", "section"]) expect(su[`tool:${t}`]).toBe("");
+    for (const t of ["polygon", "followme", "dimension", "text", "section", "spline"]) expect(su[`tool:${t}`]).toBe("");
     expect(presetBindings("sketchcraft")["tool:polygon"]).toBe("N");
   });
   it("applies cleanly: no changes of your own, no key lost", () => {

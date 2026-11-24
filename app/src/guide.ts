@@ -63,6 +63,9 @@ export function guide(tool: Tool, c: GuideCtx, language: Language = "en"): Guide
     case "axes":
       if (!busy) return g("Axes", "Click the new origin (a corner of a building set at an angle, say).", []);
       return c.stage === 1 ? g("Axes", "Click along the new red direction.", [LOCK, ESC]) : g("Axes", "Click toward the new green side.", [ESC]);
+    case "spline":
+      if (!busy) return g("Curve", "Click where the curve starts.", [["Type", "pieces per span, then Enter (e.g. 24)"]]);
+      return g("Curve", c.stage && c.stage >= 3 ? "Keep clicking points. Double-click or press Enter to finish; click the first point to close it." : "Click the next point; the curve goes through every one.", [LOCK, ["Enter", "finish"], ["Type", "pieces per span, then Enter"], ESC]);
     case "freehand":
       return g("Freehand", "Drag to draw. End where you began to close it into a face.", []);
     case "arc":

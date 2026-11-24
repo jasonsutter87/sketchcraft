@@ -6,7 +6,7 @@ import type { VPaintSettings } from "../vertexpaint";
 import type { PaintTri, Painter, TPaintSettings } from "../texturepaint";
 
 export type Tool =
-  | "select" | "axes" | "line" | "freehand" | "arc" | "arccenter" | "arc3" | "pie" | "rect" | "rrect" | "circle" | "polygon"
+  | "select" | "axes" | "line" | "freehand" | "spline" | "arc" | "arccenter" | "arc3" | "pie" | "rect" | "rrect" | "circle" | "polygon"
   | "push" | "offset" | "followme" | "move" | "rotate" | "scale"
   | "tape" | "dimension" | "text" | "paint" | "vpaint" | "tpaint" | "erase" | "orbit" | "pan" | "zoom" | "section" | "place"
   | "position" | "lookaround" | "walk" | "zoomwindow" | "protractor"
@@ -243,6 +243,8 @@ export type Op =
   | { t: "dim"; a: THREE.Vector3; b: THREE.Vector3 | null; off: THREE.Vector3; cur: THREE.Vector3 }
   | { t: "text"; leader: THREE.Vector3; cur: THREE.Vector3 }
   | { t: "wall"; pts: THREE.Vector3[]; cur: THREE.Vector3 }
+  /** Curve: the points clicked so far (a smooth curve goes through them) and the plane they are on */
+  | { t: "spline"; pts: THREE.Vector3[]; n: THREE.Vector3; cur: THREE.Vector3 }
   | { t: "stairs"; at: THREE.Vector3; cur: THREE.Vector3 };
 
 export interface LabelSpec {

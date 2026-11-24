@@ -176,6 +176,7 @@ export const MENUS: Menu[] = [
     items: [
       tool("line"),
       tool("freehand"),
+      tool("spline"),
       SEP,
       tool("arc", "menu.tool.arc"),
       tool("arccenter", "menu.tool.arccenter"),
@@ -224,6 +225,9 @@ export const MENUS: Menu[] = [
       act("tools.fixmodel", "menu.fixModel"),
       act("tools.checkmodel", "menu.checkModel"),
       act("tools.printcheck", "menu.printCheck"),
+      SEP,
+      act("tools.makefaces", "menu.makeFaces"),
+      act("tools.flatten", "menu.flatten"),
     ],
   },
   {
