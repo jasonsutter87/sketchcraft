@@ -251,10 +251,16 @@ const menuItem = async (id) => {
   await p.locator(`[data-action="${id}"]`).click();
   await wait(300);
 };
-// every toast on screen, newest last: an earlier one can still be fading out when the next arrives (slower on CI)
-const toastText = async () => {
-  await p.locator('.toast').last().waitFor({ timeout: 2500 }).catch(() => {});
-  return (await p.locator('.toast').allInnerTexts().catch(() => [])).join(' | ');
+// the toasts on screen, newest last. An earlier one can still be showing when the next arrives, and on a slow runner
+// the new one is drawn a moment after the model changes: so wait (up to 4 s) until one matches `want`, when given
+const toastText = async (want) => {
+  let text = '';
+  for (let i = 0; i < 40; i++) {
+    text = (await p.locator('.toast').allInnerTexts().catch(() => [])).join(' | ');
+    if (text && (!want || want.test(text))) break;
+    await wait(100);
+  }
+  return text;
 };
 const allFlat = (s, z) => {
   const zs = edgeSegs(s).flatMap((e) => [e[0][2], e[1][2]]);
@@ -271,7 +277,7 @@ await scenario('flatten-and-make-faces', async () => {
   // no selection: Flatten asks for one
   await tool('select');
   await menuItem('tools.flatten');
-  check(/Pick the lines/.test(await toastText()), 'Flatten with nothing picked says to pick something first');
+  check(/Pick the lines/.test(await toastText(/Pick the lines/)), 'Flatten with nothing picked says to pick something first');
   check((await p.locator('.ask input').count()) === 0, 'and does not ask for a height');
 
   // pick everything, flatten to 0 through the menu and its height box
@@ -285,7 +291,8 @@ await scenario('flatten-and-make-faces', async () => {
   await box.press('Enter');
   s = await until((s) => allFlat(s, 0));
   check(allFlat(s, 0), 'every line is now at height 0');
-  check(/Flattened to/.test(await toastText()), `the toast says what it did (${(await toastText()).slice(0, 80)})`);
+  const tf = await toastText(/Flattened to/);
+  check(/Flattened to/.test(tf), `the toast says what it did (${tf.slice(0, 80)})`);
 
   // Make faces on the flat plate: the plate with its hole, and the piece in the hole
   await key('ControlOrMeta+a');
@@ -293,7 +300,8 @@ await scenario('flatten-and-make-faces', async () => {
   s = await until((s) => s.faces.length >= 2);
   const areas = s.faces.map((f) => f.area).sort((a, c) => a - c);
   check(s.faces.length === 2 && near(areas[0], 4, 0.05) && near(areas[1], 56, 0.05), `Make faces: the plate with its hole cut out (56 m2) and the piece in the hole (4 m2) (${areas.map((a) => a.toFixed(1))})`);
-  check(/Made faces/.test(await toastText()), `the toast says what it made (${(await toastText()).slice(0, 80)})`);
+  const tm = await toastText(/Made faces/);
+  check(/Made faces/.test(tm), `the toast says what it made (${tm.slice(0, 80)})`);
 
   // each is one Undo
   await key('ControlOrMeta+z');
@@ -312,7 +320,7 @@ await scenario('make-faces-skips-bent-loops', async () => {
   await key('ControlOrMeta+a');
   await menuItem('tools.makefaces');
   const s = await scene();
-  const t = await toastText();
+  const t = await toastText(/Flatten/);
   check(s.faces.length === 0, `loops that are not flat make no face (${s.faces.length} faces)`);
   check(/Flatten/.test(t) && /not flat/.test(t), `and the toast says to flatten first (${t.slice(0, 110)})`);
 });
