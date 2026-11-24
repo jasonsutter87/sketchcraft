@@ -59,6 +59,8 @@ pub struct Live {
     /// something the person should know (a damaged file was set aside, a save failed)
     pub notice: Option<String>,
     notice_at: Option<SystemTime>,
+    /// what the notice says, when it is about repaired groups (the app words it in the person's language)
+    notice_repair: Option<(crate::model::GroupRepair, String)>,
     /// commands ran inside a batch and the file doesn't have them yet
     unsaved_batch: bool,
     /// how much the model held when the open batch began, and whether a destructive command ran in it
@@ -157,7 +159,7 @@ impl Live {
     }
 
     fn blank(engine: Engine, doc: PathBuf, persist: bool) -> Self {
-        Live { engine, doc, seen: None, persist, last_backup: None, notice: None, notice_at: None, unsaved_batch: false, batch_weight: 0, batch_destructive: false, blocked: false, retry_after: None, dirty: false, sticky: None, last_forced: HashMap::new(), held: false, own_side: vec![], person_view: false }
+        Live { engine, doc, seen: None, persist, last_backup: None, notice: None, notice_at: None, notice_repair: None, unsaved_batch: false, batch_weight: 0, batch_destructive: false, blocked: false, retry_after: None, dirty: false, sticky: None, last_forced: HashMap::new(), held: false, own_side: vec![], person_view: false }
     }
 
     /// A model that is not saved anywhere.
@@ -230,9 +232,7 @@ impl Live {
             if !clamped.is_empty() {
                 self.set_notice(format!("Some drawing-sheet content in this file was over SketchCraft's limits and was trimmed to fit ({}). The file itself is unchanged until the model is saved.", clamped.join("; ")));
             }
-            if let Some(n) = r["group_loops_repaired"].as_u64().filter(|n| *n > 0) {
-                self.set_notice(format!("This file had {n} group{} that sat inside {}selves (a loop), which could have made copying fail; {} moved to the top level. The file itself is unchanged until the model is saved.", if n == 1 { "" } else { "s" }, if n == 1 { "it" } else { "them" }, if n == 1 { "it was" } else { "they were" }));
-            }
+            self.set_repair_notice(crate::model::GroupRepair::from_reply(&r), "file");
             let skipped: Vec<String> = r["skipped_pictures"].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect()).unwrap_or_default();
             if !skipped.is_empty() {
                 self.set_notice(skipped_text(&skipped));
@@ -282,6 +282,15 @@ impl Live {
     fn set_notice(&mut self, text: String) {
         self.notice = Some(text);
         self.notice_at = Some(SystemTime::now());
+        self.notice_repair = None;
+    }
+
+    /// Tell the person what was repaired in a model's groups when it came in (a file, a restored backup), if anything was.
+    fn set_repair_notice(&mut self, repair: crate::model::GroupRepair, what: &str) {
+        if let Some(text) = repair.notice(what) {
+            self.set_notice(text);
+            self.notice_repair = Some((repair, what.to_string()));
+        }
     }
 
     fn unique_damaged_path(&self) -> PathBuf {
@@ -786,6 +795,10 @@ impl Live {
         } else if let (Some(n), Some(at)) = (&self.notice, self.notice_at) {
             if SystemTime::now().duration_since(at).unwrap_or_default() < NOTICE_FOR || self.blocked || self.dirty || self.engine.oversize || self.sticky.as_ref().is_some_and(|p| p.exists()) {
                 s["notice"] = json!(n);
+                if let Some((r, what)) = &self.notice_repair {
+                    r.add_to(&mut s["notice_repair"]);
+                    s["notice_repair"]["what"] = json!(what);
+                }
             }
         }
         s
@@ -910,9 +923,10 @@ impl Live {
             Ok(m) => m,
             Err(e) => return json!({"ok": false, "error": format!("that file isn't a model SketchCraft can read ({e})")}),
         };
-        if let Err(e) = self.engine.replace_model(model) {
-            return json!({"ok": false, "error": e.to_string()});
-        }
+        let repair = match self.engine.replace_model(model) {
+            Ok(r) => r,
+            Err(e) => return json!({"ok": false, "error": e.to_string()}),
+        };
         // the person chose what to carry on with: saving resumes
         self.held = false;
         self.blocked = false;
@@ -920,16 +934,21 @@ impl Live {
         if !skipped.is_empty() {
             self.set_notice(skipped_text(&skipped));
         }
+        self.set_repair_notice(repair.clone(), "backup");
         // the model it replaced is kept in Backups first (the outgoing file), and the restore is one undoable step
         match self.save_with(Some(Force { origin: Origin::Ui, kind: "rst", big: true })) {
             Ok(()) => {
                 self.dirty = false;
-                json!({"ok": true, "mode": "replace", "faces": self.engine.model.faces.len()})
+                let mut v = json!({"ok": true, "mode": "replace", "faces": self.engine.model.faces.len()});
+                repair.add_to(&mut v);
+                v
             }
             Err(e) => {
                 self.dirty = true;
                 self.set_notice(format!("Couldn't save your model: {e}"));
-                json!({"ok": true, "mode": "replace", "faces": self.engine.model.faces.len(), "save_error": e})
+                let mut v = json!({"ok": true, "mode": "replace", "faces": self.engine.model.faces.len(), "save_error": e});
+                repair.add_to(&mut v);
+                v
             }
         }
     }

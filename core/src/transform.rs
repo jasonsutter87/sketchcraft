@@ -199,12 +199,33 @@ impl Model {
         self.check_room(self.copy_cost(ids))?;
         let mut out = Vec::new();
         let mut loose = Vec::new();
+        // a group (or component) whose group is also in the list is copied with that group, once: not again by itself
+        let named: std::collections::HashSet<Id> = ids.iter().copied().filter(|id| self.groups.contains_key(id)).collect();
+        let inside_named = |m: &Model, mut up: Option<Id>| {
+            if named.is_empty() {
+                return false;
+            }
+            for _ in 0..=crate::model::MAX_GROUP_DEPTH {
+                match up {
+                    Some(g) if named.contains(&g) => return true,
+                    Some(g) => up = m.groups.get(&g).and_then(|x| x.parent),
+                    None => return false,
+                }
+            }
+            false
+        };
         for &id in ids {
             if self.groups.contains_key(&id) {
                 self.check_deadline()?;
                 let parent = self.groups[&id].parent;
+                if inside_named(self, parent) {
+                    continue;
+                }
                 out.push(self.copy_group_into(id, by, None, parent, index)?);
             } else if let Some(i) = self.instances.get(&id).cloned() {
+                if inside_named(self, i.parent) {
+                    continue;
+                }
                 let nid = self.new_id();
                 if let Some(p) = i.parent {
                     index.instances.entry(p).or_default().push(nid);

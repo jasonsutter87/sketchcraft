@@ -205,23 +205,20 @@ fn copying_a_very_deeply_nested_group_does_not_overflow_the_stack() {
                 }
                 parent = Some(g);
             }
-            // a rectangle at the very bottom
-            m.active_group = parent;
-            e.exec_json(&json!({"cmd": "rect", "from": [0, 0, 0], "to": [1, 1, 0]}).to_string());
-            e.model.active_group = None;
+            // a rectangle at the very bottom (the model itself: the program refuses nesting this deep, a copy must still be safe if one got here)
+            let p = [DVec3::ZERO, DVec3::X, DVec3::new(1.0, 1.0, 0.0), DVec3::Y];
+            let ids: Vec<u32> = p.iter().map(|q| { let id = nid(&mut e.model); e.model.vertices.insert(id, Vertex { p: *q, group: parent }); id }).collect();
+            let f = nid(&mut e.model);
+            e.model.faces.insert(f, Face { outer: ids, group: parent, ..Default::default() });
             let faces = e.model.faces.len();
             let t = Instant::now();
-            let r = e.exec_json(&json!({"cmd": "copy", "group": top, "by": [0, 5, 0]}).to_string());
-            assert_eq!(r["ok"], true, "{r}");
-            let r = e.exec_json(&json!({"cmd": "duplicate", "ids": [top], "by": [0, 9, 0]}).to_string());
-            assert_eq!(r["ok"], true, "{r}");
+            e.model.copy_group(top, DVec3::new(0.0, 5.0, 0.0), None).expect("copy");
+            let ids = e.model.duplicate(&[top], DVec3::new(0.0, 9.0, 0.0)).expect("duplicate");
             assert_eq!(e.model.faces.len(), faces * 3);
             assert_eq!(e.model.groups.len(), depth as usize * 3);
             assert!(!e.model.has_group_loop());
             // and what hangs off the deep copy goes with it
-            let copy = r["ids"][0].as_u64().unwrap();
-            let r = e.exec_json(&json!({"cmd": "delete", "ids": [copy]}).to_string());
-            assert_eq!(r["ok"], true, "{r}");
+            e.model.delete(&[ids[0]]).expect("delete");
             assert_eq!(e.model.groups.len(), depth as usize * 2);
             assert!(t.elapsed().as_secs_f64() < 20.0, "{:?}", t.elapsed());
         })

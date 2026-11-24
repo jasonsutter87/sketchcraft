@@ -3,7 +3,7 @@
 //! placed as a component; subfolders are collections. Components from a
 //! model can be saved into it, and every entry gets a rendered thumbnail.
 
-use crate::model::{Definition, Id, Instance, Model};
+use crate::model::{Definition, GroupRepair, Id, Instance, Model};
 use crate::render::{self, RenderOpts};
 use anyhow::{bail, Context, Result};
 use glam::{DMat4, DVec3};
@@ -71,6 +71,11 @@ pub const MAX_LIBRARY_BYTES: u64 = 128 << 20;
 
 /// A file's contents as a model (imports land in it as they would in a document).
 pub fn load_file(path: &str) -> Result<Model> {
+    load_file_reporting(path).map(|(m, _)| m)
+}
+
+/// `load_file`, and what was repaired in the groups of a file from outside (loops, nesting past the limit).
+pub fn load_file_reporting(path: &str) -> Result<(Model, GroupRepair)> {
     let p = Path::new(path);
     // a part, a library file or a thumbnail is read whole into memory by whoever opens the library panel: a smaller limit than a model
     let len = std::fs::metadata(p)?.len();
@@ -80,6 +85,7 @@ pub fn load_file(path: &str) -> Result<Model> {
     let ext = p.extension().and_then(|x| x.to_str()).map(|x| x.to_ascii_lowercase()).unwrap_or_default();
     let name = nice_name(&p.file_stem().unwrap_or_default().to_string_lossy());
     let mut m = Model::default();
+    let mut repair = GroupRepair::default();
     match ext.as_str() {
         "sketchcraft" => {
             let text = std::fs::read_to_string(p)?;
@@ -93,7 +99,7 @@ pub fn load_file(path: &str) -> Result<Model> {
                 bail!("{name} isn't a consistent model ({what} refers to something that isn't there)");
             }
             m.repair_ids();
-            m.repair_group_loops();
+            repair = m.repair_group_nesting();
             m.vet_pictures();
             m.vet_face_data();
             m.check_sane_with(false)?;
@@ -116,7 +122,7 @@ pub fn load_file(path: &str) -> Result<Model> {
     // drawing sheets belong to a whole model: placed as a component they could never be seen or changed
     m.clear_paper();
     m.active_group = None;
-    Ok(m)
+    Ok((m, repair))
 }
 
 /// Move a loaded model into `root` as one component; its own components come
@@ -168,13 +174,18 @@ pub fn source_key(path: &str) -> Result<String> {
 /// contents (name and hash), so another file in another folder with the same name, or the same
 /// file after it changed, gets its own component.
 pub fn definition_for(root: &mut Model, path: &str) -> Result<Id> {
+    definition_for_reporting(root, path).map(|(id, _)| id)
+}
+
+/// `definition_for`, and what was repaired in the file's groups when it was loaded (nothing when the component was already there).
+pub fn definition_for_reporting(root: &mut Model, path: &str) -> Result<(Id, GroupRepair)> {
     let key = source_key(path)?;
     if let Some((&id, _)) = root.definitions.iter().find(|(_, d)| d.source.as_deref() == Some(key.as_str())) {
-        return Ok(id);
+        return Ok((id, GroupRepair::default()));
     }
-    let src = load_file(path)?;
+    let (src, repair) = load_file_reporting(path)?;
     let name = nice_name(&Path::new(path).file_stem().unwrap_or_default().to_string_lossy());
-    Ok(adopt(root, src, &name, Some(key)))
+    Ok((adopt(root, src, &name, Some(key)), repair))
 }
 
 /// Components a component uses inside it (all the way down). Iterative: a chain of any length (or a loop) is safe.

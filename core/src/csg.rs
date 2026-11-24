@@ -17,9 +17,29 @@ const EPS: f64 = 1e-7;
 /// A boolean that splits more pieces than this stops with an error instead
 /// of filling memory.
 const MAX_PIECES: usize = 2_000_000;
-const TOO_COMPLEX: &str = "these solids are too complex to combine (over 2 million pieces); simplify them first";
+const TOO_COMPLEX: &str = "these solids are too complex to combine; simplify them first";
+/// What a boolean may split into for an agent or a plugin (the person's has `MAX_PIECES`). Measured: two prisms of 1,436
+/// triangles each, crossing at right angles, split into 91,000 pieces and hold 1.4 GB at the peak, so one call is held to
+/// well under half of that. Solids an agent makes by hand (a few hundred triangles) split into a few thousand.
+pub const MAX_PIECES_UNTRUSTED: usize = 40_000;
+const TOO_SLOW: &str = "that took too long, so it was stopped (use fewer or simpler solids)";
 thread_local! {
     static PIECES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static PIECE_LIMIT: std::cell::Cell<usize> = const { std::cell::Cell::new(MAX_PIECES) };
+    /// When the boolean running on this thread must stop (an agent's or a plugin's call has a time limit), and the work since the clock was last read.
+    static STOP_AT: std::cell::Cell<Option<std::time::Instant>> = const { std::cell::Cell::new(None) };
+    static WORK: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+/// Called for every polygon a plane sorts: reads the clock now and then and stops the boolean (unwinding to `boolean`) once its time is up.
+fn tick() {
+    let n = WORK.with(|w| {
+        w.set(w.get().wrapping_add(1));
+        w.get()
+    });
+    if n.is_multiple_of(1024) && STOP_AT.with(|s| s.get()).is_some_and(|t| std::time::Instant::now() >= t) {
+        panic!("{TOO_SLOW}");
+    }
 }
 /// Points closer than this are the same point in a result.
 const WELD_TOL: f64 = 2.5e-5;
@@ -57,6 +77,7 @@ struct Plane {
 impl Plane {
     /// Sort `p` into the four lists, splitting it if it spans the plane.
     fn split(&self, p: &Poly, cof: &mut Vec<Poly>, cob: &mut Vec<Poly>, front: &mut Vec<Poly>, back: &mut Vec<Poly>) {
+        tick();
         const CO: u8 = 0;
         const FR: u8 = 1;
         const BK: u8 = 2;
@@ -103,7 +124,7 @@ impl Plane {
                 let budget = |n: usize| PIECES.with(|c| {
                     let v = c.get() + n;
                     c.set(v);
-                    if v > MAX_PIECES {
+                    if v > PIECE_LIMIT.with(|l| l.get()) {
                         panic!("{TOO_COMPLEX}");
                     }
                 });
@@ -224,11 +245,20 @@ pub enum Op {
 
 /// `a op b` on two closed polygon soups.
 pub fn boolean(a: Vec<Poly>, b: Vec<Poly>, op: Op) -> Result<Vec<Poly>> {
+    boolean_within(a, b, op, None, MAX_PIECES)
+}
+
+/// `boolean`, stopped (with an error, nothing kept) when `stop_at` passes or it would split into more than `max_pieces`:
+/// one boolean of big solids can take gigabytes and a minute, so a call with a time limit can't wait for it to finish.
+pub fn boolean_within(a: Vec<Poly>, b: Vec<Poly>, op: Op, stop_at: Option<std::time::Instant>, max_pieces: usize) -> Result<Vec<Poly>> {
     // deep trees recurse deeply: give the work a big stack
     std::thread::Builder::new()
         .stack_size(256 << 20)
         .spawn(move || {
             PIECES.with(|c| c.set(0));
+            PIECE_LIMIT.with(|c| c.set(max_pieces));
+            STOP_AT.with(|c| c.set(stop_at));
+            WORK.with(|c| c.set(0));
             let (mut a, mut b) = (Node::new(a), Node::new(b));
             match op {
                 Op::Union => {
@@ -263,7 +293,22 @@ pub fn boolean(a: Vec<Poly>, b: Vec<Poly>, op: Op) -> Result<Vec<Poly>> {
         })
         .map_err(|e| anyhow::anyhow!("couldn't start the boolean: {e}"))?
         .join()
-        .map_err(|_| anyhow::anyhow!("{TOO_COMPLEX}"))
+        .map_err(|e| {
+            let slow = e.downcast_ref::<&str>().is_some_and(|s| *s == TOO_SLOW) || e.downcast_ref::<String>().is_some_and(|s| s == TOO_SLOW);
+            if slow {
+                anyhow::anyhow!("{TOO_SLOW}")
+            } else if max_pieces < MAX_PIECES {
+                anyhow::anyhow!("these solids are too complex to combine in one call (over {max_pieces} pieces once they cut each other); simplify them or use fewer facets")
+            } else {
+                anyhow::anyhow!("{TOO_COMPLEX} (over 2 million pieces)")
+            }
+        })
+}
+
+/// `boolean` as a call on `m` makes it: with the call's time limit, and the smaller piece budget an agent or a plugin has.
+fn boolean_for(m: &Model, a: Vec<Poly>, b: Vec<Poly>, op: Op) -> Result<Vec<Poly>> {
+    m.check_deadline()?;
+    boolean_within(a, b, op, m.deadline, if m.deadline.is_some() { MAX_PIECES_UNTRUSTED } else { MAX_PIECES })
 }
 
 // ----- solids in the model ---------------------------------------------------
@@ -722,7 +767,7 @@ pub fn solid(m: &mut Model, op: &str, ids: &[Id]) -> Result<Vec<Id>> {
             let mut acc = polys[0].clone();
             for p in &polys[1..] {
                 m.check_deadline()?;
-                acc = boolean(acc, p.clone(), Op::Union)?;
+                acc = boolean_for(m, acc, p.clone(), Op::Union)?;
             }
             m.delete(ids)?;
             vec![to_group(m, &acc, &nm)?]
@@ -732,7 +777,7 @@ pub fn solid(m: &mut Model, op: &str, ids: &[Id]) -> Result<Vec<Id>> {
             let mut acc = polys[0].clone();
             for p in &polys[1..] {
                 m.check_deadline()?;
-                acc = boolean(acc, p.clone(), Op::Intersect)?;
+                acc = boolean_for(m, acc, p.clone(), Op::Intersect)?;
             }
             m.delete(ids)?;
             vec![to_group(m, &acc, &nm)?]
@@ -742,9 +787,9 @@ pub fn solid(m: &mut Model, op: &str, ids: &[Id]) -> Result<Vec<Id>> {
                 bail!("split takes two different solids");
             }
             let (na, nb) = (name(m, ids[0]), name(m, ids[1]));
-            let a_only = boolean(polys[0].clone(), polys[1].clone(), Op::Subtract)?;
-            let b_only = boolean(polys[1].clone(), polys[0].clone(), Op::Subtract)?;
-            let both = boolean(polys[0].clone(), polys[1].clone(), Op::Intersect)?;
+            let a_only = boolean_for(m, polys[0].clone(), polys[1].clone(), Op::Subtract)?;
+            let b_only = boolean_for(m, polys[1].clone(), polys[0].clone(), Op::Subtract)?;
+            let both = boolean_for(m, polys[0].clone(), polys[1].clone(), Op::Intersect)?;
             m.delete(ids)?;
             let mut out = Vec::new();
             for (p, n) in [(a_only, na.clone()), (b_only, nb), (both, format!("{na} overlap"))] {
@@ -792,7 +837,7 @@ fn cut(m: &mut Model, ids: &[Id], consume_cutter: bool) -> Result<Id> {
     let target_polys = solid_polys_with_orientation(m, target, true)?;
     let origin = target_polys[0].pts[0];
     let before = consume_cutter.then(|| signed_volume(&target_polys, origin));
-    let result = boolean(target_polys, cutter_polys, Op::Subtract)?;
+    let result = boolean_for(m, target_polys, cutter_polys, Op::Subtract)?;
     if let Some(before) = before {
         let after = signed_volume(&result, origin);
         let tolerance = before.abs() * 1e-9;

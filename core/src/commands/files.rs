@@ -51,7 +51,7 @@ impl Engine {
                 // ids from outside: the counter must be above every id in the file, or the next drawing overwrites something
                 opened.repair_ids();
                 // groups that sit inside each other in a loop (a damaged or hand-edited file) would send copying round forever: each loop is broken
-                let group_loops = opened.repair_group_loops();
+                let group_repair = opened.repair_group_nesting();
                 opened.vet_pictures();
                 opened.vet_face_data();
                 let sheets_clamped = opened.vet_sheets();
@@ -73,9 +73,7 @@ impl Engine {
                 if !sheets_clamped.is_empty() {
                     v["sheets_clamped"] = json!(sheets_clamped);
                 }
-                if group_loops > 0 {
-                    v["group_loops_repaired"] = json!(group_loops);
-                }
+                group_repair.add_to(&mut v);
                 v
             }
             Command::ExportGlb { path } => json!({"path": path, "triangles": export::write_glb(&self.model, &path)?}),

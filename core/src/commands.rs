@@ -660,7 +660,7 @@ impl Engine {
     }
 
     /// Replace the whole model with `model` as one undoable step (a restore from a backup).
-    pub fn replace_model(&mut self, model: Model) -> Result<()> {
+    pub fn replace_model(&mut self, model: Model) -> Result<crate::model::GroupRepair> {
         if self.batch.is_some() {
             bail!("a plugin is still running; try again when it has finished");
         }
@@ -673,7 +673,7 @@ impl Engine {
         }
         let mut model = model;
         model.repair_ids();
-        model.repair_group_loops();
+        let repair = model.repair_group_nesting();
         model.vet_pictures();
         model.vet_face_data();
         model.vet_sheets();
@@ -691,7 +691,7 @@ impl Engine {
         self.oversize = over;
         self.revision += 1;
         self.trim_undo();
-        Ok(())
+        Ok(repair)
     }
 
     /// How many steps Undo can go back.

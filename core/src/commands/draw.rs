@@ -130,7 +130,7 @@ impl Engine {
             Command::Duplicate { ids, by } => json!({"ids": m.with_deadline(untrusted.then_some(UNTRUSTED_COPY_SECONDS), |m| m.duplicate(&ids, v3(by)))?}),
             Command::Array { ids, by, count } => json!({"ids": m.with_deadline(untrusted.then_some(UNTRUSTED_COPY_SECONDS), |m| m.array(&ids, v3(by), count))?}),
             Command::Delete { ids } => {
-                m.delete(&ids)?;
+                m.with_deadline(untrusted.then_some(UNTRUSTED_COPY_SECONDS), |m| m.delete(&ids))?;
                 json!({})
             }
             Command::Reverse { ids } => {

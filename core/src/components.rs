@@ -389,7 +389,16 @@ impl Model {
                 self.delete(&[*id])?;
             }
         }
-        self.edges.retain(|_, e| !(verts.contains(&e.a) && verts.contains(&e.b)) || self.faces.values().any(|f| f.uses_edge(e.a, e.b)));
+        // the lines the remaining faces still use stay: found once, not by searching every face for every line
+        self.check_deadline()?;
+        let mut used: std::collections::HashSet<(Id, Id)> = std::collections::HashSet::new();
+        for f in self.faces.values() {
+            for l in f.loops() {
+                used.extend(crate::model::pairs(l).map(|(a, b)| (a.min(b), a.max(b))));
+            }
+        }
+        self.edges.retain(|_, e| !(verts.contains(&e.a) && verts.contains(&e.b)) || used.contains(&(e.a.min(e.b), e.a.max(e.b))));
+        self.check_deadline()?;
         self.gc();
         let did = self.new_id();
         self.definitions.insert(did, Definition { name: name.clone(), model: std::sync::Arc::new(def), attrs: Default::default(), source: None, cuts: false, face_me: false });
@@ -421,13 +430,17 @@ impl Model {
         let gid = self.new_id();
         self.groups.insert(gid, Group { name: i.name.clone(), ..Default::default() });
         let mut map: HashMap<Id, Id> = HashMap::new();
+        // one lookup of the edges by their ends (a search of every edge for each of the component's made this quadratic)
+        let mut look = crate::model::Lookup::default();
         for (&k, v) in &def.vertices {
+            self.check_deadline()?;
             let id = self.new_id();
             self.vertices.insert(id, crate::model::Vertex { p: i.transform.transform_point3(v.p), group: Some(gid) });
             map.insert(k, id);
         }
         for e in def.edges.values() {
-            let id = self.edge(map[&e.a], map[&e.b]);
+            self.check_deadline()?;
+            let id = self.edge_with(map[&e.a], map[&e.b], &mut look);
             let ne = self.edges.get_mut(&id).unwrap();
             ne.soft = e.soft;
             ne.seam = e.seam;
@@ -436,6 +449,7 @@ impl Model {
         self.note_remap(true, || crate::anchors::Remap::Vertices { scope: None, from_path: vec![inst], to_path: Vec::new(), map: map.iter().map(|(a, b)| (*a, *b)).collect() });
         let mirror = i.transform.determinant() < 0.0;
         for f in def.faces.values() {
+            self.check_deadline()?;
             let mut nf = Face {
                 outer: f.outer.iter().map(|v| map[v]).collect(),
                 holes: f.holes.iter().map(|h| h.iter().map(|v| map[v]).collect()).collect(),
@@ -455,7 +469,7 @@ impl Model {
                     self.materials.entry(m.clone()).or_insert_with(|| dm.clone());
                 }
             }
-            self.insert_face(nf);
+            self.insert_face_with(nf, &mut look);
         }
         Ok(gid)
     }

@@ -32,8 +32,10 @@ impl Engine {
                 json!({"dir": d.to_string_lossy(), "entries": crate::library::list(&d)})
             }
             Command::InsertFile { path, at, rotate } => {
-                let def = crate::library::definition_for(m, &path)?;
-                json!({"instance": m.place(def, v3(at), rotate, None)?, "component": def})
+                let (def, repair) = crate::library::definition_for_reporting(m, &path)?;
+                let mut v = json!({"instance": m.place(def, v3(at), rotate, None)?, "component": def});
+                repair.add_to(&mut v);
+                v
             }
             Command::SaveToLibrary { component, name, collection, dir } => {
                 let model = crate::library::standalone(m, component)?;

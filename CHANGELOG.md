@@ -160,6 +160,13 @@ What changed in each SketchCraft release, newest first. The format follows
     solid work is stopped and put back. Solid tools treat a repeated id as one, a curve that crosses itself many times is
     refused even when other lines are nearby, the undo list keeps less memory for big pictures, and the SketchCraft AI box
     also drops invisible filler characters from names.
+  - Groups can be nested up to 256 levels (far more than any real model); a file nested deeper opens with the extra
+    levels brought up to the limit and tells you, and the Outliner draws any nesting without trouble. Opening a file
+    with very many looping groups is fast, and the notice names the groups it repaired in your language, also for a
+    restored backup or an inserted part. Making a component, exploding it and deleting many lines are fast on big models
+    and stop cleanly when a plugin or agent takes too long. Selecting a group and a group inside it, then Duplicate,
+    copies the outer group once with everything in it. One big solid operation from a plugin or agent is now stopped and
+    put back instead of holding gigabytes of memory.
 
 ## [0.3.9] - 2026-11-20
 

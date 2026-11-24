@@ -1310,38 +1310,58 @@ impl Model {
 
     pub fn delete(&mut self, ids: &[Id]) -> Result<()> {
         self.check_unlocked(ids)?;
-        for id in ids {
+        // which faces use a line, found once when the first line is deleted (searching every face for each line made deleting many lines quadratic)
+        let mut by_edge: Option<HashMap<(Id, Id), Vec<Id>>> = None;
+        let mut gone_groups: Vec<Id> = Vec::new();
+        for (n, id) in ids.iter().enumerate() {
+            if n % 256 == 0 {
+                self.check_deadline()?;
+            }
             if self.faces.remove(id).is_some() {
                 // a face's edges stay behind as lines, like a real modeler
             } else if let Some(e) = self.edges.remove(id) {
                 // deleting an edge deletes the faces that need it
-                let dead: Vec<Id> = self.faces.iter().filter(|(_, f)| f.uses_edge(e.a, e.b)).map(|(&k, _)| k).collect();
-                for f in dead {
-                    self.faces.remove(&f);
+                let index = by_edge.get_or_insert_with(|| {
+                    let mut ix: HashMap<(Id, Id), Vec<Id>> = HashMap::new();
+                    for (&k, f) in &self.faces {
+                        for l in f.loops() {
+                            for (a, b) in pairs(l) {
+                                ix.entry((a.min(b), a.max(b))).or_default().push(k);
+                            }
+                        }
+                    }
+                    ix
+                });
+                for f in index.get(&(e.a.min(e.b), e.a.max(e.b))).into_iter().flatten() {
+                    self.faces.remove(f);
                 }
             } else if let Some(i) = self.annotations.iter().position(|a| a.id() == *id) {
                 self.annotations.remove(i);
             } else if self.instances.remove(id).is_some() {
                 // component placement removed; its definition stays in the library
             } else if self.groups.contains_key(id) {
-                // the group and everything nested in it
-                let tree = self.subtree(*id);
-                let inside = |g: &Option<Id>| g.is_some_and(|g| tree.contains(&g));
-                self.faces.retain(|_, f| !inside(&f.group));
-                self.edges.retain(|_, e| !inside(&e.group));
-                self.vertices.retain(|_, v| !inside(&v.group));
-                self.instances.retain(|_, i| !inside(&i.parent));
-                for g in &tree {
-                    self.groups.remove(g);
-                    self.cages.remove(g);
-                }
-                if inside(&self.active_group) {
-                    self.active_group = None;
-                }
+                gone_groups.push(*id);
             } else {
                 bail!("no face, edge or group {id}");
             }
         }
+        if !gone_groups.is_empty() {
+            // the groups and everything nested in them, together: one pass over the model however many groups there are
+            let tree = self.subtrees(&gone_groups);
+            let inside = |g: &Option<Id>| g.is_some_and(|g| tree.contains(&g));
+            self.faces.retain(|_, f| !inside(&f.group));
+            self.edges.retain(|_, e| !inside(&e.group));
+            self.vertices.retain(|_, v| !inside(&v.group));
+            self.instances.retain(|_, i| !inside(&i.parent));
+            for g in &tree {
+                self.groups.remove(g);
+                self.cages.remove(g);
+            }
+            if inside(&self.active_group) {
+                self.active_group = None;
+            }
+        }
+        self.check_deadline()?;
         self.gc();
         Ok(())
     }
@@ -1876,15 +1896,67 @@ impl Model {
 
     /// Does any group sit inside itself (its parent chain comes back round)? One pass, no recursion.
     pub fn has_group_loop(&self) -> bool {
-        self.first_group_loop().is_some()
+        self.group_depths().is_err()
     }
 
-    /// A group on a loop of parents, if there is one (the group a walk up from it comes back to).
-    fn first_group_loop(&self) -> Option<Id> {
-        // 0 = not seen, 1 = on the walk in progress, 2 = known to reach the top
-        let mut state: HashMap<Id, u8> = HashMap::with_capacity(self.groups.len());
+    /// How deep every group sits (a top-level group is level 1), in one pass over the groups and without recursion; or
+    /// a group on a loop of parents (the group a walk up from it came back to).
+    fn group_depths(&self) -> Result<HashMap<Id, u32>, Id> {
+        // `ON_WALK` marks a group on the walk in progress
+        const ON_WALK: u32 = u32::MAX;
+        let mut depth: HashMap<Id, u32> = HashMap::with_capacity(self.groups.len());
         let mut walk: Vec<Id> = Vec::new();
         for &start in self.groups.keys() {
+            if depth.contains_key(&start) {
+                continue;
+            }
+            walk.clear();
+            let mut cur = Some(start);
+            let mut base = 0u32;
+            while let Some(g) = cur {
+                match depth.get(&g) {
+                    Some(&ON_WALK) => return Err(g),
+                    Some(&d) => {
+                        base = d;
+                        break;
+                    }
+                    None => {}
+                }
+                let Some(grp) = self.groups.get(&g) else { break };
+                depth.insert(g, ON_WALK);
+                walk.push(g);
+                cur = grp.parent;
+            }
+            for (k, g) in walk.iter().rev().enumerate() {
+                depth.insert(*g, base + 1 + k as u32);
+            }
+        }
+        Ok(depth)
+    }
+
+    /// The deepest nesting of groups (0 when there are none), or `None` if some groups sit inside each other in a loop.
+    pub fn group_nesting(&self) -> Option<u32> {
+        self.group_depths().ok().map(|d| d.values().copied().max().unwrap_or(0))
+    }
+
+    /// Break every loop of groups by putting one group of each at the top level, and bring every group nested deeper than
+    /// `MAX_GROUP_DEPTH` levels up to the limit (a group's own contents stay in it; only where it sits changes), in the
+    /// model and inside every component. A file from outside may carry both; the program's own never do. One pass over
+    /// the groups each, so a file of any size repairs in time proportional to its groups.
+    pub fn repair_group_nesting(&mut self) -> GroupRepair {
+        let mut out = GroupRepair::default();
+        self.repair_group_nesting_into(&mut out, "");
+        out
+    }
+
+    fn repair_group_nesting_into(&mut self, out: &mut GroupRepair, within: &str) {
+        let label = |n: &str| if within.is_empty() { tidy_group_name(n) } else { format!("{} (in {})", tidy_group_name(n), tidy_group_name(within)) };
+        // loops: one walk over all groups; the one cut on each loop is its lowest id (so the result doesn't depend on where the walk began)
+        let mut state: HashMap<Id, (bool, usize)> = HashMap::with_capacity(self.groups.len()); // (finished, place on the walk)
+        let mut walk: Vec<Id> = Vec::new();
+        let mut cuts: Vec<Id> = Vec::new();
+        let keys: Vec<Id> = self.groups.keys().copied().collect();
+        for start in keys {
             if state.contains_key(&start) {
                 continue;
             }
@@ -1892,42 +1964,78 @@ impl Model {
             let mut cur = Some(start);
             while let Some(g) = cur {
                 match state.get(&g) {
-                    Some(2) => break,
-                    Some(_) => return Some(g),
+                    Some((true, _)) => break,
+                    Some((false, at)) => {
+                        // the walk is back on itself: the loop is walk[at..]
+                        if let Some(&cut) = walk[*at..].iter().min() {
+                            cuts.push(cut);
+                            if let Some(x) = self.groups.get_mut(&cut) {
+                                x.parent = None;
+                            }
+                        }
+                        break;
+                    }
                     None => {}
                 }
                 let Some(grp) = self.groups.get(&g) else { break };
-                state.insert(g, 1);
+                state.insert(g, (false, walk.len()));
                 walk.push(g);
                 cur = grp.parent;
             }
             for g in &walk {
-                state.insert(*g, 2);
+                state.insert(*g, (true, 0));
             }
         }
-        None
-    }
-
-    /// Break every loop of groups by putting one group of each at the top level (and the same inside every
-    /// component). A file from outside may carry them; the program's own never do. Returns how many were broken.
-    pub fn repair_group_loops(&mut self) -> usize {
-        let mut broken = 0;
-        while let Some(g) = self.first_group_loop() {
-            if let Some(x) = self.groups.get_mut(&g) {
-                x.parent = None;
+        cuts.sort_unstable();
+        for g in &cuts {
+            out.loops += 1;
+            if out.loop_names.len() < GroupRepair::NAMED {
+                out.loop_names.push(label(&self.groups[g].name));
             }
-            broken += 1;
+        }
+        // depth: a group nested below the limit comes up to the limit's level
+        if let Ok(depth) = self.group_depths() {
+            let max = MAX_GROUP_DEPTH as u32;
+            let mut deep: Vec<(u32, Id)> = depth.iter().filter(|(_, d)| **d >= max).map(|(g, d)| (*d, *g)).collect();
+            if !deep.is_empty() {
+                deep.sort_unstable();
+                // where what sat in a group goes when its own level is gone: the nearest group above the limit
+                let mut home: HashMap<Id, Option<Id>> = HashMap::new();
+                let mut moved: Vec<Id> = Vec::new();
+                for (d, g) in deep {
+                    let parent = self.groups[&g].parent;
+                    let up = parent.and_then(|p| home.get(&p).copied().unwrap_or(Some(p)));
+                    home.insert(g, up);
+                    if d > max {
+                        self.groups.get_mut(&g).unwrap().parent = up;
+                        moved.push(g);
+                    }
+                }
+                for i in self.instances.values_mut() {
+                    if let Some(p) = i.parent {
+                        if depth.get(&p).is_some_and(|d| *d > max) {
+                            i.parent = home.get(&p).copied().flatten();
+                        }
+                    }
+                }
+                moved.sort_unstable();
+                out.too_deep += moved.len();
+                for g in moved.iter().take(GroupRepair::NAMED.saturating_sub(out.deep_names.len())) {
+                    out.deep_names.push(label(&self.groups[g].name));
+                }
+            }
         }
         for d in self.definitions.values_mut() {
-            if d.model.has_group_loop_deep() {
-                broken += std::sync::Arc::make_mut(&mut d.model).repair_group_loops();
+            // look first: a shared component model is only copied if it needs the repair
+            if d.model.needs_group_repair() {
+                let name = d.name.clone();
+                std::sync::Arc::make_mut(&mut d.model).repair_group_nesting_into(out, &name);
             }
         }
-        broken
     }
 
-    fn has_group_loop_deep(&self) -> bool {
-        self.has_group_loop() || self.definitions.values().any(|d| d.model.has_group_loop_deep())
+    fn needs_group_repair(&self) -> bool {
+        self.group_nesting().is_none_or(|d| d > MAX_GROUP_DEPTH as u32) || self.definitions.values().any(|d| d.model.needs_group_repair())
     }
 
     /// A group and the groups it sits inside, innermost first.
@@ -1935,7 +2043,7 @@ impl Model {
         let mut out = Vec::new();
         let mut cur = gid;
         while let Some(g) = cur {
-            if out.contains(&g) || out.len() > 256 {
+            if out.contains(&g) || out.len() > MAX_GROUP_DEPTH {
                 break; // a loop (shouldn't happen): stop rather than spin
             }
             out.push(g);
@@ -2002,6 +2110,90 @@ impl Model {
         let first = it.next()?;
         Some(it.fold((first, first), |(lo, hi), p| (lo.min(p), hi.max(p))))
     }
+}
+
+/// The most levels groups may be nested (a group in a group in a group ...). Real models stay in single digits (the
+/// SketchUp and SketchCraft files kept for testing nest one level; a deeply organised house is a dozen); this is far above that, and
+/// low enough that every walk over the tree, the program's and a plugin's, is cheap and none can run out of stack. A
+/// model that goes past it is refused when made, and one opened from a file is brought up to it (`repair_group_nesting`).
+pub const MAX_GROUP_DEPTH: usize = 256;
+
+/// What `Model::repair_group_nesting` changed: groups that sat inside each other in a loop, and groups nested more than
+/// `MAX_GROUP_DEPTH` levels deep. The names are the first few only.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct GroupRepair {
+    pub loops: usize,
+    pub too_deep: usize,
+    pub loop_names: Vec<String>,
+    pub deep_names: Vec<String>,
+}
+
+impl GroupRepair {
+    /// How many group names a notice lists.
+    pub const NAMED: usize = 5;
+
+    pub fn is_empty(&self) -> bool {
+        self.loops == 0 && self.too_deep == 0
+    }
+
+    /// The fields an `open` reply (and the notice the app shows) carries; nothing when there was nothing to repair.
+    pub fn add_to(&self, reply: &mut serde_json::Value) {
+        if self.loops > 0 {
+            reply["group_loops_repaired"] = serde_json::json!(self.loops);
+            reply["group_loop_names"] = serde_json::json!(self.loop_names);
+        }
+        if self.too_deep > 0 {
+            reply["groups_flattened"] = serde_json::json!(self.too_deep);
+            reply["groups_flattened_names"] = serde_json::json!(self.deep_names);
+        }
+    }
+
+    /// The repair a reply carries (see `add_to`).
+    pub fn from_reply(r: &serde_json::Value) -> GroupRepair {
+        let names = |k: &str| r[k].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect()).unwrap_or_default();
+        GroupRepair { loops: r["group_loops_repaired"].as_u64().unwrap_or(0) as usize, too_deep: r["groups_flattened"].as_u64().unwrap_or(0) as usize, loop_names: names("group_loop_names"), deep_names: names("groups_flattened_names") }
+    }
+
+    /// What to tell the person, in plain English (the app shows its own translation of the same facts).
+    pub fn notice(&self, what: &str) -> Option<String> {
+        if self.is_empty() {
+            return None;
+        }
+        let list = |n: usize, names: &[String]| {
+            if names.is_empty() {
+                String::new()
+            } else if n > names.len() {
+                format!(" ({} and {} more)", names.join(", "), n - names.len())
+            } else {
+                format!(" ({})", names.join(", "))
+            }
+        };
+        let mut parts = Vec::new();
+        if self.loops > 0 {
+            let n = self.loops;
+            parts.push(if n == 1 {
+                format!("1 group{} that sat inside itself (a loop), which could have made copying fail; it was moved to the top level", list(n, &self.loop_names))
+            } else {
+                format!("{n} groups{} that sat inside each other in loops, which could have made copying fail; they were moved to the top level", list(n, &self.loop_names))
+            });
+        }
+        if self.too_deep > 0 {
+            let n = self.too_deep;
+            parts.push(if n == 1 {
+                format!("1 group{} that was nested more than {MAX_GROUP_DEPTH} levels deep; it was moved up to level {MAX_GROUP_DEPTH}", list(n, &self.deep_names))
+            } else {
+                format!("{n} groups{} that were nested more than {MAX_GROUP_DEPTH} levels deep; they were moved up to level {MAX_GROUP_DEPTH}", list(n, &self.deep_names))
+            });
+        }
+        Some(format!("This {what} had {}. Nothing was lost; the file itself is unchanged until the model is saved.", parts.join(", and ")))
+    }
+}
+
+/// A group's name as a notice shows it: one line, at most 40 characters.
+fn tidy_group_name(n: &str) -> String {
+    let one: String = n.chars().map(|c| if c.is_control() { ' ' } else { c }).take(40).collect();
+    let one = one.trim();
+    if one.is_empty() { "unnamed".to_string() } else { one.to_string() }
 }
 
 /// A model whose counter or any id is above this is refused on Open, Restore and insert (the program never writes one:
@@ -2143,8 +2335,10 @@ impl Model {
         if self.next_id > ID_LIMIT || self.max_own_id() > ID_LIMIT {
             bail!("this model's ids are too close to the top of the range ({} is the most the program accepts), so it can't be used: a file edited by hand or damaged may do this; open an earlier copy", ID_LIMIT);
         }
-        if self.has_group_loop() {
-            bail!("that would leave groups inside each other in a loop, so it was not done");
+        match self.group_nesting() {
+            None => bail!("that would leave groups inside each other in a loop, so it was not done"),
+            Some(d) if d > MAX_GROUP_DEPTH as u32 => bail!("that would nest groups more than {MAX_GROUP_DEPTH} levels deep, so it was not done"),
+            Some(_) => {}
         }
         if !self.vertices.values().all(|v| sane3(v.p)) {
             return bad("a point");

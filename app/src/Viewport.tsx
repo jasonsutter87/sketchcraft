@@ -1,3 +1,4 @@
+import { descendants } from "./grouptree";
 import { translate, useLocale } from "./locale";
 import { TEXTURING_SET } from "./texturing-set";
 import { fixtureOf, wallSnap } from "./fixtures";
@@ -751,13 +752,7 @@ export default function Viewport(props: Props) {
     // Hide Rest of Model: while a group or component is open, only it shows
     if (live.current.styles.hideRest && (s.activeGroup != null || s.editing != null)) {
       const inside = new Set<number>();
-      if (s.activeGroup != null) {
-        inside.add(s.activeGroup);
-        for (let grew = true; grew; ) {
-          grew = false;
-          for (const g of s.groups) if (g.parent != null && inside.has(g.parent) && !inside.has(g.id)) (inside.add(g.id), (grew = true));
-        }
-      }
+      if (s.activeGroup != null) for (const g of descendants(s.groups, [s.activeGroup])) inside.add(g);
       const faceIn = new Set(s.faces.filter((f) => f.group != null && inside.has(f.group)).map((f) => f.id));
       const instIn = new Set(s.instances.filter((i) => i.id === s.editing || (i.parent != null && inside.has(i.parent))).map((i) => i.id));
       positions = positions === s.positions ? s.positions.slice() : positions;
@@ -1341,13 +1336,7 @@ export default function Viewport(props: Props) {
   // ---- the hierarchy: groups inside groups --------------------------------
   /** A group and everything nested in it. */
   function subtree(g: number): Set<number> {
-    const s = sceneNow();
-    const out = new Set([g]);
-    for (let grew = true; grew; ) {
-      grew = false;
-      for (const x of s.groups) if (x.parent != null && out.has(x.parent) && !out.has(x.id)) (out.add(x.id), (grew = true));
-    }
-    return out;
+    return descendants(sceneNow().groups, [g]);
   }
   /** What a click on something in group `g` selects: the group one level
    *  inside the one that's open (the top group when none is), or nothing

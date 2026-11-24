@@ -243,6 +243,8 @@ export interface Scene {
   doc: string;
   /** something to tell the person (a damaged file was set aside, a save failed) */
   notice?: string;
+  /** when the notice is about groups repaired as a file or backup came in: the facts it is made from (the window words it) */
+  notice_repair?: Record<string, unknown>;
 }
 
 export interface Reply {

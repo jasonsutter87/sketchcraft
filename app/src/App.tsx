@@ -1,4 +1,5 @@
 import { LocaleProvider, useLocale } from "./locale";
+import { groupRepairNotice, groupRepairOf } from "./grouprepair";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { UpdateCard, checkForUpdatesNow } from "./updater";
 import { ask, AskHost } from "./ask";
@@ -217,6 +218,9 @@ function ModelingApp() {
   const [showCutPlan, setShowCutPlan] = useState(false);
   const [joint, setJoint] = useState<{ kind: JointKind; boards: [number, number] } | null>(null);
   const { preference, setPreference, t: tr } = useLocale();
+  // the latest wording, for callbacks that must keep their identity
+  const trRef = useRef(tr);
+  trRef.current = tr;
   const [lesson, setLesson] = useState<string | null>(null);
   const [showWs, setShowWs] = useState(false);
   const [placing, setPlacing] = useState<string | null>(null);
@@ -295,6 +299,7 @@ function ModelingApp() {
       else if ((cmd.cmd === "undo" || cmd.cmd === "redo") && typeof r.origin === "string" && r.origin !== "you") say(`${cmd.cmd === "undo" ? "Undid" : "Redid"} a change by ${r.origin}`);
       else if (r.save_error) say(`Couldn't save your model: ${r.save_error}`, true);
       else if (Array.isArray(r.skipped_pictures) && r.skipped_pictures.length) say(skippedText(r.skipped_pictures as string[]), true);
+      else if (groupRepairOf(r)) say(groupRepairNotice(trRef.current, groupRepairOf(r)!, cmd.cmd === "insert_file" ? "part" : cmd.cmd === "restore_backup" ? "backup" : "file"), true);
       await refresh();
       return r;
     },
@@ -424,7 +429,9 @@ function ModelingApp() {
     const n = scene?.notice;
     if (n && n !== lastNotice.current) {
       lastNotice.current = n;
-      say(n, true);
+      // groups repaired as a file came in: the same facts, in the person's language
+      const repair = groupRepairOf(scene?.notice_repair);
+      say(repair ? groupRepairNotice(trRef.current, repair, scene?.notice_repair?.what === "backup" ? "backup" : "file") : n, true);
     }
   }, [scene, say]);
 

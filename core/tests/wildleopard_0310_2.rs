@@ -195,7 +195,8 @@ fn nested_box(e: &mut Engine, depth: usize) -> u32 {
 #[test]
 fn repeated_ids_cost_nothing_extra_for_the_commands_that_walk_a_group() {
     let mut e = Engine::new();
-    let outer = nested_box(&mut e, 1000);
+    // as deep as groups may go (the program keeps nesting to 256 levels)
+    let outer = nested_box(&mut e, 250);
     let many: Vec<u32> = vec![outer; 5000];
     for c in ["fix_model", "check_solid"] {
         let t = Instant::now();

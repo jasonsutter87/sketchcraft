@@ -13,43 +13,15 @@ import { LineStyleControls } from "./linestyle";
 import { HatchControls } from "./hatchstyle";
 import { CutStyleControls } from "./cutstyle";
 import { CutPriority } from "./cutpriorityeditor";
+import { buildTree, flatten, matching, MAX_OUTLINE_DEPTH, type Row, type TreeNode as Node } from "./grouptree";
+
+/** Rows deeper than this are drawn at this indent (a model can be nested far deeper than the panel is wide). */
+const INDENT_LEVELS = 24;
 
 type Run = (cmd: Record<string, unknown>) => Promise<Reply>;
 
-interface Node {
-  id: number;
-  kind: "groups" | "instances";
-  name: string;
-  hidden: boolean;
-  locked: boolean;
-  tag: string | null;
-  faces: number;
-  children: Node[];
-}
-
 const hex = (c: number[]) => "#" + c.map((x) => Math.round(Math.min(1, Math.max(0, x)) * 255).toString(16).padStart(2, "0")).join("");
 const unhex = (h: string) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255);
-
-/** groups and placements as a tree, by their parent links */
-function buildTree(scene: Scene): Node[] {
-  const nodes = new Map<number, Node>();
-  for (const g of scene.groups) nodes.set(g.id, { id: g.id, kind: "groups", name: g.name, hidden: g.hidden, locked: g.locked, tag: g.tag, faces: g.faces, children: [] });
-  for (const i of scene.instances) nodes.set(i.id, { id: i.id, kind: "instances", name: i.name, hidden: i.hidden, locked: false, tag: i.tag, faces: 0, children: [] });
-  const roots: Node[] = [];
-  const parentOf = (n: Node) => (n.kind === "groups" ? scene.groups.find((g) => g.id === n.id)?.parent : scene.instances.find((i) => i.id === n.id)?.parent) ?? null;
-  for (const n of nodes.values()) {
-    const p = parentOf(n);
-    const parent = p != null ? nodes.get(p) : undefined;
-    (parent ? parent.children : roots).push(n);
-  }
-  // groups first, then by name
-  const sort = (list: Node[]) => {
-    list.sort((a, b) => (a.kind === b.kind ? a.name.localeCompare(b.name, undefined, { numeric: true }) : a.kind === "groups" ? -1 : 1));
-    list.forEach((n) => sort(n.children));
-  };
-  sort(roots);
-  return roots;
-}
 
 export function Outliner({ scene, sel, setSel, run, byTag, setByTag }: { scene: Scene; sel: Sel; setSel: (s: Sel) => void; run: Run; byTag: boolean; setByTag: (on: boolean) => void }) {
   const [renaming, setRenaming] = useState<number | null>(null);
@@ -59,17 +31,13 @@ export function Outliner({ scene, sel, setSel, run, byTag, setByTag }: { scene: 
   const [over, setOver] = useState<number | "top" | null>(null);
   const [query, setQuery] = useState("");
   const full = useMemo(() => buildTree(scene), [scene]);
-  // searching: rows whose name or tag matches, with the groups they sit in
-  const tree = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return full;
-    const keep = (n: Node): Node | null => {
-      const kids = n.children.map(keep).filter((c): c is Node => c != null);
-      const hit = n.name.toLowerCase().includes(q) || (n.tag ?? "").toLowerCase().includes(q);
-      return hit || kids.length ? { ...n, children: kids } : null;
-    };
-    return full.map(keep).filter((c): c is Node => c != null);
-  }, [full, query]);
+  // searching: rows whose name or tag matches, with the groups they sit in. The rows are one flat list worked out
+  // without recursion (a model nested hundreds of levels deep must not overflow the stack), indented by their depth.
+  const { rows, cut } = useMemo(() => {
+    const searching = query.trim() !== "";
+    const only = searching ? matching(full, query) : null;
+    return flatten(full, (id) => searching || !closed.has(id), only);
+  }, [full, query, closed]);
   // pointer dragging (HTML5 drag-and-drop is taken over by the desktop
   // webview for file drops, so rows move with plain pointer events)
   const press = useRef<{ x: number; y: number; ids: number[] } | null>(null);
@@ -137,16 +105,16 @@ export function Outliner({ scene, sel, setSel, run, byTag, setByTag }: { scene: 
     g = x.parent;
   }
 
-  const row = (n: Node, depth: number, parentHidden = false): ReactElement => {
+  const row = ({ node: n, depth, parentHidden, hasKids }: Row): ReactElement => {
     // hidden itself, or inside something hidden: the whole chain is off
     const off = n.hidden || parentHidden;
-    const kids = n.children.length > 0;
+    const kids = hasKids;
     const open = query.trim() !== "" || !closed.has(n.id);
     return (
-      <li key={n.id} role="treeitem" aria-expanded={kids ? open : undefined} aria-selected={selected(n)}>
+      <li key={n.id} role="treeitem" aria-level={depth + 1} aria-expanded={kids ? open : undefined} aria-selected={selected(n)}>
         <div
           className={`orow ${selected(n) ? "on" : ""} ${off ? "dim" : ""} ${over === n.id ? "drop" : ""}`}
-          style={{ paddingLeft: 6 + depth * 14 }}
+          style={{ paddingLeft: 6 + Math.min(depth, INDENT_LEVELS) * 14 }}
           data-drop={n.kind === "groups" ? n.id : undefined}
           onPointerDown={(e) => startPress(e, n)}
           onClick={(e) => {
@@ -203,7 +171,6 @@ export function Outliner({ scene, sel, setSel, run, byTag, setByTag }: { scene: 
             {n.hidden ? <Icons.eyeOff /> : <Icons.eye />}
           </button>
         </div>
-        {kids && open && <ul role="group">{n.children.map((c) => row(c, depth + 1, off))}</ul>}
       </li>
     );
   };
@@ -242,8 +209,9 @@ export function Outliner({ scene, sel, setSel, run, byTag, setByTag }: { scene: 
         <input className="otree-search" type="search" placeholder="Search names and tags" value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => e.key === "Escape" && setQuery("")} aria-label="Search the outliner" />
       )}
       <ul className="otree" role="tree" aria-label="Model hierarchy">
-        {query.trim() && !tree.length && <li className="empty">Nothing named "{query.trim()}"</li>}
-        {tree.map((n) => row(n, 0))}
+        {query.trim() && !rows.length && <li className="empty">Nothing named "{query.trim()}"</li>}
+        {rows.map(row)}
+        {cut > 0 && <li className="muted-row">{`${cut} more row${cut === 1 ? "" : "s"} nested more than ${MAX_OUTLINE_DEPTH} levels deep, not shown`}</li>}
         {scene.loose > 0 && (
           <li className="muted-row">
             <div className="orow" style={{ paddingLeft: 6 }}>
@@ -254,9 +222,9 @@ export function Outliner({ scene, sel, setSel, run, byTag, setByTag }: { scene: 
             </div>
           </li>
         )}
-        {!tree.length && !scene.loose && <li className="empty">Nothing yet. Press R and draw on the ground, or drop something from the Library.</li>}
+        {!rows.length && !scene.loose && !query.trim() && <li className="empty">Nothing yet. Press R and draw on the ground, or drop something from the Library.</li>}
       </ul>
-      {tree.length > 0 && !dragging && <p className="hint-line">Right-click › Make group to group a selection; drag rows onto a group to nest them.</p>}
+      {rows.length > 0 && !dragging && <p className="hint-line">Right-click › Make group to group a selection; drag rows onto a group to nest them.</p>}
       {!!scene.clouds?.length && <Clouds scene={scene} run={run} />}
       <Tags scene={scene} sel={sel} run={run} byTag={byTag} setByTag={setByTag} />
     </>
