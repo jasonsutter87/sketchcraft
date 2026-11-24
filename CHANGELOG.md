@@ -182,7 +182,7 @@ What changed in each SketchCraft release, newest first. The format follows
     (it is taken back step by step instead, and a backup is kept first); the clock is checked before every command of a
     call, a call holds at most 1,000 commands and a plugin run at most 10,000 and 30 seconds of work, and a call is saved
     once instead of after every command. Reports, IFC export, Reverse, Paint, Move, Make component and Bevel are fast on
-    models with thousands of groups, Intersect works again on many overlapping solids, pictures drawn for a plugin or an
+    models with thousands of groups, pictures drawn for a plugin or an
     agent are limited, and line breaks no longer get through in names.
 
 ## [0.3.9] - 2026-11-20
