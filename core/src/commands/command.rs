@@ -224,6 +224,41 @@ pub enum Command {
         #[serde(default)] ids: Vec<Id>,
         #[serde(default)] paper: Option<String>,
     },
+    /// Write one DXF per part for a CNC router, numbered as the cut plan numbers them (docs/dev/woodworker.md): `path` a .zip
+    /// (or a .dxf when there is one part), or `dir` (the person only) a folder. `tool_diameter` in meters (default 6 mm),
+    /// `dogbones` adds a relief arc at every inside corner.
+    ExportCnc {
+        #[serde(default)] path: Option<String>,
+        #[serde(default)] dir: Option<String>,
+        #[serde(default)] ids: Vec<Id>,
+        #[serde(default)] tool_diameter: Option<f64>,
+        #[serde(default)] dogbones: bool,
+    },
+    /// Cut a groove in the first board where the second stands on it, as wide as the second is thick. `depth` and `width`
+    /// in meters (default a third of the board, and the other board's thickness), `clearance` extra width. One undo step.
+    Dado {
+        ids: Vec<Id>,
+        #[serde(default)] depth: Option<f64>,
+        #[serde(default)] width: Option<f64>,
+        #[serde(default)] clearance: Option<f64>,
+    },
+    /// Cut a step along the nearest edge of the first board, where the second stands on it. `depth` (default half),
+    /// `width` from the edge (default to the far side of the second board), `clearance`. One undo step.
+    Rabbet {
+        ids: Vec<Id>,
+        #[serde(default)] depth: Option<f64>,
+        #[serde(default)] width: Option<f64>,
+        #[serde(default)] clearance: Option<f64>,
+    },
+    /// Make a tenon on the end of the second board and its mortise in the first, where they touch. `length`, `thickness`,
+    /// `shoulder` (in from each edge of the width) and `clearance` in meters. One undo step.
+    Tenon {
+        ids: Vec<Id>,
+        #[serde(default)] length: Option<f64>,
+        #[serde(default)] thickness: Option<f64>,
+        #[serde(default)] shoulder: Option<f64>,
+        #[serde(default)] clearance: Option<f64>,
+    },
     /// Show the parts laid out flat (`on`: true) or the model as it is (false). Laid out, the view and `render`
     /// draw every part where `parts_layout` puts it, leave out what is not a part, and changes are refused until
     /// it is switched off (New and Open switch it off). Nothing in the model moves; not an undo step, never saved.

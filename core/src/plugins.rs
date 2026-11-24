@@ -530,6 +530,7 @@ pub fn list() -> Value {
 }
 
 /// A part as measured: what `parts` reports, and what laying it flat or drawing its cutting diagram needs.
+#[derive(Clone)]
 pub struct Measured {
     pub id: Id,
     pub name: String,

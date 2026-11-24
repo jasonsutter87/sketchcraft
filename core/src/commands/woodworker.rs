@@ -3,6 +3,14 @@
 
 use super::*;
 
+/// The two boards a joint takes: the one that is cut, then the one that fits into it.
+fn two(ids: &[Id], what: &str) -> Result<[Id; 2]> {
+    match ids {
+        [a, b] => Ok([*a, *b]),
+        _ => bail!("{what} takes two boards: the one to cut, then the one that fits into it"),
+    }
+}
+
 impl Engine {
     pub(super) fn run_woodworker(&mut self, cmd: Command) -> Result<Value> {
         if self.ctx.is_some() {
@@ -40,6 +48,48 @@ impl Engine {
                 }
                 crate::safety::write_atomic(&path, &plan.labels_pdf(paper.as_deref())?)?;
                 json!({"path": path, "labels": plan.parts.len()})
+            }
+            Command::ExportCnc { path, dir, ids, tool_diameter, dogbones } => {
+                let tool = tool_diameter.unwrap_or(0.006);
+                let files = crate::cnc::files(&self.model, &ids, tool, dogbones)?;
+                let info: Vec<Value> = files.iter().map(|f| f.info()).collect();
+                let skipped: usize = files.iter().map(|f| f.skipped_corners).sum();
+                let reliefs: usize = files.iter().map(|f| f.reliefs).sum();
+                let mut reply = json!({"files": info, "count": files.len(), "tool_diameter": tool, "dogbones": dogbones, "reliefs": reliefs, "skipped_corners": skipped, "units": "mm"});
+                match (path, dir) {
+                    (Some(_), Some(_)) => bail!("export_cnc takes a path (.zip) or a dir, not both"),
+                    (None, None) => bail!("export_cnc needs a path (.zip) or a dir"),
+                    (Some(path), None) => {
+                        let ext = std::path::Path::new(&path).extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+                        match (ext.as_str(), files.as_slice()) {
+                            ("zip", _) => crate::safety::write_atomic(&path, &crate::cnc::zip(&files)?)?,
+                            ("dxf", [one]) => crate::safety::write_atomic(&path, &one.bytes)?,
+                            ("dxf", _) => bail!("export_cnc writes one .dxf per part: give a .zip (or a dir) for {} parts", files.len()),
+                            _ => bail!("export_cnc writes a .zip (or a .dxf for one part)"),
+                        }
+                        reply["path"] = json!(path);
+                    }
+                    (None, Some(dir)) => {
+                        std::fs::create_dir_all(&dir)?;
+                        for f in &files {
+                            crate::safety::write_atomic(std::path::Path::new(&dir).join(&f.file), &f.bytes)?;
+                        }
+                        reply["dir"] = json!(dir);
+                    }
+                }
+                reply
+            }
+            Command::Dado { ids, depth, width, clearance } => {
+                let [cut, fit] = two(&ids, "dado")?;
+                crate::joinery::dado(&mut self.model, cut, fit, depth, width, clearance)?
+            }
+            Command::Rabbet { ids, depth, width, clearance } => {
+                let [cut, fit] = two(&ids, "rabbet")?;
+                crate::joinery::rabbet(&mut self.model, cut, fit, depth, width, clearance)?
+            }
+            Command::Tenon { ids, length, thickness, shoulder, clearance } => {
+                let [cut, fit] = two(&ids, "tenon")?;
+                crate::joinery::tenon(&mut self.model, cut, fit, length, thickness, shoulder, clearance)?
             }
             other => unreachable!("command routed to the wrong group: {other:?}"),
         })

@@ -140,6 +140,7 @@ impl Command {
                 | Command::CutPlan { .. }
                 | Command::ExportCutDiagrams { .. }
                 | Command::ExportCutLabels { .. }
+                | Command::ExportCnc { .. }
                 | Command::LayOutParts { .. }
                 | Command::RoomInfo { .. }
                 | Command::Plugins
@@ -1111,7 +1112,7 @@ impl Engine {
                 Command::Section { .. } | Command::SectionPlane { .. } | Command::SectionEdit { .. } |
                 Command::SectionOff { .. }
             ) => self.run_sections(c),
-            c @ (Command::CutStock { .. } | Command::CutPlan { .. } | Command::ExportCutDiagrams { .. } | Command::ExportCutLabels { .. }) => self.run_woodworker(c),
+            c @ (Command::CutStock { .. } | Command::CutPlan { .. } | Command::ExportCutDiagrams { .. } | Command::ExportCutLabels { .. } | Command::ExportCnc { .. } | Command::Dado { .. } | Command::Rabbet { .. } | Command::Tenon { .. }) => self.run_woodworker(c),
             c @ (
                 Command::Guide { .. } | Command::Dimension { .. } | Command::Text { .. } | Command::Units { .. } |
                 Command::ClearGuides { .. } | Command::ShowView { .. } | Command::SaveView { .. } |
