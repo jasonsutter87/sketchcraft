@@ -49,6 +49,8 @@ enum Kind {
     ArcCurve,
     Instance,
     ConstructionPoint,
+    /// a section plane (CSectionPlane): read so the list goes on, not placed
+    SectionPlane,
     /// the dictionaries an entity may carry (named attribute sets)
     AttrContainer,
     AttrNamed,
@@ -75,6 +77,7 @@ fn kind_of(name: &str) -> Option<Kind> {
         // an Image is a placement of a definition that holds the picture's face, laid out like a component
         "CComponentInstance" | "CGroup" | "CImage" => Kind::Instance,
         "CConstructionPoint" => Kind::ConstructionPoint,
+        "CSectionPlane" => Kind::SectionPlane,
         "CAttributeContainer" => Kind::AttrContainer,
         "CAttributeNamed" => Kind::AttrNamed,
         "CFaceTextureCoords" => Kind::AttrTexCoords,
@@ -281,13 +284,18 @@ impl<'a> Reader<'a> {
         Ok(Some(kind))
     }
 
-    /// One value of a named attribute set, its type byte already read: 4 a 32-bit integer, 6 a double,
+    /// One value of a named attribute set, its type byte already read: 0 nil (no value), 4 a 32-bit integer, 6 a double,
     /// 7 a flag byte, 10 a string, 11 an array (a u32 count, then that many values, each with its own type
-    /// byte; a Bezier curve's control points are stored this way) and 17 a point or vector (3 doubles).
+    /// byte; a Bezier curve's control points are stored this way), 12 a length (a double) and 17 a point or vector
+    /// (3 doubles).
     fn attr_value(&mut self, t: u8, depth: usize) -> R<()> {
         match t {
+            // nil: no value (a framing plugin's "layer" in a 2017 file, #187)
+            0 => Ok(()),
             4 => self.skip(4),
             6 => self.skip(8),
+            // a length (a double): a framing plugin's "height" in a 2017 file (#187)
+            12 => self.skip(8),
             7 => self.skip(1),
             10 => self.cstring().map(|_| ()),
             17 => self.skip(24),
@@ -477,6 +485,15 @@ impl<'a> Reader<'a> {
                 self.skip(10 + 48 + 1)?;
                 Obj::Curve
             }
+            Kind::SectionPlane => {
+                // entity header, 10 bytes, the plane (a, b, c, d); checked on a 2017 file (#187)
+                self.head()?;
+                self.skip(10)?;
+                for _ in 0..4 {
+                    self.coord()?;
+                }
+                Obj::Curve
+            }
             Kind::Font => {
                 self.head()?;
                 self.cstring()?;
@@ -536,7 +553,7 @@ impl<'a> Reader<'a> {
         }
         self.skip(24)?;
         self.plain_ref()?;
-        self.skip(10)?;
+        self.end_path()?;
         for _ in 0..6 {
             self.coord()?;
         }
@@ -560,6 +577,32 @@ impl<'a> Reader<'a> {
         Ok(Obj::Text { screen, text })
     }
 
+    /// What follows an annotation end's first slot (the vertex or edge it sits on): a second slot, then two
+    /// instance paths, each a u32 count and the component instances it goes through (objects or references). All
+    /// empty in SketchUp 7 files (10 bytes: a null and two zero counts); a 2017 file fills them in when the end sits
+    /// on something inside a component, and writes a path's instances out in full the first time one comes up
+    /// (#187).
+    fn end_path(&mut self) -> R<()> {
+        match self.obj()? {
+            Slot::New(i) if !matches!(self.objects.get(&i), Some(Obj::Vertex(_) | Obj::Edge { .. })) => return Err(Fail),
+            _ => {}
+        }
+        for _ in 0..2 {
+            let n = self.u32()?;
+            if n > 64 {
+                return Err(Fail);
+            }
+            for _ in 0..n {
+                match self.obj()? {
+                    Slot::Null => return Err(Fail),
+                    Slot::New(i) if !matches!(self.objects.get(&i), Some(Obj::Instance { .. })) => return Err(Fail),
+                    _ => {}
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// A plain reference: a u16, or 0x7FFF and a u32 once there are 32767+ objects.
     fn plain_ref(&mut self) -> R<u32> {
         Ok(match self.u16()? {
@@ -577,9 +620,9 @@ impl<'a> Reader<'a> {
     /// CDimensionLinear (worked out from SketchUp 7 files):
     ///   entity header, 10 bytes, the typed text (a string; empty = show the measured length), the font (an object
     ///   or a reference), a zero byte, u32 3,
-    ///   two ends of 44 bytes each [u32 2, u32 4, a point (3 doubles, zero when attached), a vertex reference (u16, or 0x7FFF and a u32 in big files), 10 bytes],
+    ///   two ends [u32 kind (2; 4 also seen), u32 4, a point (3 doubles, zero when attached), a vertex reference (u16, or 0x7FFF and a u32 in big files), the instance path to it (see `end_path`; 10 bytes when empty)],
     ///   six doubles (the offset direction, then the plane's), u32 2, the offset distance (a double),
-    ///   a few zero bytes, u32 3.
+    ///   a double (zero in SketchUp 7 files, 0 or ±1 in 2017 ones), u32 3 (or 1).
     fn dim_linear(&mut self) -> R<Obj> {
         self.head()?;
         self.skip(10)?;
@@ -593,18 +636,28 @@ impl<'a> Reader<'a> {
             _ => return Err(Fail),
         }
         self.skip(1)?;
-        if self.u32()? != 3 {
+        // 3, or 1 on some dimensions of a 2017 file (#187)
+        if !matches!(self.u32()?, 1 | 3) {
             return Err(Fail);
         }
         let mut ends = [DimEnd::Free(DVec3::ZERO); 2];
         for e in &mut ends {
-            if self.u32()? != 2 {
+            // the end's kind: 2 in SketchUp 7 files, 4 on some ends in a 2017 one (#187), as a label's
+            if self.u32()? > 16 {
                 return Err(Fail);
             }
             self.u32()?;
             let p = DVec3::new(self.coord()?, self.coord()?, self.coord()?);
-            let v = self.plain_ref()?;
-            self.skip(10)?;
+            // what it sits on, a vertex (or an edge, kind 4): a reference, nothing, or (the first time the file
+            // comes to it, #187) the vertex or edge itself. An end on an edge isn't placed (`DimEnd::Vertex` of an
+            // edge doesn't resolve): the dimension counts as skipped.
+            let v = match self.obj()? {
+                Slot::Null => 0,
+                Slot::Ref(i) => i,
+                Slot::New(i) if matches!(self.objects.get(&i), Some(Obj::Vertex(_) | Obj::Edge { .. })) => i,
+                Slot::New(_) => return Err(Fail),
+            };
+            self.end_path()?;
             *e = if v == 0 { DimEnd::Free(p) } else { DimEnd::Vertex(v) };
         }
         let mut f = [0.0; 6];
@@ -613,7 +666,12 @@ impl<'a> Reader<'a> {
         }
         self.u32()?; // 1 or 2
         let dist = self.coord()?;
-        // zero padding, then the closing 3
+        // a double (0, 1 or -1 in a 2017 file), then the closing 1 or 3 (#187); read before as zero padding and a 3
+        let closing = |at: usize| self.d.get(at..at + 4).is_some_and(|b| matches!(u32::from_le_bytes([b[0], b[1], b[2], b[3]]), 1 | 3));
+        if closing(self.p + 8) && self.coord().is_ok() {
+            self.u32()?;
+            return Ok(Obj::Dim { ends, text, dir: DVec3::new(f[0], f[1], f[2]), dist });
+        }
         for _ in 0..16 {
             if self.d.get(self.p) == Some(&3) {
                 break;
@@ -667,6 +725,13 @@ impl<'a> Reader<'a> {
                 Obj::Edge { a, b, .. } => {
                     if !check(*a, |o| matches!(o, Obj::Vertex(_))) || !check(*b, |o| matches!(o, Obj::Vertex(_))) {
                         return None;
+                    }
+                    // a loose line counts as something drawn when both its ends are vertices this list read
+                    // (a group of only lines, #187): otherwise its list is passed over and the scan walks
+                    // through its bytes, where a double's tail can look like another list's header
+                    let vertex = |s: &Slot| s.index().is_some_and(|i| matches!(self.objects.get(&i), Some(Obj::Vertex(_))));
+                    if vertex(a) && vertex(b) {
+                        items += 1;
                     }
                 }
                 Obj::EdgeUse { edge, loop_ref, .. } => {
@@ -1162,6 +1227,11 @@ pub fn parse(d: &[u8]) -> Result<SkpFile> {
     // Pick the starting index from the cleanly-parsing prefix, then parse fully
     // (skipping undecodable items) with that one.
     let try_bases = |known: &HashMap<u32, Kind>, at: usize, n: u32, bases: &mut dyn Iterator<Item = u32>| -> Option<(Reader, Vec<Slot>, usize)> {
+        // every item takes at least two bytes (a short reference): a count the rest of the file can't hold is
+        // a number read from the middle of something else (a double's high bytes, a long reference), #187
+        if n as usize > d.len().saturating_sub(at) / 2 {
+            return None;
+        }
         let mut best: Option<(usize, usize, u32)> = None; // (items parsed, good refs, base)
         for base in bases {
             if gave_up() {
@@ -1266,7 +1336,13 @@ pub fn parse(d: &[u8]) -> Result<SkpFile> {
         // the model's own list: [u32 n][object], counter unknown: search upward
         let n0 = x;
         let t0 = u16::from_le_bytes([d[i + 4], d[i + 5]]);
-        if (1..=2_000_000).contains(&n0) && geometry_tag(&known, t0, i + 4) && i > 0x100 {
+        // the model's own list may start with an annotation (it lists them in the order they were drawn): its
+        // first item then declares the dimension's or text's class (#187)
+        let opens_with_note = || {
+            let nl = d.get(i + 8..i + 10).map_or(0, |b| u16::from_le_bytes([b[0], b[1]]) as usize);
+            t0 == 0xFFFF && d.get(i + 10..i + 10 + nl).is_some_and(|nm| matches!(nm, b"CDimensionLinear" | b"CText"))
+        };
+        if (1..=2_000_000).contains(&n0) && (geometry_tag(&known, t0, i + 4) || opens_with_note()) && i > 0x100 {
             if let Some((r, items, _)) = try_bases(&known, i + 4, n0, &mut (last_counter..last_counter.saturating_add(8192))) {
                 for (k, v) in &r.classes {
                     known.insert(*k, *v);

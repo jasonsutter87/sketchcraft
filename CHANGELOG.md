@@ -68,6 +68,12 @@ What changed in each SketchCraft release, newest first. The format follows
   native speakers are welcome.
 
 ### Fixed
+- **SketchUp 2017 files with dimensions open.** A SketchUp 2017 model whose own list starts with a dimension failed
+  with "this SketchUp file looks damaged": the reader didn't take a list that starts with a dimension or a text for the
+  model's, and lost its way inside it. It also now reads what 2017 files add to a dimension (the components between it
+  and the geometry it measures, an end on an edge), section planes, attribute values that are a length or empty, and
+  groups holding only lines. Dimensions measured to geometry inside a component are still left out, and counted.
+  (Refs #187)
 - **SketchUp 7 files with components open, with all their components.** Files saved by SketchUp 7 and earlier failed
   with "this SketchUp file looks damaged" when they placed components, or opened with most of the placed components
   missing. The reader expected an ID at the end of each placement that only later versions write, and a model list
