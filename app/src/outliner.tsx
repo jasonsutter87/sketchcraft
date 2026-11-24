@@ -5,6 +5,7 @@
 
 import { useMemo, useRef, useState, type ReactElement } from "react";
 import { ask } from "./ask";
+import { useLocale } from "./locale";
 import { type Reply, type Scene } from "./engine";
 import { Icons } from "./icons";
 import { EMPTY, type Sel } from "./selection";
@@ -24,6 +25,7 @@ const hex = (c: number[]) => "#" + c.map((x) => Math.round(Math.min(1, Math.max(
 const unhex = (h: string) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255);
 
 export function Outliner({ scene, sel, setSel, run, byTag, setByTag }: { scene: Scene; sel: Sel; setSel: (s: Sel) => void; run: Run; byTag: boolean; setByTag: (on: boolean) => void }) {
+  const { t } = useLocale();
   const [renaming, setRenaming] = useState<number | null>(null);
   const [name, setName] = useState("");
   const [closed, setClosed] = useState<Set<number>>(new Set());
@@ -33,7 +35,7 @@ export function Outliner({ scene, sel, setSel, run, byTag, setByTag }: { scene: 
   const full = useMemo(() => buildTree(scene), [scene]);
   // searching: rows whose name or tag matches, with the groups they sit in. The rows are one flat list worked out
   // without recursion (a model nested hundreds of levels deep must not overflow the stack), indented by their depth.
-  const { rows, cut } = useMemo(() => {
+  const { rows, cut, more } = useMemo(() => {
     const searching = query.trim() !== "";
     const only = searching ? matching(full, query) : null;
     return flatten(full, (id) => searching || !closed.has(id), only);
@@ -211,7 +213,8 @@ export function Outliner({ scene, sel, setSel, run, byTag, setByTag }: { scene: 
       <ul className="otree" role="tree" aria-label="Model hierarchy">
         {query.trim() && !rows.length && <li className="empty">Nothing named "{query.trim()}"</li>}
         {rows.map(row)}
-        {cut > 0 && <li className="muted-row">{`${cut} more row${cut === 1 ? "" : "s"} nested more than ${MAX_OUTLINE_DEPTH} levels deep, not shown`}</li>}
+        {cut > 0 && <li className="muted-row">{t(cut === 1 ? "outliner.deep.one" : "outliner.deep.many").replace("{n}", String(cut)).replace("{max}", String(MAX_OUTLINE_DEPTH))}</li>}
+        {more > 0 && <li className="muted-row" data-more-rows>{t(more === 1 ? "outliner.more.one" : "outliner.more.many").replace("{n}", String(more))}</li>}
         {scene.loose > 0 && (
           <li className="muted-row">
             <div className="orow" style={{ paddingLeft: 6 }}>

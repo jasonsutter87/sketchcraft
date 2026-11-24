@@ -232,7 +232,11 @@ impl Model {
                 }
                 self.instances.insert(nid, crate::model::Instance { transform: DMat4::from_translation(by) * i.transform, ..i });
                 out.push(nid);
-            } else if self.faces.contains_key(&id) {
+            } else if let Some(f) = self.faces.get(&id) {
+                // a face whose group is also in the list goes with that group, once
+                if inside_named(self, f.group) {
+                    continue;
+                }
                 loose.push(id);
             } else {
                 bail!("{id} can't be copied (pick faces, groups or components)");

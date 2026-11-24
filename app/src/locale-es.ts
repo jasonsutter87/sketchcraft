@@ -669,4 +669,8 @@ export default {
   "repair.deep.many": "{n} grupos{names} que estaban anidados en más de {max} niveles; se subieron al nivel {max}",
   "repair.join": "{a}, y además {b}",
   "repair.notice": "Al cargar ({what}): {parts}. No se perdió nada; el archivo en sí no cambia hasta que guardes el modelo.",
+  "outliner.deep.one": "1 fila más, anidada a más de {max} niveles, no se muestra",
+  "outliner.deep.many": "{n} filas más, anidadas a más de {max} niveles, no se muestran",
+  "outliner.more.one": "1 fila más no se muestra: búscala o cierra un grupo",
+  "outliner.more.many": "{n} filas más no se muestran: búscalas o cierra un grupo",
 };

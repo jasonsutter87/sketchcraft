@@ -669,4 +669,8 @@ export default {
   "repair.deep.many": "{n} Gruppen{names}, die mehr als {max} Ebenen tief verschachtelt waren; sie wurden auf Ebene {max} hochgeholt",
   "repair.join": "{a}, und außerdem {b}",
   "repair.notice": "Beim Laden ({what}): {parts}. Nichts ging verloren; die Datei selbst bleibt unverändert, bis das Modell gespeichert wird.",
+  "outliner.deep.one": "1 weitere Zeile, mehr als {max} Ebenen tief verschachtelt, wird nicht angezeigt",
+  "outliner.deep.many": "{n} weitere Zeilen, mehr als {max} Ebenen tief verschachtelt, werden nicht angezeigt",
+  "outliner.more.one": "1 weitere Zeile wird nicht angezeigt: suche danach oder schließe eine Gruppe",
+  "outliner.more.many": "{n} weitere Zeilen werden nicht angezeigt: suche danach oder schließe eine Gruppe",
 };

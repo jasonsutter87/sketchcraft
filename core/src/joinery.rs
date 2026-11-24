@@ -161,7 +161,7 @@ fn replace(m: &mut Model, target: Id, polys: &[Poly]) -> Result<Id> {
 fn subtract(m: &mut Model, target: Id, cutter: Vec<Poly>) -> Result<(Id, f64)> {
     let before = csg::solid_polys(m, target)?;
     let v0 = csg::volume(&before);
-    let after = csg::boolean(before, cutter, Op::Subtract)?;
+    let after = csg::boolean_for(m, before, cutter, Op::Subtract)?;
     let v1 = csg::volume(&after);
     if !v1.is_finite() || v1 < 0.0 || v1 > v0 + v0.abs() * 1e-9 {
         bail!("the cut could not be made");
@@ -320,7 +320,7 @@ pub fn tenon(m: &mut Model, cut: Id, fit: Id, length: Option<f64>, thickness: Op
     // the two solids
     let (cut_id, removed) = subtract(m, cut, mortise)?;
     let fit_polys = csg::solid_polys(m, fit)?;
-    let grown = csg::boolean(fit_polys, tenon_box, Op::Union)?;
+    let grown = csg::boolean_for(m, fit_polys, tenon_box, Op::Union)?;
     let fit_id = replace(m, fit, &grown)?;
     Ok(reply(m, "tenon", cut_id, fit_id, removed, json!({"length": len, "thickness": tt, "shoulder": sh, "clearance": clear})))
 }

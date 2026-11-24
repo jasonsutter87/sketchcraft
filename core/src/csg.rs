@@ -306,7 +306,7 @@ pub fn boolean_within(a: Vec<Poly>, b: Vec<Poly>, op: Op, stop_at: Option<std::t
 }
 
 /// `boolean` as a call on `m` makes it: with the call's time limit, and the smaller piece budget an agent or a plugin has.
-fn boolean_for(m: &Model, a: Vec<Poly>, b: Vec<Poly>, op: Op) -> Result<Vec<Poly>> {
+pub(crate) fn boolean_for(m: &Model, a: Vec<Poly>, b: Vec<Poly>, op: Op) -> Result<Vec<Poly>> {
     m.check_deadline()?;
     boolean_within(a, b, op, m.deadline, if m.deadline.is_some() { MAX_PIECES_UNTRUSTED } else { MAX_PIECES })
 }

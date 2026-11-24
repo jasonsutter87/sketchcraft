@@ -669,4 +669,8 @@ export default {
   "repair.deep.many": "{n} groupes{names} qui étaient imbriqués sur plus de {max} niveaux ; ils ont été remontés au niveau {max}",
   "repair.join": "{a}, et aussi {b}",
   "repair.notice": "Au chargement ({what}) : {parts}. Rien n’a été perdu ; le fichier lui-même reste inchangé tant que le modèle n’est pas enregistré.",
+  "outliner.deep.one": "1 ligne de plus, imbriquée sur plus de {max} niveaux, n'est pas affichée",
+  "outliner.deep.many": "{n} lignes de plus, imbriquées sur plus de {max} niveaux, ne sont pas affichées",
+  "outliner.more.one": "1 ligne de plus n'est pas affichée : cherchez-la ou fermez un groupe",
+  "outliner.more.many": "{n} lignes de plus ne sont pas affichées : cherchez-les ou fermez un groupe",
 };

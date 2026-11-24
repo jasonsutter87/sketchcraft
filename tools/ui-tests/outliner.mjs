@@ -102,7 +102,8 @@ check(scene.faces.length === 1, 'the square is still there');
 await reload();
 check(await drawn(), 'the window draws the repaired model, and again after a reload (the autosaved copy)');
 // the groups past the limit now sit beside the last level, so every group is still a row
-check((await rows()) === DEEP, `the outliner lists all ${DEEP} groups (${await rows()})`);
+// (up to the row cap of 2,000: the rest are counted in a line, and the big-model case below checks that line)
+check((await rows()) === Math.min(DEEP, 2000), `the outliner lists the groups up to its row cap (${await rows()} of ${DEEP})`);
 const levels = await p.locator('.otree[role="tree"] [role="treeitem"]').evaluateAll((els) => els.map((e) => Number(e.getAttribute('aria-level'))));
 check(Math.max(...levels) <= LIMIT, `no row is deeper than the limit (${Math.max(...levels)})`);
 await p.screenshot({ path: path.join(shots, 'outliner-repaired.png') });
@@ -110,6 +111,36 @@ await p.screenshot({ path: path.join(shots, 'outliner-repaired.png') });
 await p.locator('.otree[role="tree"] [role="treeitem"] .orow').last().click();
 await wait(200);
 check(await drawn(), 'a row can be picked');
+
+// ---- a big model: the outliner draws a capped number of rows, says how many more, and a search reaches the rest
+const BIG = 40000;
+await X({ cmd: 'new' });
+await X({ cmd: 'rect', from: [0, 0, 0], to: [2, 2, 0] });
+await X({ cmd: 'save', path: src });
+const big = JSON.parse(fs.readFileSync(src, 'utf8'));
+let bid = Math.max(big.next_id ?? 0, ...Object.keys(big.faces ?? {}).map(Number), ...Object.keys(big.vertices ?? {}).map(Number), ...Object.keys(big.edges ?? {}).map(Number)) + 1;
+big.groups = {};
+for (let i = 0; i < BIG; i++, bid++) big.groups[bid] = { name: `Big ${String(i + 1).padStart(6, '0')}`, tag: null, hidden: false, parent: null, locked: false };
+big.next_id = bid + 1;
+const bigFile = path.join(path.dirname(doc), 'outliner-big.sketchcraft');
+fs.writeFileSync(bigFile, JSON.stringify(big));
+check((await X({ cmd: 'open', path: bigFile })).ok === true, `a ${BIG}-group file opens`);
+const t0 = Date.now();
+await reload();
+const secs = (Date.now() - t0) / 1000;
+check(await drawn(), 'the window draws a model with a very large number of groups');
+check(secs < 20, `and reloads in a reasonable time (${secs.toFixed(1)} s)`);
+const shown = await rows();
+check(shown > 0 && shown <= 2000, `the outliner draws a capped number of rows (${shown})`);
+const moreText = (await p.locator('.otree[role="tree"] [data-more-rows]').first().textContent()) ?? '';
+check(moreText.includes(String(BIG - shown)) && /more rows/.test(moreText), `a line says how many are not shown ("${moreText}")`);
+await search.fill('Big 039999');
+await wait(500);
+check((await rows()) === 1, `a search reaches a row past the cap (${await rows()})`);
+await search.fill('');
+await wait(300);
+await p.screenshot({ path: path.join(shots, 'outliner-big.png') });
+fs.rmSync(bigFile, { force: true });
 
 check(!problems.length, `no page errors${problems.length ? ': ' + problems.slice(0, 3).join(' | ') : ''}`);
 fs.rmSync(src, { force: true });

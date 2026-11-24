@@ -669,4 +669,8 @@ export default {
   "repair.deep.many": "{n} grupos{names} que estavam aninhados em mais de {max} níveis; foram levados para o nível {max}",
   "repair.join": "{a}, e também {b}",
   "repair.notice": "Ao carregar ({what}): {parts}. Nada se perdeu; o arquivo em si não muda até você salvar o modelo.",
+  "outliner.deep.one": "Mais 1 linha, aninhada em mais de {max} níveis, não é mostrada",
+  "outliner.deep.many": "Mais {n} linhas, aninhadas em mais de {max} níveis, não são mostradas",
+  "outliner.more.one": "Mais 1 linha não é mostrada: pesquise por ela ou feche um grupo",
+  "outliner.more.many": "Mais {n} linhas não são mostradas: pesquise por elas ou feche um grupo",
 };

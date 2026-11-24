@@ -669,4 +669,8 @@ export default {
   "repair.deep.many": "{n} gruppi{names} che erano annidati per più di {max} livelli; sono stati portati al livello {max}",
   "repair.join": "{a}, e inoltre {b}",
   "repair.notice": "Al caricamento ({what}): {parts}. Non è andato perso nulla; il file stesso resta invariato finché non salvi il modello.",
+  "outliner.deep.one": "1 riga in più, annidata a più di {max} livelli, non viene mostrata",
+  "outliner.deep.many": "{n} righe in più, annidate a più di {max} livelli, non vengono mostrate",
+  "outliner.more.one": "1 riga in più non viene mostrata: cercala o chiudi un gruppo",
+  "outliner.more.many": "{n} righe in più non vengono mostrate: cercale o chiudi un gruppo",
 };

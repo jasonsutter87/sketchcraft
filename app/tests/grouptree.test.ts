@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildTree, descendants, flatten, matching, MAX_OUTLINE_DEPTH, type TreeScene } from "../src/grouptree";
+import { buildTree, descendants, flatten, matching, MAX_OUTLINE_DEPTH, MAX_OUTLINE_ROWS, type TreeScene } from "../src/grouptree";
 import { groupRepairNotice, groupRepairOf, MAX_GROUP_DEPTH } from "../src/grouprepair";
 import { LANGUAGE_IDS, LANGUAGE_TABLE } from "../src/languages";
 import { translate } from "../src/locale";
@@ -107,5 +107,40 @@ describe("the notice for repaired groups", () => {
     }
     // and the English wording is not what the others show
     expect(groupRepairNotice((id) => translate("de", id), info)).not.toBe(groupRepairNotice(en, info));
+  });
+});
+
+describe("the outliner's row cap", () => {
+  const flat = (n: number): TreeScene => ({ groups: Array.from({ length: n }, (_, i) => group(i + 1, null)), instances: [] });
+
+  it("draws at most the cap and counts the rest", () => {
+    const { rows, more } = flatten(buildTree(flat(100_000)), open);
+    expect(rows).toHaveLength(MAX_OUTLINE_ROWS);
+    expect(more).toBe(100_000 - MAX_OUTLINE_ROWS);
+  });
+
+  it("counts the rows under open groups past the cap, not under closed ones", () => {
+    const scene: TreeScene = { groups: [...flat(10).groups, group(11, 10), group(12, 10), group(13, 9)], instances: [] };
+    const all = flatten(buildTree(scene), open, null, 3);
+    expect(all.rows).toHaveLength(3);
+    expect(all.more).toBe(13 - 3);
+    const closed = flatten(buildTree(scene), (id) => id !== 10, null, 3);
+    expect(closed.more).toBe(13 - 3 - 2);
+  });
+
+  it("leaves a realistic model alone", () => {
+    const { rows, more } = flatten(buildTree(flat(500)), open);
+    expect(rows).toHaveLength(500);
+    expect(more).toBe(0);
+  });
+
+  it("has the 'more rows' lines in every language", () => {
+    for (const lang of LANGUAGE_IDS) {
+      for (const id of ["outliner.more.one", "outliner.more.many", "outliner.deep.one", "outliner.deep.many"]) {
+        expect(translate(lang, id).length, `${lang} ${id}`).toBeGreaterThan(3);
+      }
+      expect(translate(lang, "outliner.more.many")).toContain("{n}");
+    }
+    expect(translate("de", "outliner.more.many")).not.toBe(translate("en", "outliner.more.many"));
   });
 });

@@ -668,4 +668,8 @@ export default {
   "repair.deep.many": "{n} groups{names} that were nested more than {max} levels deep; they were moved up to level {max}",
   "repair.join": "{a}, and {b}",
   "repair.notice": "This {what} had {parts}. Nothing was lost; the file itself is unchanged until the model is saved.",
+  "outliner.deep.one": "1 more row nested more than {max} levels deep, not shown",
+  "outliner.deep.many": "{n} more rows nested more than {max} levels deep, not shown",
+  "outliner.more.one": "1 more row not shown: search for it, or close a group",
+  "outliner.more.many": "{n} more rows not shown: search for them, or close a group",
 };

@@ -118,12 +118,12 @@ impl Engine {
                 json!({})
             }
             Command::Bevel { edges, size, segments } => {
-                let groups = m.bevel(&edges, size, segments)?;
+                let groups = m.with_deadline(untrusted.then_some(crate::csg::SOLID_SECONDS), |m| m.bevel(&edges, size, segments))?;
                 json!({"groups": groups, "group": groups.first()})
             }
             Command::Divide { edge, count } => json!({"points": m.divide(edge, count)?}),
             Command::Slice { id, origin, normal } => {
-                let groups = m.slice(id, v3(origin), v3(normal))?;
+                let groups = m.with_deadline(untrusted.then_some(crate::csg::SOLID_SECONDS), |m| m.slice(id, v3(origin), v3(normal)))?;
                 json!({"groups": groups, "group": groups.first()})
             }
             Command::Intersect { ids, with } => json!({"lines": m.intersect(&ids, with != "selection")?}),

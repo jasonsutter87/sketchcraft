@@ -10,7 +10,54 @@ use crate::geom;
 use crate::model::{Id, Model};
 use anyhow::{bail, Result};
 use glam::DVec3;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
+
+/// Sort cutters into batches in which no two are near each other (their boxes, grown a little, don't touch), and
+/// join each batch into one polygon soup. Cutting a batch at once gives the same solid as cutting its members one
+/// at a time, since they don't meet.
+fn apart_batches(m: &Model, cutters: Vec<Vec<Poly>>) -> Result<Vec<Vec<Poly>>> {
+    const GROW: f64 = 1e-3;
+    let boxes: Vec<(DVec3, DVec3)> = cutters
+        .iter()
+        .map(|c| {
+            let mut lo = DVec3::splat(f64::INFINITY);
+            let mut hi = DVec3::splat(f64::NEG_INFINITY);
+            for q in c.iter().flat_map(|p| p.pts.iter()) {
+                lo = lo.min(*q);
+                hi = hi.max(*q);
+            }
+            (lo - DVec3::splat(GROW), hi + DVec3::splat(GROW))
+        })
+        .collect();
+    let mut batches: Vec<(Vec<usize>, Vec<Poly>)> = Vec::new();
+    let mut work = 0usize;
+    for (i, c) in cutters.into_iter().enumerate() {
+        let (lo, hi) = boxes[i];
+        let mut put = None;
+        for (k, (members, _)) in batches.iter().enumerate() {
+            work += members.len();
+            if work >= 4096 {
+                work = 0;
+                m.check_deadline()?;
+            }
+            if members.iter().all(|&j| {
+                let (l2, h2) = boxes[j];
+                lo.x > h2.x || hi.x < l2.x || lo.y > h2.y || hi.y < l2.y || lo.z > h2.z || hi.z < l2.z
+            }) {
+                put = Some(k);
+                break;
+            }
+        }
+        match put {
+            Some(k) => {
+                batches[k].0.push(i);
+                batches[k].1.extend(c);
+            }
+            None => batches.push((vec![i], c)),
+        }
+    }
+    Ok(batches.into_iter().map(|(_, polys)| polys).collect())
+}
 
 impl Model {
     /// Chamfer (`segments` 1) or round (`segments` > 1) the picked edges by
@@ -22,7 +69,12 @@ impl Model {
         let segments = segments.clamp(1, 64);
         // cutters per group
         let mut by_group: BTreeMap<Id, Vec<Vec<Poly>>> = BTreeMap::new();
-        for &eid in edges {
+        let mut world = None;
+        let mut by_edge: Option<HashMap<(Id, Id), Vec<Id>>> = None;
+        for (i, &eid) in edges.iter().enumerate() {
+            if i % 64 == 0 {
+                self.check_deadline()?;
+            }
             let Some(e) = self.edges.get(&eid).cloned() else { bail!("{eid} is not an edge") };
             let Some(g) = e.group.filter(|g| self.groups.contains_key(g)) else {
                 bail!("bevel works on solids: make the shape a group first (select it, right-click, Make group)")
@@ -33,7 +85,19 @@ impl Model {
                 continue;
             }
             let dir = along.normalize();
-            let faces = self.faces_using_edge(e.a, e.b);
+            let index = by_edge.get_or_insert_with(|| {
+                let mut ix: HashMap<(Id, Id), Vec<Id>> = HashMap::new();
+                for (&fid, f) in &self.faces {
+                    for l in f.loops() {
+                        for (x, y) in crate::model::pairs(l) {
+                            ix.entry((x.min(y), x.max(y))).or_default().push(fid);
+                        }
+                    }
+                }
+                ix
+            });
+            let mut faces = index.get(&(e.a.min(e.b), e.a.max(e.b))).cloned().unwrap_or_default();
+            faces.dedup();
             if faces.len() != 2 {
                 bail!("an edge to bevel must be shared by two faces");
             }
@@ -81,16 +145,17 @@ impl Model {
             };
             let ext = 1e-4;
             let start: Vec<DVec3> = profile.iter().map(|q| *q - dir * ext).collect();
-            let wf = self.world_faces().into_iter().find(|w| w.face == Some(faces[0]));
-            let mat = wf.and_then(|w| csg::material_key(self, &w));
+            let wfs = world.get_or_insert_with(|| self.world_faces());
+            let mat = wfs.iter().find(|w| w.face == Some(faces[0])).and_then(|w| csg::material_key(self, w));
             by_group.entry(g).or_default().push(csg::prism(&start, along + dir * 2.0 * ext, mat));
         }
         let mut out = Vec::new();
         for (g, cutters) in by_group {
-            // one wedge at a time (they overlap where edges meet at a corner)
+            // Wedges that overlap (where edges meet at a corner) go one batch at a time; wedges far apart are
+            // cut together, so a shape with hundreds of edges needs a handful of booleans, not one per edge.
             let mut result = csg::solid_polys(self, g)?;
-            for wedge in cutters {
-                result = csg::boolean(result, wedge, Op::Subtract)?;
+            for batch in apart_batches(self, cutters)? {
+                result = csg::boolean_for(self, result, batch, Op::Subtract)?;
             }
             let name = csg::name_of(self, g);
             let parent = self.groups.get(&g).and_then(|x| x.parent);
@@ -140,8 +205,8 @@ impl Model {
         let (u, v) = geom::basis(n);
         let square = vec![origin - u * r - v * r, origin + u * r - v * r, origin + u * r + v * r, origin - u * r + v * r];
         let half = csg::prism(&square, n * r, None);
-        let front = csg::boolean(target.clone(), half.clone(), Op::Intersect)?;
-        let back = csg::boolean(target, half, Op::Subtract)?;
+        let front = csg::boolean_for(self, target.clone(), half.clone(), Op::Intersect)?;
+        let back = csg::boolean_for(self, target, half, Op::Subtract)?;
         if front.is_empty() || back.is_empty() {
             bail!("the plane doesn't go through it");
         }

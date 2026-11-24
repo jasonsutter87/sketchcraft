@@ -5,6 +5,7 @@
 //! all drive exactly the same thing.
 
 pub mod anchors;
+pub mod text;
 pub mod animate;
 pub mod backups;
 pub mod assets;

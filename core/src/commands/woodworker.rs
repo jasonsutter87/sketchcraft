@@ -81,15 +81,15 @@ impl Engine {
             }
             Command::Dado { ids, depth, width, clearance } => {
                 let [cut, fit] = two(&ids, "dado")?;
-                crate::joinery::dado(&mut self.model, cut, fit, depth, width, clearance)?
+                self.model.with_deadline(self.untrusted.then_some(crate::csg::SOLID_SECONDS), |m| crate::joinery::dado(m, cut, fit, depth, width, clearance))?
             }
             Command::Rabbet { ids, depth, width, clearance } => {
                 let [cut, fit] = two(&ids, "rabbet")?;
-                crate::joinery::rabbet(&mut self.model, cut, fit, depth, width, clearance)?
+                self.model.with_deadline(self.untrusted.then_some(crate::csg::SOLID_SECONDS), |m| crate::joinery::rabbet(m, cut, fit, depth, width, clearance))?
             }
             Command::Tenon { ids, length, thickness, shoulder, clearance } => {
                 let [cut, fit] = two(&ids, "tenon")?;
-                crate::joinery::tenon(&mut self.model, cut, fit, length, thickness, shoulder, clearance)?
+                self.model.with_deadline(self.untrusted.then_some(crate::csg::SOLID_SECONDS), |m| crate::joinery::tenon(m, cut, fit, length, thickness, shoulder, clearance))?
             }
             other => unreachable!("command routed to the wrong group: {other:?}"),
         })

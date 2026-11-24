@@ -669,4 +669,8 @@ export default {
   "repair.deep.many": "有 {n} 个群组{names}嵌套超过 {max} 层；已把它们提升到第 {max} 层",
   "repair.join": "{a}；另外{b}",
   "repair.notice": "这个{what}中{parts}。没有丢失任何内容；在保存模型之前，文件本身保持不变。",
+  "outliner.deep.one": "还有 1 行嵌套超过 {max} 层，未显示",
+  "outliner.deep.many": "还有 {n} 行嵌套超过 {max} 层，未显示",
+  "outliner.more.one": "还有 1 行未显示：请搜索它，或收起一个组",
+  "outliner.more.many": "还有 {n} 行未显示：请搜索它们，或收起一个组",
 };

@@ -174,23 +174,41 @@ pub fn build(root: &Model, ctx: Option<u32>) -> Value {
             json!({"seam": e.seam, "draft": e.draft, "id": id, "a": t.transform_point3(m.p(e.a)).to_array(), "b": t.transform_point3(m.p(e.b)).to_array(), "va": e.a, "vb": e.b, "soft": e.soft, "group": e.group, "curve": e.curve})
         })
         .collect();
+    // faces per group in one pass (a count per group would scan every face for every group)
+    let mut face_counts: std::collections::HashMap<u32, usize> = std::collections::HashMap::new();
+    for f in root.faces.values() {
+        if let Some(g) = f.group {
+            *face_counts.entry(g).or_default() += 1;
+        }
+    }
     let groups: Vec<Value> = root
         .groups
         .iter()
-        .map(|(id, g)| json!({"id": id, "name": g.name, "tag": g.tag, "hidden": g.hidden, "parent": g.parent, "locked": g.locked, "faces": root.faces.values().filter(|f| f.group == Some(*id)).count()}))
+        .map(|(id, g)| json!({"id": id, "name": g.name, "tag": g.tag, "hidden": g.hidden, "parent": g.parent, "locked": g.locked, "faces": face_counts.get(id).copied().unwrap_or(0)}))
         .collect();
     let instances: Vec<Value> = root
         .instances
         .iter()
         .map(|(id, i)| json!({"id": id, "name": i.name, "component": i.def, "tag": i.tag, "hidden": i.hidden, "parent": i.parent, "transform": i.transform.to_cols_array(), "attrs": i.attrs, "faceMe": root.definitions.get(&i.def).is_some_and(|d| d.face_me)}))
         .collect();
+    // placements per component, in the model and inside other components, counted in one pass each
+    let mut placed_top: std::collections::HashMap<u32, usize> = std::collections::HashMap::new();
+    for i in root.instances.values() {
+        *placed_top.entry(i.def).or_default() += 1;
+    }
+    let mut placed_inside: std::collections::HashMap<u32, usize> = std::collections::HashMap::new();
+    for o in root.definitions.values() {
+        for i in o.model.instances.values() {
+            *placed_inside.entry(i.def).or_default() += 1;
+        }
+    }
     let components: Vec<Value> = root
         .definitions
         .iter()
         .map(|(id, d)| {
             // placed in the model, and placed inside other components (parts)
-            let top = root.instances.values().filter(|i| i.def == *id).count();
-            let inside: usize = root.definitions.values().map(|o| o.model.instances.values().filter(|i| i.def == *id).count()).sum();
+            let top = placed_top.get(id).copied().unwrap_or(0);
+            let inside = placed_inside.get(id).copied().unwrap_or(0);
             json!({"id": id, "name": d.name, "placed": top, "inside": inside, "source": d.source, "cuts": d.cuts})
         })
         .collect();

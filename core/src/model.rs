@@ -2191,7 +2191,12 @@ impl GroupRepair {
 
 /// A group's name as a notice shows it: one line, at most 40 characters.
 fn tidy_group_name(n: &str) -> String {
-    let one: String = n.chars().map(|c| if c.is_control() { ' ' } else { c }).take(40).collect();
+    let one: String = n
+        .chars()
+        .map(|c| if c.is_control() || crate::text::is_odd_space(c) || matches!(c, '\u{2028}' | '\u{2029}') { ' ' } else { c })
+        .filter(|c| !crate::text::is_format_char(*c) && !crate::text::is_invisible_filler(*c))
+        .take(40)
+        .collect();
     let one = one.trim();
     if one.is_empty() { "unnamed".to_string() } else { one.to_string() }
 }

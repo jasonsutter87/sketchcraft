@@ -84,14 +84,26 @@ export function matching(roots: TreeNode[], query: string): Set<number> {
   return keep;
 }
 
+/** The most rows the outliner draws at once: a model with a hundred thousand groups must not make a hundred thousand
+ *  list items (the page stops answering); the rest are counted in a "more rows" line, and a search or a closed group
+ *  brings them within reach. */
+export const MAX_OUTLINE_ROWS = 2000;
+
 /** The rows to draw, top to bottom: every row reached through open rows (all of them, when searching), at most
- *  MAX_OUTLINE_DEPTH levels down. `only`: just these ids (a search's matches). `cut` counts the rows left below the cap. */
-export function flatten(roots: TreeNode[], isOpen: (id: number) => boolean, only?: Set<number> | null): { rows: Row[]; cut: number } {
+ *  MAX_OUTLINE_DEPTH levels down and `limit` rows in all. `only`: just these ids (a search's matches). `cut` counts the
+ *  rows left below the depth cap, `more` the rows left over once `limit` rows are drawn. */
+export function flatten(roots: TreeNode[], isOpen: (id: number) => boolean, only?: Set<number> | null, limit = MAX_OUTLINE_ROWS): { rows: Row[]; cut: number; more: number } {
   const rows: Row[] = [];
   let cut = 0;
+  let more = 0;
   const stack: { node: TreeNode; depth: number; parentHidden: boolean }[] = [];
   for (let k = roots.length - 1; k >= 0; k--) if (!only || only.has(roots[k].id)) stack.push({ node: roots[k], depth: 0, parentHidden: false });
   while (stack.length) {
+    if (rows.length >= limit) {
+      // what is still waiting: the rows on the stack and, for the open ones, everything under them
+      for (const waiting of stack) more += countOpen(waiting.node, waiting.depth, isOpen, only);
+      break;
+    }
     const { node, depth, parentHidden } = stack.pop()!;
     const kids = only ? node.children.filter((c) => only.has(c.id)) : node.children;
     rows.push({ node, depth, parentHidden, hasKids: kids.length > 0 });
@@ -103,7 +115,20 @@ export function flatten(roots: TreeNode[], isOpen: (id: number) => boolean, only
     const off = parentHidden || node.hidden;
     for (let k = kids.length - 1; k >= 0; k--) stack.push({ node: kids[k], depth: depth + 1, parentHidden: off });
   }
-  return { rows, cut };
+  return { rows, cut, more };
+}
+
+/** The rows `node` stands for, once the cap on rows is passed: itself, and what is under it while it is open (to the depth cap). */
+function countOpen(node: TreeNode, depth: number, isOpen: (id: number) => boolean, only?: Set<number> | null): number {
+  let n = 0;
+  const stack = [{ node, depth }];
+  while (stack.length) {
+    const x = stack.pop()!;
+    n++;
+    if (x.depth + 1 >= MAX_OUTLINE_DEPTH || !isOpen(x.node.id)) continue;
+    for (const c of x.node.children) if (!only || only.has(c.id)) stack.push({ node: c, depth: x.depth + 1 });
+  }
+  return n;
 }
 
 /** How many rows there are in these nodes and everything under them (no recursion). */

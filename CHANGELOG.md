@@ -167,6 +167,11 @@ What changed in each SketchCraft release, newest first. The format follows
     and stop cleanly when a plugin or agent takes too long. Selecting a group and a group inside it, then Duplicate,
     copies the outer group once with everything in it. One big solid operation from a plugin or agent is now stopped and
     put back instead of holding gigabytes of memory.
+  - Bevel and Round are much faster on shapes with many edges (a 100-sided prism, all edges, takes a fraction of a
+    second), and Bevel, Slice and the joinery cuts from a plugin or agent are stopped and put back when they take too
+    long or grow too big. A very large model (tens of thousands of groups) reaches the window quickly, and the Outliner
+    shows a limited number of rows with a translated "more rows" line (search to reach the rest). Copying a face together
+    with its group copies it once, and hidden characters in group names no longer reach notices or replies.
 
 ## [0.3.9] - 2026-11-20
 
