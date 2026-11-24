@@ -44,6 +44,7 @@ const SUITES = [
   ['uv-editor', 'tools/ui-tests/uv-editor.mjs', 420],
   ['shortcuts', 'tools/ui-tests/shortcuts.mjs', 300],
   ['menu-bar', 'tools/ui-tests/menu-bar.mjs', 420],
+  ['small-tools', 'tools/ui-tests/small-tools.mjs', 420],
   ['tools', 'tools/ui-tests/tools.mjs', 900],
   ['plugin-sandbox', 'tools/security-tests/plugin-sandbox.mjs', 240],
   ['ruby', 'tools/ruby-tests/run.mjs', 300],

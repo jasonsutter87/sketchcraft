@@ -12,6 +12,22 @@
 | 2-Point Arc | A | the two ends, then the bulge |
 | Arc (center) / 3-Point Arc / Pie | | from the tool bar or Shift+S |
 | Freehand | | drag to draw; close it for a face |
+| Curve | U | click points; a smooth curve goes through all of them (below) |
+
+### Curves through points
+
+The **Curve** tool (**U**, also on the Draw menu) draws a smooth spline through the points you click. Click the first
+point, keep clicking, then **double-click** or press **Enter** to finish. Click back on the first point to close the
+curve; if the points are flat, a closed curve makes a face. You see the curve as you go, and what you see is what
+you get. Esc drops it.
+
+Type a number and Enter to set how many pieces each stretch between two points is cut into (the default is 12; `24` is
+smoother, `4` is rougher). The setting stays for the next curve. The result is a chain of edges that is picked,
+offset and followed as one curve, like an arc. One Undo takes it back.
+
+Agents can draw the same thing with `spline {points, closed?, segments?}`, or draw cubic Bezier curves with
+`bezier {points, closed?, segments?}`, where the points are anchor, handle, handle, anchor (then handle, handle,
+anchor for each next piece).
 
 Lines that cross a face split it; lines that meet make faces on their own.
 That's how you cut a door outline into a wall: draw it on the wall, then

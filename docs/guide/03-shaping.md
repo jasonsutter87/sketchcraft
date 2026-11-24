@@ -42,6 +42,26 @@ that is too big, an edge shared by three shapes, a flat sheet that is meant to b
 Faces with different paint or pictures stay separate, and locked groups are left alone. Agents can run `fix_model`
 with `dry_run: true` to look first, and `check_solid` to list the problems with their places.
 
+## Make faces and Flatten to height (imported CAD linework)
+
+DWG and DXF drawings often arrive as lines with no faces: loops that do not quite close, or lines drawn at slightly
+different heights. Two commands on the **Tools** menu sort that out, and each is one Undo.
+
+**Flatten to height…** moves what you picked (lines, faces or groups) to one height. It asks for the height in the
+model's units, and 0 is the ground. Points that land on each other are joined, lines that collapse to nothing and
+repeated lines are removed, a wall seen from above (a face that collapses to a line) is removed, and faces that end up
+level face up. The toast says how many of each.
+
+**Make faces** closes every closed loop of loose lines with a face. It works on the lines or groups you picked, or on
+every loose line if nothing is picked. Lines that cross, or end on the middle of another line, are cut there first so
+they can form loops. A loop inside another loop becomes a hole in it, and the shape inside the hole gets a face of its
+own (as when you import a DXF); delete it if you want the hole open. Loops that are not flat are skipped and counted,
+and the toast says to flatten first. Lines that are not part of any closed loop are left alone. Loops are found
+within one group (a DXF layer), so a hole drawn on a different layer from its plate is not cut out of it.
+
+Typical use: import the drawing, select it, **Flatten to height…** `0`, then **Make faces**. Agents have both as
+`flatten {ids?, z}` and `make_faces {ids?, open_holes?}`.
+
 ## Print check (ready for a slicer)
 
 **Tools › Print check…** looks at the selection (or the whole model) and says, in millimetres: whether it is a closed

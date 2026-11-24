@@ -11,6 +11,13 @@ What changed in each SketchCraft release, newest first. The format follows
   to open, walk through and take apart. It takes the place of the model you have open (after asking; that one is kept
   in File › Restore from backup…), opens as Untitled, and File › Save As… keeps a copy. `open` takes a model's
   contents (`data`) as well as a path; it is checked exactly like a file.
+- **Curve, Make faces and Flatten to height.** The new **Curve** tool (key **U**, on the Draw menu) draws a smooth curve
+  through the points you click: double-click or press Enter to finish, click the first point to close it, and type a
+  number to say how many pieces each stretch is cut into. For imported DWG and DXF linework, **Tools › Flatten to
+  height…** moves what you picked to one height and joins the points that land together, and **Tools › Make faces**
+  closes every closed loop of loose lines with a face, with loops inside loops becoming holes (loops that are not flat
+  are skipped and counted). Each is one Undo. Agents get `spline`, `bezier` (cubic curves from handles),
+  `make_faces` and `flatten`. (Makers, #25)
 - **Print check and 3MF export.** **Tools › Print check…** tells you if a model is ready for a slicer: is it a closed
   solid, are any walls thinner than your limit, which faces overhang and need supports, how big it is in millimetres
   (with a nudge when it looks like the wrong units), and whether it fits your printer. If it is not solid, **Fix model**

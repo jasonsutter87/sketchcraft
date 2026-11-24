@@ -15,6 +15,7 @@ full list, and **Shift+S** to find any command by name.
 | F | Offset | E | Erase (Shift hides) |
 | J | Follow Me | O | Orbit |
 | X | Section cut | H | Pan |
+| U | Curve (smooth spline) | | |
 | Z | Zoom | ⇧Z | Zoom to fit |
 
 | Also | |

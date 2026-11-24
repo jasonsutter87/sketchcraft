@@ -479,6 +479,18 @@ await scenario('pie', ['pie'], async () => {
   check(s.faces.length === 1 && near(area(f), Math.PI * 16 / 4, 0.8), `a pie: a quarter circle face of about ${(Math.PI * 4).toFixed(1)} m² (${f ? area(f).toFixed(1) : 'none'})`);
 });
 
+await scenario('spline', ['spline'], async () => {
+  // the whole story (typed piece counts, closing, Esc, Undo, the engine's own curve) is tools/ui-tests/small-tools.mjs
+  await fresh();
+  await tool('spline');
+  check((await activeTool()) === INFO.spline.name, 'the Curve button turns the tool on');
+  for (const q of [[-6, -2, 0], [-2, 3, 0], [2, -3, 0], [6, 2, 0]]) await click(q);
+  await key('Enter');
+  const s = await until((s) => edgeSegs(s).length >= 1);
+  check(edgeSegs(s).length === 36, `four clicks and Enter draw a smooth curve of 3 spans x 12 pieces (${edgeSegs(s).length} edges)`);
+  check(s.faces.length === 0, 'an open curve makes no face');
+});
+
 await scenario('freehand', ['freehand'], async () => {
   await fresh();
   await tool('freehand');
