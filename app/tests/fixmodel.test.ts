@@ -39,6 +39,13 @@ describe("Fix model", () => {
     expect(stuck.text).toContain("edges shared by 3+ faces: 2");
   });
 
+  it("counts every loose line removed, not only the ones the reply lists", () => {
+    const r = { changes: 1500, stray_edges: spots(1000), more_stray_edges: 500, remaining: { solid: true, faces: 6 } };
+    expect(fixSummary(r, en).text).toBe("Fixed the model: loose lines removed: 1500. Undo takes it all back.");
+    // nothing listed and only a count still counts as a change
+    expect(fixSummary({ more_stray_edges: 7, remaining: { solid: true, faces: 6 } }, en).text).toContain("loose lines removed: 7");
+  });
+
   it("a dry run says what it would do", () => {
     const s = fixSummary({ dry_run: true, merged_faces: spots(2), remaining: { solid: true, faces: 8 } }, en);
     expect(s.text).toBe("Would fix: flat faces joined: 2.");

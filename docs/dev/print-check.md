@@ -30,8 +30,10 @@ id in the root model). Z is up.
   the material) is the far side, and the distance is the wall thickness there. A face is flagged by its thinnest
   sample. Limits: thickness is measured along the normal, so a slanted wall reads thicker than its true cross-section;
   one sample per triangle, so a thin spot away from every triangle's middle is missed; faces of the same face as the
-  origin are skipped. Cost is rays x triangles; past 40 million the rays are strided over the triangles (`sampled`
-  and a note say so). Brute force, no spatial index.
+  origin are skipped. Every ray is cast against a bounding-volume tree (median split, 4 triangles a leaf), skipping
+  boxes farther than the minimum wall, so a ray costs about log n: a 200,000-triangle model is measured in full in
+  well under a second in release/test builds. Past `MAX_FULL_TRIANGLES` (600,000) the rays are strided over the
+  triangles; `sampled` and a note say so, and the model is not marked ready.
 - **Overhangs**: a face needs support when it faces down and leans out more than `overhang_angle` from vertical:
   `-normal.z > sin(angle)`. Faces whose every corner is within 0.01 mm of the lowest point (on the bed) are left out.
   It does not look at bridges, islands or what is beneath, so a downward face that rests on another part is still

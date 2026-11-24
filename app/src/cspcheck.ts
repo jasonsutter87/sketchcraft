@@ -12,6 +12,9 @@
 // Some webviews (WebKitGTK, for one) enforce the policy in workers but never fire
 // `securitypolicyviolation` there; judging by reports alone turned plugins off on
 // them for no reason. A report still counts as blocked where one arrives.
+//
+// A throw only counts as the policy when it LOOKS like the policy (isPolicyBlock below): a probe that fails
+// for another reason (a missing feature, a typo, "not supported in this context") is not proof of anything.
 
 const PROBE = `
 const hits = { fetch: false, import: false, eval: false };
@@ -20,19 +23,37 @@ self.addEventListener("securitypolicyviolation", (e) => {
   const d = String(e.effectiveDirective || e.violatedDirective || "");
   if (d.startsWith("connect-src") || d.startsWith("script-src")) hits[key] = true;
 });
-// run f; if it throws, the policy blocked it (none of these can fail any other way)
+// run f; if it throws, keep what was thrown (the window decides whether that is the policy)
+const errors = {};
 const probe = async (name, f) => {
   key = name;
-  try { await f(); } catch (e) { hits[name] = true; }
+  try { await f(); } catch (e) { errors[name] = { name: String(e && e.name), message: String(e && e.message) }; }
   await new Promise((r) => setTimeout(r, 30)); // let a late violation report arrive
 };
 (async () => {
   await probe("fetch", () => fetch("data:text/plain,csp-probe").then((r) => r.text()));
   await probe("import", () => import("data:text/javascript,export default 1"));
   await probe("eval", () => eval("1"));
-  postMessage({ hits });
+  postMessage({ hits, errors });
 })();
 `;
+
+/**
+ * Is this thrown error the policy saying no? `eval` is refused with an EvalError (or a message that names the policy);
+ * a blocked `fetch` / `import()` is a TypeError, SecurityError or NetworkError whose message names the policy or says
+ * the load failed (a `data:` URL needs no network, so a failed load is the policy). Anything else (ReferenceError,
+ * SyntaxError, "not supported", "is not a function") is not proof, so it does not count.
+ */
+export function isPolicyBlock(kind: "fetch" | "import" | "eval", err: { name?: string; message?: string } | null | undefined): boolean {
+  if (!err) return false;
+  const name = String(err.name ?? "");
+  const msg = String(err.message ?? "").toLowerCase();
+  if (/not supported|disabled|not a function|is not defined|unexpected token|cannot read/.test(msg)) return false;
+  const policy = /content security policy|csp|refused to|violates|unsafe-eval|connect-src|script-src|blocked/.test(msg);
+  if (kind === "eval") return name === "EvalError" || (policy && ["EvalError", "TypeError", "SecurityError", "EvalError"].includes(name));
+  if (!["TypeError", "SecurityError", "NetworkError"].includes(name)) return false;
+  return policy || /failed to fetch|load failed|networkerror|network error/.test(msg);
+}
 
 let verdict: Promise<{ ok: boolean; why?: string }> | null = null;
 
@@ -54,7 +75,8 @@ export function pluginSandboxHolds(): Promise<{ ok: boolean; why?: string }> {
       w.onmessage = (e) => {
         const d = e.data ?? {};
         const h = d.hits ?? {};
-        const open = ["fetch", "import", "eval"].filter((k) => !h[k]);
+        const errs = d.errors ?? {};
+        const open = (["fetch", "import", "eval"] as const).filter((k) => !h[k] && !isPolicyBlock(k, errs[k]));
         done(open.length ? { ok: false, why: `SketchCraft couldn't confirm that plugins are walled off from the network on this system (${open.join(", ")} not blocked), so it won't run them; everything else works as usual` } : { ok: true });
       };
     } catch (e) {

@@ -19,6 +19,53 @@ use std::path::{Path, PathBuf};
 pub const GUIDE: &str = "UV layout (SketchCraft guide)";
 /// Largest picture taken either way (pixels per side), the engine's own limit for textures.
 const MAX_SIDE: u32 = 8192;
+/// Most layers read back from one `.ora`, and most pixels decoded across them (a hostile file can't make a poll
+/// decode without end).
+const MAX_LAYERS: usize = 64;
+const MAX_TOTAL_PIXELS: u64 = 256 << 20;
+
+/// Refuse a path that is a symlink (or a folder reached through one). Missing is fine.
+pub fn refuse_link(path: &Path) -> Result<(), String> {
+    match std::fs::symlink_metadata(path) {
+        Ok(m) if m.file_type().is_symlink() => Err(format!("{} is a link; SketchCraft won't write through it", path.display())),
+        _ => Ok(()),
+    }
+}
+
+/// Make the `Textures` folder if needed; refuse it when it is a link.
+pub fn ensure_dir(dir: &Path) -> Result<(), String> {
+    refuse_link(dir)?;
+    std::fs::create_dir_all(dir).map_err(|e| format!("can't make {}: {e}", dir.display()))?;
+    refuse_link(dir)
+}
+
+/// A new file at `path` that never follows a link: a stale one (or a link) at that name is removed first (removing
+/// never follows), then the file is created with `create_new`.
+fn create_fresh(path: &Path) -> Result<std::fs::File, String> {
+    let _ = std::fs::remove_file(path);
+    std::fs::OpenOptions::new().write(true).create_new(true).open(path).map_err(|e| format!("can't write {}: {e}", path.display()))
+}
+
+/// Write `bytes` to `path` through a temp file in the same folder, then rename it into place. Never writes through a link.
+pub fn write_file_safely(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    if let Some(dir) = path.parent() {
+        refuse_link(dir)?;
+    }
+    refuse_link(path)?;
+    let tmp = PathBuf::from(format!("{}.part", path.display()));
+    let mut f = create_fresh(&tmp)?;
+    f.write_all(bytes).map_err(|e| format!("can't write {}: {e}", tmp.display()))?;
+    drop(f);
+    std::fs::rename(&tmp, path).map_err(|e| format!("can't write {}: {e}", path.display()))
+}
+
+/// Keep the old `.ora` as `.bak` (a link is refused, not moved).
+pub fn keep_backup(ora: &Path) -> Result<(), String> {
+    refuse_link(ora)?;
+    let bak = ora.with_extension("ora.bak");
+    refuse_link(&bak)?;
+    std::fs::rename(ora, &bak).map_err(|e| format!("can't keep {}: {e}", bak.display()))
+}
 
 /// A file name for a material: letters, digits, `-` and `_`, at most 80 characters, never empty.
 pub fn file_stem(material: &str) -> String {
@@ -86,12 +133,13 @@ pub fn write_ora(path: &Path, texture: &[u8], guide: Option<&[u8]>) -> Result<(u
     let stack = format!("<?xml version='1.0' encoding='UTF-8'?>\n<image version=\"0.0.5\" w=\"{w}\" h=\"{h}\">\n  <stack>\n{layers}  </stack>\n</image>\n");
 
     if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| format!("can't make {}: {e}", dir.display()))?;
+        ensure_dir(dir)?;
     }
+    refuse_link(path)?;
     // written beside the target, then moved into place: PhotoCraft never sees half a file
     let tmp = path.with_extension("ora.part");
     {
-        let f = std::fs::File::create(&tmp).map_err(|e| format!("can't write {}: {e}", tmp.display()))?;
+        let f = create_fresh(&tmp)?;
         let mut z = zip::ZipWriter::new(f);
         let stored = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
         let deflated = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
@@ -195,6 +243,7 @@ pub fn parse_stack(xml: &str) -> Vec<Layer> {
 
 /// The picture to bring back: the visible layers of `<path>`, bottom to top, without the guide, as a PNG.
 pub fn read_ora(path: &Path) -> Result<Vec<u8>, String> {
+    refuse_link(path)?;
     let f = std::fs::File::open(path).map_err(|e| format!("can't open {}: {e}", path.display()))?;
     let mut z = zip::ZipArchive::new(f).map_err(|e| format!("{} isn't an OpenRaster file: {e}", path.display()))?;
     let mut read = |name: &str, limit: u64| -> Result<Vec<u8>, String> {
@@ -214,13 +263,29 @@ pub fn read_ora(path: &Path) -> Result<Vec<u8>, String> {
     if w == 0 || h == 0 || w > MAX_SIDE || h > MAX_SIDE {
         return Err(format!("the picture is {w}×{h}; it must be 1 to {MAX_SIDE} pixels a side"));
     }
+    let layers = parse_stack(&xml);
+    if layers.len() > MAX_LAYERS {
+        return Err(format!("the file has {} layers; at most {MAX_LAYERS} are read", layers.len()));
+    }
     let mut canvas = RgbaImage::new(w, h);
+    let mut pixels = 0u64;
     // OpenRaster lists the top layer first: paint from the bottom up
-    for l in parse_stack(&xml).into_iter().rev() {
+    for l in layers.into_iter().rev() {
         if !l.visible || l.name.starts_with(GUIDE) || l.src.is_empty() || l.src.contains("..") {
             continue;
         }
-        let img = load(&read(&l.src, 512 << 20)?)?;
+        let bytes = read(&l.src, 512 << 20)?;
+        // the size is read from the header first, so a huge layer is refused before it is decoded
+        let (lw, lh) = image::ImageReader::new(std::io::Cursor::new(&bytes))
+            .with_guessed_format()
+            .map_err(|e| e.to_string())?
+            .into_dimensions()
+            .map_err(|e| format!("unreadable picture: {e}"))?;
+        pixels += lw as u64 * lh as u64;
+        if lw > MAX_SIDE || lh > MAX_SIDE || pixels > MAX_TOTAL_PIXELS {
+            return Err("the layers hold too many pixels to read back".into());
+        }
+        let img = load(&bytes)?;
         over(&mut canvas, &img, l.x, l.y, l.opacity);
     }
     png_bytes(&canvas)
@@ -306,6 +371,71 @@ mod tests {
         let back = image::load_from_memory(&read_ora(&path).unwrap()).unwrap().to_rgba8();
         assert_eq!(back.dimensions(), (8, 4));
         assert!(back.pixels().all(|p| p.0 == [200, 10, 10, 255]));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    fn scratch(name: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("sc-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn a_linked_part_file_is_not_written_through() {
+        let dir = scratch("link1");
+        let victim = dir.join("victim.txt");
+        std::fs::write(&victim, "keep me").unwrap();
+        let tex = dir.join("Textures");
+        std::fs::create_dir_all(&tex).unwrap();
+        std::os::unix::fs::symlink(&victim, tex.join("Wall.ora.part")).unwrap();
+        write_ora(&tex.join("Wall.ora"), &solid(4, 4, [1, 2, 3, 255]), None).unwrap();
+        assert_eq!(std::fs::read_to_string(&victim).unwrap(), "keep me");
+        assert!(read_ora(&tex.join("Wall.ora")).is_ok());
+        // the hash file and a linked target are refused too
+        std::os::unix::fs::symlink(&victim, tex.join("Wall.ora.sketchcraft")).unwrap();
+        assert!(write_file_safely(&tex.join("Wall.ora.sketchcraft"), b"x").is_err());
+        assert_eq!(std::fs::read_to_string(&victim).unwrap(), "keep me");
+        std::os::unix::fs::symlink(&victim, tex.join("L.ora")).unwrap();
+        assert!(write_ora(&tex.join("L.ora"), &solid(4, 4, [1, 2, 3, 255]), None).is_err());
+        assert!(keep_backup(&tex.join("L.ora")).is_err());
+        assert!(read_ora(&tex.join("L.ora")).is_err());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn a_linked_textures_folder_is_refused() {
+        let dir = scratch("link2");
+        let elsewhere = dir.join("elsewhere");
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        let tex = dir.join("Textures");
+        std::os::unix::fs::symlink(&elsewhere, &tex).unwrap();
+        assert!(write_ora(&tex.join("Wall.ora"), &solid(4, 4, [1, 2, 3, 255]), None).is_err());
+        assert!(ensure_dir(&tex).is_err());
+        assert_eq!(std::fs::read_dir(&elsewhere).unwrap().count(), 0);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn too_many_layers_are_refused() {
+        let dir = scratch("many");
+        let path = dir.join("many.ora");
+        let mut z = zip::ZipWriter::new(std::fs::File::create(&path).unwrap());
+        let o = zip::write::SimpleFileOptions::default();
+        let mut stack = String::from(r#"<image w="2" h="2"><stack>"#);
+        for _ in 0..(MAX_LAYERS + 1) {
+            stack += r#"<layer name="l" src="data/a.png"/>"#;
+        }
+        stack += "</stack></image>";
+        z.start_file("stack.xml", o).unwrap();
+        z.write_all(stack.as_bytes()).unwrap();
+        z.start_file("data/a.png", o).unwrap();
+        z.write_all(&solid(2, 2, [9, 9, 9, 255])).unwrap();
+        z.finish().unwrap();
+        let err = read_ora(&path).unwrap_err();
+        assert!(err.contains("layers"), "{err}");
         std::fs::remove_dir_all(&dir).ok();
     }
 

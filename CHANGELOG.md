@@ -77,6 +77,12 @@ What changed in each SketchCraft release, newest first. The format follows
   catalog for them). Chinese contributed by fanhui (#161); the others were asked for in #158, and corrections from
   native speakers are welcome.
 
+### Changed
+- **Print check measures every wall.** Print check used to measure wall thickness at only some places on any model
+  over a few thousand triangles, so it could not say "Ready to print" for them. It now indexes the model and measures
+  every triangle up to 600,000 of them (a 200,000-triangle model takes well under a few seconds); only a model past
+  that is sampled, and says so.
+
 ### Fixed
 - **SketchUp 2017 files with dimensions open.** A SketchUp 2017 model whose own list starts with a dimension failed
   with "this SketchUp file looks damaged": the reader didn't take a list that starts with a dimension or a text for the
@@ -122,6 +128,12 @@ What changed in each SketchCraft release, newest first. The format follows
     refused.
   - 3MF export cleans part names of characters XML can't hold. Print check no longer calls a big model "ready" when it
     could only check its walls at some places, and says so.
+  - Editing a texture in PhotoCraft is safer with project folders from other people: SketchCraft no longer writes through
+    links in the Textures folder, and reads back a limited number of layers.
+  - The SketchCraft AI box cleans names from the model before the local model reads them, and its debug log has a size
+    limit and keeps only recent days.
+  - The plugin safety check counts a probe as blocked only when the policy blocked it, not for any error.
+  - Android: the app shares less through its file provider.
 
 ## [0.3.9] - 2026-11-20
 

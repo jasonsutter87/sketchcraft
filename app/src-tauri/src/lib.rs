@@ -72,21 +72,18 @@ fn ai_apply(state: tauri::State<App>, commands: Value) -> Value {
 
 /// SketchCraft AI box debugger: append one turn (request, what the model was told, its raw answer, what ran, every
 /// result and error, timing) as a JSON line to `AI debug/<date>.jsonl` beside the model. Local only; nothing is sent.
+/// Only the hidden labs AI box calls this; the log is capped (size per day, number of days).
 #[tauri::command]
 fn ai_log(state: tauri::State<App>, entry: Value) -> Result<String, String> {
-    use std::io::Write;
     let doc = engine(&state).doc.clone();
     let dir = doc.parent().map(|d| d.join("AI debug")).unwrap_or_else(|| std::path::PathBuf::from("AI debug"));
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let day = entry["at"].as_str().and_then(|s| s.get(..10)).filter(|d| d.chars().all(|c| c.is_ascii_digit() || c == '-')).unwrap_or("undated");
-    let path = dir.join(format!("{day}.jsonl"));
-    let mut line = serde_json::to_string(&entry).map_err(|e| e.to_string())?;
+    let line = serde_json::to_string(&entry).map_err(|e| e.to_string())?;
     if line.len() > 2 << 20 {
         return Err("debug entry too large".into());
     }
-    line.push('\n');
-    std::fs::OpenOptions::new().create(true).append(true).open(&path).and_then(|mut f| f.write_all(line.as_bytes())).map_err(|e| e.to_string())?;
-    Ok(path.display().to_string())
+    // capped: each day's file at most ai::LOG_MAX_FILE_BYTES, the newest ai::LOG_KEEP_FILES days kept
+    ai::append_log(&dir, day, &line, ai::LOG_MAX_FILE_BYTES, ai::LOG_KEEP_FILES).map(|p| p.display().to_string())
 }
 
 #[tauri::command]
@@ -209,12 +206,13 @@ fn photocraft_open(state: tauri::State<App>, material: String, texture: String, 
     let current = hash_of(&tex);
     let reuse = ora.is_file() && std::fs::read_to_string(last_hash_path(&ora)).map(|h| h.trim() == current).unwrap_or(false);
     if !reuse {
+        photocraft::ensure_dir(&textures_dir(&state))?;
         if ora.is_file() {
-            let _ = std::fs::rename(&ora, ora.with_extension("ora.bak"));
+            photocraft::keep_backup(&ora)?;
         }
         let guide = guide.map(|g| photocraft::decode_data_url(&g)).transpose()?;
         photocraft::write_ora(&ora, &tex, guide.as_deref())?;
-        std::fs::write(last_hash_path(&ora), &current).map_err(|e| e.to_string())?;
+        photocraft::write_file_safely(&last_hash_path(&ora), current.as_bytes())?;
     }
     #[cfg(desktop)]
     photocraft::launch(&ora)?;
@@ -236,7 +234,7 @@ fn photocraft_poll(state: tauri::State<App>, material: String, since: u64) -> Re
         return Ok(serde_json::json!({"modified": m, "psd": psd > since && psd > m}));
     }
     let png = photocraft::read_ora(&ora)?;
-    std::fs::write(last_hash_path(&ora), hash_of(&png)).map_err(|e| e.to_string())?;
+    photocraft::write_file_safely(&last_hash_path(&ora), hash_of(&png).as_bytes())?;
     let data = format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(&png));
     Ok(serde_json::json!({"modified": m, "data": data}))
 }
