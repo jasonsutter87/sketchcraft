@@ -117,3 +117,17 @@ checks that the GLB's image decodes to the painted pixels.
   budget like any history.
 - The visual reference of the panel exists for macOS only: run `node tools/ui-tests/run.mjs texture-paint -- --update` on Linux
   to add the Linux one (until then the Linux run says so and compares nothing).
+
+## The PhotoCraft bridge's hash file
+
+When a material is opened in PhotoCraft, SketchCraft writes `Textures/<name>.ora` and, beside it, `<name>.ora.sketchcraft`:
+the content hash of the picture that file last matched. On the next open, if the material's picture still hashes to that
+value the `.ora` is reopened with its PhotoCraft layers; if not, the old `.ora` is kept as `.ora.bak` and a fresh one is
+written.
+
+- Format: `sha256:<64 hex digits>` (SHA-256, in `app/src-tauri/src/photocraft.rs`). The tag names the algorithm, so a
+  later change of algorithm is detected instead of guessed. A tag this build doesn't know counts as a mismatch.
+- Legacy: before 0.3.10 the file held 16 hex digits from std's `DefaultHasher`, which Rust doesn't promise to keep
+  stable between releases. An untagged value is accepted as "unchanged" once, even when it doesn't match the old hasher
+  (a mismatch can't be told from a Rust-release difference), so nobody's layers move to `.bak` on the first run after
+  updating. The file is then rewritten in the tagged format.

@@ -20,6 +20,8 @@ serde_json = "1"
 # the PhotoCraft bridge (src/photocraft.rs): OpenRaster is a zip of PNGs; the same versions the engine uses
 base64 = "0.22"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+# a fixed, standard content hash for the PhotoCraft bridge (already in the engine's dependency tree)
+sha2 = "0.10"
 zip = { version = "9", default-features = false, features = ["deflate"] }
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"

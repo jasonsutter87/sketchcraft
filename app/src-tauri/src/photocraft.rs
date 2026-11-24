@@ -12,6 +12,7 @@
 
 use base64::Engine as _;
 use image::{imageops, ImageFormat, RgbaImage};
+use sha2::{Digest, Sha256};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
@@ -65,6 +66,56 @@ pub fn keep_backup(ora: &Path) -> Result<(), String> {
     let bak = ora.with_extension("ora.bak");
     refuse_link(&bak)?;
     std::fs::rename(ora, &bak).map_err(|e| format!("can't keep {}: {e}", bak.display()))
+}
+
+/// Tag at the start of a stored picture hash: the algorithm that made it, so a later change of algorithm is seen
+/// rather than guessed at.
+const HASH_TAG: &str = "sha256:";
+
+/// A content hash of a picture's bytes for the `.ora.sketchcraft` file: `sha256:<64 hex>`. SHA-256 is fixed by
+/// standard, so it is the same on every platform and every SketchCraft/Rust release (the old `DefaultHasher` was
+/// not promised stable).
+pub fn hash_of(bytes: &[u8]) -> String {
+    let d = Sha256::digest(bytes);
+    let mut s = String::with_capacity(HASH_TAG.len() + 64);
+    s.push_str(HASH_TAG);
+    for b in d {
+        s.push_str(&format!("{b:02x}"));
+    }
+    s
+}
+
+/// Does a stored hash carry an algorithm tag (the current format)?
+pub fn is_tagged(stored: &str) -> bool {
+    stored.trim().starts_with(HASH_TAG)
+}
+
+/// The hash files written before 0.3.10: 16 hex digits from std's `DefaultHasher`, no tag. Kept only to read them.
+fn legacy_hash_of(bytes: &[u8]) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    bytes.hash(&mut h);
+    format!("{:016x}", h.finish())
+}
+
+/// Is the picture `bytes` the one the stored hash file describes?
+/// - tagged `sha256:...`: an exact comparison; a difference is a real change.
+/// - untagged (written by an older SketchCraft): `DefaultHasher` output may differ between Rust releases, so a
+///   mismatch can't be told from a changed picture. To never move someone's PhotoCraft layers to `.bak` on the
+///   first run after an update, an untagged value counts as unchanged whether or not it matches the old hasher;
+///   the caller rewrites it in the tagged format, so this happens once.
+/// - no file, or another tag (a newer algorithm this build doesn't know): not a match.
+pub fn stored_hash_matches(stored: Option<&str>, bytes: &[u8]) -> bool {
+    let Some(h) = stored.map(str::trim) else { return false };
+    if h.starts_with(HASH_TAG) {
+        return h == hash_of(bytes);
+    }
+    if h.contains(':') {
+        return false;
+    }
+    // legacy: compared with the old hasher for the record, but a mismatch can't be judged, so it is accepted too
+    let _same_as_old_hasher = h == legacy_hash_of(bytes);
+    true
 }
 
 /// A file name for a material: letters, digits, `-` and `_`, at most 80 characters, never empty.
@@ -476,5 +527,47 @@ mod tests {
         assert!(decode_data_url("https://example.com/x.png").is_err());
         assert!(decode_data_url("data:image/png,abc").is_err());
         assert!(write_ora(Path::new("/tmp/never.ora"), b"not a png", None).is_err());
+    }
+
+    #[test]
+    fn hash_is_stable_and_tagged() {
+        // SHA-256 of "abc" (FIPS 180-2 test vector)
+        assert_eq!(hash_of(b"abc"), "sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+        assert_eq!(hash_of(b"abc"), hash_of(b"abc"));
+        assert_ne!(hash_of(b"abc"), hash_of(b"abd"));
+        assert!(is_tagged(&hash_of(b"")));
+    }
+
+    #[test]
+    fn tagged_mismatch_is_a_real_change() {
+        let stored = hash_of(b"one");
+        assert!(stored_hash_matches(Some(&stored), b"one"));
+        assert!(stored_hash_matches(Some(&format!("{stored}\n")), b"one"));
+        assert!(!stored_hash_matches(Some(&stored), b"two"));
+        assert!(!stored_hash_matches(None, b"one"));
+        assert!(!stored_hash_matches(Some("sha512:abcd"), b"one"));
+    }
+
+    #[test]
+    fn legacy_untagged_hash_keeps_layers_and_is_upgraded() {
+        let legacy_ok = legacy_hash_of(b"pic");
+        assert!(stored_hash_matches(Some(&legacy_ok), b"pic"));
+        // an old value made by another Rust release can't be judged: still unchanged
+        assert!(stored_hash_matches(Some("0123456789abcdef"), b"pic"));
+        // with files: the .ora stays (no .bak) and the hash file is rewritten tagged
+        let dir = std::env::temp_dir().join(format!("sc-hash-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let ora = dir.join("Wall.ora");
+        std::fs::write(&ora, b"layers").unwrap();
+        let hf = ora.with_extension("ora.sketchcraft");
+        std::fs::write(&hf, &legacy_ok).unwrap();
+        let stored = std::fs::read_to_string(&hf).ok();
+        assert!(ora.is_file() && stored_hash_matches(stored.as_deref(), b"pic"));
+        assert!(!is_tagged(stored.as_deref().unwrap()));
+        write_file_safely(&hf, hash_of(b"pic").as_bytes()).unwrap();
+        assert!(is_tagged(&std::fs::read_to_string(&hf).unwrap()));
+        assert!(ora.is_file() && !ora.with_extension("ora.bak").exists());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

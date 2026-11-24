@@ -184,13 +184,6 @@ fn textures_dir(state: &tauri::State<App>) -> std::path::PathBuf {
     doc.parent().map(|d| d.join("Textures")).unwrap_or_else(|| std::path::PathBuf::from("Textures"))
 }
 
-fn hash_of(bytes: &[u8]) -> String {
-    use std::hash::{Hash, Hasher};
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    bytes.hash(&mut h);
-    format!("{:016x}", h.finish())
-}
-
 /// The picture SketchCraft last wrote to, or read from, a material's `.ora` (to tell whether it still matches).
 fn last_hash_path(ora: &std::path::Path) -> std::path::PathBuf {
     ora.with_extension("ora.sketchcraft")
@@ -203,8 +196,13 @@ fn last_hash_path(ora: &std::path::Path) -> std::path::PathBuf {
 fn photocraft_open(state: tauri::State<App>, material: String, texture: String, guide: Option<String>) -> Result<Value, String> {
     let ora = photocraft::ora_path(&textures_dir(&state), &material);
     let tex = photocraft::decode_data_url(&texture)?;
-    let current = hash_of(&tex);
-    let reuse = ora.is_file() && std::fs::read_to_string(last_hash_path(&ora)).map(|h| h.trim() == current).unwrap_or(false);
+    let current = photocraft::hash_of(&tex);
+    let stored = std::fs::read_to_string(last_hash_path(&ora)).ok();
+    let reuse = ora.is_file() && photocraft::stored_hash_matches(stored.as_deref(), &tex);
+    if reuse && stored.as_deref().is_some_and(|h| !photocraft::is_tagged(h)) {
+        // a hash file from before the tagged format: keep the layers and upgrade the file (once)
+        photocraft::write_file_safely(&last_hash_path(&ora), current.as_bytes())?;
+    }
     if !reuse {
         photocraft::ensure_dir(&textures_dir(&state))?;
         if ora.is_file() {
@@ -234,7 +232,7 @@ fn photocraft_poll(state: tauri::State<App>, material: String, since: u64) -> Re
         return Ok(serde_json::json!({"modified": m, "psd": psd > since && psd > m}));
     }
     let png = photocraft::read_ora(&ora)?;
-    photocraft::write_file_safely(&last_hash_path(&ora), hash_of(&png).as_bytes())?;
+    photocraft::write_file_safely(&last_hash_path(&ora), photocraft::hash_of(&png).as_bytes())?;
     let data = format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(&png));
     Ok(serde_json::json!({"modified": m, "data": data}))
 }

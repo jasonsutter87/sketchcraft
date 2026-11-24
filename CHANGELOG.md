@@ -129,7 +129,8 @@ What changed in each SketchCraft release, newest first. The format follows
   - 3MF export cleans part names of characters XML can't hold. Print check no longer calls a big model "ready" when it
     could only check its walls at some places, and says so.
   - Editing a texture in PhotoCraft is safer with project folders from other people: SketchCraft no longer writes through
-    links in the Textures folder, and reads back a limited number of layers.
+    links in the Textures folder, and reads back a limited number of layers. PhotoCraft edits are recognised reliably
+    after updates: layers you made are kept, with no move to a backup on the first run after an update.
   - The SketchCraft AI box cleans names from the model before the local model reads them, and its debug log has a size
     limit and keeps only recent days.
   - The plugin safety check counts a probe as blocked only when the policy blocked it, not for any error.
