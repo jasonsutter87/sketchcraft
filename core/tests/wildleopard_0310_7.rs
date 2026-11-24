@@ -123,7 +123,7 @@ fn intersect_of_many_overlapping_boxes_does_not_hit_the_bug_net() {
 // ---- a call that runs out of time never discards somebody else's save ----
 
 fn scratch(name: &str) -> std::path::PathBuf {
-    let d = std::path::PathBuf::from(format!("/private/tmp/claude-501/crimson-0310i-{name}-{}", std::process::id()));
+    let d = std::env::temp_dir().join(format!("sketchcraft-w7-{name}-{}", std::process::id()));
     std::fs::remove_dir_all(&d).ok();
     std::fs::create_dir_all(&d).unwrap();
     d
