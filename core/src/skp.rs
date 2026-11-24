@@ -138,6 +138,8 @@ struct Reader<'a> {
     depth: usize,
     /// SketchUp 2017 and later: every entity carries an id after its attribute slot
     newf: bool,
+    /// SketchUp 7 and earlier: a placement ends at its name, without the 16-byte GUID later versions add (#188)
+    old: bool,
     /// While parse_items reads an item: what the item added to `classes` and
     /// `objects` (the key and what it replaced), so a failed item is rewound
     /// instead of every item paying for a copy of both maps
@@ -504,7 +506,9 @@ impl<'a> Reader<'a> {
                     }
                 }
                 self.cstring()?;
-                self.skip(16)?; // its GUID
+                if !self.old {
+                    self.skip(16)?; // its GUID
+                }
                 Obj::Instance { def, m }
             }
         })
@@ -626,6 +630,19 @@ impl<'a> Reader<'a> {
 
     fn kind(&self, s: Slot) -> Option<&Obj> {
         s.index().and_then(|i| self.objects.get(&i))
+    }
+
+    /// Whether anything read refers back to an object by index (a vertex, edge, loop...); placements' references to
+    /// their definitions don't count, they point outside the list. A list without any reads the same from every
+    /// starting index.
+    fn refers_back(&self) -> bool {
+        self.objects.values().any(|o| match o {
+            Obj::Edge { a, b, .. } => matches!(a, Slot::Ref(_)) || matches!(b, Slot::Ref(_)),
+            Obj::EdgeUse { .. } => true,
+            Obj::Face { loops, .. } => loops.iter().any(|l| matches!(l, Slot::Ref(_))),
+            Obj::Loop { uses } => uses.iter().any(|u| matches!(u, Slot::Ref(_))),
+            _ => false,
+        })
     }
 
     /// None if any reference points at the wrong kind of object; otherwise
@@ -930,7 +947,7 @@ fn materials(d: &[u8]) -> HashMap<u32, (String, [f32; 3])> {
             }
             p += 2;
         }
-        let mut r = Reader { d, p, counter: 0, classes: HashMap::new(), names: HashMap::new(), objects: HashMap::new(), depth: 0, newf: false, log: false, jc: Vec::new(), jo: Vec::new() };
+        let mut r = Reader { d, p, counter: 0, classes: HashMap::new(), names: HashMap::new(), objects: HashMap::new(), depth: 0, newf: false, old: false, log: false, jc: Vec::new(), jo: Vec::new() };
         if r.skip(2).is_err() {
             break;
         }
@@ -1042,6 +1059,7 @@ fn parse_items<'a>(mut r: Reader<'a>, n: usize, budget: usize, tries: &mut usize
                 let rest = n - k - 1;
                 let d = r.d;
                 let newf = r.newf;
+                let old = r.old;
                 let limit = (start + 32 * 1024).min(d.len().saturating_sub(2));
                 // a plausible item start: a new object of a class we decode, or a
                 // reference to an edge, face or instance we already have
@@ -1073,7 +1091,7 @@ fn parse_items<'a>(mut r: Reader<'a>, n: usize, budget: usize, tries: &mut usize
                                 return None;
                             }
                             let want = rest - skipped;
-                            let fresh = || Reader { d, p: q, counter: counter + extra, classes: classes.clone(), names: HashMap::new(), objects: objects.clone(), depth: 0, newf, log: false, jc: Vec::new(), jo: Vec::new() };
+                            let fresh = || Reader { d, p: q, counter: counter + extra, classes: classes.clone(), names: HashMap::new(), objects: objects.clone(), depth: 0, newf, old, log: false, jc: Vec::new(), jo: Vec::new() };
                             // cheap check first: the next few items must parse on their own
                             let (k2, ok) = parse_prefix(fresh(), want.min(4));
                             if ok.is_none() || k2 < want.min(4) {
@@ -1105,10 +1123,11 @@ pub fn parse(d: &[u8]) -> Result<SkpFile> {
         bail!("not a SketchUp file");
     }
     let mut file = SkpFile::default();
-    let mut r = Reader { d, p: 0x20, counter: 0, classes: HashMap::new(), names: HashMap::new(), objects: HashMap::new(), depth: 0, newf: false, log: false, jc: Vec::new(), jo: Vec::new() };
+    let mut r = Reader { d, p: 0x20, counter: 0, classes: HashMap::new(), names: HashMap::new(), objects: HashMap::new(), depth: 0, newf: false, old: false, log: false, jc: Vec::new(), jo: Vec::new() };
     file.version = r.cstring().unwrap_or_default();
     let major: u32 = file.version.trim_start_matches('{').split('.').next().and_then(|v| v.parse().ok()).unwrap_or(0);
     let newf = major >= 17;
+    let old = major <= 7;
     // How long the whole read may take, either kind of file: 4 s, plus 4 s per megabyte, never more than 30 s.
     let allowed = std::time::Duration::from_millis((4000 + (d.len() as u64 * 4000 >> 20)).min(30_000));
     let deadline = std::time::Instant::now() + allowed;
@@ -1139,7 +1158,7 @@ pub fn parse(d: &[u8]) -> Result<SkpFile> {
         t & 0x8000 != 0 && matches!(known.get(&((t & 0x7FFF) as u32)), Some(Kind::Edge | Kind::Face | Kind::Instance))
     };
 
-    let new_reader = |known: &HashMap<u32, Kind>, at: usize, base: u32| Reader { d, p: at, counter: base, classes: known.clone(), names: HashMap::new(), objects: HashMap::new(), depth: 0, newf, log: false, jc: Vec::new(), jo: Vec::new() };
+    let new_reader = |known: &HashMap<u32, Kind>, at: usize, base: u32| Reader { d, p: at, counter: base, classes: known.clone(), names: HashMap::new(), objects: HashMap::new(), depth: 0, newf, old, log: false, jc: Vec::new(), jo: Vec::new() };
     // Pick the starting index from the cleanly-parsing prefix, then parse fully
     // (skipping undecodable items) with that one.
     let try_bases = |known: &HashMap<u32, Kind>, at: usize, n: u32, bases: &mut dyn Iterator<Item = u32>| -> Option<(Reader, Vec<Slot>, usize)> {
@@ -1158,6 +1177,14 @@ pub fn parse(d: &[u8]) -> Result<SkpFile> {
                 best = Some((k, good, base));
                 if k == n as usize && good > 0 {
                     break;
+                }
+                // the whole list reads but nothing in it refers back (only placements of definitions, #188): every
+                // other starting index reads it the same way, so searching on would only spend the file's budget
+                if k == n as usize && good == 0 {
+                    let mut r = new_reader(known, at, base);
+                    if (0..n).all(|_| r.obj().is_ok()) && !r.refers_back() {
+                        break;
+                    }
                 }
             }
         }
@@ -1204,7 +1231,7 @@ pub fn parse(d: &[u8]) -> Result<SkpFile> {
                 let name = (r.p..(r.p + 48).min(d.len().saturating_sub(4)))
                     .find(|&k| &d[k..k + 3] == b"\xff\xfe\xff")
                     .and_then(|k| {
-                        let mut nr = Reader { d, p: k, counter: 0, classes: HashMap::new(), names: HashMap::new(), objects: HashMap::new(), depth: 0, newf, log: false, jc: Vec::new(), jo: Vec::new() };
+                        let mut nr = Reader { d, p: k, counter: 0, classes: HashMap::new(), names: HashMap::new(), objects: HashMap::new(), depth: 0, newf, old, log: false, jc: Vec::new(), jo: Vec::new() };
                         nr.cstring().ok()
                     })
                     .unwrap_or_default();

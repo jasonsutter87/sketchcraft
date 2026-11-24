@@ -61,6 +61,11 @@ What changed in each SketchCraft release, newest first. The format follows
   native speakers are welcome.
 
 ### Fixed
+- **SketchUp 7 files with components open, with all their components.** Files saved by SketchUp 7 and earlier failed
+  with "this SketchUp file looks damaged" when they placed components, or opened with most of the placed components
+  missing. The reader expected an ID at the end of each placement that only later versions write, and a model list
+  holding nothing but placed components could run out the reader's budget. Thanks to Tim Rowledge for the file.
+  (Refs #188)
 - **Soften takes a group.** `soften` with a group softens the edges of every face inside it (nested groups too); it
   used to refuse a group as "not an edge or face".
 - **SketchUp files open on Android.** File › Open and File › Import on the phone greyed out `.skp` files (Android
