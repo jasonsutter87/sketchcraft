@@ -136,22 +136,58 @@ pub fn laid_out_view(m: &Model, ids: &[Id], gap: Option<f64>) -> Result<LaidOutV
     // a group part is measured with every group inside it (asked for by id, a group can hold groups): it moves whole
     let mut shown: BTreeSet<Id> = BTreeSet::new();
     let mut placements = placements;
-    for l in &laid {
+    // each group part's tree, and which parts every group belongs to (a pass over the model, not one per part)
+    let laid_ids: std::collections::HashSet<Id> = laid.iter().map(|o| o.part.id).collect();
+    let mut kids: std::collections::HashMap<Id, Vec<Id>> = std::collections::HashMap::new();
+    for (&id, g) in &m.groups {
+        if let Some(p) = g.parent {
+            kids.entry(p).or_default().push(id);
+        }
+    }
+    let mut member: std::collections::HashMap<Id, Vec<usize>> = std::collections::HashMap::new();
+    for (n, l) in laid.iter().enumerate().filter(|(_, l)| l.part.kind == "group") {
+        let mut seen: std::collections::HashSet<Id> = std::collections::HashSet::from([l.part.id]);
+        let mut stack = vec![l.part.id];
+        while let Some(x) = stack.pop() {
+            member.entry(x).or_default().push(n);
+            for &k in kids.get(&x).into_iter().flatten() {
+                if seen.insert(k) {
+                    stack.push(k);
+                }
+            }
+        }
+        shown.extend(seen);
+    }
+    // the corners each part's faces and edges use: every group has its own, so each moves once
+    let mut corners: std::collections::HashMap<usize, BTreeSet<Id>> = std::collections::HashMap::new();
+    for f in m.faces.values() {
+        for &n in f.group.and_then(|g| member.get(&g)).into_iter().flatten() {
+            corners.entry(n).or_default().extend(f.loops().flatten().copied());
+        }
+    }
+    for e in m.edges.values() {
+        for &n in e.group.and_then(|g| member.get(&g)).into_iter().flatten() {
+            corners.entry(n).or_default().extend([e.a, e.b]);
+        }
+    }
+    // components placed inside a part (that are not parts of their own) go with it
+    let mut inside: std::collections::HashMap<usize, Vec<Id>> = std::collections::HashMap::new();
+    for (id, i) in &m.instances {
+        if laid_ids.contains(id) {
+            continue;
+        }
+        for &n in i.parent.and_then(|p| member.get(&p)).into_iter().flatten() {
+            inside.entry(n).or_default().push(*id);
+        }
+    }
+    for (n, l) in laid.iter().enumerate() {
         if l.part.kind == "group" {
-            let tree = m.subtree(l.part.id);
-            shown.extend(tree.iter().copied());
-            // the corners its faces and edges use: every group has its own, so each moves once
-            let mine = |g: Option<Id>| g.is_some_and(|g| tree.contains(&g));
-            let mut corners: BTreeSet<Id> = v.faces.values().filter(|f| mine(f.group)).flat_map(|f| f.loops().flatten().copied().collect::<Vec<_>>()).collect();
-            corners.extend(v.edges.values().filter(|e| mine(e.group)).flat_map(|e| [e.a, e.b]));
-            for c in corners {
+            for c in corners.remove(&n).unwrap_or_default() {
                 if let Some(x) = v.vertices.get_mut(&c) {
                     x.p = l.transform.transform_point3(x.p);
                 }
             }
-            // components placed inside it (that are not parts of their own) go with it
-            let inside: Vec<Id> = m.instances.iter().filter(|(id, i)| i.parent.is_some_and(|p| tree.contains(&p)) && !laid.iter().any(|o| o.part.id == **id)).map(|(id, _)| *id).collect();
-            for id in inside {
+            for id in inside.remove(&n).unwrap_or_default() {
                 if let Some(i) = v.instances.get_mut(&id) {
                     i.transform = l.transform * i.transform;
                     placements.insert(id);

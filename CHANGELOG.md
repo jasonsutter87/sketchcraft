@@ -114,6 +114,14 @@ What changed in each SketchCraft release, newest first. The format follows
     many times is refused, so a long curve can't freeze the app. Long curves are drawn in one pass.
   - Fix model is much faster on big models: flat areas are joined in one pass and loose lines are cleared in one sweep,
     and a very long list of loose lines is counted instead of listed one by one.
+  - Parts, Cut plan, Parts layout, CNC files and Lay out parts are fast on models with thousands of groups, and a Cut
+    plan asked of an absurd number of parts says so before it starts.
+  - Soften and Edge style ignore repeated ids, Soften coplanar is fast on big flat models, and drawing a polygon or
+    pushing and pulling a face with many corners is no longer slowed by the size of the model.
+  - Lay out parts: if a plugin or an agent switches the view on, your own next edit switches it off instead of being
+    refused.
+  - 3MF export cleans part names of characters XML can't hold. Print check no longer calls a big model "ready" when it
+    could only check its walls at some places, and says so.
 
 ## [0.3.9] - 2026-11-20
 

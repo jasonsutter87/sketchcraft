@@ -311,7 +311,8 @@ impl Engine {
                 // edges named, or the edges around faces named
                 let mut edges: Vec<Id> = Vec::new();
                 let mut look = crate::model::Lookup::default();
-                for id in &ids {
+                let mut seen: std::collections::HashSet<Id> = std::collections::HashSet::new();
+                for id in ids.iter().filter(|id| seen.insert(**id)) {
                     if m.edges.contains_key(id) {
                         edges.push(*id);
                     } else if let Some(f) = m.faces.get(id).cloned() {

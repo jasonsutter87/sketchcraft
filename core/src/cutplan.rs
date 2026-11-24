@@ -10,7 +10,7 @@
 use crate::draft::ir::{Doc, Fill, Page, PathPrim, Pen, Prim, Role, Seg, TextPrim, BLACK};
 use crate::draft::{font, pdf, svg};
 use crate::model::{Id, Model};
-use crate::plugins::{measure, Measured};
+use crate::plugins::Measured;
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -501,7 +501,12 @@ fn pack_boards(items: &[Item], lengths: &[f64], trim: f64, kerf: f64) -> (Vec<(f
 /// The cut plan for `ids` (groups or components), or every part.
 pub fn plan(m: &Model, ids: &[Id], stock: &CutStock) -> Result<Plan> {
     stock.check()?;
-    let mut parts = measure(m, ids);
+    let wanted = crate::plugins::wanted_parts(m, ids);
+    // far more than any cut plan holds: refuse before measuring (a few of them may be flat and not count)
+    if wanted.len() > MAX_PARTS * 4 {
+        bail!("{} parts is more than a cut plan takes ({MAX_PARTS}); pick some of them", wanted.len());
+    }
+    let mut parts = crate::plugins::measure_parts(m, wanted);
     if parts.len() > MAX_PARTS {
         bail!("{} parts is more than a cut plan takes ({MAX_PARTS}); pick some of them", parts.len());
     }

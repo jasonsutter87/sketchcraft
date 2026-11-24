@@ -93,10 +93,11 @@ impl Model {
         if d > 0.0 {
             return self.add_polygon(&moved);
         }
-        let outer: Vec<Id> = moved.iter().map(|p| self.vertex_in(*p, f.group)).collect();
+        let mut look = crate::model::Lookup::default();
+        let outer: Vec<Id> = moved.iter().map(|p| self.vertex_with(*p, f.group, &mut look)).collect::<Result<_>>()?;
         let mut hole = f.outer.clone();
         hole.reverse();
-        Ok(self.insert_face(Face { outer, holes: vec![hole], material: f.material.clone(), group: f.group, ..Default::default() }))
+        Ok(self.insert_face_with(Face { outer, holes: vec![hole], material: f.material.clone(), group: f.group, ..Default::default() }, &mut look))
     }
 
     /// Sweep a profile face along a path (cornice along a roof edge, a handrail,
@@ -163,7 +164,8 @@ impl Model {
         }
         let sign = pn.dot(seg(0));
         let g = f.group;
-        let ids: Vec<Vec<Id>> = rings.iter().map(|r| r.iter().map(|p| self.vertex_in(*p, g)).collect()).collect();
+        let mut look = crate::model::Lookup::default();
+        let ids: Vec<Vec<Id>> = rings.iter().map(|r| r.iter().map(|p| self.vertex_with(*p, g, &mut look)).collect::<Result<Vec<Id>>>()).collect::<Result<_>>()?;
         let mut out = Vec::new();
         let nr = ids.len();
         let steps = if closed { nr } else { nr - 1 };
@@ -173,7 +175,7 @@ impl Model {
             for i in 0..np {
                 let j = (i + 1) % np;
                 let quad = if sign > 0.0 { vec![r0[i], r0[j], r1[j], r1[i]] } else { vec![r0[i], r1[i], r1[j], r0[j]] };
-                out.push(self.insert_face(Face { outer: quad, material: f.material.clone(), group: g, ..Default::default() }));
+                out.push(self.insert_face_with(Face { outer: quad, material: f.material.clone(), group: g, ..Default::default() }, &mut look));
             }
         }
         if closed {
@@ -183,7 +185,7 @@ impl Model {
             if sign < 0.0 {
                 end.reverse();
             }
-            out.push(self.insert_face(end));
+            out.push(self.insert_face_with(end, &mut look));
             let start = self.faces.get_mut(&fid).unwrap();
             if sign > 0.0 {
                 start.reverse();

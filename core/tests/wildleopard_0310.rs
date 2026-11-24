@@ -254,3 +254,190 @@ fn a_curve_crossing_itself_a_few_times_still_draws() {
     let r = run(&mut e, json!({"cmd": "spline", "points": pts, "segments": 2}));
     assert!(r["edges"].as_array().unwrap().len() > 100, "{r}");
 }
+
+// ----- many groups, soften, polygon / pushpull on big models, 3MF names, print check, laid-out view -----------------
+
+use sketchcraft::model::Group;
+
+/// `n` unit boxes, each its own group, built straight into the model.
+fn many_boxes(e: &mut Engine, n: usize) {
+    let m = &mut e.model;
+    for i in 0..n {
+        let g = nid(m);
+        m.groups.insert(g, Group { name: format!("Part {i}"), ..Default::default() });
+        let (ox, oy) = ((i % 100) as f64 * 2.0, (i / 100) as f64 * 2.0);
+        let v: Vec<u32> = (0..8)
+            .map(|k| {
+                let id = nid(m);
+                m.vertices.insert(id, Vertex { p: DVec3::new(ox + (k & 1) as f64, oy + ((k >> 1) & 1) as f64, ((k >> 2) & 1) as f64 * 0.5), group: Some(g) });
+                id
+            })
+            .collect();
+        let quads: [[usize; 4]; 6] = [[0, 2, 3, 1], [4, 5, 7, 6], [0, 1, 5, 4], [1, 3, 7, 5], [3, 2, 6, 7], [2, 0, 4, 6]];
+        for q in quads {
+            let outer: Vec<u32> = q.iter().map(|&k| v[k]).collect();
+            for j in 0..4 {
+                let k = nid(m);
+                m.edges.insert(k, Edge { a: outer[j], b: outer[(j + 1) % 4], group: Some(g), ..Default::default() });
+            }
+            let f = nid(m);
+            m.faces.insert(f, Face { outer, group: Some(g), ..Default::default() });
+        }
+    }
+}
+
+#[test]
+fn parts_on_thousands_of_groups_is_fast_and_the_cut_plan_checks_the_count_first() {
+    let mut e = Engine::new();
+    many_boxes(&mut e, 8000);
+    let t = Instant::now();
+    let r = run(&mut e, json!({"cmd": "parts"}));
+    let took = t.elapsed().as_secs_f64();
+    assert_eq!(r["parts"].as_array().map_or(r.as_array().map_or(0, Vec::len), Vec::len), 8000, "{}", &r.to_string()[..200]);
+    assert!(took < 2.0, "parts on 8,000 groups took {took:.2} s");
+    let t = Instant::now();
+    let r = run(&mut e, json!({"cmd": "parts_layout"}));
+    assert!(t.elapsed().as_secs_f64() < 3.0, "parts_layout took {:.2} s", t.elapsed().as_secs_f64());
+    assert!(r["parts"].as_array().unwrap().len() == 8000);
+    let t = Instant::now();
+    let r = run(&mut e, json!({"cmd": "lay_out_parts", "on": true}));
+    let took = t.elapsed().as_secs_f64();
+    assert!(took < 4.0, "lay_out_parts took {took:.2} s");
+    assert_eq!(r["parts"].as_array().unwrap().len(), 8000);
+    run(&mut e, json!({"cmd": "lay_out_parts", "on": false}));
+    // more parts than a cut plan takes
+    let r = e.exec_json(&json!({"cmd": "cut_plan"}).to_string());
+    assert_eq!(r["ok"], false, "{r}");
+    assert!(r["error"].as_str().unwrap().contains("more than a cut plan takes"), "{r}");
+}
+
+#[test]
+fn nested_groups_are_measured_with_everything_inside_them() {
+    // an outer group holding a box and an inner group with a box: asked by id, the outer part spans both
+    let mut e = Engine::new();
+    many_boxes(&mut e, 2);
+    let (a, b) = {
+        let mut ids = e.model.groups.keys().copied();
+        (ids.next().unwrap(), ids.next().unwrap())
+    };
+    e.model.groups.get_mut(&b).unwrap().parent = Some(a);
+    let r = run(&mut e, json!({"cmd": "parts", "ids": [a]}));
+    let list = r["parts"].as_array().cloned().or_else(|| r.as_array().cloned()).unwrap();
+    assert_eq!(list.len(), 1);
+    // box a spans x 0..1, box b x 2..3 (offset 2): together 3 long
+    assert!((list[0]["size"][0].as_f64().unwrap() - 3.0).abs() < 1e-6, "{list:?}");
+}
+
+#[test]
+fn soften_coplanar_is_fast_on_a_big_flat_grid() {
+    let mut e = Engine::new();
+    grid(&mut e, 283); // 80,089 faces
+    let t = Instant::now();
+    let r = run(&mut e, json!({"cmd": "soften", "coplanar": true}));
+    let took = t.elapsed().as_secs_f64();
+    assert!(took < 2.0, "soften coplanar on 80k faces took {took:.2} s");
+    // every edge between two faces: 2 * 283 * 282
+    assert_eq!(r["edges"], 2 * 283 * 282);
+}
+
+#[test]
+fn soften_and_edge_style_ignore_repeated_ids() {
+    let mut e = Engine::new();
+    many_boxes(&mut e, 1);
+    let g = *e.model.groups.keys().next().unwrap();
+    let once = run(&mut e, json!({"cmd": "soften", "ids": [g]}))["edges"].as_u64().unwrap();
+    let t = Instant::now();
+    let rep = run(&mut e, json!({"cmd": "soften", "ids": vec![g; 20000]}))["edges"].as_u64().unwrap();
+    assert!(t.elapsed().as_secs_f64() < 1.0);
+    assert_eq!(rep, once, "a repeated id is softened once");
+    let f = *e.model.faces.keys().next().unwrap();
+    let r = run(&mut e, json!({"cmd": "edge_style", "ids": vec![f; 20000], "weight_mm": 0.5}));
+    assert_eq!(r["edges"], 4, "one face's four edges, not 20,000 times over");
+}
+
+#[test]
+fn polygon_and_pushpull_are_not_slowed_by_a_big_model() {
+    let mut e = Engine::new();
+    grid(&mut e, 200); // 40,401 vertices
+    let ring: Vec<Value> = (0..2000).map(|i| {
+        let a = i as f64 * std::f64::consts::TAU / 2000.0;
+        json!([a.cos() * 40.0 + 500.0, a.sin() * 40.0, 0.0])
+    }).collect();
+    let t = Instant::now();
+    let r = e.exec_json_as(&agent(), &json!({"cmd": "polygon", "points": ring}).to_string());
+    assert_eq!(r["ok"], true, "{r}");
+    let face = r["face"].as_u64().unwrap();
+    let r = e.exec_json_as(&agent(), &json!({"cmd": "pushpull", "face": face, "distance": 3.0, "toward": [0, 0, 1]}).to_string());
+    assert_eq!(r["ok"], true, "{r}");
+    let took = t.elapsed().as_secs_f64();
+    assert!(took < 2.0, "polygon + pushpull of 2,000 points on a 40k-vertex model took {took:.2} s");
+    // a cylinder: 2,000 sides, a top and the bottom
+    assert!(e.model.faces.len() >= 40_000 + 2_000);
+}
+
+#[test]
+fn a_3mf_name_with_non_characters_is_still_well_formed() {
+    let mut e = Engine::new();
+    let g = run(&mut e, json!({"cmd": "begin_group", "name": "A\u{FFFE}B\u{FFFF}C\u{FDD0}D\u{0007}E<&>\"F"}))["group"].as_u64().unwrap();
+    let f = run(&mut e, json!({"cmd": "rect", "from": [0, 0, 0], "to": [0.02, 0.02, 0]}))["face"].as_u64().unwrap();
+    run(&mut e, json!({"cmd": "pushpull", "face": f, "distance": 0.02, "toward": [0, 0, 1]}));
+    run(&mut e, json!({"cmd": "end_group"}));
+    let _ = g;
+    let dir = std::env::temp_dir().join(format!("sc-wl-3mf-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("out.3mf");
+    run(&mut e, json!({"cmd": "export_3mf", "path": path.to_str().unwrap()}));
+    let mut z = zip::ZipArchive::new(std::fs::File::open(&path).unwrap()).unwrap();
+    let mut xml = String::new();
+    std::io::Read::read_to_string(&mut z.by_name("3D/3dmodel.model").unwrap(), &mut xml).unwrap();
+    std::fs::remove_dir_all(&dir).ok();
+    assert!(xml.chars().all(|c| c == '\n' || c == '\t' || c == '\r' || !c.is_control()), "a control character is in the XML");
+    assert!(!xml.contains('\u{FFFE}') && !xml.contains('\u{FFFF}') && !xml.contains('\u{FDD0}'));
+    assert!(xml.contains("name=\"ABCDE&lt;&amp;&gt;&quot;F\""), "{}", xml.lines().find(|l| l.contains("<object")).unwrap_or(""));
+}
+
+#[test]
+fn print_check_does_not_call_a_sampled_model_ready() {
+    let mut e = Engine::new();
+    // 1,200 separate solid cubes: more triangles than the wall check looks at one by one
+    let m = &mut e.model;
+    for i in 0..1200 {
+        let (ox, oy) = ((i % 40) as f64 * 0.004, (i / 40) as f64 * 0.004);
+        let v: Vec<u32> = (0..8).map(|k| vert(m, ox + (k & 1) as f64 * 0.003, oy + ((k >> 1) & 1) as f64 * 0.003, ((k >> 2) & 1) as f64 * 0.003)).collect();
+        let quads: [[usize; 4]; 6] = [[0, 2, 3, 1], [4, 5, 7, 6], [0, 1, 5, 4], [1, 3, 7, 5], [3, 2, 6, 7], [2, 0, 4, 6]];
+        for q in quads {
+            let outer: Vec<u32> = q.iter().map(|&k| v[k]).collect();
+            for j in 0..4 {
+                edge(m, outer[j], outer[(j + 1) % 4]);
+            }
+            let f = nid(m);
+            m.faces.insert(f, Face { outer, ..Default::default() });
+        }
+    }
+    let r = run(&mut e, json!({"cmd": "print_check"}));
+    assert_eq!(r["thin_walls"]["sampled"], true, "{}", r["notes"]);
+    assert_eq!(r["thin_walls"]["count"], 0);
+    assert_eq!(r["ready"], false, "a sampled check can't promise a printable model");
+    assert!(r["notes"].as_array().unwrap().iter().any(|n| n.as_str().unwrap().contains("not marked ready")), "{}", r["notes"]);
+}
+
+#[test]
+fn a_person_edit_ends_a_laid_out_view_an_agent_switched_on() {
+    let mut e = Engine::new();
+    many_boxes(&mut e, 3);
+    let r = e.exec_json_as(&agent(), &json!({"cmd": "lay_out_parts", "on": true}).to_string());
+    assert_eq!(r["ok"], true, "{r}");
+    // an agent's own edits are still refused while it is on
+    let r = e.exec_json_as(&agent(), &json!({"cmd": "rect", "from": [50, 50, 0], "to": [51, 51, 0]}).to_string());
+    assert_eq!(r["ok"], false, "{r}");
+    assert!(e.laid_out.is_some());
+    // the person's edit ends the view and goes through
+    let n = e.model.faces.len();
+    run(&mut e, json!({"cmd": "rect", "from": [50, 50, 0], "to": [51, 51, 0]}));
+    assert!(e.laid_out.is_none());
+    assert_eq!(e.model.faces.len(), n + 1);
+    // a view the person switched on keeps refusing edits
+    run(&mut e, json!({"cmd": "lay_out_parts", "on": true}));
+    let r = e.exec_json(&json!({"cmd": "rect", "from": [60, 60, 0], "to": [61, 61, 0]}).to_string());
+    assert_eq!(r["ok"], false, "{r}");
+}

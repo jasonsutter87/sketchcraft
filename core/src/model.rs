@@ -957,7 +957,13 @@ impl Model {
 
     /// Add a planar face from a loop of vertex ids. Returns the face id (an
     /// existing one if this loop is already a face).
-    pub fn add_face(&mut self, mut lp: Vec<Id>) -> Result<Id> {
+    pub fn add_face(&mut self, lp: Vec<Id>) -> Result<Id> {
+        self.add_face_with(lp, None)
+    }
+
+    /// `add_face`, finding existing edges through `look` when the face goes in without cutting another (a cut moves
+    /// edges, which a Lookup can't follow).
+    pub(crate) fn add_face_with(&mut self, mut lp: Vec<Id>, look: Option<&mut Lookup>) -> Result<Id> {
         lp.dedup();
         if lp.len() > 1 && lp.first() == lp.last() {
             lp.pop();
@@ -1011,6 +1017,7 @@ impl Model {
             }
         }
 
+        let cutting = split.is_some() && hole_in.is_none();
         if let Some((pid, fnorm)) = hole_in.or(split) {
             if fnorm.dot(n) < 0.0 {
                 lp.reverse();
@@ -1029,7 +1036,11 @@ impl Model {
             // ground-like faces face up
             lp.reverse();
         }
-        Ok(self.insert_face(Face { outer: lp, group, ..Default::default() }))
+        let face = Face { outer: lp, group, ..Default::default() };
+        Ok(match look {
+            Some(look) if !cutting => self.insert_face_with(face, look),
+            _ => self.insert_face(face),
+        })
     }
 
     /// Remove the area of loop `cut` from face `pid` (they share an edge or
@@ -1116,8 +1127,10 @@ impl Model {
                 }
             }
         }
-        let lp: Vec<Id> = points.iter().map(|p| self.vertex(*p)).collect();
-        self.add_face(lp)
+        let mut look = Lookup::default();
+        let g = self.active_group;
+        let lp: Vec<Id> = points.iter().map(|p| self.vertex_with(*p, g, &mut look)).collect::<Result<_>>()?;
+        self.add_face_with(lp, Some(&mut look))
     }
 
     // ----- push / pull ----------------------------------------------------------
@@ -1134,10 +1147,24 @@ impl Model {
         let dir = n * d;
         let loops: Vec<Vec<Id>> = f.loops().cloned().collect();
 
+        // which faces use each of this face's edges: one pass over the model, not one per edge
+        let mut users: HashMap<(Id, Id), Vec<Id>> = loops.iter().flat_map(|l| pairs(l)).map(|(a, b)| ((a.min(b), a.max(b)), Vec::new())).collect();
+        for (&id, g) in &self.faces {
+            for l in g.loops() {
+                for (a, b) in pairs(l) {
+                    if let Some(v) = users.get_mut(&(a.min(b), a.max(b))) {
+                        if v.last() != Some(&id) {
+                            v.push(id);
+                        }
+                    }
+                }
+            }
+        }
+        let using = |a: Id, b: Id| -> &[Id] { users.get(&(a.min(b), a.max(b))).map_or(&[], |v| v.as_slice()) };
         // Sides already standing on this face -> just slide it.
         let slide = loops.iter().all(|l| {
             pairs(l).all(|(a, b)| {
-                let others: Vec<Id> = self.faces_using_edge(a, b).into_iter().filter(|g| *g != fid).collect();
+                let others: Vec<Id> = using(a, b).iter().copied().filter(|g| *g != fid).collect();
                 !others.is_empty() && others.iter().all(|g| self.normal(*g).dot(n).abs() < 1e-6)
             })
         });
@@ -1160,20 +1187,17 @@ impl Model {
         // its edge)? Then pushing carves into the solid and the base disappears.
         let embedded = parent.is_some()
             || loops.iter().any(|l| {
-                pairs(l).any(|(a, b)| {
-                    self.faces_using_edge(a, b)
-                        .into_iter()
-                        .any(|g| g != fid && self.normal(g).dot(n) > 1.0 - 1e-9)
-                })
+                pairs(l).any(|(a, b)| using(a, b).iter().any(|&g| g != fid && self.normal(g).dot(n) > 1.0 - 1e-9))
             });
         let carving = embedded && d < 0.0;
         self.check_deadline()?;
 
         let mut map: HashMap<Id, Id> = HashMap::new();
+        let mut look = Lookup::default();
         for &v in loops.iter().flatten() {
             if !map.contains_key(&v) {
                 let p = self.p(v) + dir;
-                let nv = self.vertex_in(p, f.group);
+                let nv = self.vertex_with(p, f.group, &mut look)?;
                 map.insert(v, nv);
             }
         }
@@ -1187,7 +1211,7 @@ impl Model {
                 if carving {
                     quad.reverse();
                 }
-                sides.push(self.insert_face(Face { outer: quad, material: f.material.clone(), group: f.group, ..Default::default() }));
+                sides.push(self.insert_face_with(Face { outer: quad, material: f.material.clone(), group: f.group, ..Default::default() }, &mut look));
             }
         }
         let mut top = Face {
@@ -1200,7 +1224,7 @@ impl Model {
         if d < 0.0 && !carving {
             top.reverse();
         }
-        let top_id = self.insert_face(top);
+        let top_id = self.insert_face_with(top, &mut look);
         out.push(top_id);
         self.soften_smooth(&sides); // a pulled circle reads as a smooth cylinder
         out.extend(sides);

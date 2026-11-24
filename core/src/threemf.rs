@@ -59,8 +59,15 @@ fn num(x: f64) -> String {
     if s.is_empty() || s == "-0" { "0".into() } else { s.into() }
 }
 
+/// A character XML text may hold: not a control, and not a Unicode non-character (U+FFFE, U+FFFF, U+FDD0 to U+FDEF, and
+/// the last two of every plane), which XML refuses.
+fn xml_char(c: char) -> bool {
+    let n = c as u32;
+    !c.is_control() && !(0xFDD0..=0xFDEF).contains(&n) && (n & 0xFFFE) != 0xFFFE
+}
+
 fn esc(s: &str) -> String {
-    s.chars().filter(|c| !c.is_control()).collect::<String>().replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
+    s.chars().filter(|c| xml_char(*c)).collect::<String>().replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
 }
 
 /// What was written.

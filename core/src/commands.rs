@@ -218,6 +218,8 @@ pub struct Engine {
     /// The parts are laid out flat to look at (`lay_out_parts`): which parts and what gap. Only the request is kept;
     /// the view is worked out from the model each time it is drawn, so it is never out of date. Never saved.
     pub laid_out: Option<LayOutRequest>,
+    /// the view was switched on by a plugin or an agent: the person's own edit switches it off instead of being refused
+    laid_out_by_other: bool,
     /// bumps on every change to the model (progressive renders start over)
     revision: u64,
     /// a photoreal render in progress
@@ -789,7 +791,13 @@ impl Engine {
         }
         // laid out, the parts are only looked at: changes wait until the model is back (New and Open end the view)
         if self.laid_out.is_some() && (cmd.mutates() || is_env || matches!(cmd, Command::Undo | Command::Redo | Command::BeginBatch)) && !matches!(cmd, Command::New { .. } | Command::Open { .. }) {
-            return json!({"ok": false, "error": LAID_OUT_REFUSAL, "laid_out": true});
+            if !self.untrusted && self.laid_out_by_other {
+                // a plugin or an agent switched the view on: the person's own edit ends it rather than being refused
+                self.laid_out = None;
+                self.laid_out_by_other = false;
+            } else {
+                return json!({"ok": false, "error": LAID_OUT_REFUSAL, "laid_out": true});
+            }
         }
         let was_read_only = self.read_only.clone();
         let is_new = matches!(cmd, Command::New { .. });

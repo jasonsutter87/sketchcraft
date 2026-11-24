@@ -9,6 +9,7 @@ impl Engine {
         if let Command::LayOutParts { on, ids, gap } = cmd {
             if !on {
                 self.laid_out = None;
+                self.laid_out_by_other = false;
                 return Ok(json!({"laid_out": false}));
             }
             if self.ctx.is_some() {
@@ -16,6 +17,7 @@ impl Engine {
             }
             let view = crate::parts_layout::laid_out_view(&self.model, &ids, gap)?;
             self.laid_out = Some(crate::commands::LayOutRequest { ids, gap });
+            self.laid_out_by_other = self.untrusted;
             let mut v = crate::parts_layout::summary(&view);
             v["laid_out"] = json!(true);
             return Ok(v);

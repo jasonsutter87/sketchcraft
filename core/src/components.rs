@@ -505,7 +505,11 @@ impl Model {
     pub fn soften(&mut self, ids: &[Id], soft: bool) -> Result<usize> {
         let mut n = 0;
         let mut look = crate::model::Lookup::default();
-        for id in ids {
+        // each id once, in the order given (a repeated id would only repeat the work)
+        let mut seen: std::collections::HashSet<Id> = std::collections::HashSet::new();
+        let ids: Vec<Id> = ids.iter().copied().filter(|id| seen.insert(*id)).collect();
+        let mut groups: std::collections::HashSet<Id> = std::collections::HashSet::new();
+        for id in &ids {
             if let Some(e) = self.edges.get_mut(id) {
                 e.soft = soft;
                 n += 1;
@@ -520,12 +524,21 @@ impl Model {
                     }
                 }
             } else if self.groups.contains_key(id) {
-                // a group: every face inside it, nested groups too ("soften the box" when the box is a group)
-                let inside: Vec<Id> = self.faces.iter().filter(|(_, f)| f.group == Some(*id) || self.ancestors(f.group).contains(id)).map(|(&k, _)| k).collect();
-                n += self.soften(&inside, soft)?;
+                groups.insert(*id);
             } else {
                 bail!("{id} is not an edge, face or group");
             }
+        }
+        if !groups.is_empty() {
+            // groups: every face inside them, nested groups too ("soften the box" when the box is a group), found in one pass
+            let mut inside_of: std::collections::HashMap<Option<Id>, bool> = std::collections::HashMap::new();
+            let faces: Vec<Id> = self
+                .faces
+                .iter()
+                .filter(|(_, f)| *inside_of.entry(f.group).or_insert_with(|| self.ancestors(f.group).iter().any(|a| groups.contains(a))))
+                .map(|(&k, _)| k)
+                .collect();
+            n += self.soften(&faces, soft)?;
         }
         Ok(n)
     }
@@ -539,10 +552,22 @@ impl Model {
     /// Soften every edge that lies between two coplanar faces (cleans up
     /// imported streets and split walls).
     pub fn soften_coplanar(&mut self) -> usize {
+        // which faces use each edge, worked out once (a scan of every face per edge would grow with the square)
+        let mut users: std::collections::HashMap<(Id, Id), Vec<Id>> = std::collections::HashMap::new();
+        for (&fid, f) in &self.faces {
+            for l in f.loops() {
+                for (a, b) in crate::model::pairs(l) {
+                    let u = users.entry((a.min(b), a.max(b))).or_default();
+                    if u.last() != Some(&fid) {
+                        u.push(fid);
+                    }
+                }
+            }
+        }
         let keys: Vec<(Id, Id, Id)> = self.edges.iter().map(|(&k, e)| (k, e.a, e.b)).collect();
         let mut n = 0;
         for (k, a, b) in keys {
-            let fs = self.faces_using_edge(a, b);
+            let Some(fs) = users.get(&(a.min(b), a.max(b))) else { continue };
             if fs.len() == 2 && self.normal(fs[0]).dot(self.normal(fs[1])) > 1.0 - 1e-6 {
                 self.edges.get_mut(&k).unwrap().soft = true;
                 n += 1;

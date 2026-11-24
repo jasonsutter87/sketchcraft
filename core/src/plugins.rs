@@ -555,25 +555,63 @@ pub struct Measured {
 /// components), or every group with nothing grouped inside it and every component. This frame is the one answer
 /// to "which way does this part lie" (`parts`, `parts_layout`).
 pub fn measure(m: &Model, ids: &[Id]) -> Vec<Measured> {
-    let wanted: Vec<Id> = if ids.is_empty() {
+    measure_parts(m, wanted_parts(m, ids))
+}
+
+/// The parts `measure` looks at for `ids`: those ids, or every group with nothing grouped inside it and every component.
+/// (Cheap: no geometry is touched, so a caller can refuse a model with too many before measuring.)
+pub fn wanted_parts(m: &Model, ids: &[Id]) -> Vec<Id> {
+    if ids.is_empty() {
         // every group with nothing grouped inside it, and every component
-        let mut v: Vec<Id> = m.groups.iter().filter(|(id, g)| !g.hidden && !m.groups.values().any(|o| o.parent == Some(**id))).map(|(id, _)| *id).collect();
+        let parents: std::collections::HashSet<Id> = m.groups.values().filter_map(|g| g.parent).collect();
+        let mut v: Vec<Id> = m.groups.iter().filter(|(id, g)| !g.hidden && !parents.contains(*id)).map(|(id, _)| *id).collect();
         // components, but not scale figures (flat people aren't parts)
         v.extend(m.instances.iter().filter(|(_, i)| !i.hidden && !m.definitions.get(&i.def).is_some_and(|d| d.face_me)).map(|(id, _)| *id));
         v
     } else {
         ids.to_vec()
-    };
+    }
+}
+
+/// Measure these parts (see `measure`). The model's faces are sorted into their groups once, so the work grows with the
+/// model and not with the parts times the model.
+pub fn measure_parts(m: &Model, wanted: Vec<Id>) -> Vec<Measured> {
+    use std::collections::HashMap;
     let world = m.world_faces();
+    let mut kids: HashMap<Id, Vec<Id>> = HashMap::new();
+    for (&id, g) in &m.groups {
+        if let Some(p) = g.parent {
+            kids.entry(p).or_default().push(id);
+        }
+    }
+    let mut by_group: HashMap<Id, Vec<usize>> = HashMap::new();
+    let mut by_owner: HashMap<Id, Vec<usize>> = HashMap::new();
+    for (i, f) in world.iter().enumerate() {
+        by_owner.entry(f.owner).or_default().push(i);
+        if let Some(g) = f.face.and_then(|fid| m.faces.get(&fid)).and_then(|x| x.group) {
+            by_group.entry(g).or_default().push(i);
+        }
+    }
     wanted
         .into_iter()
         .filter_map(|id| {
             let (name, kind, faces): (String, &str, Vec<_>) = if let Some(g) = m.groups.get(&id) {
-                let tree = m.subtree(id);
-                let mine = |f: &&crate::components::WFace| f.face.and_then(|fid| m.faces.get(&fid)).and_then(|x| x.group).is_some_and(|x| tree.contains(&x));
-                (g.name.clone(), "group", world.iter().filter(mine).map(|f| (f.outer.clone(), f.normal, f.material.clone(), f.color)).collect())
+                // the group and every group nested in it, then its faces in the order the model lists them
+                let mut seen: std::collections::HashSet<Id> = std::collections::HashSet::from([id]);
+                let mut stack = vec![id];
+                let mut idx: Vec<usize> = Vec::new();
+                while let Some(x) = stack.pop() {
+                    idx.extend(by_group.get(&x).into_iter().flatten().copied());
+                    for &k in kids.get(&x).into_iter().flatten() {
+                        if seen.insert(k) {
+                            stack.push(k);
+                        }
+                    }
+                }
+                idx.sort_unstable();
+                (g.name.clone(), "group", idx.into_iter().map(|i| &world[i]).map(|f| (f.outer.clone(), f.normal, f.material.clone(), f.color)).collect())
             } else if let Some(i) = m.instances.get(&id) {
-                (i.name.clone(), "component", world.iter().filter(|f| f.owner == id).map(|f| (f.outer.clone(), f.normal, f.material.clone(), f.color)).collect())
+                (i.name.clone(), "component", by_owner.get(&id).into_iter().flatten().map(|&i| &world[i]).map(|f| (f.outer.clone(), f.normal, f.material.clone(), f.color)).collect())
             } else {
                 return None;
             };

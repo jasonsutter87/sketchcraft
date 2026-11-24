@@ -209,7 +209,10 @@ impl Model {
             let fits = over.iter().all(|o| *o == 0.0);
             Fit { fits, fits_if_turned: !fits && (0..3).all(|i| ss[i] <= bb[i] + 1e-9), build_mm: b, over_mm: over }
         });
-        let ready = solid && thin_walls.count == 0 && units_hint.is_none() && fit.as_ref().is_none_or(|f| f.fits);
+        let ready = solid && thin_walls.count == 0 && units_hint.is_none() && fit.as_ref().is_none_or(|f| f.fits) && !thin_walls.sampled;
+        if thin_walls.sampled && solid && thin_walls.count == 0 && units_hint.is_none() && fit.as_ref().is_none_or(|f| f.fits) {
+            notes.push("not marked ready: no thin wall was found, but walls were only checked at some places on a model this large, so a thin one could be missed".into());
+        }
         PrintReport { solid, solid_check: sc, thin_walls, overhangs, size_mm: Some(size_mm), units_hint, fit, ready, notes }
     }
 }
