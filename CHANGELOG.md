@@ -14,6 +14,14 @@ What changed in each SketchCraft release, newest first. The format follows
   it is saved with the model. **Export diagrams** writes a PDF (or SVG) with a page per sheet, and **Print labels**
   writes a sheet of part labels with the number, name, size, material, which sheet it is cut from and a grain arrow.
   Agents get `cut_stock`, a read-only `cut_plan`, `export_cut_diagrams` and `export_cut_labels`. (Makers, #24)
+- **CNC files and joinery for the Cut plan.** **Cut plan… › CNC files** (the **Export CNC files…** button) saves a
+  .zip with one DXF drawing per part, in millimeters and numbered like the cut plan (01-Side-left.dxf...). Each part is
+  drawn flat: its edge on layer OUTLINE, holes that go all the way through on INSIDE, and dados and rabbets on layers
+  named by depth (POCKET_6.0mm). Choose the cutter's diameter, and tick **Dog-bone corners** to add a round relief at
+  every inside corner so a round bit can reach it. **Tools › Joinery** cuts a **Dado**, a **Rabbet** or a **Tenon and
+  mortise** between two boards that touch (pick both, say which one is cut, and leave sizes blank for sensible
+  defaults); each is one undo step, and the cut list reports the boards' new sizes (a tenon makes its board longer by the
+  tenon). Agents get `export_cnc` (one .zip in their workspace), `dado`, `rabbet` and `tenon`. (Makers, #24)
 - **An example to open: the Townhouse.** **Library › Examples** has a finished two-storey townhouse with its fixtures,
   to open, walk through and take apart. It takes the place of the model you have open (after asking; that one is kept
   in File › Restore from backup…), opens as Untitled, and File › Save As… keeps a copy. `open` takes a model's

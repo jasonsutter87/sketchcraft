@@ -31,6 +31,13 @@ Select two solids (closed groups or components) and right-click: **Union**,
 **Intersect Faces**, **Flip Along**, **Soften** edges, and **Bevel** in the
 Design workspace.
 
+### Joinery (dado, rabbet, tenon)
+
+For woodworking, **Tools › Joinery** cuts a **Dado**, a **Rabbet** or a **Tenon
+and mortise** between two boards that touch: pick both boards, choose the joint,
+say which board is cut, and leave the sizes blank for sensible defaults. It is
+one Undo step. See [Cut plan](08-plugins.md#joinery) for what each one does.
+
 ## Fix model (clean up and make solid)
 
 **Tools › Fix model** repairs a messy model in one step: it closes holes, turns reversed faces the right way round,

@@ -20,7 +20,7 @@ name in **Shift+S**.
 ## Cut plan
 
 **Tools › Cut plan…** packs the cut list's parts onto real sheets and boards, for
-what you have picked or the whole model. It has three views:
+what you have picked or the whole model. It has four views:
 
 - **Cutting diagram:** each sheet and board drawn to scale with every part
   numbered and sized. Parts are numbered longest first, the same order as the
@@ -35,6 +35,7 @@ what you have picked or the whole model. It has three views:
   with the model, and **Update plan** is one Undo step.
 - **What to buy:** sheets, boards, board feet and the cost per material, and the
   total. A material without a price is marked, and counts as zero.
+- **CNC files:** one DXF per part for a router (see [CNC files](#cnc-files)).
 
 **Export diagrams (PDF)** writes a summary page, a page for each sheet and pages of
 boards; **Export diagrams (SVG)** writes the same pages one under another.
@@ -42,6 +43,47 @@ boards; **Export diagrams (SVG)** writes the same pages one under another.
 one for each part: its number, name, size, material, which sheet or board it is
 cut from, and a grain arrow. Sheets are packed so every cut runs from edge to
 edge, which a panel saw can do.
+
+### CNC files
+
+**Export CNC files…** (the fourth view of the Cut plan) saves a `.zip` with **one
+DXF drawing per part**, in millimeters, named by the part's number and name
+(`01-Side-left.dxf`; the number is the one on the cutting diagram and the
+labels). Each part is drawn flat, seen from the side that faces up when it lies
+on the table, with its lower left corner at the origin:
+
+- layer **OUTLINE**: the part's edge;
+- layer **INSIDE**: holes that go all the way through;
+- layers **POCKET_6.0mm** and so on: floors cut from the top, named by their
+  depth, such as a dado or a rabbet (**POCKET_BOTTOM_…** when cut from the
+  underside; if every pocket is on the underside the part is turned over so they
+  are cut from the top).
+
+Type the **tool diameter**. With **Dog-bone corners** ticked, every inside
+corner gets a relief arc of the tool's radius centered on the corner, so a
+round bit can reach it: the corners of pockets and holes, and notches in the
+outline. A pocket corner at the edge of the part (a dado that runs off the
+board) is left alone, because the bit can leave there.
+
+### Joinery
+
+**Tools › Joinery** cuts joints between **two boards that touch** (pick both,
+then choose; you say which one is cut and the other one fits into it). Each is
+one Undo step, leaves a solid, and keeps the cut list right: a dado or a rabbet
+does not change a board's size, and a tenon makes its board longer by the tenon,
+which is the length to cut.
+
+- **Dado:** a groove in the face of one board, as wide as the other is thick,
+  where it stands on it. Depth defaults to a third of the board. A groove
+  that would run into the board's edge is refused (use a rabbet).
+- **Rabbet:** a step along the nearest edge of one board, out to the far side of
+  the other board, where it stands near that edge. Depth defaults to half.
+- **Tenon and mortise:** a tongue on the end of one board (length, thickness
+  and **shoulder**, how far in from each edge of its width) and the slot for it
+  in the board it meets; **clearance** gives the slot a little room all round.
+
+Boards that don't touch, that overlap, or where a board lies flat instead of
+standing on an edge or an end, are refused with a message, and nothing changes.
 
 ## Adding and managing plugins
 
