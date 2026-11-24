@@ -1800,14 +1800,23 @@ impl Model {
 
     /// A group and every group nested in it, at any depth.
     pub fn subtree(&self, gid: Id) -> BTreeSet<Id> {
-        let mut out = BTreeSet::from([gid]);
-        loop {
-            let more: Vec<Id> = self.groups.iter().filter(|(k, g)| !out.contains(k) && g.parent.is_some_and(|p| out.contains(&p))).map(|(&k, _)| k).collect();
-            if more.is_empty() {
-                return out;
+        // one pass over the groups to find each one's children, then a walk down: linear however deep the nesting goes
+        let mut kids: std::collections::HashMap<Id, Vec<Id>> = std::collections::HashMap::new();
+        for (&k, g) in &self.groups {
+            if let Some(p) = g.parent {
+                kids.entry(p).or_default().push(k);
             }
-            out.extend(more);
         }
+        let mut out = BTreeSet::from([gid]);
+        let mut stack = vec![gid];
+        while let Some(x) = stack.pop() {
+            for &k in kids.get(&x).into_iter().flatten() {
+                if out.insert(k) {
+                    stack.push(k);
+                }
+            }
+        }
+        out
     }
 
     /// A group and the groups it sits inside, innermost first.

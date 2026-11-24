@@ -243,11 +243,21 @@ fn thin_walls_with(faces: &[PFace], min_mm: f64, notes: &mut Vec<String>, indexe
     let min_m = min_mm / 1000.0;
     let bvh = if indexed { Some(Bvh::build(&tris)) } else { None };
     let mut best: BTreeMap<usize, (f64, DVec3)> = BTreeMap::new();
+    let mut work = 0u64;
+    let mut sampled = sampled;
     for t in tris.iter().step_by(stride) {
+        // stacked or overlapping parts put many boxes on every ray: past the budget the rest is left unchecked
+        if bvh.is_some() && work > WORK_BUDGET {
+            if !sampled {
+                notes.push("the parts overlap so much that wall thickness was only measured at some places".into());
+            }
+            sampled = true;
+            break;
+        }
         let origin = t.a + (t.e1 + t.e2) / 3.0;
         let dir = -t.n;
         let nearest = match &bvh {
-            Some(b) => b.nearest(&tris, origin, dir, t.face, min_m),
+            Some(b) => b.nearest(&tris, origin, dir, t.face, min_m, &mut work),
             None => nearest_plain(&tris, origin, dir, t.face),
         };
         if nearest < min_m {
@@ -305,6 +315,8 @@ struct Node {
 }
 
 const LEAF: usize = 4;
+/// Most box visits and triangle tests one wall check may spend (an ordinary model uses a small part of this).
+const WORK_BUDGET: u64 = 80_000_000;
 
 impl Bvh {
     fn build(tris: &[Tri]) -> Bvh {
@@ -356,7 +368,7 @@ impl Bvh {
     /// The distance to the nearest far side. Only a hit nearer than `stop_below` matters to the caller, so boxes
     /// farther than that are skipped (a farther answer may come back as infinity); below it the answer is the same
     /// as `nearest_plain`.
-    fn nearest(&self, tris: &[Tri], origin: DVec3, dir: DVec3, face: usize, stop_below: f64) -> f64 {
+    fn nearest(&self, tris: &[Tri], origin: DVec3, dir: DVec3, face: usize, stop_below: f64, work: &mut u64) -> f64 {
         let mut nearest = f64::INFINITY;
         if self.nodes.is_empty() {
             return nearest;
@@ -368,6 +380,7 @@ impl Bvh {
         stack[0] = 0;
         while sp > 0 {
             sp -= 1;
+            *work += 1;
             let node = &self.nodes[stack[sp] as usize];
             if !hit_box(node, origin, dir, inv, nearest.min(reach)) {
                 continue;
@@ -375,6 +388,7 @@ impl Bvh {
             if node.n > 0 {
                 for &ti in &self.order[node.a as usize..(node.a + node.n) as usize] {
                     let o = &tris[ti as usize];
+                    *work += 1;
                     if !counts(o, face, dir) {
                         continue;
                     }

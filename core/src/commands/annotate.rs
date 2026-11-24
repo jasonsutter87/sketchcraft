@@ -16,8 +16,10 @@ impl Engine {
                 bail!("close the component you are editing first, then lay out the parts");
             }
             let view = crate::parts_layout::laid_out_view(&self.model, &ids, gap)?;
+            // the person's own view stays theirs when a plugin or an agent asks for it again
+            let persons = self.laid_out.is_some() && !self.laid_out_by_other;
             self.laid_out = Some(crate::commands::LayOutRequest { ids, gap });
-            self.laid_out_by_other = self.untrusted;
+            self.laid_out_by_other = self.untrusted && !persons;
             let mut v = crate::parts_layout::summary(&view);
             v["laid_out"] = json!(true);
             return Ok(v);

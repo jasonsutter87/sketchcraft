@@ -135,20 +135,57 @@ fn depth_layer(prefix: &str, d: f64) -> String {
     format!("{prefix}{:.1}mm", d * 1000.0)
 }
 
-/// The loops of one part, in its flat frame.
-fn loops_of(m: &Model, world: &[crate::components::WFace], p: &Measured) -> Vec<Loop> {
-    let tree = if p.kind == "group" { Some(m.subtree(p.id)) } else { None };
-    let mine = |f: &&crate::components::WFace| match &tree {
-        Some(t) => f.face.and_then(|fid| m.faces.get(&fid)).and_then(|x| x.group).is_some_and(|x| t.contains(&x)),
-        None => f.owner == p.id,
-    };
+/// The world faces of each part, found by sorting the faces into their groups once (the work grows with the model, not
+/// with the parts times the model). Each list is in the order the model lists the faces.
+fn faces_by_part(m: &Model, world: &[crate::components::WFace], parts: &[Measured]) -> Vec<Vec<usize>> {
+    use std::collections::HashMap;
+    let mut kids: HashMap<Id, Vec<Id>> = HashMap::new();
+    for (&id, g) in &m.groups {
+        if let Some(p) = g.parent {
+            kids.entry(p).or_default().push(id);
+        }
+    }
+    let mut by_group: HashMap<Id, Vec<usize>> = HashMap::new();
+    let mut by_owner: HashMap<Id, Vec<usize>> = HashMap::new();
+    for (i, f) in world.iter().enumerate() {
+        by_owner.entry(f.owner).or_default().push(i);
+        if let Some(g) = f.face.and_then(|fid| m.faces.get(&fid)).and_then(|x| x.group) {
+            by_group.entry(g).or_default().push(i);
+        }
+    }
+    parts
+        .iter()
+        .map(|p| {
+            if p.kind == "group" {
+                let mut seen: std::collections::HashSet<Id> = std::collections::HashSet::from([p.id]);
+                let mut stack = vec![p.id];
+                let mut idx: Vec<usize> = Vec::new();
+                while let Some(x) = stack.pop() {
+                    idx.extend(by_group.get(&x).into_iter().flatten().copied());
+                    for &k in kids.get(&x).into_iter().flatten() {
+                        if seen.insert(k) {
+                            stack.push(k);
+                        }
+                    }
+                }
+                idx.sort_unstable();
+                idx
+            } else {
+                by_owner.get(&p.id).cloned().unwrap_or_default()
+            }
+        })
+        .collect()
+}
+
+/// The loops of one part, in its flat frame. `mine` are the indexes of the part's faces in `world`.
+fn loops_of(world: &[crate::components::WFace], mine: &[usize], p: &Measured) -> Vec<Loop> {
     let t = p.extent.z;
     // the faces square to the board's thickness, in the part's own frame: x along u, y along w, z along n
     let local = |q: DVec3| -> DVec3 {
         let d = q - p.origin;
         DVec3::new(d.dot(p.u), d.dot(p.w), d.dot(p.n))
     };
-    let faces: Vec<_> = world.iter().filter(mine).filter(|f| f.normal.normalize_or_zero().dot(p.n).abs() >= 1.0 - 1e-6).collect();
+    let faces: Vec<_> = mine.iter().map(|&i| &world[i]).filter(|f| f.normal.normalize_or_zero().dot(p.n).abs() >= 1.0 - 1e-6).collect();
     // seen from the up side (the side opposite `n`, the way the part lies in the lay-out). When every floor was cut from
     // the other side, turn the part over so they are cut from the top: one setup on the router.
     let floors = |down: bool| faces.iter().any(|f| f.outer.first().is_some_and(|q| { let z = local(*q).z; z > TOL && z < t - TOL }) && (f.normal.normalize_or_zero().dot(p.n) > 0.0) == down);
@@ -424,16 +461,24 @@ pub fn files(m: &Model, ids: &[Id], tool: f64, dogbones: bool) -> Result<Vec<Cnc
     if !tool.is_finite() || !(0.0..=MAX_TOOL).contains(&tool) {
         bail!("the tool diameter must be between 0 and {} mm", MAX_TOOL * 1000.0);
     }
+    // far more than a cut plan holds: refuse before measuring (a few of them may be flat and not count)
+    if crate::plugins::wanted_parts(m, ids).len() > crate::cutplan::MAX_PARTS * 4 {
+        bail!("that is more parts than CNC files take ({}); pick some of them", crate::cutplan::MAX_PARTS);
+    }
     let mut parts = measure(m, ids);
+    if parts.len() > crate::cutplan::MAX_PARTS {
+        bail!("{} parts is more than CNC files take ({}); pick some of them", parts.len(), crate::cutplan::MAX_PARTS);
+    }
     if parts.is_empty() {
         bail!("no parts to cut: pick groups or components that are solid boards, or draw some");
     }
     sort_parts(&mut parts);
     let world = m.world_faces();
     let count = parts.len();
+    let mine = faces_by_part(m, &world, &parts);
     let mut out = Vec::new();
     for (i, p) in parts.iter().enumerate() {
-        let loops = loops_of(m, &world, p);
+        let loops = loops_of(&world, &mine[i], p);
         if !loops.iter().any(|l| l.kind == Kind::Outline) {
             bail!("{} has no flat face to draw an outline from", p.name);
         }

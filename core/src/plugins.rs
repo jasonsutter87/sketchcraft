@@ -569,7 +569,9 @@ pub fn wanted_parts(m: &Model, ids: &[Id]) -> Vec<Id> {
         v.extend(m.instances.iter().filter(|(_, i)| !i.hidden && !m.definitions.get(&i.def).is_some_and(|d| d.face_me)).map(|(id, _)| *id));
         v
     } else {
-        ids.to_vec()
+        // a part listed twice is one part
+        let mut seen = std::collections::HashSet::new();
+        ids.iter().copied().filter(|i| seen.insert(*i)).collect()
     }
 }
 

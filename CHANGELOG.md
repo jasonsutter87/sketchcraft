@@ -147,6 +147,13 @@ What changed in each SketchCraft release, newest first. The format follows
     hidden text characters from names and won't append to a debug file that has other links.
   - Updated a dependency (`cookie`) to its fixed release.
   - Android: the app shares less through its file provider.
+  - More work limits: CNC files take a limited number of parts and are fast on big models; a curve or line from a plugin
+    or an agent that crosses what is already drawn many times is refused (and any long drawing is stopped and put back);
+    Print check stays quick on parts stacked in one place and says when it could only check some places; a list of ids
+    names each thing once; and placing many components one after another is much faster (the undo list is no longer
+    re-measured on every step).
+  - Fix model joins a flat grid imported from a DXF into one face every time, and a plugin asking for Lay out parts again
+    no longer takes over a view you switched on.
 
 ## [0.3.9] - 2026-11-20
 

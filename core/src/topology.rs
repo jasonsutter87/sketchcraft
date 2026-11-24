@@ -117,6 +117,7 @@ impl Model {
     /// so a transom across a mullion makes four panes. Each piece then splits
     /// edges it lands on, cuts faces it crosses edge-to-edge, and closes loops.
     pub fn draw_line(&mut self, p: DVec3, q: DVec3) -> Result<LineResult> {
+        self.check_deadline()?;
         let g = self.active_group;
         let mut cuts: Vec<(f64, DVec3)> = self
             .edges

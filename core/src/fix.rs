@@ -645,7 +645,8 @@ impl Model {
         if count < 3 {
             return None;
         }
-        let start = self.faces[&fs[0]].outer.iter().copied().find(|v| next.contains_key(v))?;
+        // from the first face when it touches the outline; a region whose first face is inside it starts at its lowest corner
+        let start = self.faces[&fs[0]].outer.iter().copied().find(|v| next.contains_key(v)).or_else(|| next.keys().min().copied())?;
         let mut out = vec![start];
         let mut cur = *next.get(&start)?;
         while cur != start {

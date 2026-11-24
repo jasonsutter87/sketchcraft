@@ -5,6 +5,7 @@ use super::*;
 
 impl Engine {
     pub(super) fn run_draw(&mut self, cmd: Command) -> Result<Value> {
+        let untrusted = self.untrusted;
         let m: &mut Model = active_model!(self);
         Ok(match cmd {
             Command::New { figure } => {
@@ -46,13 +47,9 @@ impl Engine {
                 if points.len() < 2 {
                     bail!("a line needs 2 points");
                 }
-                let (mut edges, mut faces) = (vec![], vec![]);
-                for w in points.windows(2) {
-                    let r = m.draw_line(v3(w[0]), v3(w[1]))?;
-                    edges.extend(r.edges);
-                    faces.extend(r.faces);
-                }
-                json!({"edges": edges, "faces": faces, "face": faces.last()})
+                let pts: Vec<DVec3> = points.into_iter().map(v3).collect();
+                let r = m.draw_pieces(&pts, untrusted)?;
+                json!({"edges": r.edges, "faces": r.faces, "face": r.faces.last()})
             }
             Command::Circle { center, radius, normal, segments } => {
                 let f = m.circle(v3(center), v3(normal), radius, segments)?;
@@ -74,12 +71,12 @@ impl Engine {
             }
             Command::Spline { points, closed, segments } => {
                 let pts = crate::curves::spline_points(&points.into_iter().map(v3).collect::<Vec<_>>(), closed, segments)?;
-                let r = m.draw_curve(&pts, closed)?;
+                let r = m.draw_curve_for(&pts, closed, untrusted)?;
                 json!({"edges": r.edges, "faces": r.faces, "face": r.faces.last(), "curve": r.curve, "points": r.points})
             }
             Command::Bezier { points, closed, segments } => {
                 let pts = crate::curves::bezier_points(&points.into_iter().map(v3).collect::<Vec<_>>(), closed, segments)?;
-                let r = m.draw_curve(&pts, closed)?;
+                let r = m.draw_curve_for(&pts, closed, untrusted)?;
                 json!({"edges": r.edges, "faces": r.faces, "face": r.faces.last(), "curve": r.curve, "points": r.points})
             }
             Command::MakeFaces { ids, open_holes } => {

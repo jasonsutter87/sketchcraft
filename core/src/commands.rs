@@ -226,6 +226,8 @@ pub struct Engine {
     pt: Option<crate::pt::Progress>,
     /// memory undo history may use (estimated bytes); 0: the default
     pub undo_budget: usize,
+    /// what each copy of the model in the undo and redo lists measured, so a step is measured once, not on every command
+    step_sizes: HashMap<(usize, usize, usize), usize>,
     /// an open batch: the model before it began, the revision then, and when
     batch: Option<(Model, u64, std::time::Instant)>,
     /// whose the open batch is (see `BatchKind`)
@@ -440,6 +442,7 @@ impl Engine {
             crate::policy::settle(caller, false);
             return json!({"ok": false, "error": e.to_string()});
         }
+        dedupe_ids(&mut v);
         let r = match serde_json::from_value::<Command>(v) {
             Ok(cmd) => self.exec(cmd),
             Err(e) => {
@@ -970,9 +973,10 @@ impl Engine {
     /// Keep undo history within `UNDO_LIMIT` steps and `UNDO_BYTES` of memory
     /// (the newest step is always kept).
     fn trim_undo(&mut self) {
-        let mut total: usize = self.undo.iter().map(Step::approx_bytes).sum();
+        let mut memo = std::mem::take(&mut self.step_sizes);
+        let mut total: usize = self.undo.iter().map(|s| step_bytes(&mut memo, s)).sum();
         while self.undo.len() > UNDO_LIMIT || (self.undo.len() > 1 && total > if self.undo_budget == 0 { UNDO_BYTES } else { self.undo_budget }) {
-            total = total.saturating_sub(self.undo[0].approx_bytes());
+            total = total.saturating_sub(step_bytes(&mut memo, &self.undo[0]));
             self.undo.remove(0);
             if !self.step_origins.is_empty() {
                 self.step_origins.remove(0);
@@ -980,14 +984,18 @@ impl Engine {
         }
         // what Redo holds counts against the same memory (patches are small; copies are not)
         let limit = if self.undo_budget == 0 { UNDO_BYTES } else { self.undo_budget };
-        let mut redo_total: usize = self.redo.iter().map(Step::approx_bytes).sum();
+        let mut redo_total: usize = self.redo.iter().map(|s| step_bytes(&mut memo, s)).sum();
         while self.redo.len() > 1 && redo_total > limit {
-            redo_total = redo_total.saturating_sub(self.redo[0].approx_bytes());
+            redo_total = redo_total.saturating_sub(step_bytes(&mut memo, &self.redo[0]));
             self.redo.remove(0);
             if !self.redo_origins.is_empty() {
                 self.redo_origins.remove(0);
             }
         }
+        // forget the copies that are gone
+        let live: std::collections::HashSet<(usize, usize, usize)> = self.undo.iter().chain(self.redo.iter()).flat_map(step_keys).collect();
+        memo.retain(|k, _| live.contains(k));
+        self.step_sizes = memo;
     }
 
     /// Undo (`back`) or Redo one step. A step taken since the last reload is a copy of the model; one taken before
@@ -1257,4 +1265,46 @@ fn video_dir(session: &str) -> Result<std::path::PathBuf> {
 /// Where app skins live: ~/Documents/SketchCraft/Skins.
 fn skins_dir() -> std::path::PathBuf {
     crate::library::default_dir().parent().map(|p| p.join("Skins")).unwrap_or_else(|| std::path::PathBuf::from("Skins"))
+}
+
+/// A list of `ids` names each thing once: a repeat would only make the command do (and pay for) the same work again.
+/// The first mention keeps its place. (Not for the commands that take two boards or shapes, where the order and the
+/// count mean something: a board named twice is an error they say so about.)
+fn dedupe_ids(v: &mut Value) {
+    if matches!(v.get("cmd").and_then(Value::as_str), Some("dado" | "rabbet" | "tenon" | "solid")) {
+        return;
+    }
+    if let Some(a) = v.get_mut("ids").and_then(Value::as_array_mut) {
+        if a.iter().all(Value::is_u64) {
+            let mut seen = std::collections::HashSet::new();
+            a.retain(|x| seen.insert(x.as_u64()));
+        }
+    }
+}
+
+/// Who a copy of the model is: where it lives and how big it is (a copy in the history is never changed, so the same
+/// place with the same counts is the same copy).
+fn model_key(m: &Model) -> (usize, usize, usize) {
+    (m as *const Model as usize, m.next_id as usize, m.vertices.len() + m.edges.len() + m.faces.len() + m.instances.len() + m.groups.len())
+}
+
+fn step_keys(s: &Step) -> Vec<(usize, usize, usize)> {
+    match s {
+        Step::Snap(m) => vec![model_key(m)],
+        Step::Patch(_) => vec![],
+        Step::Stale { before, after } => vec![model_key(before), model_key(after)],
+    }
+}
+
+fn sized(memo: &mut HashMap<(usize, usize, usize), usize>, m: &Model) -> usize {
+    *memo.entry(model_key(m)).or_insert_with(|| m.approx_bytes())
+}
+
+/// `Step::approx_bytes`, measuring each copy of the model once.
+fn step_bytes(memo: &mut HashMap<(usize, usize, usize), usize>, s: &Step) -> usize {
+    match s {
+        Step::Snap(m) => sized(memo, m),
+        Step::Patch(_) => s.approx_bytes(),
+        Step::Stale { before, after } => sized(memo, before) + if std::sync::Arc::strong_count(after) == 1 { sized(memo, after) } else { 0 },
+    }
 }
