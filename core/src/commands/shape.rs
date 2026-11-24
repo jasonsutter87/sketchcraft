@@ -5,6 +5,7 @@ use super::*;
 
 impl Engine {
     pub(super) fn run_shape(&mut self, cmd: Command) -> Result<Value> {
+        let untrusted = self.untrusted;
         let m: &mut Model = active_model!(self);
         Ok(match cmd {
             Command::Weld { edges } => json!({"curve": m.weld(&edges)?}),
@@ -128,7 +129,7 @@ impl Engine {
             Command::Intersect { ids, with } => json!({"lines": m.intersect(&ids, with != "selection")?}),
             Command::Flip { ids, axis } => json!({"moved": m.flip(&ids, axis_index(&axis)?)?}),
             Command::Solid { op, ids } => {
-                let groups = crate::csg::solid(m, &op, &ids)?;
+                let groups = m.with_deadline(untrusted.then_some(crate::csg::SOLID_SECONDS), |m| crate::csg::solid(m, &op, &ids))?;
                 json!({"groups": groups, "group": groups.first()})
             }
             // on a scratch copy: checking adds paint entries it doesn't need to keep

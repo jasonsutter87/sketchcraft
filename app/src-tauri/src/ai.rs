@@ -106,12 +106,26 @@ fn is_format_char(c: char) -> bool {
         | '\u{1D173}'..='\u{1D17A}' | '\u{E0000}'..='\u{E007F}')
 }
 
+/// Characters that draw nothing (or only a blank) but are not format characters or spaces: Hangul and Khmer fillers,
+/// the Braille blank, the combining grapheme joiner, Mongolian free variation selectors and the variation selectors.
+fn is_invisible_filler(c: char) -> bool {
+    matches!(c,
+        '\u{034F}' | '\u{115F}' | '\u{1160}' | '\u{17B4}' | '\u{17B5}' | '\u{180B}'..='\u{180F}' | '\u{2800}' | '\u{3164}'
+        | '\u{FE00}'..='\u{FE0F}' | '\u{FFA0}' | '\u{E0100}'..='\u{E01EF}')
+}
+
+/// Spaces other than the plain one (no-break, en and em, thin, ideographic ...): the plain one stands in for them.
+fn is_odd_space(c: char) -> bool {
+    matches!(c, '\u{00A0}' | '\u{1680}' | '\u{2000}'..='\u{200A}' | '\u{202F}' | '\u{205F}' | '\u{3000}')
+}
+
 /// A name from the file, made safe to put in the prompt as data: no control or invisible/direction characters, no
 /// quotes or backslashes (so it can't close the quotes it sits in), at most 40 characters.
 pub fn clean_name(name: &str) -> String {
     let s: String = name
         .chars()
-        .filter(|c| !c.is_control() && !is_format_char(*c) && !matches!(c, '"' | '\\' | '\u{2028}' | '\u{2029}'))
+        .map(|c| if is_odd_space(c) { ' ' } else { c })
+        .filter(|c| !c.is_control() && !is_format_char(*c) && !is_invisible_filler(*c) && !matches!(c, '"' | '\\' | '\u{2028}' | '\u{2029}'))
         .take(40)
         .collect();
     s.trim().to_string()
@@ -473,6 +487,19 @@ mod tests {
     fn invisible_tag_and_separator_characters_are_stripped() {
         let hidden = "Door\u{E0041}\u{E0042}\u{E007F}\u{2028}\u{2029}\u{2060}\u{00AD}\u{FEFF}!";
         assert_eq!(clean_name(hidden), "Door!");
+    }
+
+    #[test]
+    fn invisible_filler_characters_are_stripped() {
+        for filler in ['\u{3164}', '\u{2800}', '\u{115F}', '\u{1160}', '\u{FFA0}', '\u{180E}', '\u{17B4}', '\u{17B5}', '\u{034F}', '\u{FE0F}', '\u{E0100}', '\u{180B}'] {
+            assert_eq!(clean_name(&format!("Door{filler}{filler}Left")), "DoorLeft", "U+{:04X}", filler as u32);
+        }
+        // a name made only of fillers is empty, not a blank-looking name
+        assert_eq!(clean_name("\u{3164}\u{2800}\u{115F}\u{FFA0}"), "");
+        // odd spaces become a plain one, and the ends are trimmed
+        assert_eq!(clean_name("\u{00A0}Door\u{3000}Left\u{2003}"), "Door Left");
+        // the fillers don't count toward the length limit
+        assert_eq!(clean_name(&format!("{}A", "\u{3164}".repeat(100))), "A");
     }
 
     #[cfg(unix)]

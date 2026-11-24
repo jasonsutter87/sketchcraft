@@ -93,6 +93,7 @@ pub fn load_file(path: &str) -> Result<Model> {
                 bail!("{name} isn't a consistent model ({what} refers to something that isn't there)");
             }
             m.repair_ids();
+            m.repair_group_loops();
             m.vet_pictures();
             m.vet_face_data();
             m.check_sane_with(false)?;

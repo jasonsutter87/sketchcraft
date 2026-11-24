@@ -191,18 +191,24 @@ impl Model {
 
     /// Copy faces, groups or instances, offset by `by`. Returns the new ids.
     pub fn duplicate(&mut self, ids: &[Id], by: DVec3) -> Result<Vec<Id>> {
-        self.duplicate_with(ids, by, &mut crate::model::Lookup::default())
+        let mut index = crate::model::CopyIndex::new(self);
+        self.duplicate_with(ids, by, &mut crate::model::Lookup::default(), &mut index)
     }
 
-    fn duplicate_with(&mut self, ids: &[Id], by: DVec3, look: &mut crate::model::Lookup) -> Result<Vec<Id>> {
+    fn duplicate_with(&mut self, ids: &[Id], by: DVec3, look: &mut crate::model::Lookup, index: &mut crate::model::CopyIndex) -> Result<Vec<Id>> {
         self.check_room(self.copy_cost(ids))?;
         let mut out = Vec::new();
         let mut loose = Vec::new();
         for &id in ids {
             if self.groups.contains_key(&id) {
-                out.push(self.copy_group(id, by, None)?);
+                self.check_deadline()?;
+                let parent = self.groups[&id].parent;
+                out.push(self.copy_group_into(id, by, None, parent, index)?);
             } else if let Some(i) = self.instances.get(&id).cloned() {
                 let nid = self.new_id();
+                if let Some(p) = i.parent {
+                    index.instances.entry(p).or_default().push(nid);
+                }
                 self.instances.insert(nid, crate::model::Instance { transform: DMat4::from_translation(by) * i.transform, ..i });
                 out.push(nid);
             } else if self.faces.contains_key(&id) {
@@ -253,8 +259,9 @@ impl Model {
         self.check_room(self.copy_cost(ids).saturating_mul(count))?;
         let mut out = Vec::new();
         let mut look = crate::model::Lookup::default();
+        let mut index = crate::model::CopyIndex::new(self);
         for k in 1..=count {
-            out.extend(self.duplicate_with(ids, by * k as f64, &mut look)?);
+            out.extend(self.duplicate_with(ids, by * k as f64, &mut look, &mut index)?);
         }
         Ok(out)
     }

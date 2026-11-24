@@ -154,6 +154,12 @@ What changed in each SketchCraft release, newest first. The format follows
     re-measured on every step).
   - Fix model joins a flat grid imported from a DXF into one face every time, and a plugin asking for Lay out parts again
     no longer takes over a view you switched on.
+  - A model whose groups loop back on themselves opens safely: the loop is broken and you are told, instead of copying
+    the group crashing the app. Grouping the group you are working in is refused, and copying a very deeply nested group
+    works. Duplicating thousands of groups at once is fast, and a plugin or agent that asks for too much copying or
+    solid work is stopped and put back. Solid tools treat a repeated id as one, a curve that crosses itself many times is
+    refused even when other lines are nearby, the undo list keeps less memory for big pictures, and the SketchCraft AI box
+    also drops invisible filler characters from names.
 
 ## [0.3.9] - 2026-11-20
 

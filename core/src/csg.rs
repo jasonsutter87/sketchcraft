@@ -692,6 +692,9 @@ pub fn to_group(m: &mut Model, polys: &[Poly], name: &str) -> Result<Id> {
     Ok(gid)
 }
 
+/// How long a solid tool called by an agent or a plugin may take before it is stopped and put back.
+pub const SOLID_SECONDS: std::time::Duration = std::time::Duration::from_secs(10);
+
 /// Run a solid tool on groups / component instances (SketchUp's order:
 /// for subtract and trim the first one cuts the second). Returns the
 /// resulting group(s).
@@ -700,10 +703,12 @@ pub fn solid(m: &mut Model, op: &str, ids: &[Id]) -> Result<Vec<Id>> {
         return cut(m, ids, op == "subtract").map(|group| vec![group]);
     }
     if ids.len() < 2 {
-        bail!("pick at least two solids");
+        bail!("pick at least two different solids");
     }
     let mut polys = Vec::new();
     for id in ids {
+        // an agent's or a plugin's call has a time limit (see `Model::with_deadline`); the person's does not
+        m.check_deadline()?;
         polys.push(solid_polys(m, *id)?);
         if std::env::var("CSG_DEBUG").is_ok() { eprintln!("operand {id}: {} triangles", polys.last().unwrap().len()); }
     }
@@ -716,6 +721,7 @@ pub fn solid(m: &mut Model, op: &str, ids: &[Id]) -> Result<Vec<Id>> {
             let nm = name(m, ids[0]);
             let mut acc = polys[0].clone();
             for p in &polys[1..] {
+                m.check_deadline()?;
                 acc = boolean(acc, p.clone(), Op::Union)?;
             }
             m.delete(ids)?;
@@ -725,14 +731,15 @@ pub fn solid(m: &mut Model, op: &str, ids: &[Id]) -> Result<Vec<Id>> {
             let nm = name(m, ids[0]);
             let mut acc = polys[0].clone();
             for p in &polys[1..] {
+                m.check_deadline()?;
                 acc = boolean(acc, p.clone(), Op::Intersect)?;
             }
             m.delete(ids)?;
             vec![to_group(m, &acc, &nm)?]
         }
         "split" => {
-            if ids.len() != 2 {
-                bail!("split takes two solids");
+            if ids.len() != 2 || ids[0] == ids[1] {
+                bail!("split takes two different solids");
             }
             let (na, nb) = (name(m, ids[0]), name(m, ids[1]));
             let a_only = boolean(polys[0].clone(), polys[1].clone(), Op::Subtract)?;

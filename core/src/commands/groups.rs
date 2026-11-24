@@ -5,6 +5,7 @@ use super::*;
 
 impl Engine {
     pub(super) fn run_groups(&mut self, cmd: Command) -> Result<Value> {
+        let self_untrusted = self.untrusted;
         let m: &mut Model = active_model!(self);
         Ok(match cmd {
             Command::BeginGroup { name } => {
@@ -63,7 +64,7 @@ impl Engine {
                 let Some(face) = face else { bail!("no face there") };
                 json!({"face": face, "exact": on.is_some()})
             }
-            Command::Copy { group, by, name } => json!({"group": m.copy_group(group, v3(by), name)?}),
+            Command::Copy { group, by, name } => json!({"group": m.with_deadline(self_untrusted.then_some(UNTRUSTED_COPY_SECONDS), |m| m.copy_group(group, v3(by), name))?}),
             Command::MakeComponent { ids, name } => {
                 let n = name.unwrap_or_else(|| format!("Component {}", m.definitions.len() + 1));
                 let inst = m.make_component(&ids, n)?;

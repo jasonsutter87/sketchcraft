@@ -50,6 +50,8 @@ impl Engine {
                 }
                 // ids from outside: the counter must be above every id in the file, or the next drawing overwrites something
                 opened.repair_ids();
+                // groups that sit inside each other in a loop (a damaged or hand-edited file) would send copying round forever: each loop is broken
+                let group_loops = opened.repair_group_loops();
                 opened.vet_pictures();
                 opened.vet_face_data();
                 let sheets_clamped = opened.vet_sheets();
@@ -70,6 +72,9 @@ impl Engine {
                 let mut v = json!({"path": if from_data { None } else { Some(&path) }, "faces": self.model.faces.len(), "read_only": self.read_only.as_ref().map(|r| r.reasons.clone())});
                 if !sheets_clamped.is_empty() {
                     v["sheets_clamped"] = json!(sheets_clamped);
+                }
+                if group_loops > 0 {
+                    v["group_loops_repaired"] = json!(group_loops);
                 }
                 v
             }

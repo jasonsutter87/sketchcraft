@@ -1931,13 +1931,7 @@ pub fn raise_walls_with(m: &mut Model, group: Id, height: f64, max_thickness: f6
         anyhow::bail!("height must be above 0 (and the wall thickness too)");
     }
     // the group and everything inside it
-    let mut all = vec![group];
-    let mut i = 0;
-    while i < all.len() {
-        let g = all[i];
-        all.extend(m.groups.iter().filter(|(_, x)| x.parent == Some(g)).map(|(k, _)| *k));
-        i += 1;
-    }
+    let all: Vec<Id> = m.subtree(group).into_iter().collect();
     let named: Vec<Id> = all.iter().copied().filter(|g| wallish(&m.groups[g].name) || m.groups[g].tag.as_deref().is_some_and(wallish)).collect();
     let look: Vec<Id> = if named.is_empty() { all } else { named };
     let mut picked = vec![];

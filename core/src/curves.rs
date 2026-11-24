@@ -184,6 +184,13 @@ impl Model {
     pub fn draw_pieces(&mut self, pts: &[DVec3], untrusted: bool) -> Result<crate::topology::LineResult> {
         let before = self.deadline;
         if untrusted {
+            // a chain that crosses itself over and over is as costly as one that crosses the drawing, whatever is or isn't near it
+            if pts.len() >= 3 {
+                let closed = pts.len() > 3 && pts[0] == pts[pts.len() - 1];
+                if self_crossings(pts, closed).is_some_and(|h| h > MAX_SELF_CROSSINGS) {
+                    bail!("that line crosses or touches itself more than {MAX_SELF_CROSSINGS} times; draw it in smaller parts");
+                }
+            }
             let n = self.existing_touches(pts, MAX_EXISTING_CROSSINGS + 1);
             if n > MAX_EXISTING_CROSSINGS {
                 bail!("that crosses or touches what is already drawn more than {MAX_EXISTING_CROSSINGS} times; draw it in smaller parts");
@@ -316,37 +323,27 @@ fn seg_dist(p: DVec3, q: DVec3, r: DVec3, s: DVec3) -> f64 {
     (p + d1 * sn).distance(r + d2 * t)
 }
 
-/// Whether a chain of points touches the model's own geometry in the active group, or itself.
-fn chain_state(m: &Model, pts: &[DVec3], closed: bool) -> Chain {
+/// How many places the chain's pieces cross or touch each other (not counting neighbours), counting up to
+/// `MAX_SELF_CROSSINGS + 1`; `None` if there are too many very long pieces to compare. A grid over the pieces, so
+/// only close ones are compared.
+fn self_crossings(pts: &[DVec3], closed: bool) -> Option<usize> {
     let n = pts.len() - 1; // pieces
-    let (mut lo, mut hi) = (pts[0], pts[0]);
-    for p in pts {
-        lo = lo.min(*p);
-        hi = hi.max(*p);
-    }
-    let pad = DVec3::splat(TOUCH * 10.0 + WELD);
-    let (blo, bhi) = (lo - pad, hi + pad);
-    let g = m.active_group;
-    let near = |a: DVec3, b: DVec3| a.min(b).cmple(bhi).all() && a.max(b).cmpge(blo).all();
-    if m.vertices.values().any(|v| v.group == g && v.p.cmpge(blo).all() && v.p.cmple(bhi).all()) {
-        return Chain::Busy;
-    }
-    if m.edges.values().any(|e| e.group == g && near(m.p(e.a), m.p(e.b))) {
-        return Chain::Busy;
-    }
-    // pieces too short to keep apart count as touching (line drawing would weld them)
-    if pts.windows(2).any(|w| w[0].distance(w[1]) <= WELD * 4.0) {
-        return Chain::Busy;
-    }
-    // the curve against itself: a grid over the pieces, so only close ones are compared
+    let lo = pts.iter().fold(pts[0], |a, p| a.min(*p));
     let cell = (pts.windows(2).map(|w| w[0].distance(w[1])).sum::<f64>() / n as f64 * 2.0).max(TOUCH * 100.0);
     let key = |p: DVec3| -> (i64, i64, i64) { (((p.x - lo.x) / cell).floor() as i64, ((p.y - lo.y) / cell).floor() as i64, ((p.z - lo.z) / cell).floor() as i64) };
     let mut grid: std::collections::HashMap<(i64, i64, i64), Vec<usize>> = std::collections::HashMap::new();
+    let mut long: Vec<usize> = Vec::new();
     for i in 0..n {
         let (k0, k1) = (key(pts[i].min(pts[i + 1]) - DVec3::splat(TOUCH)), key(pts[i].max(pts[i + 1]) + DVec3::splat(TOUCH)));
         let cells = (k1.0 - k0.0 + 1).max(1) as i128 * (k1.1 - k0.1 + 1).max(1) as i128 * (k1.2 - k0.2 + 1).max(1) as i128;
         if cells > 4096 {
-            return Chain::Busy; // a piece far longer than its neighbours: let line drawing sort it out
+            // a piece far longer than its neighbours: compared with every piece below (or, if there are too many of
+            // those pairs to count, left to line drawing)
+            long.push(i);
+            if long.len().saturating_mul(n) > 20_000_000 {
+                return None;
+            }
+            continue;
         }
         for x in k0.0..=k1.0 {
             for y in k0.1..=k1.1 {
@@ -372,12 +369,55 @@ fn chain_state(m: &Model, pts: &[DVec3], closed: bool) -> Chain {
                 if seg_dist(pts[i], pts[i + 1], pts[j], pts[j + 1]) < TOUCH {
                     hits += 1;
                     if hits > MAX_SELF_CROSSINGS {
-                        return Chain::Crossed(hits);
+                        return Some(hits);
                     }
                 }
             }
         }
     }
+    let mut is_long = vec![false; n];
+    for &i in &long {
+        is_long[i] = true;
+    }
+    for &i in &long {
+        for j in 0..n {
+            let (a, b) = (i.min(j), i.max(j));
+            if i == j || adjacent(a, b) || (is_long[j] && j < i) {
+                continue;
+            }
+            if seg_dist(pts[i], pts[i + 1], pts[j], pts[j + 1]) < TOUCH {
+                hits += 1;
+                if hits > MAX_SELF_CROSSINGS {
+                    return Some(hits);
+                }
+            }
+        }
+    }
+    Some(hits)
+}
+
+/// Whether a chain of points touches the model's own geometry in the active group, or itself.
+fn chain_state(m: &Model, pts: &[DVec3], closed: bool) -> Chain {
+    let n = pts.len() - 1; // pieces
+    let (mut lo, mut hi) = (pts[0], pts[0]);
+    for p in pts {
+        lo = lo.min(*p);
+        hi = hi.max(*p);
+    }
+    let pad = DVec3::splat(TOUCH * 10.0 + WELD);
+    let (blo, bhi) = (lo - pad, hi + pad);
+    let g = m.active_group;
+    let near = |a: DVec3, b: DVec3| a.min(b).cmple(bhi).all() && a.max(b).cmpge(blo).all();
+    // meeting existing geometry (or pieces too short to keep apart, which line drawing would weld) means drawing piece
+    // by piece; that must not skip the count of the curve's own crossings below, so it is only noted here
+    let mut busy = m.vertices.values().any(|v| v.group == g && v.p.cmpge(blo).all() && v.p.cmple(bhi).all()) || m.edges.values().any(|e| e.group == g && near(m.p(e.a), m.p(e.b)));
+    busy |= pts.windows(2).any(|w| w[0].distance(w[1]) <= WELD * 4.0);
+    // the curve against itself (counted whatever else it meets)
+    let hits = match self_crossings(pts, closed) {
+        Some(h) if h > MAX_SELF_CROSSINGS => return Chain::Crossed(h),
+        Some(h) => h,
+        None => return Chain::Busy, // too many long pieces to compare: line drawing sorts it out
+    };
     // adjacent pieces that fold back on each other overlap too
     for i in 0..n.saturating_sub(1) {
         let (a, b, c) = (pts[i], pts[i + 1], pts[i + 2]);
@@ -385,7 +425,7 @@ fn chain_state(m: &Model, pts: &[DVec3], closed: bool) -> Chain {
             return Chain::Busy;
         }
     }
-    if hits > 0 {
+    if busy || hits > 0 {
         Chain::Busy
     } else {
         Chain::Clear

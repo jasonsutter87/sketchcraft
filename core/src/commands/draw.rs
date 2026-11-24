@@ -126,8 +126,9 @@ impl Engine {
                 };
                 json!({"moved": m.scale(&ids, v3(center), f)?})
             }
-            Command::Duplicate { ids, by } => json!({"ids": m.duplicate(&ids, v3(by))?}),
-            Command::Array { ids, by, count } => json!({"ids": m.array(&ids, v3(by), count)?}),
+            // an agent's or a plugin's copying is stopped (and put back) if it takes longer than `UNTRUSTED_COPY_SECONDS`; the person's is not
+            Command::Duplicate { ids, by } => json!({"ids": m.with_deadline(untrusted.then_some(UNTRUSTED_COPY_SECONDS), |m| m.duplicate(&ids, v3(by)))?}),
+            Command::Array { ids, by, count } => json!({"ids": m.with_deadline(untrusted.then_some(UNTRUSTED_COPY_SECONDS), |m| m.array(&ids, v3(by), count))?}),
             Command::Delete { ids } => {
                 m.delete(&ids)?;
                 json!({})

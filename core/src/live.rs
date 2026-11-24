@@ -230,6 +230,9 @@ impl Live {
             if !clamped.is_empty() {
                 self.set_notice(format!("Some drawing-sheet content in this file was over SketchCraft's limits and was trimmed to fit ({}). The file itself is unchanged until the model is saved.", clamped.join("; ")));
             }
+            if let Some(n) = r["group_loops_repaired"].as_u64().filter(|n| *n > 0) {
+                self.set_notice(format!("This file had {n} group{} that sat inside {}selves (a loop), which could have made copying fail; {} moved to the top level. The file itself is unchanged until the model is saved.", if n == 1 { "" } else { "s" }, if n == 1 { "it" } else { "them" }, if n == 1 { "it was" } else { "they were" }));
+            }
             let skipped: Vec<String> = r["skipped_pictures"].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect()).unwrap_or_default();
             if !skipped.is_empty() {
                 self.set_notice(skipped_text(&skipped));

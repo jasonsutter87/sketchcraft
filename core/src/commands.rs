@@ -307,9 +307,14 @@ pub const MAX_OPEN_BYTES: u64 = 768 << 20;
 /// its estimate. A library part or a thumbnail is held to `library::MAX_LIBRARY_BYTES`.
 pub const MAX_OPEN_BYTES_UNTRUSTED: u64 = 256 << 20;
 
+/// How long copying (copy, duplicate, array) for an agent or a plugin may take before it is stopped and put back.
+pub(crate) const UNTRUSTED_COPY_SECONDS: std::time::Duration = std::time::Duration::from_secs(8);
 const UNDO_LIMIT: usize = 200;
-/// Undo history never holds more than about this much (per-step sizes are estimates).
-const UNDO_BYTES: usize = 768 << 20;
+/// Undo history never holds more than about this much (per-step sizes are estimates; measured with 11 MB picture
+/// steps the estimate matches the live heap to within a few percent). The system holds more than the live heap, since
+/// memory freed as old steps are dropped isn't all handed back at once: about 1.5 times the budget in all on macOS, so
+/// the budget is set to keep that under about 800 MB.
+pub const UNDO_BYTES: usize = 512 << 20;
 
 fn v3(a: [f64; 3]) -> DVec3 {
     DVec3::from(a)
@@ -668,6 +673,7 @@ impl Engine {
         }
         let mut model = model;
         model.repair_ids();
+        model.repair_group_loops();
         model.vet_pictures();
         model.vet_face_data();
         model.vet_sheets();
@@ -1271,7 +1277,9 @@ fn skins_dir() -> std::path::PathBuf {
 /// The first mention keeps its place. (Not for the commands that take two boards or shapes, where the order and the
 /// count mean something: a board named twice is an error they say so about.)
 fn dedupe_ids(v: &mut Value) {
-    if matches!(v.get("cmd").and_then(Value::as_str), Some("dado" | "rabbet" | "tenon" | "solid")) {
+    // (`solid` subtract, trim and split take exactly two different solids and say so; its other tools take any number, and a repeat is nothing new)
+    let cmd = v.get("cmd").and_then(Value::as_str);
+    if matches!(cmd, Some("dado" | "rabbet" | "tenon")) || (cmd == Some("solid") && !matches!(v.get("op").and_then(Value::as_str), Some("union" | "intersect" | "outer_shell"))) {
         return;
     }
     if let Some(a) = v.get_mut("ids").and_then(Value::as_array_mut) {
