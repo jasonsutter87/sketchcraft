@@ -251,7 +251,11 @@ const menuItem = async (id) => {
   await p.locator(`[data-action="${id}"]`).click();
   await wait(300);
 };
-const toastText = () => p.locator('.toast').first().innerText({ timeout: 2500 }).catch(() => '');
+// every toast on screen, newest last: an earlier one can still be fading out when the next arrives (slower on CI)
+const toastText = async () => {
+  await p.locator('.toast').last().waitFor({ timeout: 2500 }).catch(() => {});
+  return (await p.locator('.toast').allInnerTexts().catch(() => [])).join(' | ');
+};
 const allFlat = (s, z) => {
   const zs = edgeSegs(s).flatMap((e) => [e[0][2], e[1][2]]);
   return zs.length > 0 && zs.every((v) => near(v, z, 0.001));

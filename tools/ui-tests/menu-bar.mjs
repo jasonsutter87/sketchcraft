@@ -489,7 +489,7 @@ for (const layout of ['classic', 'floating', 'side']) {
   const sent = execRequest(p, 'export_fbx');
   await item(p, 'file.export.fbx').click();
   await sent.then(() => check(true, 'choosing FBX sends export_fbx'), () => check(false, 'choosing FBX sends export_fbx'));
-  for (let i = 0; i < 50 && !fs.existsSync(out); i++) await wait(100);
+  for (let i = 0; i < 100 && !(fs.existsSync(out) && fs.statSync(out).size > 0); i++) await wait(100);
   const size = fs.existsSync(out) ? fs.statSync(out).size : 0;
   check(size > 0, `the FBX file exists and is not empty (${size} bytes)`);
   check(size > 27 && fs.readFileSync(out).subarray(0, 20).toString('latin1') === 'Kaydara FBX Binary  ', 'it is a binary FBX');
@@ -508,11 +508,26 @@ for (const [width, wide] of [[1366, false], [1366, true], [1280, false], [1100, 
   const buttons = await p.locator('[role=menubar] > .menubar-item > button').evaluateAll((els) => els.map((e) => e.getBoundingClientRect()));
   const sw = await p.locator('.ws-switch').boundingBox();
   const last = buttons[buttons.length - 1];
-  check(buttons.every((r) => r.width > 0) && last.x + last.width <= width, `${width}px wide${wide ? ' (wider font)' : ''}: every menu name is on screen`);
-  check(!sw || last.x + last.width <= sw.x + 1, `${width}px wide${wide ? ' (wider font)' : ''}: the menus don't overlap the workspace switch (${Math.round(last.x + last.width)} vs ${Math.round(sw?.x)})`);
-  await openMenu(p, 'Help');
-  const m = await menu(p, 'Help').boundingBox();
-  check(m.x >= 0 && m.x + m.width <= width, `${width}px wide${wide ? ' (wider font)' : ''}: Help opens inside the window`);
+  const tag = `${width}px wide${wide ? ' (wider font)' : ''}`;
+  check(buttons.every((r) => r.width > 0) && last.x + last.width <= width, `${tag}: every menu name is on screen`);
+  check(!sw || last.x + last.width <= sw.x + 1, `${tag}: the menus don't overlap the workspace switch (${Math.round(last.x + last.width)} vs ${Math.round(sw?.x)})`);
+  if (width < 1024) {
+    // narrower than 1024 the eight menus fold into one Menu (COMPACT_MENUS in menubar.tsx), each a submenu
+    check(buttons.length === 1, `${tag}: the eight menus are folded into one Menu (${buttons.length} button)`);
+    await top(p, 'all').click();
+    const mm = await menu(p, 'Menu').boundingBox();
+    check(mm && mm.x >= 0 && mm.x + mm.width <= width, `${tag}: the Menu opens inside the window`);
+    const subs = await menu(p, 'Menu').locator(':scope > [role^=menuitem]').allInnerTexts();
+    check(NAMES.every((n) => subs.some((s) => s.includes(n))), `${tag}: the Menu lists ${NAMES.join(', ')} (${subs.map((s) => s.replace('▸', '').trim()).join(', ')})`);
+    await menu(p, 'Menu').getByRole('menuitem', { name: 'Help' }).hover();
+    await wait(200);
+    const hm = await menu(p, 'Help').boundingBox();
+    check(hm && hm.x >= 0 && hm.x + hm.width <= width, `${tag}: Help opens inside the window`);
+  } else {
+    await openMenu(p, 'Help');
+    const m = await menu(p, 'Help').boundingBox();
+    check(m.x >= 0 && m.x + m.width <= width, `${tag}: Help opens inside the window`);
+  }
   await ctx.close();
 }
 
