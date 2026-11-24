@@ -88,6 +88,10 @@ What changed in each SketchCraft release, newest first. The format follows
   with "this SketchUp file looks damaged": the reader didn't know guide lines and could not read the model's list past
   the first one. It now reads them and goes on (guide lines themselves are not brought in), so the model opens with
   all its parts and dimensions. Thanks to Tim Rowledge for the file. (Refs #200)
+- **SketchUp 8 files open with all their components.** A SketchUp 8 model built from components inside components (a
+  "Rustic Pine Bed") opened with only a couple of them: the reader expected an ID at the end of each placement that only
+  SketchUp 2013 and later write, so it lost every placement after the first in each list. Thanks to Tim Rowledge for
+  the file. (Refs #201)
 - **SketchUp 2017 files with dimensions open.** A SketchUp 2017 model whose own list starts with a dimension failed
   with "this SketchUp file looks damaged": the reader didn't take a list that starts with a dimension or a text for the
   model's, and lost its way inside it. It also now reads what 2017 files add to a dimension (the components between it

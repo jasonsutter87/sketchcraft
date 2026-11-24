@@ -1202,7 +1202,8 @@ pub fn parse(d: &[u8]) -> Result<SkpFile> {
     file.version = r.cstring().unwrap_or_default();
     let major: u32 = file.version.trim_start_matches('{').split('.').next().and_then(|v| v.parse().ok()).unwrap_or(0);
     let newf = major >= 17;
-    let old = major <= 7;
+    // a placement carries a 16-byte GUID after its name only from SketchUp 2013 (13) on; 6, 7 and 8 have none (#201)
+    let old = major <= 12;
     // How long the whole read may take, either kind of file: 4 s, plus 4 s per megabyte, never more than 30 s.
     let allowed = std::time::Duration::from_millis((4000 + (d.len() as u64 * 4000 >> 20)).min(30_000));
     let deadline = std::time::Instant::now() + allowed;
