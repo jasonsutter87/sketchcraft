@@ -397,9 +397,9 @@ fn a_3mf_name_with_non_characters_is_still_well_formed() {
 }
 
 #[test]
-fn print_check_does_not_call_a_sampled_model_ready() {
+fn print_check_measures_every_triangle_of_a_big_clean_model_and_calls_it_ready() {
     let mut e = Engine::new();
-    // 1,200 separate solid cubes: more triangles than the wall check looks at one by one
+    // 1,200 separate solid cubes (14,400 triangles): the wall check measures every one of them, so a clean one is ready
     let m = &mut e.model;
     for i in 0..1200 {
         let (ox, oy) = ((i % 40) as f64 * 0.004, (i / 40) as f64 * 0.004);
@@ -415,10 +415,9 @@ fn print_check_does_not_call_a_sampled_model_ready() {
         }
     }
     let r = run(&mut e, json!({"cmd": "print_check"}));
-    assert_eq!(r["thin_walls"]["sampled"], true, "{}", r["notes"]);
+    assert_eq!(r["thin_walls"]["sampled"], false, "{}", r["notes"]);
     assert_eq!(r["thin_walls"]["count"], 0);
-    assert_eq!(r["ready"], false, "a sampled check can't promise a printable model");
-    assert!(r["notes"].as_array().unwrap().iter().any(|n| n.as_str().unwrap().contains("not marked ready")), "{}", r["notes"]);
+    assert_eq!(r["ready"], true, "{}", r["notes"]);
 }
 
 #[test]
