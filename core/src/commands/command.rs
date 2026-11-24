@@ -40,6 +40,42 @@ pub enum Command {
         #[serde(default = "arc_segments")]
         segments: usize,
     },
+    /// A smooth curve THROUGH the points (centripetal Catmull-Rom), as one chain of edges like an arc; `segments` pieces
+    /// between each two points. `closed` joins the last point to the first (a flat loop makes a face).
+    Spline {
+        points: Vec<[f64; 3]>,
+        #[serde(default)]
+        closed: bool,
+        #[serde(default = "arc_segments")]
+        segments: usize,
+    },
+    /// Chained cubic Bezier curves, as one chain of edges: `points` are anchor, handle, handle, anchor (then handle,
+    /// handle, anchor for each next piece), so 4, 7, 10... points. `segments` pieces per cubic. `closed`: the last
+    /// anchor is the first.
+    Bezier {
+        points: Vec<[f64; 3]>,
+        #[serde(default)]
+        closed: bool,
+        #[serde(default = "bezier_segments")]
+        segments: usize,
+    },
+    /// Close every closed loop of loose lines with a face (lines that cross or meet are cut there first). A loop inside
+    /// another becomes a hole in it. `ids`: lines, or groups to take loose lines from (none: all loose lines).
+    /// `open_holes`: leave the region inside a hole empty too. Skips loops that are not flat. One undo step.
+    MakeFaces {
+        #[serde(default)]
+        ids: Vec<Id>,
+        #[serde(default)]
+        open_holes: bool,
+    },
+    /// Move points to one height `z` (meters): the ends of the given lines, the corners of the given faces, every point
+    /// of the given groups (none: everything not locked). Points that land together are joined, collapsed lines and
+    /// faces are dropped. One undo step.
+    Flatten {
+        #[serde(default)]
+        ids: Vec<Id>,
+        z: f64,
+    },
     /// Offset a face's outline: + inward (new face inside), - outward (ring).
     Offset { face: Id, distance: f64 },
     /// Sweep a profile face along a path: `points`, `edges`, or `around` a face's outline.
@@ -1902,6 +1938,10 @@ fn circle_segments() -> usize {
 
 fn arc_segments() -> usize {
     12
+}
+
+fn bezier_segments() -> usize {
+    16
 }
 
 fn wall_t() -> f64 {

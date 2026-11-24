@@ -72,6 +72,30 @@ impl Engine {
                 m.curve_through(&pts, false);
                 json!({"edges": edges, "faces": faces, "face": faces.last()})
             }
+            Command::Spline { points, closed, segments } => {
+                let pts = crate::curves::spline_points(&points.into_iter().map(v3).collect::<Vec<_>>(), closed, segments)?;
+                let r = m.draw_curve(&pts, closed)?;
+                json!({"edges": r.edges, "faces": r.faces, "face": r.faces.last(), "curve": r.curve, "points": r.points})
+            }
+            Command::Bezier { points, closed, segments } => {
+                let pts = crate::curves::bezier_points(&points.into_iter().map(v3).collect::<Vec<_>>(), closed, segments)?;
+                let r = m.draw_curve(&pts, closed)?;
+                json!({"edges": r.edges, "faces": r.faces, "face": r.faces.last(), "curve": r.curve, "points": r.points})
+            }
+            Command::MakeFaces { ids, open_holes } => {
+                let lines = m.make_faces_scope(&ids)?;
+                let r = m.make_faces(&lines, &crate::makefaces::MakeFacesOptions { open_holes })?;
+                let mut v = serde_json::to_value(&r)?;
+                v["unchanged"] = json!(r.created == 0 && r.split == 0);
+                v
+            }
+            Command::Flatten { ids, z } => {
+                let verts = m.flatten_scope(&ids)?;
+                let r = m.flatten(&verts, z)?;
+                let mut v = serde_json::to_value(&r)?;
+                v["unchanged"] = json!(r.changes() == 0);
+                v
+            }
             Command::Offset { face, distance } => json!({"face": m.offset(face, distance)?}),
             Command::FollowMe { face, points, edges, around } => {
                 let (path, closed) = if let Some(p) = points {

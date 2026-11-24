@@ -1055,7 +1055,7 @@ impl Engine {
         match cmd {
             c @ (
                 Command::New { .. } | Command::Rect { .. } | Command::Polygon { .. } | Command::Line { .. } |
-                Command::Circle { .. } | Command::Arc { .. } | Command::Offset { .. } | Command::FollowMe { .. } |
+                Command::Circle { .. } | Command::Arc { .. } | Command::Spline { .. } | Command::Bezier { .. } | Command::MakeFaces { .. } | Command::Flatten { .. } | Command::Offset { .. } | Command::FollowMe { .. } |
                 Command::Pushpull { .. } | Command::Move { .. } | Command::Rotate { .. } | Command::Scale { .. } |
                 Command::Duplicate { .. } | Command::Array { .. } | Command::Delete { .. } | Command::Reverse { .. }
             ) => self.run_draw(c),

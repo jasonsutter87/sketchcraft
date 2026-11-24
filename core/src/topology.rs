@@ -306,7 +306,7 @@ impl Model {
 
 /// Where segment p-q crosses segment a-b in its interior (parameter along
 /// p-q, and the point), if they actually meet.
-fn crossing(p: DVec3, q: DVec3, a: DVec3, b: DVec3) -> Option<(f64, DVec3)> {
+pub(crate) fn crossing(p: DVec3, q: DVec3, a: DVec3, b: DVec3) -> Option<(f64, DVec3)> {
     let (d1, d2, r) = (q - p, b - a, p - a);
     let (aa, ee, f) = (d1.dot(d1), d2.dot(d2), d2.dot(r));
     let (c, bb) = (d1.dot(r), d1.dot(d2));

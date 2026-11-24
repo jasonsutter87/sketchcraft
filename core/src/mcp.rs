@@ -29,6 +29,8 @@ DRAW
 - polygon {points}: planar face (within 1 cm is flattened).
 - line {points}: edges. Ending mid-edge splits it; edge-to-edge across a face cuts the face in two; closing a flat loop makes a face.
 - circle {center, radius, normal?=[0,0,1], segments?=24}; arc {start, end, bulge, normal?, segments?=12}
+- spline {points (2+), closed?, segments?=12 per span}: a smooth curve THROUGH the points, as one chain of edges (a curve, like an arc; a closed flat one makes a face). bezier {points: anchor, handle, handle, anchor, then handle, handle, anchor for each next piece (4, 7, 10...), closed? (last = first), segments?=16 per cubic}: chained cubic Beziers. Both reply {edges, faces, curve, points}
+- make_faces {ids?: lines, or groups to take loose lines from (none: every loose line), open_holes?=false}: ONE undo step. Cuts lines where they cross or meet, then makes a face for every closed flat loop; a loop inside another becomes a hole in it (open_holes also leaves the region inside a hole empty). Reply {faces, created, with_holes, holes, existing, non_planar:[{id,at}] (bent pieces skipped), degenerate, open_edges, split, notes}. flatten {ids?: lines, faces, groups or points (none: everything unlocked), z (meters)}: ONE undo step. Moves those points to height z, joins points that land together, drops collapsed lines and faces, turns level faces up. Reply {z, moved, merged, edges_removed, faces_removed, faces_turned}. Typical for imported DXF/DWG: flatten, then make_faces
 - offset {face, distance}: + inward (new face inside), - outward (ring).
 MODIFY
 - pushpull {face, distance}: + out along normal, - in. Faces in a bigger surface carve recesses.
