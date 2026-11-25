@@ -72,6 +72,8 @@ impl Engine {
                     out.insert(id.to_string(), serde_json::to_value(f.vcol.as_ref().filter(|u| u.fits(f)).map(|u| &u.outer))?);
                     Ok(())
                 };
+                // groups are looked up together (one pass over the model, not one per group)
+                let mut groups = vec![];
                 for id in faces {
                     // a face, a group (its faces), or a placed component (the faces of its definition)
                     if let Some(f) = m.faces.get(&id) {
@@ -81,12 +83,15 @@ impl Engine {
                             one(&mut out, *fid, f)?;
                         }
                     } else if m.groups.contains_key(&id) {
-                        for fid in m.faces_of(&[id])? {
-                            one(&mut out, fid, &m.faces[&fid])?;
-                        }
+                        groups.push(id);
                     } else {
                         let f = m.definitions.values().find_map(|d| d.model.faces.get(&id)).ok_or_else(|| anyhow::anyhow!("no face {id}"))?;
                         one(&mut out, id, f)?;
+                    }
+                }
+                if !groups.is_empty() {
+                    for fid in m.faces_of(&groups)? {
+                        one(&mut out, fid, &m.faces[&fid])?;
                     }
                 }
                 json!({"colors": out})

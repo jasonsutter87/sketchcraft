@@ -691,6 +691,33 @@ impl Engine {
         self.revision += 1;
     }
 
+    /// The model a call began with (the snapshot is consumed).
+    pub fn into_snapshot_model(s: CallSnapshot) -> Model {
+        s.model
+    }
+
+    /// The model as it was when the snapshot was taken.
+    pub fn snapshot_model(s: &CallSnapshot) -> &Model {
+        &s.model
+    }
+
+    /// An aborted call's model is replaced by `model` (the file as it stands with the call taken out): the steps the
+    /// call added to the history go with it, and nothing is left to Redo. A batch the call opened is dropped.
+    pub fn replace_after_call(&mut self, model: Model, undo_len: usize, batch_was_open: bool) {
+        self.model = model;
+        self.undo.truncate(undo_len);
+        self.step_origins.truncate(undo_len);
+        if !batch_was_open && self.batch.is_some() {
+            self.batch = None;
+            self.batch_kind = BatchKind::None;
+            self.batch_origin = None;
+        }
+        self.redo.clear();
+        self.redo_origins.clear();
+        self.drawings.clear();
+        self.revision += 1;
+    }
+
     /// Was a batch open when the snapshot was taken?
     pub fn snapshot_batch_open(s: &CallSnapshot) -> bool {
         s.batch_open

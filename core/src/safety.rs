@@ -131,9 +131,80 @@ impl Drop for TempDir {
     }
 }
 
+/// What a file looked like when it was last read or written: its modification time, size and (where the system
+/// has one) identity. A rename gives a file a new identity, so two saves in the same clock tick still differ.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FileStamp {
+    mtime: Option<std::time::SystemTime>,
+    len: u64,
+    id: u64,
+}
+
+fn stamp_of(m: &std::fs::Metadata) -> FileStamp {
+    #[cfg(unix)]
+    let id = {
+        use std::os::unix::fs::MetadataExt;
+        m.ino()
+    };
+    #[cfg(not(unix))]
+    let id = 0;
+    FileStamp { mtime: m.modified().ok(), len: m.len(), id }
+}
+
+/// The stamp of the file at `path` (None: no such file).
+pub fn file_stamp(path: &Path) -> Option<FileStamp> {
+    std::fs::metadata(path).ok().map(|m| stamp_of(&m))
+}
+
+/// An advisory lock on a model file, held while a writer checks that the file is still what it read and renames its
+/// new version over it (every writer of the live file takes it: the app, an agent's flush, a rollback). It lives in a
+/// small hidden file beside the model and is let go when this value is dropped (or the program dies).
+pub struct FileLock(#[allow(dead_code)] std::fs::File);
+
+/// Take the lock for the model file `path`, waiting up to `wait`. Err: somebody held it that long. Ok(None): a lock
+/// can't be made here (a read-only folder, a file system without locks): the stamp check still runs.
+pub fn lock_for(path: &Path, wait: std::time::Duration) -> Result<Option<FileLock>, ()> {
+    let dir = path.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "file".into());
+    let lock_path = dir.join(format!(".{name}.lock"));
+    // never follow a link: the lock file is ours
+    if std::fs::symlink_metadata(&lock_path).is_ok_and(|m| !m.file_type().is_file()) {
+        return Ok(None);
+    }
+    let Ok(f) = std::fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).open(&lock_path) else { return Ok(None) };
+    let until = std::time::Instant::now() + wait;
+    loop {
+        match f.try_lock() {
+            Ok(()) => return Ok(Some(FileLock(f))),
+            Err(std::fs::TryLockError::WouldBlock) => {
+                if std::time::Instant::now() >= until {
+                    return Err(());
+                }
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            // a file system that has no locks (some network shares): the stamp check still runs
+            Err(std::fs::TryLockError::Error(_)) => return Ok(None),
+        }
+    }
+}
+
+/// What `write_atomic_guarded` did.
+#[derive(Debug)]
+pub enum Written {
+    /// the new file is in place; this is its stamp (taken before the rename, so nobody else's later write is mistaken for it)
+    Done(Option<FileStamp>),
+    /// the guard said no just before the rename: the old file is untouched
+    Refused,
+}
+
 /// Write a file so it is either the old one or the whole new one, never half
 /// of it: write beside it, flush to disk, then rename over it.
 pub fn write_atomic(path: impl AsRef<Path>, bytes: &[u8]) -> std::io::Result<()> {
+    write_atomic_guarded(path, bytes, || true).map(|_| ())
+}
+
+/// `write_atomic`, but `guard` is asked as the very last step before the rename: false leaves the old file as it was.
+pub fn write_atomic_guarded(path: impl AsRef<Path>, bytes: &[u8], guard: impl FnOnce() -> bool) -> std::io::Result<Written> {
     let path = path.as_ref();
     // a file that is a link is written through it (replacing the link would orphan its target)
     let target;
@@ -150,14 +221,19 @@ pub fn write_atomic(path: impl AsRef<Path>, bytes: &[u8]) -> std::io::Result<()>
         let mut f = std::fs::OpenOptions::new().write(true).create_new(true).open(&tmp)?;
         f.write_all(bytes)?;
         f.sync_all()?;
+        let stamp = f.metadata().ok().map(|m| stamp_of(&m));
         drop(f);
         // the replacement keeps the mode the person gave the old file
         if let Ok(old) = std::fs::metadata(path) {
             std::fs::set_permissions(&tmp, old.permissions()).ok();
         }
-        std::fs::rename(&tmp, path)
+        if !guard() {
+            return Ok(Written::Refused);
+        }
+        std::fs::rename(&tmp, path)?;
+        Ok(Written::Done(stamp))
     })();
-    if result.is_err() {
+    if !matches!(result, Ok(Written::Done(_))) {
         std::fs::remove_file(&tmp).ok();
     } else {
         #[cfg(unix)]

@@ -14,7 +14,7 @@
 
 use crate::backups::{self, Backup, Origin, Side};
 use crate::policy::Caller;
-use crate::safety::write_atomic;
+use crate::safety::{file_stamp, lock_for, write_atomic, write_atomic_guarded, FileStamp, Written};
 use crate::Engine;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -22,7 +22,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 /// Side files (`.damaged-*`, `.unsaved-*`) are only removed past this many (of one kind) or this much disk,
-/// oldest first, never the newest, and always with a notice.
+/// the second-oldest first (the oldest, the first thing that was ever set aside, and the newest stay), and always with a notice.
 const KEEP_SIDE: usize = 20;
 const KEEP_SIDE_BYTES: u64 = 1 << 30;
 /// How long a notice about a damaged file stays on the scene.
@@ -70,12 +70,57 @@ struct CallMode {
     /// somebody else saved while commands of the call were waiting to be written: theirs was kept
     lost: bool,
     last_flush: std::time::Instant,
+    /// exactly what the call last wrote to the file (None: nothing since the model it is measured from)
+    written: Option<Vec<u8>>,
+    /// what the call changed in the file before somebody else's save was loaded, one entry per such save (oldest first)
+    segs: Vec<crate::history::Patch>,
+    /// the model the call's changes since the last such save are measured from (None: the one the call began with)
+    base: Option<crate::model::Model>,
+    /// what the call did can't be worked out entry by entry (too big, or what it wrote couldn't be read back)
+    unknown: Option<String>,
 }
+
+/// Why a save did not happen.
+#[derive(Debug)]
+enum SaveErr {
+    /// the file changed since this program last read or wrote it: nothing was written
+    Moved,
+    Fail(String),
+}
+
+impl std::fmt::Display for SaveErr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SaveErr::Moved => write!(f, "{MOVED_TEXT}"),
+            SaveErr::Fail(e) => write!(f, "{e}"),
+        }
+    }
+}
+
+const MOVED_TEXT: &str = "another program saved the model first, so this was not written over it";
+
+/// Whose work a set-aside file holds (the wording of the notice).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Whose {
+    /// the person's (a save that failed, an edit)
+    Person,
+    /// an agent's call
+    Agent,
+    /// a plugin's run
+    Plugin,
+}
+
+/// The longest wait for the lock on the model file (a program that holds it longer is stuck, and the save is tried again later).
+const LOCK_WAIT: Duration = Duration::from_secs(10);
+/// A call's changes are only tracked entry by entry up to about this much memory (past it, they are set aside whole).
+const MAX_EFFECT_BYTES: usize = 384 << 20;
+/// How many times a rollback plans again when the file moves under it.
+const REPLANS: usize = 8;
 
 pub struct Live {
     pub engine: Engine,
     pub doc: PathBuf,
-    seen: Option<SystemTime>,
+    seen: Option<FileStamp>,
     /// no file: an in-memory model (an agent with no --doc)
     persist: bool,
     last_backup: Option<SystemTime>,
@@ -111,6 +156,10 @@ pub struct Live {
     loads: u64,
     /// an agent call in progress: its commands are written to the file every few seconds and when it ends, not after each
     call: Option<CallMode>,
+    /// how often a call's commands are written (tests shorten it)
+    flush_every: Duration,
+    /// tests only: told where a save is (`serialized`, `locked`, `written`), so a second program can act exactly then
+    hook: Option<Box<dyn FnMut(&str) + Send>>,
 }
 
 /// "Left out: ..." for a notice: what was skipped, with the reasons.
@@ -122,8 +171,8 @@ fn big_model_text(n: usize) -> String {
     format!("This is a big model ({n} points, edges and faces). Everything works, but each change takes a second or more to save and the view takes a few seconds to redraw.")
 }
 
-fn mtime(p: &Path) -> Option<SystemTime> {
-    std::fs::metadata(p).and_then(|m| m.modified()).ok()
+fn stamp(p: &Path) -> Option<FileStamp> {
+    file_stamp(p)
 }
 
 fn epoch(t: SystemTime) -> u64 {
@@ -182,12 +231,12 @@ impl Live {
         if live.doc.exists() {
             live.load(true);
         }
-        live.seen = mtime(&live.doc);
+        live.seen = stamp(&live.doc);
         live
     }
 
     fn blank(engine: Engine, doc: PathBuf, persist: bool) -> Self {
-        Live { engine, doc, seen: None, persist, last_backup: None, notice: None, notice_at: None, notice_repair: None, unsaved_batch: false, batch_weight: 0, batch_destructive: false, blocked: false, retry_after: None, dirty: false, sticky: None, last_forced: HashMap::new(), held: false, own_side: vec![], person_view: false, loads: 0, call: None }
+        Live { engine, doc, seen: None, persist, last_backup: None, notice: None, notice_at: None, notice_repair: None, unsaved_batch: false, batch_weight: 0, batch_destructive: false, blocked: false, retry_after: None, dirty: false, sticky: None, last_forced: HashMap::new(), held: false, own_side: vec![], person_view: false, loads: 0, call: None, flush_every: CALL_FLUSH_EVERY, hook: None }
     }
 
     /// A model that is not saved anywhere.
@@ -198,6 +247,39 @@ impl Live {
     /// Open the file into the engine. If it can't be read, set it aside (a copy
     /// that is never overwritten) and say so; `at_start`: the engine stays empty.
     fn load(&mut self, at_start: bool) -> bool {
+        let before = self.loads;
+        let ok = self.load_inner(at_start);
+        if !at_start && self.loads != before {
+            self.call_saw_theirs();
+        }
+        ok
+    }
+
+    /// Somebody else's save replaced what memory held while an agent call was running: what the call had written to the
+    /// file up to now is worked out as a list of changes (entry by entry, against the model it was measured from), and
+    /// what the call does from here is measured from their file. A rollback takes the changes back off whatever the file
+    /// holds by then, so it undoes the call's work and nothing else, however many steps the undo list could hold.
+    fn call_saw_theirs(&mut self) {
+        let Some(c) = self.call.as_mut() else { return };
+        if let Some(bytes) = c.written.take() {
+            match serde_json::from_slice::<crate::model::Model>(&bytes) {
+                Ok(g) => {
+                    let base = c.base.as_ref().unwrap_or_else(|| Engine::snapshot_model(&c.snap));
+                    let seg = crate::history::patch_between(base, &g);
+                    let total: usize = c.segs.iter().map(|s| s.approx_bytes()).sum::<usize>() + seg.approx_bytes();
+                    if total > MAX_EFFECT_BYTES {
+                        c.unknown = Some("what the call did is too big to be taken back entry by entry".into());
+                    } else if !seg.is_empty() {
+                        c.segs.push(seg);
+                    }
+                }
+                Err(_) => c.unknown = Some("what the call wrote could not be read back".into()),
+            }
+        }
+        c.base = Some(self.engine.model.clone());
+    }
+
+    fn load_inner(&mut self, at_start: bool) -> bool {
         // a file that holds exactly what memory holds (a touch, a sync tool, our own save seen late)
         // is not a change: the undo history stays
         if !at_start && !self.dirty {
@@ -380,6 +462,10 @@ impl Live {
             if i + 1 == all.len() || (count <= KEEP_SIDE && total <= KEEP_SIDE_BYTES) {
                 break;
             }
+            // the first thing ever set aside stays (a flood of later ones can't push it out)
+            if i == 0 && all.len() > 2 {
+                continue;
+            }
             let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
             if std::fs::remove_file(p).is_ok() {
                 count -= 1;
@@ -404,7 +490,14 @@ impl Live {
 
     /// Set the model in memory aside (`<name>.unsaved-<time>.sketchcraft` beside the file) before
     /// something replaces it, and keep telling the person until that file is dealt with.
-    fn stash(&mut self, why: &str) -> Result<PathBuf, String> {
+    fn stash(&mut self, why: &str, whose: Whose) -> Result<PathBuf, String> {
+        let bytes = crate::format::to_vec(&self.engine.model).map_err(|e| e.to_string())?;
+        self.stash_bytes(&bytes, why, whose)
+    }
+
+    /// Set a whole model (as a file's bytes) aside. The file is private to the person who owns the model (0600 where the
+    /// system has modes) and is never written over another.
+    fn stash_bytes(&mut self, bytes: &[u8], why: &str, whose: Whose) -> Result<PathBuf, String> {
         let t = epoch(SystemTime::now());
         let mut n = 0;
         let path = loop {
@@ -414,21 +507,35 @@ impl Live {
             }
             n += 1;
         };
-        let bytes = crate::format::to_vec(&self.engine.model).map_err(|e| e.to_string())?;
-        write_atomic(&path, &bytes).map_err(|e| e.to_string())?;
+        write_atomic(&path, bytes).map_err(|e| e.to_string())?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).ok();
+        }
         self.index_side(&path);
         self.sticky = Some(path.clone());
-        self.set_notice(format!("{why} Your changes were kept in {} (File > Restore from backup... lists it). This message stays until that file is moved or deleted.", path.display()));
+        let what = match whose {
+            Whose::Person => "Your changes were kept in",
+            Whose::Agent => "What the AI agent did was set aside in",
+            Whose::Plugin => "What the plugin did was set aside in",
+        };
+        self.set_notice(format!("{why} {what} {} (File > Restore from backup... lists it). This message stays until that file is moved or deleted.", path.display()));
         self.prune_side(Side::Unsaved);
         Ok(path)
     }
 
     /// Another client saved. Replace what is in memory with their file, after setting aside any work
     /// memory holds that the file doesn't (`ours_ahead`, or a failed save). False if the file wasn't taken.
-    fn take_theirs(&mut self, ours_ahead: bool, why: &str) -> bool {
+    fn take_theirs(&mut self, ours_ahead: bool, why: &str, whose: Whose) -> bool {
         if ours_ahead || self.dirty {
-            if let Err(e) = self.stash(why) {
-                self.set_notice(format!("{why} Your unsaved changes couldn't be set aside ({e}), so the other version was not loaded."));
+            if let Err(e) = self.stash(why, whose) {
+                let mine = match whose {
+                    Whose::Person => "Your unsaved changes",
+                    Whose::Agent => "What the AI agent did",
+                    Whose::Plugin => "What the plugin did",
+                };
+                self.set_notice(format!("{why} {mine} couldn't be set aside ({e}), so the other version was not loaded."));
                 return false;
             }
         }
@@ -465,15 +572,23 @@ impl Live {
             return;
         }
         self.unsaved_batch = false;
-        if self.doc.exists() && !self.blocked && mtime(&self.doc) != self.seen {
-            self.seen = mtime(&self.doc);
-            self.take_theirs(true, "The plugin run was cut off and another program had saved the model meanwhile.");
+        if self.doc.exists() && !self.blocked && stamp(&self.doc) != self.seen {
+            self.seen = stamp(&self.doc);
+            self.take_theirs(true, "The plugin run was cut off and another program had saved the model meanwhile.", Whose::Plugin);
             return;
         }
         let force = self.batch_force();
-        if let Err(e) = self.save_with(force) {
-            self.dirty = true;
-            self.set_notice(format!("Couldn't save your model: {e}"));
+        match self.save_with(force) {
+            Ok(()) => {}
+            // another program saved while the batch's work was being written: theirs is kept, the batch's is set aside
+            Err(SaveErr::Moved) => {
+                self.seen = stamp(&self.doc);
+                self.take_theirs(true, "The plugin run was cut off and another program had saved the model meanwhile.", Whose::Plugin);
+            }
+            Err(e) => {
+                self.dirty = true;
+                self.set_notice(format!("Couldn't save your model: {e}"));
+            }
         }
     }
 
@@ -488,6 +603,12 @@ impl Live {
 
     /// `from`: the plugin the app is running this for (named by the app, never by the plugin).
     pub fn exec_as_from(&mut self, caller: &Caller, cmd: &Value, from: Option<&str>) -> Value {
+        self.exec_attempt(caller, cmd, from, 0)
+    }
+
+    /// One try at a command. When another program saves between the moment this one read the file and the moment it would
+    /// write, theirs is taken and the command is run again on it (a few times), so a person is not asked to repeat a step.
+    fn exec_attempt(&mut self, caller: &Caller, cmd: &Value, from: Option<&str>, attempt: u8) -> Value {
         self.tick();
         let name = cmd["cmd"].as_str().unwrap_or("");
         // the person's own list of backups and the restore (only the app's own user; never a plugin or an agent)
@@ -512,7 +633,7 @@ impl Live {
         let size = |e: &Engine| weight(&e.model);
         // an agent's call (and a plugin's run) is weighed once, not after every command
         let in_call = self.call.is_some() && !matches!(caller, Caller::Ui);
-        if in_call && self.persist && !self.engine.in_batch() && self.doc.exists() && !self.blocked && mtime(&self.doc) != self.seen {
+        if in_call && self.persist && !self.engine.in_batch() && self.doc.exists() && !self.blocked && stamp(&self.doc) != self.seen {
             // somebody else saved: the commands waiting to be written are set aside when theirs is loaded just below
             if let Some(c) = self.call.as_mut().filter(|c| c.pending) {
                 c.lost = true;
@@ -552,7 +673,7 @@ impl Live {
             if self.call.as_ref().is_some_and(|c| c.pending) {
                 // memory holds work the file doesn't yet: another program's save sets it aside before it is replaced
                 self.dirty = true;
-                if self.call.as_ref().is_some_and(|c| c.last_flush.elapsed() >= CALL_FLUSH_EVERY) {
+                if self.call.as_ref().is_some_and(|c| c.last_flush.elapsed() >= self.flush_every) {
                     self.flush_call();
                 }
             }
@@ -581,25 +702,38 @@ impl Live {
                 None
             };
             // another client saved while this command ran: theirs wins, so nobody's work is overwritten.
-            // A plugin run's whole output is set aside first (a single command is just run again)
-            if self.doc.exists() && !self.blocked && mtime(&self.doc) != self.seen {
-                self.seen = mtime(&self.doc);
-                let why = "Another program saved the model while a plugin was running.";
-                let kept = if had_batch { self.stash(why).ok() } else { None };
-                if had_batch && kept.is_none() {
-                    return json!({"ok": false, "error": "Another program saved the model while the plugin ran, and the plugin's changes couldn't be set aside, so nothing was saved. Run it again."});
+            // A plugin run's whole output is set aside first (a single command is just run again on their version)
+            let mut moved = self.doc.exists() && !self.blocked && stamp(&self.doc) != self.seen;
+            let mut tries = 0;
+            let saved = loop {
+                if moved {
+                    self.seen = stamp(&self.doc);
+                    let why = "Another program saved the model while a plugin was running.";
+                    let kept = if had_batch { self.stash(why, Whose::Plugin).ok() } else { None };
+                    if had_batch && kept.is_none() {
+                        return json!({"ok": false, "error": "Another program saved the model while the plugin ran, and the plugin's changes couldn't be set aside, so nothing was saved. Run it again."});
+                    }
+                    // what this command did is being thrown away: it is not a step to undo
+                    self.engine.drop_steps_after(depth_before);
+                    if self.load(false) {
+                        if !had_batch && attempt < 3 && !matches!(name, "undo" | "redo" | "new" | "open") {
+                            return self.exec_attempt(caller, cmd, from, attempt + 1);
+                        }
+                        return json!({"ok": false, "error": match kept {
+                            Some(p) => format!("Someone else saved the model while that ran, so their version was kept. What the plugin made was set aside in {}.", p.display()),
+                            None => "Someone else saved the model while that ran, so their version was kept and that change was not applied. Run it again.".into(),
+                        }});
+                    }
                 }
-                // what this command did is being thrown away: it is not a step to undo
-                self.engine.drop_steps_after(depth_before);
-                if self.load(false) {
-                    return json!({"ok": false, "error": match kept {
-                        Some(p) => format!("Someone else saved the model while that ran, so their version was kept. What the plugin made was set aside in {}.", p.display()),
-                        None => "Someone else saved the model while that ran, so their version was kept and that change was not applied. Run it again.".into(),
-                    }});
+                match self.save_with(force) {
+                    Err(SaveErr::Moved) if tries < 2 => {
+                        tries += 1;
+                        moved = true;
+                    }
+                    other => break other,
                 }
-            }
-            match self.save_with(force) {
-                Ok(()) => {
+            };
+            match saved {                Ok(()) => {
                     self.dirty = false;
                     if changed && matches!(caller, Caller::Mcp(_)) {
                         self.record_agent_change();
@@ -614,6 +748,7 @@ impl Live {
                 }
                 Err(e) => {
                     self.dirty = true;
+                    let e = e.to_string();
                     // the notice that says what to do about an unreadable file stays (it is the better message)
                     if !self.held {
                         self.set_notice(format!("Couldn't save your model: {e}"));
@@ -645,6 +780,10 @@ impl Live {
             flushed: false,
             lost: false,
             last_flush: std::time::Instant::now(),
+            written: None,
+            segs: vec![],
+            base: None,
+            unknown: None,
         });
     }
 
@@ -655,6 +794,7 @@ impl Live {
         if !c.pending {
             return;
         }
+        let (ran_for, first_write) = (c.last_flush.elapsed(), !c.flushed);
         c.last_flush = std::time::Instant::now();
         c.pending = false;
         let (start_weight, destructive) = (c.start_weight, c.destructive);
@@ -667,22 +807,35 @@ impl Live {
             }
             return;
         }
-        if self.doc.exists() && !self.blocked && mtime(&self.doc) != self.seen {
-            self.seen = mtime(&self.doc);
-            if let Some(c) = self.call.as_mut() {
+        let agent_waits = |s: &mut Self| {
+            if let Some(c) = s.call.as_mut() {
                 c.lost = true;
             }
-            self.take_theirs(true, "Another program saved the model while an agent was working.");
+            s.seen = stamp(&s.doc);
+            s.take_theirs(true, "Another program saved the model while an agent was working.", Whose::Agent);
+        };
+        if self.doc.exists() && !self.blocked && stamp(&self.doc) != self.seen {
+            agent_waits(self);
             return;
         }
         let after = weight(&self.engine.model);
         let shrank = start_weight > 0 && after * 4 < start_weight * 3;
-        let force = (shrank || destructive).then_some(Force { origin: Origin::Agent, kind: if destructive { "del" } else { "shr" }, big: false });
-        match self.save_with(force) {
-            Ok(()) => {
+        // a call that has run for a while is about to replace the file for the first time: the file as it is now is kept in
+        // Backups first, whatever the backup schedule says, so a crash later in the call can be taken back from there
+        let long_call = first_write && ran_for >= self.flush_every;
+        let force = if shrank || destructive {
+            Some(Force { origin: Origin::Agent, kind: if destructive { "del" } else { "shr" }, big: false })
+        } else if long_call {
+            Some(Force { origin: Origin::Agent, kind: "big", big: true })
+        } else {
+            None
+        };
+        match self.save_inner(force, true) {
+            Ok(bytes) => {
                 self.dirty = false;
                 if let Some(c) = self.call.as_mut() {
                     c.flushed = true;
+                    c.written = bytes;
                 }
                 self.record_agent_change();
                 if self.notice.as_deref().is_some_and(|n| n.starts_with("Couldn't save")) {
@@ -692,7 +845,9 @@ impl Live {
                     self.set_notice(big_model_text(self.engine.model.entity_count()));
                 }
             }
-            Err(e) => {
+            // somebody saved between the check at the top and the write: theirs wins
+            Err(SaveErr::Moved) => agent_waits(self),
+            Err(SaveErr::Fail(e)) => {
                 self.dirty = true;
                 if !self.held {
                     self.set_notice(format!("Couldn't save your model: {e}"));
@@ -713,20 +868,24 @@ impl Live {
 
     /// The call ran out of time: take back what it did, and never somebody else's work with it.
     ///
-    /// When nobody else saved during the call, the model goes back to what it was when the call began and the file with it
-    /// (after a backup of the file as it is). When somebody did (the app, another engine: their save was loaded while the call
-    /// ran, or is in the file now), the call's own steps are undone one by one on the live model, which only takes back what
-    /// the call changed, and the result is saved normally; a save that would overwrite a newer file is not made. Returns what
-    /// to tell the agent when it is not a whole, clean rollback.
+    /// When nobody else has written the file during the call, the model goes back to what it was when the call began and
+    /// the file with it. When somebody has (the app, another engine: their save was loaded while the call ran, or is in the
+    /// file now), what the call changed is worked out entry by entry (points, edges, faces, groups, placements... by id) and
+    /// taken off THEIR file: an entry the call changed and nobody else touched goes back to what it was before the call; an
+    /// entry somebody else changed too stays as they have it, and the call's version of the model is set aside in an
+    /// `unsaved-*` file. This does not depend on the undo list (which is capped). Whatever is written is checked against the
+    /// file under the lock right before the rename (see `save_inner`); when the file moved meanwhile the plan is made again
+    /// on the newer file. Returns what to tell the agent when it is not a whole, clean rollback.
     pub fn abort_call(&mut self) -> Option<String> {
         let c = self.call.take()?;
-        let CallMode { snap, loads, was_dirty, flushed, lost, .. } = c;
+        let CallMode { snap, loads, was_dirty, flushed, lost, written, segs, base, unknown, .. } = c;
         let undo_len = Engine::snapshot_undo_len(&snap);
+        let batch_was_open = Engine::snapshot_batch_open(&snap);
         if !self.persist {
             self.engine.rollback_call(snap);
             return None;
         }
-        if self.engine.in_batch() && Engine::snapshot_batch_open(&snap) {
+        if self.engine.in_batch() && batch_was_open {
             // a batch that was open when the call began is still open: the file is written when it ends (and is checked then)
             if self.loads != loads {
                 return Some(KEPT_THEIRS.into());
@@ -735,7 +894,7 @@ impl Live {
             self.unsaved_batch = true;
             return None;
         }
-        let theirs_in_file = self.doc.exists() && !self.blocked && mtime(&self.doc) != self.seen;
+        let theirs_in_file = self.doc.exists() && !self.blocked && stamp(&self.doc) != self.seen;
         let theirs_in_model = self.loads != loads || lost;
         if !theirs_in_file && !theirs_in_model {
             self.engine.rollback_call(snap);
@@ -744,85 +903,226 @@ impl Live {
                 self.dirty = was_dirty;
                 return None;
             }
-            match self.save_with(Some(Force { origin: Origin::Agent, kind: "big", big: true })) {
-                Ok(()) => self.dirty = false,
-                Err(e) => {
+            return match self.save_inner(Some(Force { origin: Origin::Agent, kind: "big", big: true }), false) {
+                Ok(_) => {
+                    self.dirty = false;
+                    None
+                }
+                Err(SaveErr::Fail(e)) => {
                     self.dirty = true;
                     self.set_notice(format!("Couldn't save your model: {e}"));
+                    None
                 }
-            }
-            return None;
+                // somebody saved in the moments it took to put the model back and write it: theirs is in the file now
+                Err(SaveErr::Moved) => {
+                    let base = self.engine.model.clone();
+                    self.revert_call(base, vec![], written, unknown, undo_len, batch_was_open)
+                }
+            };
         }
         // somebody else's work is in the picture: never write the model the call began with
         if self.engine.in_batch() {
             self.engine.close_batch();
         }
-        if theirs_in_file {
-            self.seen = mtime(&self.doc);
-            if !self.take_theirs(true, "Another program saved the model while an agent was working.") {
-                return Some(format!("{KEPT_THEIRS} What the call did could not be taken back."));
+        let base = base.unwrap_or_else(|| Engine::into_snapshot_model(snap));
+        self.revert_call(base, segs, written, unknown, undo_len, batch_was_open)
+    }
+
+    /// Take what an aborted call wrote off the file as it stands now (see `abort_call`). `base`: the model the call's last
+    /// changes are measured from; `segs`: what it had written before that; `written`: its last write.
+    fn revert_call(&mut self, base: crate::model::Model, mut segs: Vec<crate::history::Patch>, written: Option<Vec<u8>>, mut unknown: Option<String>, undo_len: usize, batch_was_open: bool) -> Option<String> {
+        if let Some(bytes) = &written {
+            match serde_json::from_slice::<crate::model::Model>(bytes) {
+                Ok(g) => {
+                    let seg = crate::history::patch_between(&base, &g);
+                    if segs.iter().map(|s| s.approx_bytes()).sum::<usize>() + seg.approx_bytes() > MAX_EFFECT_BYTES {
+                        unknown = Some("what the call did is too big to be taken back entry by entry".into());
+                    } else if !seg.is_empty() {
+                        segs.push(seg);
+                    }
+                }
+                Err(_) => unknown = Some("what the call wrote could not be read back".into()),
             }
         }
-        let had = self.engine.undo_depth();
-        let mut complete = had >= undo_len;
-        let mut undone = 0;
-        if complete {
-            while self.engine.undo_depth() > undo_len {
-                let r = self.engine.exec_json(&json!({"cmd": "undo"}).to_string());
-                if r["ok"] != true {
-                    complete = false;
+        let in_file = !segs.is_empty() || unknown.is_some();
+        let mut conflicts: Vec<String> = vec![];
+        let mut failed: Option<String> = None;
+        let mut settled = false;
+        for _ in 0..REPLANS {
+            conflicts.clear();
+            failed = None;
+            // memory becomes the file as it is now (the call's commands that were never written go with the old memory)
+            let readable = if self.doc.exists() && !self.blocked {
+                self.seen = stamp(&self.doc);
+                self.dirty = false;
+                self.load(false)
+            } else {
+                false
+            };
+            if !readable {
+                // no file, or one that couldn't be read (it was set aside): the model goes back to what the call's last
+                // changes are measured from, and is written
+                self.engine.replace_after_call(base.clone(), undo_len, batch_was_open);
+            } else if !in_file {
+                // none of the call ever reached the file: the file is somebody else's, and that is all there is
+                self.keep_theirs(undo_len, batch_was_open);
+                settled = true;
+                break;
+            } else if let Some(why) = &unknown {
+                failed = Some(why.clone());
+                self.keep_theirs(undo_len, batch_was_open);
+                settled = true;
+                break;
+            } else {
+                let mut cur: Option<crate::model::Model> = None;
+                for seg in segs.iter().rev() {
+                    let r = seg.revert_partial(cur.as_ref().unwrap_or(&self.engine.model));
+                    match r {
+                        Ok((m, c)) => {
+                            conflicts.extend(c);
+                            cur = Some(m);
+                        }
+                        Err(e) => {
+                            failed = Some(e);
+                            break;
+                        }
+                    }
+                }
+                match (failed.is_some(), cur) {
+                    (false, Some(m)) => self.engine.replace_after_call(m, undo_len, batch_was_open),
+                    _ => {
+                        // not a consistent result: theirs is kept as it is
+                        self.keep_theirs(undo_len, batch_was_open);
+                        settled = true;
+                        break;
+                    }
+                }
+                conflicts.sort();
+                conflicts.dedup();
+            }
+            match self.save_inner(Some(Force { origin: Origin::Agent, kind: "big", big: true }), false) {
+                Ok(_) => {
+                    self.dirty = false;
+                    settled = true;
                     break;
                 }
-                undone += 1;
-            }
-        }
-        self.engine.drop_redo();
-        if undone > 0 {
-            // the file is checked once more just before it is written: a newer one is loaded, never written over
-            if self.doc.exists() && !self.blocked && mtime(&self.doc) != self.seen {
-                self.seen = mtime(&self.doc);
-                self.take_theirs(true, "Another program saved the model while an agent was working.");
-                return Some(format!("{KEPT_THEIRS} What the call did could not be fully taken back."));
-            }
-            match self.save_with(Some(Force { origin: Origin::Agent, kind: "big", big: true })) {
-                Ok(()) => self.dirty = false,
-                Err(e) => {
+                Err(SaveErr::Moved) => continue,
+                Err(SaveErr::Fail(e)) => {
                     self.dirty = true;
                     self.set_notice(format!("Couldn't save your model: {e}"));
+                    failed = Some(format!("the model couldn't be saved ({e})"));
+                    settled = true;
+                    break;
                 }
             }
         }
-        Some(if complete { format!("{KEPT_THEIRS} What the call did was taken back one step at a time.") } else { format!("{KEPT_THEIRS} Part of what the call did could not be taken back.") })
+        if !settled {
+            failed = Some("the file kept changing under it".into());
+            conflicts.clear();
+        }
+        // theirs is never lost; the call's version is kept where somebody can find it when part of it stays in the file
+        let aside = if (failed.is_some() || !conflicts.is_empty()) && in_file {
+            written.as_ref().and_then(|b| self.stash_bytes(b, "An AI agent's call ran out of time and was undone.", Whose::Agent).ok())
+        } else {
+            None
+        };
+        let where_ = aside.map(|p| format!(" The call's version of the model is set aside in {}.", p.display())).unwrap_or_default();
+        Some(if let Some(why) = failed {
+            format!("This call used up its time, and someone else saved this model while it ran. Their work was kept, but what the call did was NOT fully taken back ({why}).{where_}")
+        } else if !conflicts.is_empty() {
+            let shown: Vec<&str> = conflicts.iter().take(3).map(String::as_str).collect();
+            format!("This call used up its time, and someone else saved this model while it ran. What the call did was taken back, and their work was kept; {} thing{} the call changed {} also changed by someone else and {} left as they have {} ({}{}).{where_}", conflicts.len(), if conflicts.len() == 1 { "" } else { "s" }, if conflicts.len() == 1 { "was" } else { "were" }, if conflicts.len() == 1 { "was" } else { "were" }, if conflicts.len() == 1 { "it" } else { "them" }, shown.join(", "), if conflicts.len() > 3 { ", ..." } else { "" })
+        } else {
+            "This call used up its time, and someone else saved this model while it ran. Everything the call did was taken back, entry by entry, and their work was kept.".to_string()
+        })
+    }
+
+    /// The model in memory is the file as it is, with only the aborted call's steps dropped from the history.
+    fn keep_theirs(&mut self, undo_len: usize, batch_was_open: bool) {
+        let m = std::mem::take(&mut self.engine.model);
+        self.engine.replace_after_call(m, undo_len, batch_was_open);
     }
 
     /// Write the model to the live file (atomically), keeping backups.
     pub fn save(&mut self, force_backup: bool) -> Result<(), String> {
-        self.save_with(force_backup.then_some(Force { origin: Origin::Ui, kind: "big", big: true }))
+        self.save_with(force_backup.then_some(Force { origin: Origin::Ui, kind: "big", big: true })).map_err(|e| e.to_string())
     }
 
-    fn save_with(&mut self, force: Option<Force>) -> Result<(), String> {
+    fn save_with(&mut self, force: Option<Force>) -> Result<(), SaveErr> {
+        self.save_inner(force, false).map(|_| ())
+    }
+
+    /// Tests only: called as a save passes `serialized` (the model is ready as bytes, the lock isn't taken yet), `locked`
+    /// (the lock is held and the file is as expected, nothing written) and `written` (the new file is in place, the lock
+    /// still held). A second program can act at exactly those moments.
+    #[doc(hidden)]
+    pub fn set_save_hook(&mut self, hook: Option<Box<dyn FnMut(&str) + Send>>) {
+        self.hook = hook;
+    }
+
+    /// Tests only: how often a call's commands are written (the default is a couple of seconds).
+    #[doc(hidden)]
+    pub fn set_call_flush_every(&mut self, every: Duration) {
+        self.flush_every = every;
+    }
+
+    fn hit(&mut self, phase: &str) {
+        if let Some(mut h) = self.hook.take() {
+            h(phase);
+            self.hook = Some(h);
+        }
+    }
+
+    /// The one way the live file is written, for every writer (the app's save, an agent's flush, a rollback):
+    ///  1. the model is serialised (no lock held: this is the slow part);
+    ///  2. the lock file beside the model is taken (an advisory lock, so two programs never write together);
+    ///  3. with the lock held, the file must still be what this program last read or wrote (`FileStamp`: time, size,
+    ///     identity); if it is not, nothing is written (`Moved`) and the caller plans again on the newer file;
+    ///  4. the outgoing file is backed up if the schedule says so;
+    ///  5. the new bytes go to a temp file, flushed, and the stamp is checked once more immediately before the rename
+    ///     (a program that ignores the lock still has to get past that), then renamed over the file.
+    /// A crash anywhere leaves the old file or the whole new one. `keep`: give the bytes back (a call remembers its last write).
+    fn save_inner(&mut self, force: Option<Force>, keep: bool) -> Result<Option<Vec<u8>>, SaveErr> {
         // a model from a newer SketchCraft is only looked at: never written to the file (see `format`)
         if let Some(ro) = &self.engine.read_only {
-            return Err(ro.refusal());
+            return Err(SaveErr::Fail(ro.refusal()));
         }
         if self.blocked {
-            return Err("saving is off because the model file couldn't be read (see the notice)".into());
+            return Err(SaveErr::Fail("saving is off because the model file couldn't be read (see the notice)".into()));
         }
         if self.held {
-            return Err("saving is paused because the model file couldn't be read when the program started (see the notice): restore a copy or start a new model first".into());
+            return Err(SaveErr::Fail("saving is paused because the model file couldn't be read when the program started (see the notice): restore a copy or start a new model first".into()));
         }
         if self.engine.oversize {
-            return Err(format!("the model is over the size limits ({} points, edges and faces, about {} MB): delete parts of it and saving resumes", self.engine.model.entity_count(), self.engine.model.size_estimate() >> 20));
+            return Err(SaveErr::Fail(format!("the model is over the size limits ({} points, edges and faces, about {} MB): delete parts of it and saving resumes", self.engine.model.entity_count(), self.engine.model.size_estimate() >> 20)));
         }
-        self.engine.model.check_sane().map_err(|e| e.to_string())?;
-        let bytes = crate::format::to_vec(&self.engine.model).map_err(|e| e.to_string())?;
+        self.engine.model.check_sane().map_err(|e| SaveErr::Fail(e.to_string()))?;
+        let bytes = crate::format::to_vec(&self.engine.model).map_err(|e| SaveErr::Fail(e.to_string()))?;
         if let Some(dir) = self.doc.parent().filter(|d| !d.as_os_str().is_empty()) {
-            std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+            std::fs::create_dir_all(dir).map_err(|e| SaveErr::Fail(e.to_string()))?;
         }
+        self.hit("serialized");
+        let _lock = match lock_for(&self.doc, LOCK_WAIT) {
+            Ok(l) => l,
+            Err(()) => return Err(SaveErr::Fail("another program is saving this model and didn't finish; it will be tried again".into())),
+        };
+        let expected = self.seen;
+        let doc = self.doc.clone();
+        // a file that is not there is nobody's to protect (it was deleted: it is written again)
+        let unchanged = move || !doc.exists() || stamp(&doc) == expected;
+        if !unchanged() {
+            return Err(SaveErr::Moved);
+        }
+        self.hit("locked");
         self.backup(force);
-        write_atomic(&self.doc, &bytes).map_err(|e| e.to_string())?;
-        self.seen = mtime(&self.doc);
-        Ok(())
+        let doc = self.doc.clone();
+        let guard = move || !doc.exists() || stamp(&doc) == expected;
+        match write_atomic_guarded(&self.doc, &bytes, guard).map_err(|e| SaveErr::Fail(e.to_string()))? {
+            Written::Refused => return Err(SaveErr::Moved),
+            Written::Done(st) => self.seen = st.or_else(|| stamp(&self.doc)),
+        }
+        self.hit("written");
+        Ok(keep.then_some(bytes))
     }
 
     /// Keep the file as it is now in `Backups/`, if the last backup is old enough (or `force`d). A file
@@ -907,12 +1207,12 @@ impl Live {
             return false;
         }
         self.retry_blocked();
-        let now = mtime(&self.doc);
+        let now = stamp(&self.doc);
         if now.is_some() && now != self.seen {
             if self.blocked || self.dirty {
                 // memory may hold work the file doesn't: set it aside first (and don't reload if that fails)
                 let why = if self.call.is_some() { "Another program saved this model while an agent was working." } else { "Another program saved this model while yours couldn't be saved." };
-                let ok = self.take_theirs(false, why);
+                let ok = self.take_theirs(false, why, if self.call.is_some() { Whose::Agent } else { Whose::Person });
                 if ok {
                     self.seen = now;
                 }
@@ -951,8 +1251,8 @@ impl Live {
                 return;
             }
             self.retry_after = Some(SystemTime::now() + Duration::from_secs(5));
-            let now = mtime(&self.doc);
-            if self.take_theirs(false, "The model file can be read again.") {
+            let now = stamp(&self.doc);
+            if self.take_theirs(false, "The model file can be read again.", Whose::Person) {
                 self.seen = now;
             }
         }
@@ -1163,7 +1463,16 @@ impl Live {
         }
         self.set_repair_notice(repair.clone(), "backup");
         // the model it replaced is kept in Backups first (the outgoing file), and the restore is one undoable step
-        match self.save_with(Some(Force { origin: Origin::Ui, kind: "rst", big: true })) {
+        let mut saved = self.save_with(Some(Force { origin: Origin::Ui, kind: "rst", big: true }));
+        // the person asked for this version: a save that landed meanwhile is the outgoing file, kept in Backups first
+        for _ in 0..3 {
+            if !matches!(saved, Err(SaveErr::Moved)) {
+                break;
+            }
+            self.seen = stamp(&self.doc);
+            saved = self.save_with(Some(Force { origin: Origin::Ui, kind: "rst", big: true }));
+        }
+        match saved {
             Ok(()) => {
                 self.dirty = false;
                 let mut v = json!({"ok": true, "mode": "replace", "faces": self.engine.model.faces.len()});
@@ -1172,6 +1481,7 @@ impl Live {
             }
             Err(e) => {
                 self.dirty = true;
+                let e = e.to_string();
                 self.set_notice(format!("Couldn't save your model: {e}"));
                 let mut v = json!({"ok": true, "mode": "replace", "faces": self.engine.model.faces.len(), "save_error": e});
                 repair.add_to(&mut v);

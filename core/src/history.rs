@@ -180,6 +180,22 @@ impl Patch {
 
     /// Put `forward` (false: the step's "before") on top of `current`. Err names what stands in the way.
     pub fn apply(&self, current: &Model, forward: bool) -> Result<Model, String> {
+        self.apply_inner(current, forward, false).map(|(m, _)| m)
+    }
+
+    /// Take this change back off `current`, entry by entry: an entry that is not as the change left it (somebody else
+    /// changed it too) is left as it is and named in the second part of the answer. Err: what came out would not be a
+    /// consistent model, so nothing should be taken from it.
+    pub fn revert_partial(&self, current: &Model) -> Result<(Model, Vec<String>), String> {
+        self.apply_inner(current, false, true)
+    }
+
+    /// About how much memory the change holds.
+    pub fn approx_bytes(&self) -> usize {
+        self.bytes
+    }
+
+    fn apply_inner(&self, current: &Model, forward: bool, partial: bool) -> Result<(Model, Vec<String>), String> {
         // the small parts of the model go through JSON; the big maps (points, edges, faces...) are worked entry by entry
         let mut v = serde_json::to_value(skeleton(current)).map_err(|e| e.to_string())?;
         let Some(obj) = v.as_object_mut() else { return Err("the model couldn't be read".into()) };
@@ -254,7 +270,7 @@ impl Patch {
                 _ => {}
             }
         }
-        if !conflicts.is_empty() {
+        if !conflicts.is_empty() && !partial {
             return Err(conflicts_text(&conflicts));
         }
         model.check_sane().map_err(|e| e.to_string())?;
@@ -271,7 +287,9 @@ impl Patch {
                 return Err(format!("{what} now depends on it"));
             }
         }
-        Ok(model)
+        conflicts.sort();
+        conflicts.dedup();
+        Ok((model, conflicts))
     }
 }
 
