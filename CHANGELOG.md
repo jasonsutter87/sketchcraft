@@ -6,6 +6,12 @@ What changed in each SketchCraft release, newest first. The format follows
 
 ## [Unreleased]
 
+### Added
+- **3D mouse support.** A 3Dconnexion SpaceMouse orbits, pans and zooms the view in the desktop app (macOS, Windows,
+  and Linux, through `spacenavd` when it runs). **Window › 3D mouse…** sets the speed, dead zone, a flip for each axis
+  and a lock for rotation or pan; the left button fits everything and the right goes to the iso view. The app reads the
+  device directly, with no 3Dconnexion software bundled, and works the same without one. (#58)
+
 ## [0.3.10] - 2026-11-24
 
 ### Added
