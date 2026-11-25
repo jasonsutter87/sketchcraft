@@ -4,6 +4,7 @@
 // .sketchskin files in ~/Documents/SketchCraft/Skins, so they can be shared.
 
 import { skinValueOk } from "./skinvalue";
+import { CLASSIC_ICONS } from "./classicicons";
 
 export interface Skin {
   id: string;
@@ -18,6 +19,8 @@ export interface Skin {
   /** the layout it comes with when picked from the gallery: "classic" (tool
    * bars docked above the model, like SketchUp) or "floating" (SketchCraft's own) */
   layout?: "classic" | "floating";
+  /** with the Classic layout: the right-hand tray of collapsible panels (Entity Info, Materials, Components...) */
+  tray?: boolean;
   /** tool icons it swaps in: tool name -> an image (data: URL, SVG or bitmap) */
   icons?: Record<string, string>;
 }
@@ -67,6 +70,18 @@ export const SKINS: Skin[] = [
     tokens: { bg: "#ececec", panel: "#f7f7f7", line: "#dcdcdc", "line-strong": "#c2c2c2", text: "#1f1f1f", muted: "#575757", faint: "#999999", accent: "#1e6fd9", "accent-soft": "#e2edfb", "accent-ink": "#1557ad", danger: "#d23c3c", glass: "rgba(247,247,247,0.97)", radius: "4px", font: SYSTEM },
     backdrop: "sky",
     layout: "classic",
+    tray: false,
+  },
+  {
+    id: "classic-color",
+    name: "Classic Color",
+    blurb: "Classic's greys with friendly colour icons and a right-hand tray of collapsible panels.",
+    dark: false,
+    tokens: { bg: "#ececec", panel: "#f7f7f7", line: "#dcdcdc", "line-strong": "#c2c2c2", text: "#1f1f1f", muted: "#575757", faint: "#999999", accent: "#1e6fd9", "accent-soft": "#e2edfb", "accent-ink": "#1557ad", danger: "#d23c3c", glass: "rgba(247,247,247,0.97)", radius: "4px", font: SYSTEM },
+    backdrop: "sky",
+    layout: "classic",
+    tray: true,
+    icons: CLASSIC_ICONS,
   },
   {
     id: "workshop",

@@ -299,6 +299,15 @@ const isMac = process.platform === 'darwin';
   await item(p, 'view.xray').click();
   await wait(100);
   check(!(await xray().getAttribute('class'))?.includes('on'), 'choosing it again turns it off');
+  // View > Hidden geometry is a tick that starts off and flips (the same toggle Shift+H runs)
+  await openMenu(p, 'View');
+  check((await item(p, 'view.hidden').getAttribute('aria-checked')) === 'false', 'View > Hidden geometry starts off');
+  await item(p, 'view.hidden').click();
+  await wait(100);
+  await openMenu(p, 'View');
+  check((await item(p, 'view.hidden').getAttribute('aria-checked')) === 'true', 'choosing it ticks it');
+  await item(p, 'view.hidden').click();
+  await wait(100);
   // View > Face style (a radio) and Workspaces
   await openMenu(p, 'View');
   // hovering a submenu's name opens it; clicking it after that must keep it open (not toggle it shut), however slow the click

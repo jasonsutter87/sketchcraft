@@ -169,7 +169,7 @@ impl Engine {
                         .unwrap_or_else(|| "SketchUp model".into())
                 });
                 let r = crate::skp::import(m, &bytes, v3(at), &label)?;
-                json!({"group": r.group, "version": r.version, "faces": r.faces, "components": r.components, "placed": r.placed, "dimensions": r.dimensions, "labels": r.labels, "skipped_annotations": r.skipped_annotations, "dimensions_attached": r.dimensions_attached, "dimensions_unattached": r.dimensions_unattached, "screen_texts": r.screen_texts, "skipped_labels": crate::policy::untrusted_text(&r.skipped_labels)})
+                json!({"group": r.group, "version": r.version, "faces": r.faces, "components": r.components, "placed": r.placed, "dimensions": r.dimensions, "labels": r.labels, "skipped_annotations": r.skipped_annotations, "dimensions_attached": r.dimensions_attached, "dimensions_unattached": r.dimensions_unattached, "screen_texts": r.screen_texts, "skipped_labels": crate::policy::untrusted_text(&r.skipped_labels), "report": skp_report(&r)})
             }
             Command::ImportCloud { path, units, max_points } => {
                 let scale = match units.as_deref().unwrap_or("m") {
@@ -225,10 +225,26 @@ impl Engine {
                 json!({"instance": r.instance, "component": r.component, "meshes": r.meshes, "faces": r.faces})
             }
             Command::ExportObj { path } => {
-                let tris = export::write_obj(&self.model, &path)?;
-                json!({"path": path, "triangles": tris})
+                let r = export::write_obj_report(&self.model, &path)?;
+                json!({"path": path, "triangles": r.triangles, "mtl": r.mtl, "textures_dir": r.textures_dir, "images": r.images, "skipped": r.skipped})
             }
             other => unreachable!("command routed to the wrong group: {other:?}"),
         })
     }
+}
+
+/// The import report as the reply carries it: counts of what came across, and each kind of thing left out with its
+/// reason. Names and words in it are from the file, so they are marked as its text (`untrusted_text`).
+fn skp_report(r: &crate::skp::ImportSummary) -> Value {
+    let rep = &r.report;
+    let skipped: Vec<Value> = rep.skipped.iter().map(|s| json!({"what": s.what, "count": s.count, "why": s.why, "items": crate::policy::untrusted_text(&s.items)})).collect();
+    json!({
+        "version": r.version,
+        "imported": {
+            "faces": r.faces, "lines": rep.lines, "components": r.components, "placed": r.placed,
+            "materials": rep.materials, "textured_materials": rep.textured_materials, "textures": rep.textures,
+            "dimensions": r.dimensions, "labels": r.labels,
+        },
+        "skipped": skipped,
+    })
 }

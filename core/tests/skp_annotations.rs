@@ -171,6 +171,10 @@ fn a_dimension_on_a_vertex_that_is_not_there_is_counted_not_guessed() {
     if let Some((m, s)) = import(&d, DVec3::ZERO) {
         assert!(dims(&m).is_empty());
         assert_eq!(s.skipped_annotations, 1);
+        // and the report says so, with the reason
+        let r = s.report.skipped.iter().find(|k| k.what == "dimensions").expect("the report names the dimension left out");
+        assert_eq!(r.count, Some(1));
+        assert!(r.why.contains("can't be placed"), "{}", r.why);
     }
 }
 
@@ -265,6 +269,9 @@ fn a_free_end_on_an_edge_attaches_along_it_and_one_on_nothing_stays_free() {
     let d = skp_with(&[Dim { ends: [End::Free([50.0, 0.0, 0.0]), End::Free([100.0, 0.0, 36.0])], text: "", dir: [-1.0, 0.0, 0.0], dist: 5.0 }]);
     let (m, s) = import(&d, DVec3::ZERO).expect("imports");
     assert_eq!((s.dimensions, s.dimensions_attached, s.dimensions_unattached), (1, 0, 1));
+    // the end on nothing is in the report: the dimension came across but won't follow edits
+    let r = s.report.skipped.iter().find(|k| k.what == "dimension ends").expect("reported");
+    assert_eq!(r.count, Some(1));
     let an = &anchors_of(&m)[0];
     match &an[0].as_ref().expect("on the edge").at {
         AnchorAt::Between { t, .. } => assert!((t - 0.5).abs() < 1e-9, "{t}"),

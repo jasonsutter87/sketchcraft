@@ -123,6 +123,7 @@ export const MENUS: Menu[] = [
       { label: "menu.background", items: BACKGROUNDS.map((b) => act(`view.bg.${b}`, `menu.bg.${b}`, "radio")) },
       SEP,
       act("view.shadows", "menu.shadows", "check"),
+      act("view.hidden", "menu.hiddenGeometry", "check"),
       act("view.xray", "menu.xray", "check"),
       act("view.backedges", "menu.backEdges", "check"),
       act("view.edges", "menu.edges", "check"),

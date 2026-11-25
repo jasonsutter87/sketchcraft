@@ -212,6 +212,72 @@ const target = (p) => p.evaluate(() => window.__sketchcraftView.current.controls
   await ctx.close();
 }
 
+// ---- right-click on empty space (#227) --------------------------------------------------------------
+{
+  const { p, ctx } = await open();
+  await X(p, { cmd: 'new' });
+  await X(p, { cmd: 'rect', from: [0, 0, 0], to: [4, 4, 0] });
+  await reshow(p);
+  await p.getByRole('button', { name: 'Select', exact: true }).first().click();
+  await p.keyboard.press('Shift+z');
+  await wait(700);
+  const box = await p.locator('.viewport canvas').boundingBox();
+  const [ex, ey] = [box.x + box.width - 60, box.y + box.height - 80]; // a corner: nothing there
+  const item = (name) => p.locator('.menu-scrim .menu button', { hasText: name });
+  const flat = async () => (await menuText(p)).replace(/\s+/g, ' ');
+
+  await p.mouse.click(ex, ey, { button: 'right' });
+  await wait(400);
+  let t = await flat();
+  check((await menus(p)) === 1, 'a right-click on empty space opens one menu');
+  check(/Select all/.test(t) && /Zoom extents/.test(t) && /Unhide all/.test(t) && /camera/i.test(t) && /Perspective/.test(t) && /style/i.test(t), `the empty-space menu offers Select all, Zoom extents, Unhide all, Camera and Style (${t.slice(0, 90)})`);
+  check(!/Make group|Delete/.test(t), 'it has none of the face and group items');
+  check(await item('Paste').first().isDisabled(), 'Paste is greyed out with an empty clipboard');
+  check(await item('Unhide all').isDisabled(), 'Unhide all is greyed out when nothing is hidden');
+  check(await item('Select all').isEnabled(), 'Select all is available');
+  check((await item('Perspective').getAttribute('aria-checked')) === 'true', 'Perspective is ticked');
+  await closeMenu(p);
+
+  // Parallel projection from the menu: the tick moves
+  await p.mouse.click(ex, ey, { button: 'right' });
+  await wait(400);
+  await item('Parallel projection').click();
+  await wait(500);
+  check(await p.evaluate(() => window.__sketchcraftView.current.camera.isOrthographicCamera === true), 'Parallel projection switches the camera');
+  await p.mouse.click(ex, ey, { button: 'right' });
+  await wait(400);
+  check((await item('Parallel projection').getAttribute('aria-checked')) === 'true', 'the tick follows to Parallel projection');
+  await item('Perspective').click();
+  await wait(400);
+
+  // Select all, then the menu on the selection is the face menu
+  await p.mouse.click(ex, ey, { button: 'right' });
+  await wait(400);
+  await item('Select all').click();
+  await wait(500);
+  await p.mouse.click(ex, ey, { button: 'right' });
+  await wait(400);
+  check(/Make group/.test(await flat()), 'Select all from the menu selects the model (the next right-click offers Make group)');
+  await closeMenu(p);
+
+  // a right-drag that starts on empty space still pans and opens no menu
+  await p.keyboard.press('Escape');
+  await p.mouse.click(ex - 200, ey - 100);
+  await wait(300);
+  const before = await target(p);
+  await p.mouse.move(ex, ey);
+  await p.mouse.down({ button: 'right' });
+  await p.mouse.move(ex - 40, ey - 10, { steps: 5 });
+  await p.mouse.move(ex - 120, ey - 30, { steps: 8 });
+  await wait(450);
+  await p.mouse.up({ button: 'right' });
+  await wait(700);
+  const after = await target(p);
+  check(Math.hypot(...after.map((v, i) => v - before[i])) > 0.05, 'a right-drag from empty space pans the view');
+  check((await menus(p)) === 0, 'a right-drag from empty space opens no menu');
+  await ctx.close();
+}
+
 await b.close();
 if (problems.length) console.log('page errors:', problems.slice(0, 5));
 console.log(failed ? `${failed} check(s) failed` : 'all checks passed');

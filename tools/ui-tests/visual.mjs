@@ -102,11 +102,13 @@ const FIXED_CSS = `
   * { scrollbar-width: none !important; }
 `;
 /** a new browser page with these settings saved, a small fixed model, and the camera where it starts */
-const open = async ({ layout, skin }) => {
+const open = async ({ layout, skin, tray, trayOpen }) => {
   const ctx = await b.newContext({ locale: 'en-US', viewport: VIEWPORT, deviceScaleFactor: 1, reducedMotion: 'reduce' });
   await ctx.addInitScript(
-    ([layout, skin]) => {
+    ([layout, skin, tray, trayOpen]) => {
       try {
+        if (tray) localStorage.setItem('sketchcraft.tray', '1');
+        if (trayOpen) localStorage.setItem('sketchcraft.trayOpen', trayOpen);
         localStorage.setItem('sketchcraft.layout', layout);
         localStorage.setItem('sketchcraft.skin', skin);
         localStorage.setItem('sketchcraft.workspace', 'model');
@@ -114,7 +116,7 @@ const open = async ({ layout, skin }) => {
         localStorage.setItem('sketchcraft.lessonsDone', '[]');
       } catch {}
     },
-    [layout, skin],
+    [layout, skin, tray, trayOpen],
   );
   const p = await ctx.newPage();
   p.on('pageerror', (e) => problems.push(String(e)));
@@ -316,6 +318,17 @@ shots.push({
   },
 });
 for (const [name, run] of dialogs.filter(([n]) => ['file-menu', 'themes', 'command-palette', 'plugins', 'shortcuts-editor'].includes(n))) shots.push({ name: `floating-dark-${name}`, layout: 'floating', skin: 'midnight', run });
+
+// the Classic Color look (#228): colour tool icons and the Classic tray, as first shown and with every panel open
+shots.push({ name: 'tray-classic-color', layout: 'classic', skin: 'classic-color', tray: true, run: async () => {} });
+shots.push({
+  name: 'tray-classic-color-all-open',
+  layout: 'classic',
+  skin: 'classic-color',
+  tray: true,
+  trayOpen: JSON.stringify({ entity: true, materials: true, components: true, styles: true, environments: true, tags: true, scenes: true, outliner: true }),
+  run: async () => {},
+});
 
 // ---- run them ------------------------------------------------------------------------------------------------------------
 const haveRefs = fs.existsSync(refDir) && fs.readdirSync(refDir).some((f) => f.endsWith('.png'));
