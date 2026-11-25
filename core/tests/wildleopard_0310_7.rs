@@ -323,23 +323,38 @@ fn a_call_is_written_once_not_after_every_command() {
 
 #[test]
 fn many_commands_in_one_call_cost_one_write_not_one_each() {
-    // the timing of the same 100 commands: a call writes the file once, so it is far faster than 100 separate calls
+    // 100 commands in one call write the file once; 100 separate calls write it 100 times. The writes are counted (the
+    // timing follows from them, but it depends on how busy the machine is: the commands themselves use the processor,
+    // the writes wait for the disk, and a loaded runner stretches the first far more than the second)
     let dir = scratch("writes");
     let mut a = Live::open(dir.join("m.sketchcraft"));
     let g = grouped_boxes(&mut a.engine, 2500)[0];
     assert_eq!(call(&mut a, vec![json!({"cmd": "rename", "id": g, "name": "x"})])["isError"], false);
+    let writes = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counter = writes.clone();
+    a.set_save_hook(Some(Box::new(move |phase| {
+        if phase == "written" {
+            counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    })));
+    // the periodic write is for calls that run for a long time: a slow machine must not add writes to this one
+    a.set_call_flush_every(Duration::from_secs(3600));
+    let count = || writes.load(std::sync::atomic::Ordering::SeqCst);
     let names: Vec<Value> = (0..100).map(|i| json!({"cmd": "rename", "id": g, "name": format!("a{i}")})).collect();
     let t = Instant::now();
     let r = call(&mut a, names);
     let one_call = t.elapsed();
     assert_eq!(r["isError"], false, "{}", reply_text(&r));
+    let one_call_writes = count();
     let t = Instant::now();
     for i in 0..100 {
         assert_eq!(call(&mut a, vec![json!({"cmd": "rename", "id": g, "name": format!("b{i}")})])["isError"], false);
     }
     let separate = t.elapsed();
-    eprintln!("100 renames on 2,500 groups: one call {one_call:?}, 100 calls {separate:?}");
-    assert!(one_call * 2 < separate, "one call {one_call:?} vs separate {separate:?}");
+    let separate_writes = count() - one_call_writes;
+    eprintln!("100 renames on 2,500 groups: one call {one_call:?} ({one_call_writes} write), 100 calls {separate:?} ({separate_writes} writes)");
+    assert_eq!(one_call_writes, 1, "a call of many commands writes the file once");
+    assert_eq!(separate_writes, 100, "each separate call writes the file once");
     std::fs::remove_dir_all(&dir).ok();
 }
 
