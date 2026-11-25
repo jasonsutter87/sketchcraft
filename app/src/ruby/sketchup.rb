@@ -41,7 +41,7 @@ module SC
     raise "this script made more than #{MAX_COMMANDS} changes in one run, so it was stopped" if `globalThis.__journal.length` > MAX_COMMANDS
     if ctx != :same && ctx != @ctx
       `globalThis.__journal.push({cmd: "close"})` if @ctx
-      `globalThis.__journal.push({cmd: "edit", id: #{"@" + ctx.ref}})` if ctx
+      `globalThis.__journal.push({cmd: "edit", id: #{ctx.jid}})` if ctx
       @ctx = ctx
     end
     `globalThis.__journal.push(#{SC.js(cmd)})`
@@ -321,6 +321,8 @@ module Sketchup
     attr_reader :ref
     def entityID; @ref; end
     def persistent_id; @ref; end
+    # how the journal names this entity: a real SketchCraft id, or "@name" for what the script made
+    def jid; @real ? @ref.to_i : "@" + @ref.to_s; end
     def valid?; !@erased; end
     def deleted?; !!@erased; end
     def model; Sketchup.active_model; end
@@ -329,7 +331,7 @@ module Sketchup
     def set_attribute(dict, key, value); (attr_dict[dict] ||= {})[key] = value; value; end
     def attribute_dictionary(name, create = false); attr_dict[name] ||= {} if create; attr_dict[name]; end
     def erase!
-      SC.emit({ cmd: "delete", ids: ["@" + @ref] }) unless @erased
+      SC.emit({ cmd: "delete", ids: [jid] }) unless @erased
       @erased = true
     end
     def method_missing(name, *_args)
@@ -342,16 +344,16 @@ module Sketchup
     def material; @material; end
     def material=(m)
       @material = m
-      SC.paint(["@" + @ref], m)
+      SC.paint([jid], m)
     end
     def layer; @layer; end
     def layer=(l)
       @layer = l
       name = l.respond_to?(:name) ? l.name : l.to_s
-      SC.emit({ cmd: "tag", ids: ["@" + @ref], tag: name == "Layer0" || name == "Untagged" ? nil : name })
+      SC.emit({ cmd: "tag", ids: [jid], tag: name == "Layer0" || name == "Untagged" ? nil : name })
     end
     def hidden=(h)
-      SC.emit({ cmd: h ? "hide" : "unhide", ids: ["@" + @ref] })
+      SC.emit({ cmd: h ? "hide" : "unhide", ids: [jid] })
       @hidden = h
     end
     def hidden?; !!@hidden; end
@@ -374,9 +376,8 @@ module Sketchup
     def vertices; [start, self.end]; end
     def length; @points[0].distance(@points[1]); end
     def line; [@points[0], @points[1] - @points[0]]; end
-    def soft=(v); SC.emit({ cmd: "soften", ids: ["@" + @ref], soft: v }) if @ref; end
+    def soft=(v); SC.emit({ cmd: "soften", ids: [jid], soft: v }) if @ref; end
     def smooth=(v); self.soft = v; end
-    def faces; []; end
   end
 
   # a circle's or arc's edges: one SketchCraft curve
@@ -409,18 +410,17 @@ module Sketchup
     def bounds; Geom::BoundingBox.new.add(@outer); end
     # pull along the face's normal (negative pushes in)
     def pushpull(d, copy = false)
-      SC.emit({ cmd: "pushpull", face: "@" + @ref, distance: d.to_f * SC::M_PER_IN, toward: @normal.to_a })
+      SC.emit({ cmd: "pushpull", face: jid, distance: d.to_f * SC::M_PER_IN, toward: @normal.to_a })
       off = @normal.scale(d.to_f)
       @outer = @outer.map { |p| p + off }
       nil
     end
     def reverse!
       @normal = @normal.reverse
-      SC.emit({ cmd: "reverse", ids: ["@" + @ref] })
+      SC.emit({ cmd: "reverse", ids: [jid] })
       self
     end
     def back_material=(m); self.material = m; end
-    def followme(*_); SC.unsupported("Face#followme"); end
   end
 
   class Entities
@@ -520,7 +520,7 @@ module Sketchup
         SC.emit({ cmd: "begin_group", name: "Group", as: ref }, ctx)
         SC.emit({ cmd: "end_group" })
       else
-        SC.emit({ cmd: "group", ids: ents.map { |e| "@" + e.ref }, as: ref }, ctx)
+        SC.emit({ cmd: "group", ids: ents.map { |e| e.jid }, as: ref }, ctx)
       end
       keep(Group.new(ref, ctx))
     end
@@ -559,7 +559,7 @@ module Sketchup
     def erase_entities(*ents)
       list = ents.flatten.reject(&:deleted?)
       return if list.empty?
-      SC.emit({ cmd: "delete", ids: list.map { |e| "@" + e.ref } })
+      SC.emit({ cmd: "delete", ids: list.map { |e| e.jid } })
       list.each { |e| e.instance_variable_set(:@erased, true) }
     end
 
@@ -580,27 +580,27 @@ module Sketchup
       @name = name
     end
     def name; @name; end
-    def name=(n); @name = n.to_s; SC.emit({ cmd: "rename", id: "@" + @ref, name: @name }); end
+    def name=(n); @name = n.to_s; SC.emit({ cmd: "rename", id: jid, name: @name }); end
     def definition; self; end
     def transform!(t)
       t.ops.each do |op|
         case op[0]
-        when :move then SC.emit({ cmd: "move", ids: ["@" + @ref], by: SC.m(op[1]) }, @parent_ctx)
-        when :rotate then SC.emit({ cmd: "rotate", ids: ["@" + @ref], center: SC.m(op[1]), axis: SC.vec(op[2]).normalize.to_a, angle: op[3] * 180.0 / Math::PI }, @parent_ctx)
-        else SC.emit({ cmd: "scale", ids: ["@" + @ref], center: SC.m(op[1]), factor: op[2] }, @parent_ctx)
+        when :move then SC.emit({ cmd: "move", ids: [jid], by: SC.m(op[1]) }, @parent_ctx)
+        when :rotate then SC.emit({ cmd: "rotate", ids: [jid], center: SC.m(op[1]), axis: SC.vec(op[2]).normalize.to_a, angle: op[3] * 180.0 / Math::PI }, @parent_ctx)
+        else SC.emit({ cmd: "scale", ids: [jid], center: SC.m(op[1]), factor: op[2] }, @parent_ctx)
         end
       end
       self
     end
     def move!(t); transform!(t); end
-    def explode; SC.emit({ cmd: "explode", id: "@" + @ref }); []; end
+    def explode; SC.emit({ cmd: "explode", id: jid }); []; end
     def to_component
       ref = SC.name_for
-      SC.emit({ cmd: "make_component", ids: ["@" + @ref], name: @name, as: ref }, @parent_ctx)
+      SC.emit({ cmd: "make_component", ids: [jid], name: @name, as: ref }, @parent_ctx)
       ComponentInstance.new(ref, @parent_ctx, nil)
     end
     def bounds; Geom::BoundingBox.new; end
-    def locked=(v); SC.emit({ cmd: "lock", ids: ["@" + @ref], locked: v }); end
+    def locked=(v); SC.emit({ cmd: "lock", ids: [jid], locked: v }); end
   end
 
   class ComponentDefinition < Entity
@@ -625,7 +625,7 @@ module Sketchup
       first = @instances.empty?
       if first
         ref = SC.name_for
-        SC.emit({ cmd: "make_component", ids: ["@" + group.ref], name: @name, as: ref }, nil)
+        SC.emit({ cmd: "make_component", ids: [group.jid], name: @name, as: ref }, nil)
         @comp = ref
         inst = ComponentInstance.new(ref, nil, self)
         inst.transform!(t) unless t.nil? || (t.respond_to?(:identity?) && t.identity?)
@@ -672,7 +672,6 @@ module Sketchup
       SC.emit({ cmd: "material", name: @name, color: SC.rgb(@color) })
     end
     def alpha=(a); SC.emit({ cmd: "opacity", material: @name, opacity: a.to_f }); end
-    def texture=(_); SC.unsupported("Material#texture="); end
   end
 
   class Materials
@@ -710,6 +709,7 @@ module Sketchup
   class Selected < Group
     def initialize(id, name, kind); @ref_id = id; @name = name; @kind = kind; @entities = Entities.new(self); end
     def ref; @ref_id.to_s; end
+    def jid; @ref_id; end
     def entityID; @ref_id; end
     def typename; @kind == "instance" ? "ComponentInstance" : @kind == "face" ? "Face" : "Group"; end
     # the same commands, by real id
@@ -749,8 +749,8 @@ module Sketchup
       @materials = Materials.new
       @definitions = Definitions.new
       @layers = Layers.new
-      sel = `globalThis.__selection || []`
-      @selection = Selection.new(sel.map { |s| Selected.new(`#{s}.id`, `#{s}.name || ""`, `#{s}.kind`) })
+      @selection = Selection.new([])
+      SC.seed_model(self)
     end
     def active_entities; @entities; end
     def selection; @selection; end
@@ -877,9 +877,6 @@ module UI
     end
   end
 
-  def self.start_timer(*_); SC.unsupported("UI.start_timer"); end
-  class HtmlDialog; def initialize(*_); SC.unsupported("UI::HtmlDialog"); end; end
-  class WebDialog; def initialize(*_); SC.unsupported("UI::WebDialog"); end; end
 end
 
 MB_OK = 0

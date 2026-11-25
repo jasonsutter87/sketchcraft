@@ -3,6 +3,7 @@
 // SketchCraft commands they recorded. Both steps run in sandboxed workers (no
 // network, no files); the app replays the commands, so they undo as usual.
 import SKETCHUP_RB from "./ruby/sketchup.rb?raw";
+import SKETCHUP_TOOLS_RB from "./ruby/sketchup_tools.rb?raw";
 import { SANDBOX_PREFACE, startWorker } from "./sandbox";
 import { pluginSandboxHolds } from "./cspcheck";
 import type { Plugin } from "./plugins";
@@ -143,6 +144,39 @@ async function compiledPlugin(p: Plugin): Promise<{ js?: string; error?: string 
   return compiled.get(key)!;
 }
 
+export interface RubyDialog {
+  id: number;
+  title: string;
+  html: string;
+  file?: string | null;
+  url?: string | null;
+  scripts: string[];
+  visible: boolean;
+}
+
+/** The model as the script may read it: faces in meters (the `faces` command with `outlines`), and groups. */
+export interface RubyModel {
+  faces: { id: number; normal: number[]; outer: number[][]; inner?: number[][][]; group?: number | null; material?: string | null }[];
+  groups?: { id: number; name: string; kind?: string }[];
+}
+
+/** What the person (or a test) did while a Ruby tool was active: mouse and key events, in order. `at` is the world point under the cursor, meters. */
+export interface RubyEvent {
+  type: string;
+  x?: number;
+  y?: number;
+  flags?: number;
+  at?: number[];
+  key?: number;
+  repeat?: number;
+  text?: string;
+  reason?: number;
+  ids?: number[];
+  id?: number;
+  name?: string;
+  params?: string;
+}
+
 export interface RubyRun {
   /** SketchCraft commands to replay, in order */
   journal: Record<string, unknown>[];
@@ -152,6 +186,10 @@ export interface RubyRun {
   out: string;
   /** messages it showed (UI.messagebox) */
   toasts: string[];
+  /** dialogs it opened (UI::HtmlDialog): what it set, to show or test */
+  dialogs: RubyDialog[];
+  /** its status bar text (Sketchup.status_text=) */
+  status?: string | null;
   /** a form it needs filled in (UI.inputbox) before it can finish */
   need?: { prompts: string[]; defaults: string[]; lists: string[]; title: string };
   error?: string;
@@ -164,10 +202,10 @@ export interface RubyRun {
  */
 export async function runRuby(
   p: Plugin,
-  opts: { item?: number; answers?: string[][]; selection?: { id: number; name: string; kind: string }[] },
+  opts: { item?: number; answers?: string[][]; selection?: { id: number; name: string; kind: string }[]; model?: RubyModel; events?: RubyEvent[] },
 ): Promise<RubyRun> {
-  const empty = { journal: [], menu: [], out: "", toasts: [] };
-  apiJs ??= cachedCompile({ sketchup_api: SKETCHUP_RB });
+  const empty = { journal: [], menu: [], out: "", toasts: [], dialogs: [] };
+  apiJs ??= cachedCompile({ sketchup_api: SKETCHUP_RB, sketchup_tools: SKETCHUP_TOOLS_RB });
   const [rt, api, mine] = await Promise.all([opal(), apiJs, compiledPlugin(p)]);
   if (api.error) return { ...empty, error: `SketchCraft's Ruby layer: ${api.error}` };
   if (mine.error) return { ...empty, error: mine.error };
@@ -178,8 +216,8 @@ self.onmessage = (e) => {
   globalThis.__runId = d.runId;
   globalThis.__journal = []; globalThis.__menu = []; globalThis.__out = []; globalThis.__toasts = [];
   globalThis.__answers = d.answers; globalThis.__askCount = 0; globalThis.__need = null;
-  globalThis.__selection = d.selection;
-  const reply = (extra) => postMessage(Object.assign({ journal: globalThis.__journal, menu: globalThis.__menu, out: globalThis.__out.join(""), toasts: globalThis.__toasts }, extra));
+  globalThis.__selection = d.selection; globalThis.__model = d.model || null; globalThis.__dialogs = []; globalThis.__status = null; globalThis.__events = d.events || [];
+  const reply = (extra) => postMessage(Object.assign({ journal: globalThis.__journal, menu: globalThis.__menu, out: globalThis.__out.join(""), toasts: globalThis.__toasts, dialogs: globalThis.__dialogs, status: globalThis.__status }, extra));
   const msg = (err) => {
     if (!err) return "it hit an error";
     const m = err.$message ? err.$message() : err.message;
@@ -188,6 +226,7 @@ self.onmessage = (e) => {
   };
   try {
     Opal.require("sketchup_api");
+    Opal.require("sketchup_tools");
     for (const name of d.entries) Opal.require(name);
     if (d.item != null) {
       const items = Opal.UI.$items();
@@ -195,6 +234,9 @@ self.onmessage = (e) => {
       if (!it) return reply({ error: "it has no menu item " + d.item });
       if (it[1] === Opal.nil || !it[1]) return reply({ error: "that menu item does nothing" });
       it[1].$call();
+      Opal.SC.$dispatch(d.events || []);
+      Opal.SC.$end_tool();
+      Opal.SC.$report();
       Opal.SC.$finish();
     }
     reply({});
@@ -227,13 +269,31 @@ for (const n of ["sketchup", "sketchup.rb", "extensions", "extensions.rb", "lang
     item: opts.item ?? null,
     answers: opts.answers ?? [],
     selection: opts.selection ?? [],
+    model: opts.model ?? null,
+    events: opts.events ?? [],
   });
   return {
     journal: (r.journal as RubyRun["journal"]) ?? [],
     menu: (r.menu as string[]) ?? [],
     out: String(r.out ?? ""),
     toasts: (r.toasts as string[]) ?? [],
+    dialogs: (r.dialogs as RubyDialog[]) ?? [],
+    status: (r.status as string | null) ?? null,
     need: r.need as RubyRun["need"],
     error: r.error as string | undefined,
+  };
+}
+
+/** Most faces a script may read from the model (a bigger model is cut off, and the script is told). */
+export const MAX_READ_FACES = 20_000;
+
+/** Turn the engine's `faces` (with outlines) and `info` replies into the model a script reads. */
+export function modelForRuby(faces: unknown, info: unknown): RubyModel | undefined {
+  const fl = (faces as { faces?: RubyModel["faces"] } | undefined)?.faces;
+  if (!Array.isArray(fl) || fl.length > MAX_READ_FACES) return undefined;
+  const gl = (info as { groups?: { id: number; name: string }[] } | undefined)?.groups ?? [];
+  return {
+    faces: fl.filter((f) => Array.isArray(f.outer) && f.outer.length >= 3),
+    groups: gl.map((g) => ({ id: g.id, name: String(g.name ?? ""), kind: "group" })),
   };
 }
