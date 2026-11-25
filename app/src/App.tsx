@@ -36,7 +36,9 @@ import { panelTabs, readSideTab, shownTab, SIDE_TAB_KEY, stepTab, type SideTab }
 import { labsAi } from "./labs";
 import { useLook } from "./uselook";
 import { CommandPalette, type Command } from "./palette";
-import { TOOL_INFO, WORKSPACES } from "./workspace";
+import { TOOL_INFO, WORKSPACES, oneSidebar } from "./workspace";
+import { RAIL_ICONS, WebRail } from "./webrail";
+import { hasNativeMenus, useNativeMenus } from "./nativemenu";
 import { useLayout } from "./paper/uselayout";
 import { PagesPanel } from "./paper/PagesPanel";
 import { LayoutStage } from "./paper/LayoutStage";
@@ -162,7 +164,7 @@ function ModelingApp() {
   const [typed, setTyped] = useState("");
   const [toast, setToast] = useState<{ text: string; bad?: boolean; undo?: boolean } | null>(null);
   // the Vertical layout remembers the tab you last chose (the other layouts start on the Outliner)
-  const [tab, setTab] = useState<SideTab>(() => (store.get("sketchcraft.layout") === "side" ? readSideTab(store.get(SIDE_TAB_KEY)) : null) ?? "outliner");
+  const [tab, setTab] = useState<SideTab>(() => (["side", "web"].includes(store.get("sketchcraft.layout") ?? "") ? readSideTab(store.get(SIDE_TAB_KEY)) : null) ?? "outliner");
   const [styles, setStyles] = useState<Styles>(() => {
     let help = true;
     try {
@@ -753,8 +755,8 @@ function ModelingApp() {
     styles,
     layout,
     language: preference,
-    showLeft: layout === "side" ? ws.showLeft || ws.showRight : ws.showLeft,
-    showRight: layout === "side" ? ws.showLeft || ws.showRight : ws.showRight,
+    showLeft: oneSidebar(layout) ? ws.showLeft || ws.showRight : ws.showLeft,
+    showRight: oneSidebar(layout) ? ws.showLeft || ws.showRight : ws.showRight,
     leftTabs: panelTabs(wsId, layout),
     desktop: inTauri,
     file: {
@@ -808,17 +810,17 @@ function ModelingApp() {
     setStyles: (patch) => setStyles((s) => ({ ...s, ...patch })),
     workspaceTo: (id) => switchWs(id as Parameters<typeof switchWs>[0]),
     showTab: (t) => {
-      if (!(layout === "side" ? ws.showLeft || ws.showRight : ws.showLeft)) editWs({ showLeft: true });
+      if (!(oneSidebar(layout) ? ws.showLeft || ws.showRight : ws.showLeft)) editWs({ showLeft: true });
       chooseTab(t);
     },
     // Vertical: Entity info lives in the Properties tab of the one sidebar
     showRightPanel: () => {
-      if (layout !== "side") return ws.showRight || editWs({ showRight: true });
+      if (!oneSidebar(layout)) return ws.showRight || editWs({ showRight: true });
       if (!ws.showLeft && !ws.showRight) editWs({ showLeft: true });
       chooseTab("properties");
     },
     togglePanel: (side) => {
-      if (layout === "side") {
+      if (oneSidebar(layout)) {
         const on = ws.showLeft || ws.showRight;
         return editWs({ showLeft: !on, showRight: !on });
       }
@@ -866,13 +868,17 @@ function ModelingApp() {
     ...livePlugins.flatMap((pl) => pl.commands.map((c) => ({ key: `${pl.id}:${c.id}`, label: c.label, title: c.hint ?? pl.description, run: () => void runPluginCommand(pl, c.id) }))),
     ...plugins.problems.map((p) => ({ key: `x${p.id}`, label: `${p.id}: ${p.error}`, title: p.error, disabled: true, run: () => {} })),
   ];
+  // Desktop on a Mac: the menus go to the system menu bar
+  const nativeMenus = layout === "desktop" && hasNativeMenus();
+  useNativeMenus(nativeMenus, MENUS, menuActions, pluginEntries, tr);
 
   const learnCtx = useLearnCtx(scene, wsId, section, !!styles.byTag, { theme: skin.id, layout, pluginRuns, figure });
   const docName = currentFile ? currentFile.split("/").pop()!.replace(/\.sketchcraft$/, "") : "Untitled";
   const selCount = selIds(sel).length;
 
   // the Vertical layout has one sidebar: the lower-right panel becomes its Properties tab
-  const merged = layout === "side";
+  const merged = oneSidebar(layout);
+  const tabLabel = (t: SideTab) => (t === "outliner" ? "Outliner" : t === "library" ? "Library" : t === "pages" ? "Pages" : t === "properties" ? tr("tab.properties") : t === "ai" ? tr("tab.ai") : "Views");
   // SketchCraft AI is in labs (labs.ts): hidden unless switched on
   const aiOn = labsAi();
   const tabs = panelTabs(wsId, layout, aiOn);
@@ -919,7 +925,9 @@ function ModelingApp() {
         <span>Background</span>
         <select className="units-select" value={styles.background ?? "sky"} onChange={(e) => setStyles((s) => ({ ...s, background: e.target.value as Backdrop }))}>
           <option value="sky">Sky and ground</option>
+          <option value="daylight">Daylight</option>
           <option value="default">Plain with grid</option>
+          <option value="grey">Studio grey</option>
           <option value="paper">Paper</option>
           <option value="blueprint">Blueprint</option>
           <option value="night">Night</option>
@@ -1103,132 +1111,166 @@ function ModelingApp() {
     </>
   );
 
-  return (
-    <div className={`app ${inLayout ? "ws-layout" : ""} ${showSide ? "" : "no-left"} ${(ws.showRight || trayLeft) && !merged ? "" : "no-right"} ${trayLeft ? "tray-on" : ""} ${ws.dock === "left" ? "dock-left" : ws.dock === "classic" ? "dock-classic" : ""} ${layout === "side" ? "panels-right" : ""}`}>
-      <header className="topbar" data-tauri-drag-region>
-        <div className="brand" data-tauri-drag-region>
-          <Logo />
-          <span className="brand-name">SketchCraft</span>
-          <span className="sep">/</span>
-          <MenuBar menus={MENUS} actions={menuActions} plugins={pluginEntries} onOpenPlugins={() => void loadPlugins().then(setPlugins, () => {})} />
-          <span className="doc">{docName}</span>
-          <span className="live" title="Claude can edit this model over MCP; changes show up here">
-            <i /> Live
-          </span>
-          {(scene?.editing != null || scene?.activeGroup != null) && (
-            <button className="editing-pill" onClick={() => run({ cmd: "close" })}>
-              Editing {scene?.editing != null ? "component" : "group"} · Done
-            </button>
-          )}
-        </div>
-        <div className="ws-switch" role="tablist" aria-label="Workspace">
-          {WORKSPACES.map((w) => (
-            <button key={w.id} role="tab" aria-selected={wsId === w.id} className={wsId === w.id ? "on" : ""} title={w.blurb} onClick={() => switchWs(w.id)}>
-              {w.name}
-            </button>
-          ))}
-          <button title={`Customize the ${ws.name} workspace: tools, toolbar, panels`} onClick={() => setShowWs(true)} aria-label="Customize workspace">
-            ⋯
+  const sidePanel = (
+    <aside className="panel left">
+      {layout === "web" && (
+        <div className="web-panel-head">
+          <p>{tabLabel(curTab)}</p>
+          <button className="web-icon" onClick={() => editWs({ showLeft: false, showRight: false })} aria-label={`Put away ${tabLabel(curTab)}`} title={`Put away ${tabLabel(curTab)}`}>
+            {RAIL_ICONS[curTab]()}
           </button>
         </div>
-        <div className="top-actions">
-          <button className="btn small ghost learn-btn" title="Lessons and demos: learn SketchCraft by doing" onClick={() => setShowLearn(true)}>
-            Learn{lessonsDone().length === 0 && <i className="learn-dot" aria-label="(new)" />}
+      )}
+      <div
+        className="tabs"
+        role="tablist"
+        aria-label={tr("tab.panel")}
+        onKeyDown={(e) => {
+          const to = stepTab(tabs, curTab, e.key);
+          if (!to) return;
+          e.preventDefault();
+          chooseTab(to);
+          e.currentTarget.querySelectorAll<HTMLElement>('[role="tab"]')[tabs.indexOf(to)]?.focus();
+        }}
+      >
+        {tabs.map((t) => (
+          <button key={t} id={`side-tab-${t}`} role="tab" aria-selected={curTab === t} aria-controls="side-tabpanel" tabIndex={curTab === t ? 0 : -1} className={curTab === t ? "on" : ""} onClick={() => chooseTab(t)}>
+            {tabLabel(t)}
+            {t === "properties" && selCount > 0 && curTab !== "properties" && <i className="tab-dot" role="img" aria-label={tr("tab.hasSelection")} title={tr("tab.hasSelection")} />}
           </button>
-          {aiOn && (
-            <button className="btn small ghost ai-btn" data-testid="ai-btn" title="SketchCraft AI: ask for changes in plain words (local test)" onClick={openAi}>
-              SketchCraft AI
-            </button>
-          )}
-          <button className="btn small ghost skin-btn" title="Themes: SketchCraft's colors, layout and icons" onClick={() => setShowSkins(true)}>
-            <Icons.theme />
-            <span className="btn-label">Themes</span>
-          </button>
-          <button className="icon-btn" title={`Undo (⌘Z)${scene?.undo_origin && scene.undo_origin !== "you" ? `: the last step is from ${scene.undo_origin}` : ""}`} onClick={() => run({ cmd: "undo" })}>
-            <Icons.undo />
-          </button>
-          <button className="icon-btn" title={`Redo (⇧⌘Z)${scene?.redo_origin && scene.redo_origin !== "you" ? `: the next step is from ${scene.redo_origin}` : ""}`} onClick={() => run({ cmd: "redo" })}>
-            <Icons.redo />
-          </button>
-          <input ref={fileRef} type="file" accept=".obj,.skp,.fbx,.dxf" hidden onChange={(e) => e.target.files?.[0] && importFile(e.target.files[0])} />
-          <button className="btn primary" onClick={() => setShowRender(true)} title="A photoreal picture of this view">
-            <Icons.camera /> <span className="btn-label">Render</span>
-          </button>
-        </div>
-      </header>
-
-      <aside className="panel left">
-        <div
-          className="tabs"
-          role="tablist"
-          aria-label={tr("tab.panel")}
-          onKeyDown={(e) => {
-            const to = stepTab(tabs, curTab, e.key);
-            if (!to) return;
-            e.preventDefault();
-            chooseTab(to);
-            e.currentTarget.querySelectorAll<HTMLElement>('[role="tab"]')[tabs.indexOf(to)]?.focus();
-          }}
-        >
-          {tabs.map((t) => (
-            <button key={t} id={`side-tab-${t}`} role="tab" aria-selected={curTab === t} aria-controls="side-tabpanel" tabIndex={curTab === t ? 0 : -1} className={curTab === t ? "on" : ""} onClick={() => chooseTab(t)}>
-              {t === "outliner" ? "Outliner" : t === "library" ? "Library" : t === "pages" ? "Pages" : t === "properties" ? tr("tab.properties") : t === "ai" ? tr("tab.ai") : "Views"}
-              {t === "properties" && selCount > 0 && curTab !== "properties" && <i className="tab-dot" role="img" aria-label={tr("tab.hasSelection")} title={tr("tab.hasSelection")} />}
-            </button>
-          ))}
-        </div>
-        <div id="side-tabpanel" role="tabpanel" aria-labelledby={`side-tab-${curTab}`} className={curTab === "properties" ? "inspector-body" : "section grow"}>
-          {curTab === "properties" && inspector}
-          {curTab === "ai" && <AiPanel scene={scene} run={run} refresh={refresh} say={say} importFile={importFile} />}
-          {curTab === "pages" && <PagesPanel L={L} />}
-          {curTab === "outliner" && outlinerEl}
-          {scene && curTab === "library" && (
-            <>
-              {libraryEl}
-              <details className="panel-fold" open>
-                <summary>Build</summary>
-                <BuildTools tool={tool} setTool={chooseTool} build={build} setBuild={setBuild} units={scene.units || "m"} scene={scene} run={run} />
-              </details>
-              <details className="panel-fold">
-                <summary>Smooth shapes (SubD)</summary>
-                <div className="build-options">
-                  <p>{`A SubD shape is a soft surface you shape by its cage. ${SUBD_HOW}.`}</p>
-                  <div className="row gap">
-                    <button className="btn small" onClick={() => void addSubdBox()} title="A cube cage, ready to shape">
-                      SubD box
-                    </button>
-                    <button className="btn small" onClick={askSubdivide} title="Smooth the selected group or component, then shape it">
-                      Subdivide…
-                    </button>
-                  </div>
+        ))}
+      </div>
+      <div id="side-tabpanel" role="tabpanel" aria-labelledby={`side-tab-${curTab}`} className={curTab === "properties" ? "inspector-body" : "section grow"}>
+        {curTab === "properties" && inspector}
+        {curTab === "ai" && <AiPanel scene={scene} run={run} refresh={refresh} say={say} importFile={importFile} />}
+        {curTab === "pages" && <PagesPanel L={L} />}
+        {curTab === "outliner" && outlinerEl}
+        {scene && curTab === "library" && (
+          <>
+            {libraryEl}
+            <details className="panel-fold" open>
+              <summary>Build</summary>
+              <BuildTools tool={tool} setTool={chooseTool} build={build} setBuild={setBuild} units={scene.units || "m"} scene={scene} run={run} />
+            </details>
+            <details className="panel-fold">
+              <summary>Smooth shapes (SubD)</summary>
+              <div className="build-options">
+                <p>{`A SubD shape is a soft surface you shape by its cage. ${SUBD_HOW}.`}</p>
+                <div className="row gap">
+                  <button className="btn small" onClick={() => void addSubdBox()} title="A cube cage, ready to shape">
+                    SubD box
+                  </button>
+                  <button className="btn small" onClick={askSubdivide} title="Smooth the selected group or component, then shape it">
+                    Subdivide…
+                  </button>
                 </div>
-              </details>
-              <details className="panel-fold">
-                <summary>Sandbox (terrain)</summary>
-                <Sandbox tool={tool} setTool={chooseTool} build={build} setBuild={setBuild} units={scene.units || "m"} run={run} sel={sel} onToast={say} />
-              </details>
-              <details className="panel-fold" open={!!scene.environment || undefined}>
-                <summary>Environments</summary>
-                <Environments scene={scene} run={run} onToast={say} />
-              </details>
-              <details className="panel-fold" open={scene.faces.length === 0 || undefined}>
-                <summary>Examples</summary>
-                <Examples onExample={(name, data) => void openExample(name, data)} />
-              </details>
-              <details className="panel-fold">
-                <summary>Templates</summary>
-                <Templates onTemplate={runTemplate} />
-              </details>
-            </>
+              </div>
+            </details>
+            <details className="panel-fold">
+              <summary>Sandbox (terrain)</summary>
+              <Sandbox tool={tool} setTool={chooseTool} build={build} setBuild={setBuild} units={scene.units || "m"} run={run} sel={sel} onToast={say} />
+            </details>
+            <details className="panel-fold" open={!!scene.environment || undefined}>
+              <summary>Environments</summary>
+              <Environments scene={scene} run={run} onToast={say} />
+            </details>
+            <details className="panel-fold" open={scene.faces.length === 0 || undefined}>
+              <summary>Examples</summary>
+              <Examples onExample={(name, data) => void openExample(name, data)} />
+            </details>
+            <details className="panel-fold">
+              <summary>Templates</summary>
+              <Templates onTemplate={runTemplate} />
+            </details>
+          </>
+        )}
+        {curTab === "views" && viewsEl}
+      </div>
+    </aside>
+  );
+
+  return (
+    <div className={`app ${inLayout ? "ws-layout" : ""} ${showSide ? "" : "no-left"} ${(ws.showRight || trayLeft) && !merged ? "" : "no-right"} ${trayLeft ? "tray-on" : ""} ${ws.dock === "left" ? "dock-left" : ws.dock === "classic" ? "dock-classic" : ""} ${merged ? "panels-right" : ""} ${layout === "web" ? "web-layout" : ""} ${layout === "desktop" ? "desktop-layout" : ""}`}>
+      {layout === "desktop" ? (
+        <header className={`su-top${nativeMenus ? " native" : ""}`}>
+          <div className="su-title" data-tauri-drag-region>
+            <Logo />
+            {docName} - SketchCraft
+          </div>
+          {!nativeMenus && (
+            <div className="su-menus">
+              <MenuBar menus={MENUS} actions={menuActions} plugins={pluginEntries} onOpenPlugins={() => void loadPlugins().then(setPlugins, () => {})} />
+            </div>
           )}
-          {curTab === "views" && viewsEl}
+          <input ref={fileRef} type="file" accept=".obj,.skp,.fbx,.dxf" hidden onChange={(e) => e.target.files?.[0] && importFile(e.target.files[0])} />
+        </header>
+      ) : (
+        <header className="topbar" data-tauri-drag-region>
+          <div className="brand" data-tauri-drag-region>
+            <Logo />
+            <span className="brand-name">SketchCraft</span>
+            <span className="sep">/</span>
+            <MenuBar menus={MENUS} actions={menuActions} plugins={pluginEntries} onOpenPlugins={() => void loadPlugins().then(setPlugins, () => {})} />
+            <span className="doc">{docName}</span>
+            <span className="live" title="Claude can edit this model over MCP; changes show up here">
+              <i /> Live
+            </span>
+            {(scene?.editing != null || scene?.activeGroup != null) && (
+              <button className="editing-pill" onClick={() => run({ cmd: "close" })}>
+                Editing {scene?.editing != null ? "component" : "group"} · Done
+              </button>
+            )}
+          </div>
+          <div className="ws-switch" role="tablist" aria-label="Workspace">
+            {WORKSPACES.map((w) => (
+              <button key={w.id} role="tab" aria-selected={wsId === w.id} className={wsId === w.id ? "on" : ""} title={w.blurb} onClick={() => switchWs(w.id)}>
+                {w.name}
+              </button>
+            ))}
+            <button title={`Customize the ${ws.name} workspace: tools, toolbar, panels`} onClick={() => setShowWs(true)} aria-label="Customize workspace">
+              ⋯
+            </button>
+          </div>
+          <div className="top-actions">
+            <button className="btn small ghost learn-btn" title="Lessons and demos: learn SketchCraft by doing" onClick={() => setShowLearn(true)}>
+              Learn{lessonsDone().length === 0 && <i className="learn-dot" aria-label="(new)" />}
+            </button>
+            {aiOn && (
+              <button className="btn small ghost ai-btn" data-testid="ai-btn" title="SketchCraft AI: ask for changes in plain words (local test)" onClick={openAi}>
+                SketchCraft AI
+              </button>
+            )}
+            <button className="btn small ghost skin-btn" title="Themes: SketchCraft's colors, layout and icons" onClick={() => setShowSkins(true)}>
+              <Icons.theme />
+              <span className="btn-label">Themes</span>
+            </button>
+            <button className="icon-btn" title={`Undo (⌘Z)${scene?.undo_origin && scene.undo_origin !== "you" ? `: the last step is from ${scene.undo_origin}` : ""}`} onClick={() => run({ cmd: "undo" })}>
+              <Icons.undo />
+            </button>
+            <button className="icon-btn" title={`Redo (⇧⌘Z)${scene?.redo_origin && scene.redo_origin !== "you" ? `: the next step is from ${scene.redo_origin}` : ""}`} onClick={() => run({ cmd: "redo" })}>
+              <Icons.redo />
+            </button>
+            <input ref={fileRef} type="file" accept=".obj,.skp,.fbx,.dxf" hidden onChange={(e) => e.target.files?.[0] && importFile(e.target.files[0])} />
+            <button className="btn primary" onClick={() => setShowRender(true)} title="A photoreal picture of this view">
+              <Icons.camera /> <span className="btn-label">Render</span>
+            </button>
+          </div>
+        </header>
+      )}
+
+      {layout === "web" ? (
+        <div className="web-tray">
+          {sidePanel}
+          <WebRail tabs={tabs} cur={curTab} open={showSide} label={tabLabel} onPick={(t) => (showSide && t === curTab ? editWs({ showLeft: false, showRight: false }) : (showSide || editWs({ showLeft: true }), chooseTab(t)))} />
         </div>
-      </aside>
+      ) : (
+        sidePanel
+      )}
 
       <main className="stage">
         {/* phones held upright: show or hide the panels under the view, so the model can have the whole screen (CSS shows these only there) */}
         <div className="panel-toggles" role="group" aria-label={tr("tab.panel")}>
-          {layout === "side" ? (
+          {merged ? (
             <button className={menuCtx.showLeft ? "on" : ""} aria-pressed={menuCtx.showLeft} onClick={() => menuCtx.togglePanel("left")}>
               {tr("tab.panel")}
             </button>
@@ -1280,18 +1322,86 @@ function ModelingApp() {
               : null
           }
         />
+        {layout === "desktop" && (
+          <>
+            {!inLayout && (
+              <div className="su-doctabs">
+                <span className="su-doctab" title={currentFile ?? "Not saved yet"}>
+                  {docName}
+                </span>
+                <button className="su-docnew" onClick={file.new} title="New model" aria-label="New model">
+                  +
+                </button>
+              </div>
+            )}
+            <div className="su-end">
+              {(scene?.editing != null || scene?.activeGroup != null) && (
+                <button className="editing-pill" onClick={() => run({ cmd: "close" })}>
+                  Editing {scene?.editing != null ? "component" : "group"} · Done
+                </button>
+              )}
+              <select className="su-ws" value={wsId} onChange={(e) => switchWs(e.target.value as typeof wsId)} aria-label="Workspace" title="Workspace">
+                {WORKSPACES.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.name}
+                  </option>
+                ))}
+              </select>
+              {aiOn && (
+                <button className="su-icon" data-testid="ai-btn" onClick={openAi} title="SketchCraft AI: ask for changes in plain words" aria-label="SketchCraft AI">
+                  {RAIL_ICONS.ai()}
+                </button>
+              )}
+              <button className="su-icon" onClick={() => setShowSkins(true)} title="Themes: SketchCraft's colors, layout and icons" aria-label="Themes">
+                <Icons.theme />
+              </button>
+              <button className="su-icon" onClick={() => setShowRender(true)} title="Render: a photoreal picture of this view" aria-label="Render">
+                <Icons.camera />
+              </button>
+            </div>
+            {!inLayout && (
+              <div className="su-status-icons">
+                <button onClick={() => setShowLocation(true)} title="Location: place the model on the map" aria-label="Location">
+                  <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.2" aria-hidden="true">
+                    <path d="M8 14.5s4.5-4.6 4.5-8a4.5 4.5 0 0 0-9 0c0 3.4 4.5 8 4.5 8Z" />
+                    <circle cx="8" cy="6.5" r="1.6" />
+                  </svg>
+                </button>
+                <button onClick={() => setShowLearn(true)} title="Learn: lessons and short demos" aria-label="Learn">
+                  <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
+                    <circle cx="8" cy="8" r="6.6" />
+                    <path d="M8 7.2v4.3M8 4.6v.1" strokeLinecap="round" strokeWidth="1.6" />
+                  </svg>
+                </button>
+              </div>
+            )}
+          </>
+        )}
         {inLayout && <LayoutStage L={L} />}
         {matching && <MatchPhoto src={matching.src} width={matching.width} height={matching.height} defaultName={`Photo ${(scene?.views.filter((v) => v.photo).length ?? 0) + 1}`} onDone={finishMatch} onCancel={() => setMatching(null)} />}
 
         {!inLayout && (
         <>
-        <Toolbar groups={ws.tools} tool={tool} choose={(id) => chooseTool(id as Tool)} vertical={ws.dock === "left"} iconStyle={layout === "side" ? "workshop" : "default"} onCustomize={() => setShowWs(true)} extra={pluginButtons}>
+        <Toolbar groups={ws.tools} tool={tool} choose={(id) => chooseTool(id as Tool)} vertical={ws.dock === "left"} oneColumn={layout === "web"} reserve={layout === "desktop" ? 210 : 0} iconStyle={layout === "side" ? "workshop" : "default"} onCustomize={() => setShowWs(true)} extra={pluginButtons}>
           <label className="chip" style={{ background: hex(color) }} title="Paint color">
             <input type="color" value={hex(color)} onChange={(e) => (setColor(unhex(e.target.value)), chooseTool("paint"))} />
           </label>
         </Toolbar>
 
         <div className="views">
+          {layout === "desktop" && (
+            <>
+              {scene?.views.map((v) => (
+                <button key={v.name} className="su-scene" onClick={() => void showView(v)} title={`Go to the view “${v.name}”`}>
+                  {v.name}
+                </button>
+              ))}
+              <button className="su-scene-add" onClick={() => menuCtx.showTab("views")} title="Scenes: save this view, or go to another" aria-label="Scenes">
+                +
+              </button>
+              <span className="vsep" />
+            </>
+          )}
           {(["iso", "top", "front", "right"] as const).map((v) => (
             <button key={v} onClick={() => api.current?.view(v)}>
               {v}
@@ -1375,7 +1485,7 @@ function ModelingApp() {
             typedRef.current?.blur();
           }}
         >
-          <label>{measure.label || "Value"}</label>
+          <label className={measure.label ? "" : "idle"}>{measure.label || "Value"}</label>
           <input ref={typedRef} value={typed} placeholder={measure.value || "type, then Enter"} onChange={(e) => setTyped(e.target.value)} onKeyDown={(e) => e.key === "Escape" && (setTyped(""), typedRef.current?.blur())} />
         </form>
         </>

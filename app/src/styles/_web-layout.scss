@@ -1,0 +1,343 @@
+@use "variables" as *;
+@use "mixins" as *;
+
+/* ---------- Web layout: the model fills the window; a 44px bar of floating cards
+   along the top, a slim tool rail down the left, panels that slide out from a rail
+   of tiles on the right, and a 32px status bar along the bottom (where the tool's
+   hint and the Value box live). Sizes measured from SketchUp for Web. ---------- */
+
+$bar: 44px;
+$status: 32px;
+$card-shadow: 2px 2px 5px rgba(0, 0, 0, 0.2);
+
+.app.web-layout {
+  --web-stripe: var(--accent);
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: $bar minmax(0, 1fr);
+  position: relative;
+
+  &.no-left.no-right,
+  &.panels-right,
+  &.panels-right.no-left.no-right {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: $bar minmax(0, 1fr);
+  }
+
+  /* the model runs under the top bar, edge to edge */
+  .stage {
+    grid-column: 1;
+    grid-row: 1 / -1;
+  }
+
+  /* ----- top bar: transparent, its three groups are floating cards ----- */
+  .topbar {
+    grid-column: 1;
+    grid-row: 1;
+    z-index: 20;
+    height: $bar;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    pointer-events: none;
+
+    > * {
+      pointer-events: auto;
+      height: $bar;
+      background: var(--panel);
+      box-shadow: $card-shadow;
+    }
+  }
+
+  .brand {
+    /* room for the macOS window buttons, then the menus and the file name */
+    padding: 0 14px 0 84px;
+    gap: 6px;
+  }
+
+  .brand-name,
+  .sep {
+    display: none;
+  }
+
+  .doc {
+    color: var(--accent-ink);
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.85px;
+  }
+
+  .ws-switch {
+    align-items: center;
+    padding: 0 8px;
+    border-radius: 0;
+
+    button {
+      height: 30px;
+      border-radius: 4px;
+      color: var(--accent-ink);
+      font-size: 13px;
+      font-weight: 600;
+
+      &.on {
+        background: var(--accent-soft);
+        box-shadow: none;
+      }
+    }
+  }
+
+  .top-actions {
+    gap: 2px;
+    padding: 0 8px 0 4px;
+
+    .icon-btn {
+      @include size($bar);
+      border-radius: 0;
+      color: var(--accent-ink);
+    }
+
+    .btn.ghost {
+      color: var(--accent-ink);
+      font-weight: 600;
+    }
+
+    .btn.primary {
+      height: 28px;
+      margin-left: 6px;
+      padding: 0 8px;
+      border-radius: 4px;
+      font-size: 14px;
+      font-weight: 590;
+    }
+  }
+
+  /* ----- tool rail: 40px wide, 40px cells, a 4px stripe on the tool in hand; each
+     group is its own card with a gap between, so the bar itself is see-through ----- */
+  .toolbar {
+    left: 6px;
+    top: $bar + 12px;
+    max-height: none;
+    overflow: visible;
+    gap: 6px;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .tool-group {
+    gap: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 2px;
+    background: var(--panel);
+    box-shadow: $card-shadow;
+
+    &:last-of-type {
+      border: 0;
+    }
+  }
+
+  .tool {
+    @include size(40px);
+    border-radius: 0;
+    color: var(--accent-ink);
+
+    &:hover {
+      background: var(--accent-soft);
+    }
+
+    &.on {
+      background: var(--accent-soft);
+      color: var(--accent-ink);
+      border-left: 4px solid var(--web-stripe);
+      border-radius: 0 8px 8px 0;
+    }
+
+    &.more {
+      min-width: 40px;
+      padding: 0;
+      justify-content: center;
+      font-size: 18px;
+    }
+  }
+
+  .more-wrap {
+    position: relative;
+  }
+
+  .more-tools {
+    top: auto;
+    right: auto;
+    bottom: 0;
+    left: calc(100% + 8px);
+    border: 0;
+    border-radius: 2px;
+    box-shadow: $card-shadow;
+  }
+
+  .toolbar .chip {
+    margin: 0;
+    border-radius: 2px;
+    box-shadow: $card-shadow;
+  }
+
+  /* ----- the view bar: a card under the top-left one ----- */
+  .views {
+    top: $bar + 8px;
+    left: 58px;
+    right: auto;
+    max-width: calc(100% - 420px);
+    padding: 2px;
+    border: 0;
+    border-radius: 2px;
+    box-shadow: $card-shadow;
+
+    button {
+      border-radius: 4px;
+      color: var(--accent-ink);
+      font-weight: 600;
+    }
+  }
+
+  .ws-strip {
+    bottom: $status + 10px;
+    border: 0;
+    border-radius: 2px;
+    box-shadow: $card-shadow;
+  }
+
+  /* the axis gizmo sits bottom-left of the panel tiles, above the status bar */
+  .axis-gizmo {
+    top: auto;
+    bottom: $status + 8px;
+    right: 64px;
+  }
+
+  /* ----- status bar: the tool's hint at the left, the Value box at the right ----- */
+  @include status-bar($status, var(--panel));
+
+  .measure {
+    right: 28px;
+  }
+
+  /* ----- the right tray: the open panel, then the tiles for the others ----- */
+  .web-tray {
+    position: absolute;
+    top: $bar + 8px;
+    right: 0;
+    bottom: $status + 8px;
+    z-index: 15;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8px;
+    pointer-events: none;
+
+    > * {
+      pointer-events: auto;
+    }
+  }
+
+  .web-tray .panel.left {
+    display: flex;
+    flex-direction: column;
+    flex: 0 1 auto;
+    width: 320px;
+    min-height: 0;
+    max-height: 100%;
+    border: 0;
+    background: var(--panel);
+    box-shadow: $card-shadow;
+
+    > .tabs {
+      display: none;
+    }
+
+    > [role="tabpanel"] {
+      min-height: 0;
+      overflow-y: auto;
+    }
+  }
+
+  &.no-left.no-right .web-tray .panel.left {
+    display: none;
+  }
+
+  .web-panel-head {
+    @include flex-between;
+    flex: none;
+    height: $bar;
+    padding-left: 18px;
+    background: var(--accent-soft);
+
+    p {
+      margin: 0;
+      color: var(--accent-ink);
+      font-size: 16px;
+      font-weight: 600;
+      letter-spacing: 0.75px;
+    }
+  }
+
+  .web-rail {
+    display: flex;
+    flex-direction: column;
+    flex: none;
+    gap: 8px;
+  }
+
+  .web-tile {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 16px;
+    padding: 0;
+    background: none;
+    border: 0;
+    cursor: pointer;
+
+    &:hover .web-icon,
+    &:focus-visible .web-icon {
+      background: var(--accent-soft);
+    }
+  }
+
+  .web-pill {
+    display: flex;
+    align-items: center;
+    height: 23px;
+    padding: 0 6px;
+    border-radius: 6px;
+    background: var(--panel);
+    box-shadow: $card-shadow;
+    color: var(--accent-ink);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.75px;
+    white-space: nowrap;
+  }
+
+  .web-icon {
+    display: grid;
+    place-items: center;
+    @include size($bar);
+    flex: none;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: var(--panel);
+    box-shadow: $card-shadow;
+    color: var(--accent-ink);
+  }
+
+  .web-panel-head .web-icon {
+    background: transparent;
+    box-shadow: none;
+  }
+}
+
+/* Harbor's stripe is a brighter blue than its buttons, as on SketchUp for Web */
+[data-skin="harbor"] .app.web-layout {
+  --web-stripe: #009ad9;
+}

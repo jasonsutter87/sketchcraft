@@ -54,5 +54,6 @@ export const saveTrayOn = (on: boolean) => store.set(TRAY_KEY, on ? "1" : "0");
 export const loadTrayOpen = (): Record<TrayPanel, boolean> => readTrayOpen(store.get(TRAY_OPEN_KEY));
 export const saveTrayOpen = (open: Record<TrayPanel, boolean>) => store.set(TRAY_OPEN_KEY, JSON.stringify(open));
 
-/** The tray shows with the Classic layout only (the other layouts have their own panels). */
-export const trayShown = (layout: string, on: boolean): boolean => layout === "classic" && on;
+/** The tray shows with the Classic layout when it's switched on, and always with the Desktop layout (it's that
+ *  layout's right side); the other layouts have their own panels. */
+export const trayShown = (layout: string, on: boolean): boolean => (layout === "classic" && on) || layout === "desktop";
