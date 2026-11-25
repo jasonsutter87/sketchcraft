@@ -39,7 +39,7 @@ end
 
 UI.menu('Plugins').add_item('Textured') do
   m = Sketchup.active_model.materials.add('Brick')
-  m.texture = ['data:image/png;base64,iVBORw0KGgo=', 8.0, 4.0]
+  m.texture = ['data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 8.0, 4.0]
   f = Sketchup.active_model.entities.add_face([0, 0, 0], [40, 0, 0], [40, 0, 40], [0, 0, 40])
   f.material = m
   puts "texture #{m.texture.width}x#{m.texture.height}"

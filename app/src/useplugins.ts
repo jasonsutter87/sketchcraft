@@ -173,6 +173,8 @@ export function usePlugins({ sel, scene, tool, setTool, say, sayAs, runForPlugin
       await refresh();
       setPluginRuns((n) => n + 1);
       for (const t of r.toasts.slice(0, 5)) sayAs(plugin, String(t).slice(0, 300));
+      // panels (UI::HtmlDialog) and mouse tools run in tests and through the API; the app doesn't show or feed them yet
+      for (const d of r.dialogs.slice(0, 3)) sayAs(plugin, `opened the panel "${String(d.title || "untitled").slice(0, 80)}", which SketchCraft doesn't show yet`);
       if (failed) say(`${plugin.name} stopped at ${failed}. ⌘Z undoes what it did.`, true);
       if (r.out.trim()) setPluginShown({ result: cleanResult({ title: plugin.name, text: r.out.trim() }), plugin });
       return;

@@ -1,5 +1,4 @@
-# Uses a web dialog, which SketchCraft doesn't have: should say so clearly.
-UI.menu('Plugins').add_item('Open a dialog') do
-  dlg = UI::HtmlDialog.new(dialog_title: 'Hello')
-  dlg.show
+# Uses an API SketchCraft doesn't have (importing a file into the model): should say so clearly.
+UI.menu('Plugins').add_item('Import a file') do
+  Sketchup.active_model.import('/tmp/x.dae')
 end
