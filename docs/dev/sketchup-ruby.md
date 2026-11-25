@@ -47,14 +47,30 @@ with your answers (nothing is applied until the run that finishes).
 | UI | `UI.menu(...).add_item` (and submenus), `UI::Command`, `UI::Toolbar`, `UI.messagebox`, `UI.inputbox` (with lists) |
 | Loading | `SketchupExtension`, `Sketchup.register_extension`, `Sketchup.require`/`require` of the extension's own files, `file_loaded?`, `LanguageHandler`, `puts`/`print` (shown when the script ends) |
 
+## Tools, observers, panels, reading the model
+
+The layer in `app/src/ruby/sketchup_tools.rb` adds `Sketchup::Tool` and its mouse and key events, `UI::HtmlDialog`,
+observers, timers, Follow Me, textures and a read-only copy of the model's faces and groups. Because a run is
+record-and-replay, an interactive tool is driven by **events**: `runRuby(plugin, { item, events, model })` loads the
+script, runs the menu item, delivers each event (`mouse_move`, `lbutton_down`, `user_text`, `return`, `selection`,
+`dialog`, `tick`...), ends the tool and returns the journal, the dialogs it opened (their HTML and the scripts it
+sent) and the status text. `model` comes from the engine's `faces` command with `outlines: true` plus `info`.
+What each piece does, and which real extensions run, is in
+[SketchUp extensions: what runs](../guide/12-ruby-extensions.md).
+
 ## What isn't (yet)
 
-Tools that respond to the mouse (`Sketchup::Tool`), observers, `UI::HtmlDialog`
-and `WebDialog`, timers, `followme`, textures, reading the existing model's
-geometry (beyond the selection), files, and Ruby's `eval` of strings.
+The app doesn't feed a Ruby tool the mouse or show its panels (tests and the API do), reading anything of the model
+beyond faces and groups (edges alone, components' definitions, materials, tags), erasing or editing existing edges,
+state kept between runs, files, `Sketchup::Overlay`, and Ruby's `eval` of strings.
 SketchCraft's own [plugins](../PLUGINS.md) can do mouse tools and forms today.
 
 ## Testing
+
+`cd app && npx vitest run tests/rubyapi.test.ts` runs the layer under Node (Opal in a vm, `tests/support/ruby.ts`)
+against fixtures in `tools/ruby-tests/ext/` written for this project: a tool, a curve tool, reading the model, Follow
+Me, observers, a dialog and its callbacks, timers, textures. `tests/rubycompat.test.ts` runs real extensions from a
+folder you name (see the guide page above); without one it is skipped.
 
 `node tools/ruby-tests/run.mjs` installs a set of scripts written the way real
 extensions are (stairs with an input box and nested groups, fence posts from a

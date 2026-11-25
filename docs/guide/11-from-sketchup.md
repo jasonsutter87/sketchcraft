@@ -94,4 +94,6 @@ The full list is in [SketchUp Ruby scripts in SketchCraft](../dev/sketchup-ruby.
 
 For everything that SketchUp has and SketchCraft does not yet, read [SketchUp feature parity](../PARITY.md).
 
+Which SketchUp extensions run is in [SketchUp extensions: what runs](12-ruby-extensions.md).
+
 Next: [Troubleshooting](10-troubleshooting.md)

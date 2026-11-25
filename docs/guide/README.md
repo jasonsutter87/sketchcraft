@@ -11,3 +11,4 @@
 9. [Keyboard shortcuts](09-shortcuts.md)
 10. [Troubleshooting and questions](10-troubleshooting.md)
 11. [Coming from SketchUp](11-from-sketchup.md): tools and shortcuts side by side, your old models, extensions that run, what's different
+12. [SketchUp extensions: what runs](12-ruby-extensions.md): which free extensions work, and what's missing
