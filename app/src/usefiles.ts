@@ -243,6 +243,11 @@ export function useFileActions({ run, say, refresh, api, scene, figure, currentF
       if (!r.ok) return;
       // a 3MF that is not solid still opens in a slicer but prints badly: say so, and where to look
       if (kind === "3mf" && r.solid === false) say(`Exported ${path.split("/").pop()}, but the model is not solid. Tools > Print check says what to fix.`, true);
+      else if (kind === "obj" && typeof r.textures_dir === "string") {
+        // the pictures are files beside the .obj: Blender shows a missing one as purple, so say what to keep together
+        const skipped = Array.isArray(r.skipped) && r.skipped.length ? ` ${r.skipped.length} picture${r.skipped.length === 1 ? "" : "s"} could not be read and went out as plain color.` : "";
+        say(`Exported ${path.split("/").pop()} with ${r.mtl} and ${r.images} picture${r.images === 1 ? "" : "s"} in ${r.textures_dir}/. Keep them together in one folder.${skipped}`);
+      } else if (kind === "obj" && Array.isArray(r.skipped) && r.skipped.length) say(`Exported ${path.split("/").pop()}, but ${r.skipped.length} picture${r.skipped.length === 1 ? "" : "s"} could not be read and went out as plain color.`, true);
       else say(`Exported ${path.split("/").pop()}`);
     },
     section: async (kind: "svg" | "dxf") => {

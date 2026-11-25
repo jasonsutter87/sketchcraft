@@ -225,8 +225,8 @@ impl Engine {
                 json!({"instance": r.instance, "component": r.component, "meshes": r.meshes, "faces": r.faces})
             }
             Command::ExportObj { path } => {
-                let tris = export::write_obj(&self.model, &path)?;
-                json!({"path": path, "triangles": tris})
+                let r = export::write_obj_report(&self.model, &path)?;
+                json!({"path": path, "triangles": r.triangles, "mtl": r.mtl, "textures_dir": r.textures_dir, "images": r.images, "skipped": r.skipped})
             }
             other => unreachable!("command routed to the wrong group: {other:?}"),
         })

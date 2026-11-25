@@ -34,7 +34,8 @@ import { combine, EMPTY, selIds, selMode, toggle, type Sel } from "./selection";
 import { formatLength, parseLengths } from "./units";
 import { autoTagColor, ACCENT, BACKGROUNDS, skyDome } from "./viewport/colors";
 import { FrameWatch } from "./viewport/framewatch";
-import { FIT_RADIUS_FLOOR, MAX_PERSPECTIVE_NEAR, fitDistance, fitRadius, perspectiveNear } from "./viewport/fit";
+import { FACE_OFFSET, FACE_OFFSET_UNDER_PICTURES, PICTURE_OFFSET } from "./viewport/depth";
+import { FIT_RADIUS_FLOOR,MAX_PERSPECTIVE_NEAR, fitDistance, fitRadius, perspectiveNear } from "./viewport/fit";
 import { styledEdges, averagedNormals, smoothNormals } from "./viewport/edges";
 import { adoptPainted, checkerTexture, forgetPainted, profileMaterial, textureFor } from "./viewport/materials";
 import { DEFAULT_TPAINT, decodePixels, Painter, sampleRgba, stroke3DCommand, trisOf, uvAt } from "./texturepaint";
@@ -833,7 +834,10 @@ export default function Viewport(props: Props) {
     const sty = live.current.styles;
     const faceStyle: FaceStyle = sty.face ?? "textured";
     const bg = BACKGROUNDS[sty.background ?? "default"];
-    const common = { side: THREE.FrontSide as THREE.Side, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1, transparent: xray, opacity: xray ? 0.42 : 1, depthWrite: !xray, clippingPlanes: clip };
+    // pictures are drawn over the base mesh on the same plane: keep the base well behind them (see viewport/depth.ts)
+    const pictures = faceStyle === "textured" && !!s.triTex?.some((i) => i >= 0);
+    const baseOffset = pictures ? FACE_OFFSET_UNDER_PICTURES : FACE_OFFSET;
+    const common = { side: THREE.FrontSide as THREE.Side, polygonOffset: true, polygonOffsetFactor: baseOffset.factor, polygonOffsetUnits: baseOffset.units, transparent: xray, opacity: xray ? 0.42 : 1, depthWrite: !xray, clippingPlanes: clip };
     // physically based: a soft studio around the model to reflect, made once
     const physical = faceStyle === "physical";
     if (physical && !envMap.current) envMap.current = new THREE.PMREMGenerator(T.renderer).fromScene(new RoomEnvironment(), 0.04).texture;
@@ -907,7 +911,7 @@ export default function Viewport(props: Props) {
         geo2.setAttribute("normal", new THREE.BufferAttribute(smoothNormals(g.pos), 3));
         const mesh = new THREE.Mesh(
           geo2,
-          new THREE.MeshLambertMaterial({ map: textureFor(mat.name, mat.texture.data), vertexColors: !!vc, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 0, polygonOffsetUnits: 0, transparent: xray || (mat.opacity ?? 1) < 1, opacity: Math.min(xray ? 0.42 : 1, mat.opacity ?? 1), depthWrite: !xray && (mat.opacity ?? 1) >= 1, clippingPlanes: clip })
+          new THREE.MeshLambertMaterial({ map: textureFor(mat.name, mat.texture.data), vertexColors: !!vc, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: PICTURE_OFFSET.factor, polygonOffsetUnits: PICTURE_OFFSET.units, transparent: xray || (mat.opacity ?? 1) < 1, opacity: Math.min(xray ? 0.42 : 1, mat.opacity ?? 1), depthWrite: !xray && (mat.opacity ?? 1) >= 1, clippingPlanes: clip })
         );
         mesh.receiveShadow = live.current.styles.shadows;
         mesh.userData.texName = mat.name;
