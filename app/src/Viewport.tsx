@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from "react";
 import { ask, confirm } from "./ask";
 import { AxisGizmo } from "./gizmo";
 import * as THREE from "three";
+import { isRotateState, orbitPivotEnabled, pivotShift } from "./viewport/pivot";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { TouchGestures, touchMapping } from "./touch";
 import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
@@ -220,6 +221,26 @@ export default function Viewport(props: Props) {
     controls.minDistance = FIT_RADIUS_FLOOR;
     controls.enableZoom = false; // our own wheel handler: trackpads orbit, pinch zooms
 
+    // Orbit about the surface point under the cursor when an orbit starts (SketchUp's way); off with sketchcraft.orbitPivot=off.
+    // Nothing under the cursor: the view's centre, as before. The camera's eye never moves at the start, so the view does not jump.
+    const pivotUnder = (cx: number, cy: number): THREE.Vector3 | null => {
+      let on = true;
+      try {
+        on = orbitPivotEnabled((k) => localStorage.getItem(k));
+      } catch {
+        /* private window: on */
+      }
+      if (!on || !t.current) return null;
+      return pick({ clientX: cx, clientY: cy })?.point ?? null;
+    };
+    let swipePivot: THREE.Vector3 | null = null;
+    let swipeAt = 0;
+    let pivot: THREE.Vector3 | null = null;
+    let pivotTimer = 0;
+    let lastQuat = new THREE.Quaternion();
+    let lastDown = { x: 0, y: 0 };
+    window.addEventListener("pointerdown", (e) => (lastDown = { x: e.clientX, y: e.clientY }), true);
+
     // Trackpad: two-finger swipe orbits, Shift+swipe pans, pinch zooms toward the cursor.
     // Mouse wheel: zooms toward the cursor.
     const wheel = (e: WheelEvent) => {
@@ -241,6 +262,7 @@ export default function Viewport(props: Props) {
         target.add(d);
       } else if (trackpad) {
         // orbit around the target, Z up
+        const before = cam.quaternion.clone();
         const off = cam.position.clone().sub(target);
         const r = off.length();
         const az = Math.atan2(off.y, off.x) - e.deltaX * 0.006;
@@ -248,6 +270,15 @@ export default function Viewport(props: Props) {
         el = THREE.MathUtils.clamp(el, -1.5, 1.5);
         cam.position.set(target.x + r * Math.cos(el) * Math.cos(az), target.y + r * Math.cos(el) * Math.sin(az), target.z + r * Math.sin(el));
         cam.lookAt(target);
+        // turn about the point under the cursor where the swipe began, not the view's centre
+        const now = performance.now();
+        if (now - swipeAt > 300) swipePivot = pivotUnder(e.clientX, e.clientY);
+        swipeAt = now;
+        if (swipePivot) {
+          const d = pivotShift(swipePivot, target, before, cam.quaternion);
+          cam.position.add(d);
+          target.add(d);
+        }
       } else {
         // zoom toward what's under the cursor
         const f = Math.exp((pinch ? e.deltaY * 0.012 : Math.sign(e.deltaY) * 0.12));
@@ -271,10 +302,27 @@ export default function Viewport(props: Props) {
     renderer.domElement.addEventListener("wheel", wheel, { passive: false });
     // moving the camera leaves a matched photo's view (as in SketchUp)
     controls.addEventListener("start", () => {
+      window.clearTimeout(pivotTimer);
+      lastQuat = controls.object.quaternion.clone();
+      pivot = isRotateState((controls as unknown as { state: number }).state) ? pivotUnder(lastDown.x, lastDown.y) : null;
       if (backdropOn.current) showBackdrop(null);
       rememberView();
     });
-    controls.addEventListener("end", () => rememberView());
+    controls.addEventListener("end", () => {
+      rememberView();
+      // the turn eases out for a moment after the drag ends; after that, other camera moves are not about the pivot
+      pivotTimer = window.setTimeout(() => (pivot = null), 2000);
+    });
+    // each step of a turn (and of its easing out) is made about the picked point instead of the target
+    controls.addEventListener("change", () => {
+      const cam = controls.object;
+      if (pivot) {
+        const d = pivotShift(pivot, controls.target, lastQuat, cam.quaternion);
+        cam.position.add(d);
+        controls.target.add(d);
+      }
+      lastQuat = cam.quaternion.clone();
+    });
     renderer.domElement.addEventListener("wheel", () => backdropOn.current && showBackdrop(null));
 
     const world = new THREE.Scene();
