@@ -117,6 +117,8 @@ export interface ViewportApi {
   toClient: (p: Vec3) => [number, number] | null;
   /** the ray through a client pixel */
   rayAt: (clientX: number, clientY: number) => { origin: Vec3; dir: Vec3 };
+  /** a 3D mouse's slice of camera motion: orbit, pan and zoom (see spacemouse.ts) */
+  navigate: (n: import("../spacemouse").Nav) => void;
   /** call `cb` whenever the camera moves; returns the way to stop */
   watchCamera: (cb: () => void) => () => void;
 }

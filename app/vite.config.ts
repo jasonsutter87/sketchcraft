@@ -10,8 +10,12 @@ const env = (globalThis as { process?: { env: Record<string, string | undefined>
 const PORT = Number(env.SKETCHCRAFT_DEV_PORT ?? 5174);
 const BRIDGE_PORT = Number(env.VITE_BRIDGE_PORT ?? 5175);
 
+// Dead-code probes (tools/tombstones, docs/dev/tombstones.md): loaded only when SKETCHCRAFT_TOMB_LOG is set,
+// which only happens in a throwaway tombstone checkout. A normal run never touches that file.
+const tombstones = env.SKETCHCRAFT_TOMB_LOG ? [(await import("../tools/tombstones/vite-plugin.mjs")).default()] : [];
+
 export default defineConfig({
-  plugins: [react(), bridgeToken(PORT), devCsp(PORT, BRIDGE_PORT)],
+  plugins: [react(), bridgeToken(PORT), devCsp(PORT, BRIDGE_PORT), ...tombstones],
   // the app's version, shown in the File menu (kept equal to tauri.conf.json's)
   // and the people thanked in Help > About, read from git history (contributors.mjs; [] without history)
   define: { __APP_VERSION__: JSON.stringify(pkg.version), __CONTRIBUTORS__: JSON.stringify(readContributors()) },

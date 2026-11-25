@@ -17,6 +17,8 @@ import { Outliner, Tags } from "./outliner";
 import { RenderDialog } from "./renderdialog";
 import { ShortcutSheet } from "./shortcuts";
 import { ShortcutEditor } from "./shortcutseditor";
+import { SpaceMouseDialog } from "./spacemousedialog";
+import { useSpaceMouseNav } from "./spacemousestore";
 import { comboFromEvent, commandForCombo, isTypingTarget } from "./keymap";
 import { keymap, keyText, useKeymap } from "./keymapstore";
 import { Textures } from "./materialspanel";
@@ -259,6 +261,8 @@ function ModelingApp() {
   const clip = useRef<{ ids: number[]; cut: boolean } | null>(null);
   const [showKeys, setShowKeys] = useState(false);
   const [showKeyEditor, setShowKeyEditor] = useState(false);
+  const [showSpaceMouse, setShowSpaceMouse] = useState(false);
+  useSpaceMouseNav(api);
   const [showPalette, setShowPalette] = useState(false);
   const [showSheets, setShowSheets] = useState(false);
   const [showLocation, setShowLocation] = useState(false);
@@ -665,6 +669,7 @@ function ModelingApp() {
       },
       { id: "help.shortcuts", label: "Keyboard shortcuts", hint: "Help", run: () => setShowKeys(true) },
       { label: "Customize keyboard shortcuts…", hint: "Help · change any key, SketchUp preset, import and export", run: () => setShowKeyEditor(true) },
+      { label: "3D mouse settings…", hint: "Window · SpaceMouse speed, direction and locks", run: () => setShowSpaceMouse(true) },
       { id: "help.search", label: "Search commands", hint: "Help", run: () => setShowPalette(true) },
       ...(inTauri ? [{ label: "Check for updates…", hint: "Help", run: checkForUpdatesNow }] : []),
       { label: "About SketchCraft", hint: `Version ${__APP_VERSION__}`, run: () => setShowAbout(true) },
@@ -847,6 +852,7 @@ function ModelingApp() {
       themes: () => setShowSkins(true),
       keys: () => setShowKeys(true),
       keyEditor: () => setShowKeyEditor(true),
+      spaceMouse: () => setShowSpaceMouse(true),
       palette: () => setShowPalette(true),
       learn: () => setShowLearn(true),
       about: () => setShowAbout(true),
@@ -1483,6 +1489,7 @@ function ModelingApp() {
         {showAbout && <AboutDialog onClose={() => setShowAbout(false)} />}
         {showKeys && <ShortcutSheet onClose={() => setShowKeys(false)} onCustomize={() => (setShowKeys(false), setShowKeyEditor(true))} />}
         {showKeyEditor && <ShortcutEditor onClose={() => setShowKeyEditor(false)} />}
+        {showSpaceMouse && <SpaceMouseDialog onClose={() => setShowSpaceMouse(false)} />}
         {showPalette && <CommandPalette commands={commands()} onClose={() => setShowPalette(false)} />}
         {showLocation && (
           <LocationDialog

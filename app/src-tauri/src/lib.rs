@@ -17,6 +17,8 @@ use std::sync::Mutex;
 use tauri::Manager;
 
 mod ai;
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+mod spacemouse;
 
 struct App(Mutex<Live>);
 
@@ -137,6 +139,25 @@ fn link_url(which: &str) -> Option<&'static str> {
 #[tauri::command]
 fn open_link(which: &str) -> bool {
     link_url(which).is_some_and(open_url)
+}
+
+/// 3D mouse: the page's "use a 3D mouse" setting (starts watching for one, or lets go of it). The device's moves
+/// come back as `spacemouse` events and its plugging in or out as `spacemouse-status`.
+#[tauri::command]
+fn spacemouse_enable(app: tauri::AppHandle, on: bool) {
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+    spacemouse::enable(&app, on);
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    let _ = (app, on);
+}
+
+/// 3D mouse: is one connected now, and through what.
+#[tauri::command]
+fn spacemouse_status() -> Value {
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+    return serde_json::to_value(spacemouse::status()).unwrap_or_default();
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    serde_json::json!({"connected": false, "name": "", "via": ""})
 }
 
 /// Open the download page in the browser (for installs the updater can't
@@ -301,7 +322,7 @@ pub fn run() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![exec, ai_state, ai_chat, ai_apply, ai_log, scene, sync, open_releases, portable, open_guide, open_link, photocraft_open, photocraft_poll])
+        .invoke_handler(tauri::generate_handler![exec, ai_state, ai_chat, ai_apply, ai_log, scene, sync, open_releases, portable, open_guide, open_link, photocraft_open, photocraft_poll, spacemouse_enable, spacemouse_status])
         .build(tauri::generate_context!())
         .expect("error while building SketchCraft")
         .run(|_, event| {
