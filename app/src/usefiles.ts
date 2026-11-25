@@ -6,6 +6,7 @@ import type { Reply, Scene } from "./engine";
 import { exec, onMobileApp } from "./engine";
 import { confirm } from "./ask";
 import { isModelPath, pickOpen, pickSave } from "./files";
+import { parseReport, readReportWhen, reportHeadline, shouldShow, type NamedReport } from "./importreport";
 import type { Sel } from "./selection";
 import { EMPTY } from "./selection";
 import type { ViewportApi } from "./Viewport";
@@ -55,7 +56,7 @@ const MOBILE_IMPORT = /\.(skp|fbx|dxf|obj)$/i;
 /** The model's name without its folder or extension (what a saved file is called after). */
 const modelBase = (file: string | null) => (file?.split("/").pop() ?? "model").replace(/\.sketchcraft$/, "");
 
-export function useFileActions({ run, say, refresh, api, scene, figure, currentFile, setCurrentFile, setSel }: {
+export function useFileActions({ run, say, refresh, api, scene, figure, currentFile, setCurrentFile, setSel, onReport }: {
   run: (cmd: Record<string, unknown>) => Promise<Reply>;
   say: (text: string, bad?: boolean) => void;
   refresh: () => Promise<void>;
@@ -65,6 +66,8 @@ export function useFileActions({ run, say, refresh, api, scene, figure, currentF
   currentFile: string | null;
   setCurrentFile: (p: string | null) => void;
   setSel: (s: Sel) => void;
+  /** a SketchUp import finished: what came across and what did not */
+  onReport?: (r: NamedReport) => void;
 }) {
   /** Open a bundled example (templates.ts EXAMPLES) in place of the model; the one open is kept in Backups first. */
   const openExample = async (name: string, data: string) => {
@@ -106,7 +109,10 @@ export function useFileActions({ run, say, refresh, api, scene, figure, currentF
 
   /** say what an import made, then show it */
   const reportImport = async (r: Reply, name: string) => {
-    say(`${r.layers != null ? cadSummary(name, r) : `Imported ${name}: ${r.faces} faces`}${importedSkips(r)}`, importedSkips(r) !== "");
+    const report = name.toLowerCase().endsWith(".skp") ? parseReport(r) : null;
+    const left = report && report.skipped.length > 0;
+    say(`${r.layers != null ? cadSummary(name, r) : `Imported ${name}: ${r.faces} faces`}${importedSkips(r)}${report ? ` (${reportHeadline(report)})` : ""}`, importedSkips(r) !== "" || !!left);
+    if (report && onReport && shouldShow(report, readReportWhen())) onReport({ ...report, name });
     if (r.focus) {
       await refresh();
       landOn(r);
