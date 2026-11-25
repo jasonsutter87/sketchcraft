@@ -67,6 +67,7 @@ export function runReport(root, { hits = [], lcov = [], allow, out, strip = true
   const manifest = readManifest(root);
   const sources = [];
   const hit = readHits(hits);
+  const logHits = new Set(hit);
   if (hits.length) sources.push(`hits log (${hit.size} ids)`);
   let judged = null;
   if (lcov.length) {
@@ -77,8 +78,9 @@ export function runReport(root, { hits = [], lcov = [], allow, out, strip = true
       for (const id of r.judged) judged.add(id);
       sources.push(`lcov ${path.basename(f)} (${r.judged.size} marks decided)`);
     }
-    // marks in the hits log are decided too
-    for (const id of hit) judged.add(id);
+    // a language the hits log has anything for was run by the probes: all its marks are decided
+    const probed = new Set(manifest.entries.filter((e) => logHits.has(e.id)).map((e) => e.lang));
+    for (const e of manifest.entries) if (probed.has(e.lang) || hit.has(e.id)) judged.add(e.id);
   }
   if (!hit.size && !allowEmpty) {
     throw new Error("no hits at all: the tests did not write to the hits log (is SKETCHCRAFT_TOMB_LOG set for the run?). Refusing to call everything dead; pass --allow-empty to override.");

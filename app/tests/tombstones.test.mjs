@@ -10,7 +10,7 @@ import { findRust } from "../../tools/tombstones/lib/rust.mjs";
 import { injectProbes } from "../../tools/tombstones/vite-plugin.mjs";
 import { rewriteSource, revertSource } from "../../tools/tombstones/rust-rewrite.mjs";
 import { buildReport, renderMarkdown, runReport } from "../../tools/tombstones/report.mjs";
-import { commentOut, deprecate } from "../../tools/tombstones/deprecate.mjs";
+import { commentOut, deprecate, header } from "../../tools/tombstones/deprecate.mjs";
 import { mark } from "../../tools/tombstones/mark.mjs";
 
 const TS_SRC = `import { x } from "./x";
@@ -226,6 +226,25 @@ describe("tombstones: report", () => {
     expect(rs).toContain("// pub fn r_dead() {");
     expect(rs).toMatch(/^pub fn r_live\(\) \{\n \}$/m);
     expect(() => deprecate(root, { date: "2026-12-15", version: "x" })).toThrow(/MM-DD-YYYY/);
+  });
+});
+
+describe("tombstones: janitor format", () => {
+  it("the deprecate header matches code-janitor's own parser regex", () => {
+    const re = /@deprecate\s+(\d{2}-\d{2}-\d{4})(?:\s+reason:\s*(.+))?/i; // copied from code-janitor/src/core/parser.ts
+    const m = re.exec(header("  ", { date: "12-15-2026", version: "0.3.12", id: "abcdabcd", symbol: "f" }));
+    expect(m[1]).toBe("12-15-2026");
+    expect(m[2]).toContain("remove in 0.3.12");
+  });
+  it("lcov and the hits log mix: a language the log covers is decided by the log", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tomb-mix-"));
+    const e = (id, lang, file, line) => ({ id, lang, file, line, endLine: line + 2, bodyLine: line, symbol: id, kind: lang === "rust" ? "fn" : "function", deprecatable: true });
+    fs.mkdirSync(path.join(root, ".tombstones"));
+    fs.writeFileSync(path.join(root, ".tombstones/manifest.json"), JSON.stringify({ base: "x", entries: [e("00000001", "ts", "app/src/a.ts", 1), e("00000002", "ts", "app/src/a.ts", 9), e("00000003", "rust", "core/src/a.rs", 1), e("00000004", "rust", "core/src/a.rs", 9), e("00000005", "rust", "core/src/b.rs", 1)] }));
+    fs.writeFileSync(path.join(root, "hits.log"), "00000001\n");
+    fs.writeFileSync(path.join(root, "r.lcov"), "SF:core/src/a.rs\nFN:1,_a\nFN:9,_b\nFNDA:3,_a\nFNDA:0,_b\nend_of_record\n");
+    const { report } = runReport(root, { hits: [path.join(root, "hits.log")], lcov: [path.join(root, "r.lcov")], strip: false });
+    expect(report.candidates.map((c) => c.id)).toEqual(["00000002", "00000004"]); // b.rs is in neither input: undecided
   });
 });
 

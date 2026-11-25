@@ -38,7 +38,8 @@ export function deprecate(root, { date, version, ids, write = false, report } = 
   const applied = [], skipped = [];
   const ts = wanted.some((c) => c.lang === "ts") ? loadTs(root) : null;
   const byFile = new Map();
-  for (const c of wanted) { if (!byFile.has(c.file)) byFile.set(c.file, []); byFile.get(c.file).push(c); }
+  for (const c of wanted.filter((c) => !["function", "method", "fn"].includes(c.kind))) skipped.push({ ...c, why: "a block, not a whole function: edit by hand" });
+  for (const c of wanted.filter((c) => ["function", "method", "fn"].includes(c.kind))) { if (!byFile.has(c.file)) byFile.set(c.file, []); byFile.get(c.file).push(c); }
   for (const [rel, list] of byFile) {
     const abs = path.join(root, rel);
     let src = fs.readFileSync(abs, "utf8");
