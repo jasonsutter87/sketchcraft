@@ -35,6 +35,29 @@
   }
 }
 
+.menu {
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+}
+
+.menu button:disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.menu-heading {
+  padding: 8px 10px 3px;
+  color: var(--faint);
+  font-size: $font-xs;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.menu-tick {
+  display: inline-block;
+  width: 1.2em;
+}
+
 .menu button.danger {
   color: #c62a2f;
 

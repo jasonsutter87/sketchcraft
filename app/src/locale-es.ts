@@ -30,6 +30,7 @@ export default {
   "menu.edit": "Editar",
   "menu.view": "Ver",
   "menu.camera": "Cámara",
+  "menu.style": "Estilo",
   "menu.draw": "Dibujar",
   "menu.tools": "Herramientas",
   "menu.window": "Ventana",
