@@ -14,7 +14,7 @@
 
 use crate::backups::{self, Backup, Origin, Side};
 use crate::policy::Caller;
-use crate::safety::{file_stamp, lock_for, write_atomic, write_atomic_guarded, FileStamp, Written};
+use crate::safety::{file_stamp, lock_for, lock_for_why, write_atomic, write_atomic_guarded, FileStamp, Written};
 use crate::Engine;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -69,6 +69,8 @@ struct CallMode {
     flushed: bool,
     /// somebody else saved while commands of the call were waiting to be written: theirs was kept
     lost: bool,
+    /// somebody else's save is in the file and what the call did since couldn't be set aside, so it is not written (yet)
+    held_back: bool,
     last_flush: std::time::Instant,
     /// exactly what the call last wrote to the file (None: nothing since the model it is measured from)
     written: Option<Vec<u8>>,
@@ -160,6 +162,10 @@ pub struct Live {
     flush_every: Duration,
     /// tests only: told where a save is (`serialized`, `locked`, `written`), so a second program can act exactly then
     hook: Option<Box<dyn FnMut(&str) + Send>>,
+    /// tests only: setting work aside fails (a full disk)
+    aside_fault: bool,
+    /// the person was told that no lock could be made for the model file
+    lock_told: bool,
 }
 
 /// "Left out: ..." for a notice: what was skipped, with the reasons.
@@ -236,7 +242,7 @@ impl Live {
     }
 
     fn blank(engine: Engine, doc: PathBuf, persist: bool) -> Self {
-        Live { engine, doc, seen: None, persist, last_backup: None, notice: None, notice_at: None, notice_repair: None, unsaved_batch: false, batch_weight: 0, batch_destructive: false, blocked: false, retry_after: None, dirty: false, sticky: None, last_forced: HashMap::new(), held: false, own_side: vec![], person_view: false, loads: 0, call: None, flush_every: CALL_FLUSH_EVERY, hook: None }
+        Live { engine, doc, seen: None, persist, last_backup: None, notice: None, notice_at: None, notice_repair: None, unsaved_batch: false, batch_weight: 0, batch_destructive: false, blocked: false, retry_after: None, dirty: false, sticky: None, last_forced: HashMap::new(), held: false, own_side: vec![], person_view: false, loads: 0, call: None, flush_every: CALL_FLUSH_EVERY, hook: None, aside_fault: false, lock_told: false }
     }
 
     /// A model that is not saved anywhere.
@@ -369,9 +375,19 @@ impl Live {
     /// The model file couldn't be read: set it aside, keep what memory holds.
     fn load_failed(&mut self, r: Value, at_start: bool) -> bool {
         let why = r["error"].as_str().unwrap_or("unknown error").to_string();
-        let aside = self.unique_damaged_path();
-        match std::fs::copy(&self.doc, &aside) {
-            Ok(_) => {
+        let copied = self.open_side_file("damaged", "").and_then(|(mut f, p)| {
+            let r = std::fs::File::open(&self.doc).and_then(|mut src| std::io::copy(&mut src, &mut f)).and_then(|_| f.sync_all());
+            match r {
+                Ok(()) => Ok(p),
+                Err(e) => {
+                    drop(f);
+                    std::fs::remove_file(&p).ok();
+                    Err(e.to_string())
+                }
+            }
+        });
+        match copied {
+            Ok(aside) => {
                 self.blocked = false;
                 self.index_side(&aside);
                 if at_start {
@@ -403,18 +419,6 @@ impl Live {
         if let Some(text) = repair.notice(what) {
             self.set_notice(text);
             self.notice_repair = Some((repair, what.to_string()));
-        }
-    }
-
-    fn unique_damaged_path(&self) -> PathBuf {
-        let t = epoch(SystemTime::now());
-        let mut n = 0;
-        loop {
-            let p = self.doc.with_extension(format!("damaged-{t}{}", if n == 0 { String::new() } else { format!("-{n}") }));
-            if !p.exists() {
-                return p;
-            }
-            n += 1;
         }
     }
 
@@ -488,6 +492,65 @@ impl Live {
         }
     }
 
+    /// Open a new side file beside the model (`<name>.<kind>-<time>[-n]<ext>`), private to the owner (0600 where the system has
+    /// modes). The name is taken with "create new" (an existing file, or a link, even a dangling one, is never followed or
+    /// written over: the next number is tried), and a model name too long to carry the suffix gets a shortened one.
+    fn open_side_file(&self, kind: &str, ext: &str) -> Result<(std::fs::File, PathBuf), String> {
+        let t = epoch(SystemTime::now());
+        let stem = self.doc.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "live".into());
+        let dir = self.doc.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(Path::new("."));
+        let mut last = String::from("no free name");
+        for short in [false, true] {
+            // a file name holds at most 255 bytes on most systems: leave room for the suffix and a number
+            if !short && stem.len() + kind.len() + ext.len() + 24 > 250 {
+                continue;
+            }
+            let stem_part: String = if short {
+                stem.chars()
+                    .scan(0usize, |n, c| {
+                        *n += c.len_utf8();
+                        (*n <= 60).then_some(c)
+                    })
+                    .collect()
+            } else {
+                stem.clone()
+            };
+            for n in 0..1000u32 {
+                let p = dir.join(format!("{stem_part}.{kind}-{t}{}{ext}", if n == 0 { String::new() } else { format!("-{n}") }));
+                let mut o = std::fs::OpenOptions::new();
+                o.write(true).create_new(true);
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::OpenOptionsExt;
+                    o.mode(0o600);
+                }
+                match o.open(&p) {
+                    Ok(f) => return Ok((f, p)),
+                    Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                    Err(e) => {
+                        last = e.to_string();
+                        break;
+                    }
+                }
+            }
+        }
+        Err(last)
+    }
+
+    /// Write `bytes` to a new side file (see `open_side_file`); a file that couldn't be written whole is removed.
+    fn create_side_file(&self, kind: &str, ext: &str, bytes: &[u8]) -> Result<PathBuf, String> {
+        use std::io::Write as _;
+        let (mut f, p) = self.open_side_file(kind, ext)?;
+        match f.write_all(bytes).and_then(|_| f.sync_all()) {
+            Ok(()) => Ok(p),
+            Err(e) => {
+                drop(f);
+                std::fs::remove_file(&p).ok();
+                Err(e.to_string())
+            }
+        }
+    }
+
     /// Set the model in memory aside (`<name>.unsaved-<time>.sketchcraft` beside the file) before
     /// something replaces it, and keep telling the person until that file is dealt with.
     fn stash(&mut self, why: &str, whose: Whose) -> Result<PathBuf, String> {
@@ -498,21 +561,10 @@ impl Live {
     /// Set a whole model (as a file's bytes) aside. The file is private to the person who owns the model (0600 where the
     /// system has modes) and is never written over another.
     fn stash_bytes(&mut self, bytes: &[u8], why: &str, whose: Whose) -> Result<PathBuf, String> {
-        let t = epoch(SystemTime::now());
-        let mut n = 0;
-        let path = loop {
-            let p = self.doc.with_extension(format!("unsaved-{t}{}.sketchcraft", if n == 0 { String::new() } else { format!("-{n}") }));
-            if !p.exists() {
-                break p;
-            }
-            n += 1;
-        };
-        write_atomic(&path, bytes).map_err(|e| e.to_string())?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).ok();
+        if self.aside_fault {
+            return Err("simulated failure".into());
         }
+        let path = self.create_side_file("unsaved", ".sketchcraft", bytes)?;
         self.index_side(&path);
         self.sticky = Some(path.clone());
         let what = match whose {
@@ -540,6 +592,17 @@ impl Live {
             }
         }
         self.load(false)
+    }
+
+    /// A plugin run's work meets somebody else's save: theirs is taken once the run's work is set aside. When that fails the file
+    /// is left as it is and memory keeps the work (the next change or sync tries again), never written over theirs.
+    fn take_theirs_after_batch(&mut self) {
+        let now = stamp(&self.doc);
+        if self.take_theirs(true, "The plugin run was cut off and another program had saved the model meanwhile.", Whose::Plugin) {
+            self.seen = now;
+        } else {
+            self.dirty = true;
+        }
     }
 
     /// Housekeeping that must not wait for the next command: close a batch nobody closed (saving
@@ -573,18 +636,14 @@ impl Live {
         }
         self.unsaved_batch = false;
         if self.doc.exists() && !self.blocked && stamp(&self.doc) != self.seen {
-            self.seen = stamp(&self.doc);
-            self.take_theirs(true, "The plugin run was cut off and another program had saved the model meanwhile.", Whose::Plugin);
+            self.take_theirs_after_batch();
             return;
         }
         let force = self.batch_force();
         match self.save_with(force) {
             Ok(()) => {}
             // another program saved while the batch's work was being written: theirs is kept, the batch's is set aside
-            Err(SaveErr::Moved) => {
-                self.seen = stamp(&self.doc);
-                self.take_theirs(true, "The plugin run was cut off and another program had saved the model meanwhile.", Whose::Plugin);
-            }
+            Err(SaveErr::Moved) => self.take_theirs_after_batch(),
             Err(e) => {
                 self.dirty = true;
                 self.set_notice(format!("Couldn't save your model: {e}"));
@@ -707,12 +766,14 @@ impl Live {
             let mut tries = 0;
             let saved = loop {
                 if moved {
-                    self.seen = stamp(&self.doc);
                     let why = "Another program saved the model while a plugin was running.";
                     let kept = if had_batch { self.stash(why, Whose::Plugin).ok() } else { None };
                     if had_batch && kept.is_none() {
+                        // their file is not taken and not written over: the plugin's work stays in memory
+                        self.dirty = true;
                         return json!({"ok": false, "error": "Another program saved the model while the plugin ran, and the plugin's changes couldn't be set aside, so nothing was saved. Run it again."});
                     }
+                    self.seen = stamp(&self.doc);
                     // what this command did is being thrown away: it is not a step to undo
                     self.engine.drop_steps_after(depth_before);
                     if self.load(false) {
@@ -779,6 +840,7 @@ impl Live {
             pending: false,
             flushed: false,
             lost: false,
+            held_back: false,
             last_flush: std::time::Instant::now(),
             written: None,
             segs: vec![],
@@ -808,11 +870,24 @@ impl Live {
             return;
         }
         let agent_waits = |s: &mut Self| {
+            let now = stamp(&s.doc);
             if let Some(c) = s.call.as_mut() {
                 c.lost = true;
             }
-            s.seen = stamp(&s.doc);
-            s.take_theirs(true, "Another program saved the model while an agent was working.", Whose::Agent);
+            // theirs is only taken (and the file only written over later) once the call's work is safely set aside; when that
+            // fails, their file is left exactly as it is, memory keeps the work, and the next flush tries again
+            if s.take_theirs(true, "Another program saved the model while an agent was working.", Whose::Agent) {
+                s.seen = now;
+                if let Some(c) = s.call.as_mut() {
+                    c.held_back = false;
+                }
+            } else {
+                s.dirty = true;
+                if let Some(c) = s.call.as_mut() {
+                    c.pending = true;
+                    c.held_back = true;
+                }
+            }
         };
         if self.doc.exists() && !self.blocked && stamp(&self.doc) != self.seen {
             agent_waits(self);
@@ -863,6 +938,9 @@ impl Live {
     pub fn finish_call(&mut self) -> Option<String> {
         self.flush_call();
         let c = self.call.take()?;
+        if c.held_back {
+            return Some("Note: someone else saved this model while the call ran, so their version stays in the file. What the call did after that could NOT be set aside (see the person's notice), so it was not saved.".to_string());
+        }
         c.lost.then(|| "Note: someone else saved this model while the call ran, so their version was kept, and what the call had done before that was set aside (the person was told).".to_string())
     }
 
@@ -948,9 +1026,26 @@ impl Live {
         let mut conflicts: Vec<String> = vec![];
         let mut failed: Option<String> = None;
         let mut settled = false;
-        for _ in 0..REPLANS {
+        // the file was unreadable or gone, so the model before the call was written back (not "their work")
+        let mut rewrote: Option<bool> = None;
+        for attempt in 0..REPLANS {
             conflicts.clear();
             failed = None;
+            rewrote = None;
+            // the last tries hold the lock from reading the file to writing it, so a person who saves every second can't keep
+            // moving it under the plan (their save waits a moment instead, never longer than the lock wait)
+            let locked = attempt + 2 >= REPLANS;
+            let _held = if locked {
+                match lock_for(&self.doc, LOCK_WAIT) {
+                    Ok(l) => l,
+                    Err(()) => {
+                        failed = Some("another program kept the model file locked".into());
+                        break;
+                    }
+                }
+            } else {
+                None
+            };
             // memory becomes the file as it is now (the call's commands that were never written go with the old memory)
             let readable = if self.doc.exists() && !self.blocked {
                 self.seen = stamp(&self.doc);
@@ -963,6 +1058,7 @@ impl Live {
                 // no file, or one that couldn't be read (it was set aside): the model goes back to what the call's last
                 // changes are measured from, and is written
                 self.engine.replace_after_call(base.clone(), undo_len, batch_was_open);
+                rewrote = Some(self.doc.exists());
             } else if !in_file {
                 // none of the call ever reached the file: the file is somebody else's, and that is all there is
                 self.keep_theirs(undo_len, batch_was_open);
@@ -1000,7 +1096,7 @@ impl Live {
                 conflicts.sort();
                 conflicts.dedup();
             }
-            match self.save_inner(Some(Force { origin: Origin::Agent, kind: "big", big: true }), false) {
+            match self.save_core(Some(Force { origin: Origin::Agent, kind: "big", big: true }), false, locked) {
                 Ok(_) => {
                     self.dirty = false;
                     settled = true;
@@ -1017,21 +1113,37 @@ impl Live {
             }
         }
         if !settled {
-            failed = Some("the file kept changing under it".into());
+            if failed.is_none() {
+                failed = Some("the file kept changing under it".into());
+            }
             conflicts.clear();
+            // memory is the file as it is now (never a half-done plan), and what the call wrote is set aside below
+            if self.doc.exists() && !self.blocked {
+                self.seen = stamp(&self.doc);
+                self.dirty = false;
+                self.load(false);
+            }
+            self.keep_theirs(undo_len, batch_was_open);
         }
         // theirs is never lost; the call's version is kept where somebody can find it when part of it stays in the file
         let aside = if (failed.is_some() || !conflicts.is_empty()) && in_file {
-            written.as_ref().and_then(|b| self.stash_bytes(b, "An AI agent's call ran out of time and was undone.", Whose::Agent).ok())
+            let why = if failed.is_some() { "An AI agent's call ran out of time and could not be fully undone." } else { "An AI agent's call ran out of time and was undone." };
+            written.as_ref().and_then(|b| self.stash_bytes(b, why, Whose::Agent).ok())
         } else {
             None
         };
+        // the person is told too, not only the agent: part of the call may still be in their model
+        if failed.is_some() && aside.is_none() && in_file {
+            self.set_notice("An AI agent's call ran out of time, and part of what it did could not be taken back from the model file. File > Restore from backup... has the version from before.".into());
+        }
         let where_ = aside.map(|p| format!(" The call's version of the model is set aside in {}.", p.display())).unwrap_or_default();
         Some(if let Some(why) = failed {
             format!("This call used up its time, and someone else saved this model while it ran. Their work was kept, but what the call did was NOT fully taken back ({why}).{where_}")
         } else if !conflicts.is_empty() {
             let shown: Vec<&str> = conflicts.iter().take(3).map(String::as_str).collect();
             format!("This call used up its time, and someone else saved this model while it ran. What the call did was taken back, and their work was kept; {} thing{} the call changed {} also changed by someone else and {} left as they have {} ({}{}).{where_}", conflicts.len(), if conflicts.len() == 1 { "" } else { "s" }, if conflicts.len() == 1 { "was" } else { "were" }, if conflicts.len() == 1 { "was" } else { "were" }, if conflicts.len() == 1 { "it" } else { "them" }, shown.join(", "), if conflicts.len() > 3 { ", ..." } else { "" })
+        } else if let Some(unreadable) = rewrote {
+            format!("This call used up its time, and the model file {}. The model as it was before the call was written back{}.", if unreadable { "had been replaced by something that couldn't be read" } else { "had been deleted" }, if unreadable { ", and a copy of that file was set aside beside it" } else { "" })
         } else {
             "This call used up its time, and someone else saved this model while it ran. Everything the call did was taken back, entry by entry, and their work was kept.".to_string()
         })
@@ -1066,6 +1178,12 @@ impl Live {
         self.flush_every = every;
     }
 
+    /// Tests only: setting work aside fails (as on a full disk).
+    #[doc(hidden)]
+    pub fn set_aside_fault(&mut self, on: bool) {
+        self.aside_fault = on;
+    }
+
     fn hit(&mut self, phase: &str) {
         if let Some(mut h) = self.hook.take() {
             h(phase);
@@ -1083,6 +1201,11 @@ impl Live {
     ///     (a program that ignores the lock still has to get past that), then renamed over the file.
     /// A crash anywhere leaves the old file or the whole new one. `keep`: give the bytes back (a call remembers its last write).
     fn save_inner(&mut self, force: Option<Force>, keep: bool) -> Result<Option<Vec<u8>>, SaveErr> {
+        self.save_core(force, keep, false)
+    }
+
+    /// `save_inner`; `held`: the caller already holds the lock on the model file (a rollback's last tries), so it is not taken again.
+    fn save_core(&mut self, force: Option<Force>, keep: bool, held: bool) -> Result<Option<Vec<u8>>, SaveErr> {
         // a model from a newer SketchCraft is only looked at: never written to the file (see `format`)
         if let Some(ro) = &self.engine.read_only {
             return Err(SaveErr::Fail(ro.refusal()));
@@ -1101,10 +1224,27 @@ impl Live {
         if let Some(dir) = self.doc.parent().filter(|d| !d.as_os_str().is_empty()) {
             std::fs::create_dir_all(dir).map_err(|e| SaveErr::Fail(e.to_string()))?;
         }
-        self.hit("serialized");
-        let _lock = match lock_for(&self.doc, LOCK_WAIT) {
-            Ok(l) => l,
-            Err(()) => return Err(SaveErr::Fail("another program is saving this model and didn't finish; it will be tried again".into())),
+        let _lock = if held {
+            None
+        } else {
+            self.hit("serialized");
+            match lock_for_why(&self.doc, LOCK_WAIT) {
+                Ok((l, why)) => {
+                    // saving carries on (the file is still checked before it is replaced), and the person is told once
+                    if let (None, Some(why), false) = (&l, why, self.lock_told) {
+                        self.lock_told = true;
+                        let msg =
+                            format!("Saving works, but the lock that keeps two programs from saving this model at the same moment can't be used here: {why}. If another program saves at the very same moment, one of the two saves can be missed.");
+                        let note = match self.notice.take() {
+                            Some(n) => format!("{n} {msg}"),
+                            None => msg,
+                        };
+                        self.set_notice(note);
+                    }
+                    l
+                }
+                Err(()) => return Err(SaveErr::Fail("another program is saving this model and didn't finish; it will be tried again".into())),
+            }
         };
         let expected = self.seen;
         let doc = self.doc.clone();
@@ -1131,13 +1271,17 @@ impl Live {
     /// steps, 60 s for an agent's or a plugin's) unless the model changed size a lot, and each origin has
     /// its own quota (see `backups`), so an agent's loop can't push out the person's backups.
     fn backup(&mut self, force: Option<Force>) {
-        let Some(dir) = self.doc.parent().map(|d| d.join("Backups")) else { return };
+        let Some(dir) = self.doc.parent().map(|d| d.join("Backups")) else {
+            return;
+        };
         let now = SystemTime::now();
         let timed_due = self.last_backup.is_none_or(|t| now.duration_since(t).unwrap_or_default() >= BACKUP_EVERY);
         if (force.is_none() && !timed_due) || !self.doc.is_file() {
             return;
         }
-        let Ok(bytes) = std::fs::read(&self.doc) else { return };
+        let Ok(bytes) = std::fs::read(&self.doc) else {
+            return;
+        };
         // blank or unreadable files are not worth a slot. A big file is certainly not blank (an empty model is a few hundred
         // bytes), so it is only checked for being well-formed JSON, which on a model of millions of entities takes a
         // third of the time of reading it into a model (and no memory)
@@ -1186,6 +1330,12 @@ impl Live {
         };
         // whole or not at all: a crash or a full disk must not leave a half file that counts as a slot
         if write_atomic(&target, &bytes).is_ok() {
+            // a backup is as private as the model's own side files
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o600)).ok();
+            }
             self.last_backup = Some(now);
             if let Some(f) = force {
                 self.last_forced.insert(f.origin, (now, size));
@@ -1290,7 +1440,9 @@ impl Live {
             return;
         }
         let p = self.agent_note_path();
-        let Some(v) = std::fs::read_to_string(&p).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok()) else { return };
+        let Some(v) = std::fs::read_to_string(&p).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok()) else {
+            return;
+        };
         let _ = std::fs::remove_file(&p);
         let (n, last) = (v["saves"].as_u64().unwrap_or(1), v["last"].as_u64().unwrap_or(0));
         let ago = epoch(SystemTime::now()).saturating_sub(last);
@@ -1425,7 +1577,9 @@ impl Live {
                         use std::io::Write;
                         return match f.write_all(&bytes) {
                             Ok(()) => json!({"ok": true, "path": p, "mode": "copy"}),
-                            Err(e) => json!({"ok": false, "error": format!("couldn't write the copy: {e}")}),
+                            Err(e) => {
+                                json!({"ok": false, "error": format!("couldn't write the copy: {e}")})
+                            }
                         };
                     }
                     Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists && k < 1000 => k += 1,

@@ -190,6 +190,12 @@ What changed in each SketchCraft release, newest first. The format follows
     could not be. After an agent's save the app runs your next step again by itself instead of asking you to repeat it,
     files set aside are private to you, the notice says whose work was set aside, a backup is kept at the start of a long
     agent call, and Vertex colors on thousands of groups is fast.
+  - Hardening of that saving: your saved work is never replaced when an agent's work can't be set aside first (the notice
+    says so, and the agent is told plainly), a call that runs out of time is taken back even while you save every second or
+    two, and you are told when it could not be fully taken back. Files set aside get a new name each time, never follow a
+    link, and work with very long model names; backups and copies of unreadable files are private to you; a broken lock
+    file is repaired (or you are told once that none can be used); and a file rewritten in place with its old time is
+    noticed.
 
 ## [0.3.9] - 2026-11-20
 

@@ -91,3 +91,10 @@ changes off it. An entry that only the call changed goes back; an entry somebody
 When anything stays, or the result would not be a consistent model, or the call is too big to track, the person's data
 wins: the call's last written version is set aside in an `unsaved-*` file (private to the owner) and the agent is told the
 rollback was not complete. If the file moves while the rollback is being written, the plan is made again on the newer file.
+Two more rules keep that true when things go wrong. Work is only replaced by somebody else's file after it has been set aside
+successfully (the set-aside file is created new under a unique name, never through a link, shortened for a very long model
+name, private to the owner); when that fails, their file is left as it is, memory keeps the work, the person is told, and
+the next look at the file tries again. The last two tries of a rollback hold the lock from reading the file to writing it,
+so a person who saves all the time cannot keep it from finishing; if it still cannot finish, the person is told as well as
+the agent. A lock file that is a link, a folder or unreadable is repaired where possible, and the person is told once when no
+lock can be made at all. The file's stamp also holds a quick fingerprint of its first and last 64 KB.
