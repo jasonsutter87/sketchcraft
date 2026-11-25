@@ -6,7 +6,7 @@ What changed in each SketchCraft release, newest first. The format follows
 
 ## [Unreleased]
 
-## [0.3.10] - 2026-11-23
+## [0.3.10] - 2026-11-24
 
 ### Added
 - **Cut plan: cutting diagrams, labels and cost.** **Tools › Cut plan…** (also a button on the Cut list's result) packs
