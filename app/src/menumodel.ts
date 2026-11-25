@@ -244,6 +244,7 @@ export const MENUS: Menu[] = [
       SEP,
       act("win.themes", "menu.themes"),
       act("win.keyeditor", "menu.customize"),
+      act("win.spacemouse", "menu.spacemouse"),
       act("win.plugins", "menu.manage"),
     ],
   },

@@ -89,7 +89,7 @@ export interface MenuCtx {
   setLayout: (l: Layout) => void;
   setLanguage: (l: string) => void;
   // dialogs and links
-  open: Record<"restore" | "render" | "sheets" | "layout" | "timeline" | "location" | "text3d" | "projection" | "positionTexture" | "uvEditor" | "newPaintTexture" | "photocraft" | "fixModel" | "checkModel" | "printCheck" | "cutPlan" | "dado" | "rabbet" | "tenon" | "makeFaces" | "flatten" | "plugins" | "themes" | "keys" | "keyEditor" | "palette" | "learn" | "about" | "customize", () => void>;
+  open: Record<"restore" | "render" | "sheets" | "layout" | "timeline" | "location" | "text3d" | "projection" | "positionTexture" | "uvEditor" | "newPaintTexture" | "photocraft" | "fixModel" | "checkModel" | "printCheck" | "cutPlan" | "dado" | "rabbet" | "tenon" | "makeFaces" | "flatten" | "plugins" | "themes" | "keys" | "keyEditor" | "spaceMouse" | "palette" | "learn" | "about" | "customize", () => void>;
   checkForUpdates: () => void;
   openLink: (which: "issues") => void;
 }
@@ -219,6 +219,7 @@ export function buildMenuActions(c: MenuCtx): Record<string, MenuAction> {
   add("win.views", () => c.showTab("views"), c.leftTabs.includes("views"));
   add("win.info", c.showRightPanel);
   add("win.keyeditor", c.open.keyEditor);
+  add("win.spacemouse", c.open.spaceMouse);
 
   // Help
   add("help.learn", c.open.learn);

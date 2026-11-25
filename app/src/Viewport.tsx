@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from "react";
 import { ask, confirm } from "./ask";
 import { AxisGizmo } from "./gizmo";
 import * as THREE from "three";
+import type { Nav } from "./spacemouse";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { TouchGestures, touchMapping } from "./touch";
 import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
@@ -1714,20 +1715,46 @@ export default function Viewport(props: Props) {
 
   /** Orbit around the target by a drag of (dx, dy) pixels (the axis gizmo). */
   function orbitBy(dx: number, dy: number) {
+    orbitRad(dx * -0.009, dy * 0.009);
+  }
+
+  /** Orbit around the target: `yaw` radians counter-clockwise seen from above, `pitch` radians up over the model. */
+  function orbitRad(yaw: number, pitch: number) {
     const T = t.current;
     if (!T) return;
     const target = T.controls.target;
     const off = T.camera.position.clone().sub(target);
     const r = off.length();
     if (r < 1e-9) return;
-    let theta = Math.atan2(off.y, off.x) - dx * 0.009;
-    let phi = Math.acos(THREE.MathUtils.clamp(off.z / r, -1, 1)) - dy * 0.009;
+    let theta = Math.atan2(off.y, off.x) + yaw;
+    let phi = Math.acos(THREE.MathUtils.clamp(off.z / r, -1, 1)) - pitch;
     phi = THREE.MathUtils.clamp(phi, 0.001, Math.PI - 0.001);
     off.set(r * Math.sin(phi) * Math.cos(theta), r * Math.sin(phi) * Math.sin(theta), r * Math.cos(phi));
     T.camera.position.copy(target).add(off);
     if (T.camera === T.ortho) T.persp.position.copy(T.camera.position);
     T.camera.lookAt(target);
     T.controls.update();
+  }
+
+  /** A 3D mouse's slice of motion (spacemouse.ts): orbit, pan and zoom, from where the camera is now. */
+  function navigate(n: Nav) {
+    const T = t.current;
+    if (!T || live.current.paused) return;
+    if (backdropOn.current) showBackdrop(null);
+    if (n.yaw !== 0 || n.pitch !== 0) orbitRad(n.yaw, n.pitch);
+    if (n.panRight !== 0 || n.panUp !== 0) {
+      const cam = T.camera;
+      // a share of what the view spans at the target: the distance away, or the height an orthographic view shows
+      const span = cam === T.ortho ? (T.ortho.top - T.ortho.bottom) / T.ortho.zoom : cam.position.distanceTo(T.controls.target);
+      const right = new THREE.Vector3().setFromMatrixColumn(cam.matrix, 0);
+      const up = new THREE.Vector3().setFromMatrixColumn(cam.matrix, 1);
+      const d = right.multiplyScalar(n.panRight * span).add(up.multiplyScalar(n.panUp * span));
+      cam.position.add(d);
+      T.controls.target.add(d);
+      if (cam === T.ortho) T.persp.position.copy(cam.position);
+      T.controls.update();
+    }
+    if (n.dolly !== 1) dolly(n.dolly);
   }
 
   /** Look at the model along an axis: from +z is the top view, -y the front. */
@@ -2175,6 +2202,7 @@ export default function Viewport(props: Props) {
       const o = ray({ clientX, clientY });
       return { origin: [o.origin.x, o.origin.y, o.origin.z] as Vec3, dir: [o.direction.x, o.direction.y, o.direction.z] as Vec3 };
     },
+    navigate,
     watchCamera: (cb: () => void) => {
       const c = t.current!.controls;
       c.addEventListener("change", cb);
