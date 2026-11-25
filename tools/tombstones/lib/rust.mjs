@@ -127,7 +127,7 @@ export function findRust(src, { blocks = false } = {}) {
       }
       if (isP(k, "{")) {
         const { attrs } = walkBack(i);
-        const name = tk.s === "mod" ? toks[i + 1].s : src.slice(toks[i + (tk.s === "impl" ? 1 : 0)].o, toks[k].o).replace(/\s+/g, " ").replace(/<[^<>]*>/g, "").trim().slice(0, 60);
+        const name = tk.s === "mod" ? toks[i + 1].s : src.slice(toks[i + (tk.s !== "mod" ? 1 : 0)].o, toks[k].o).replace(/\s+/g, " ").replace(/<[^<>]*>/g, "").trim().slice(0, 60);
         pendingAt.set(k, { name, kind: tk.s, skip: attrs.some(isTestAttr) });
       }
       continue;
