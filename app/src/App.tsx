@@ -709,6 +709,7 @@ function ModelingApp() {
       { label: "Subdivide…", hint: `Tools · smooth the selected group or component into a SubD shape. ${SUBD_HOW}`, run: askSubdivide },
       { label: "SubD box", hint: `Tools · a cube cage to shape. ${SUBD_HOW}`, run: () => void addSubdBox() },
       { id: "edit.clearguides", label: "Clear guides", hint: "Edit", run: () => void run({ cmd: "clear_guides" }) },
+      toggle("showHidden", "Hidden Geometry", "view.hidden"),
       toggle("xray", "X-Ray", "view.xray"),
       toggle("shadows", "Shadows", "view.shadows"),
       toggle("edges", "Edges", "view.edges"),

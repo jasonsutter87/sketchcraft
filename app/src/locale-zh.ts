@@ -50,6 +50,7 @@ export default {
   "menu.explode": "炸开",
   "menu.hide": "隐藏",
   "menu.unhide": "全部显示",
+  "menu.hiddenGeometry": "隐藏几何体",
   "menu.clearGuides": "清除参考线",
   "menu.resetAxes": "重置坐标轴",
   "menu.workspaces": "工作区",

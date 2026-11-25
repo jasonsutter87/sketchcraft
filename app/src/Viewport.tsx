@@ -428,7 +428,7 @@ export default function Viewport(props: Props) {
     T.catcher.visible = styles.shadows;
     buildModel();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [styles.xray, styles.shadows, styles.edges, styles.parallel, styles.backEdges, styles.face, styles.profiles, styles.vertexColors, styles.checker, styles.sketchy, styles.extensions, styles.background, styles.byTag, styles.notes, styles.hideRest, styles.lineWeights]);
+  }, [styles.xray, styles.shadows, styles.edges, styles.parallel, styles.backEdges, styles.face, styles.profiles, styles.vertexColors, styles.checker, styles.sketchy, styles.extensions, styles.background, styles.byTag, styles.notes, styles.hideRest, styles.lineWeights, styles.showHidden]);
 
   // ---------------------------------------------------------------- labels
   /** Keep one DOM label per spec; positions are updated every frame. */
@@ -1027,6 +1027,16 @@ export default function Viewport(props: Props) {
       const soft = new THREE.LineSegments(sg, new THREE.LineDashedMaterial({ color: 0x8a8ea0, dashSize: 0.2, gapSize: 0.15 }));
       soft.computeLineDistances();
       T.model.add(soft);
+    }
+    if (live.current.styles.showHidden && s.ghostEdges?.length) {
+      // what you've hidden, faint and dashed, through faces (View > Hidden Geometry)
+      const gg = new THREE.BufferGeometry();
+      gg.setAttribute("position", new THREE.Float32BufferAttribute(s.ghostEdges, 3));
+      const ghost = new THREE.LineSegments(gg, new THREE.LineDashedMaterial({ color: 0x8a8ea0, dashSize: 0.1, gapSize: 0.08, depthTest: false, depthWrite: false, transparent: true, opacity: 0.6, clippingPlanes: clip }));
+      ghost.computeLineDistances();
+      ghost.renderOrder = 5;
+      ghost.raycast = () => {};
+      T.model.add(ghost);
     }
     addGuides(T, s);
     addAnnotationLines(T, s);

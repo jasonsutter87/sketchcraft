@@ -50,6 +50,7 @@ export default {
   "menu.explode": "Auflösen",
   "menu.hide": "Ausblenden",
   "menu.unhide": "Alles einblenden",
+  "menu.hiddenGeometry": "Verborgene Geometrie",
   "menu.clearGuides": "Hilfslinien löschen",
   "menu.resetAxes": "Achsen zurücksetzen",
   "menu.workspaces": "Arbeitsbereiche",
