@@ -874,6 +874,91 @@ function ModelingApp() {
     setTab(t);
     if (merged) store.set(SIDE_TAB_KEY, t);
   };
+  // the Style panel's controls, and the paint swatches and textures: the Classic tray shows these same pieces
+  const styleControls = (
+    <>
+      <div className="kv">
+        <span>Preset</span>
+        <select
+          className="units-select"
+          value=""
+          onChange={(e) => {
+            const p = STYLE_PRESETS.find((x) => x.name === e.target.value);
+            if (p) setStyles((s) => ({ ...s, ...p.styles }));
+          }}
+        >
+          <option value="">Choose…</option>
+          {STYLE_PRESETS.map((p) => (
+            <option key={p.name}>{p.name}</option>
+          ))}
+        </select>
+        <span>Faces</span>
+        <select className="units-select" value={styles.face ?? "textured"} onChange={(e) => setStyles((s) => ({ ...s, face: e.target.value as FaceStyle }))}>
+          <option value="textured">Shaded with textures</option>
+          <option value="physical">Physically based (roughness, metal)</option>
+          <option value="shaded">Shaded</option>
+          <option value="monochrome">Monochrome</option>
+          <option value="hiddenline">Hidden line</option>
+          <option value="wireframe">Wireframe</option>
+        </select>
+        <span>Background</span>
+        <select className="units-select" value={styles.background ?? "sky"} onChange={(e) => setStyles((s) => ({ ...s, background: e.target.value as Backdrop }))}>
+          <option value="sky">Sky and ground</option>
+          <option value="default">Plain with grid</option>
+          <option value="paper">Paper</option>
+          <option value="blueprint">Blueprint</option>
+          <option value="night">Night</option>
+        </select>
+      </div>
+      <div className="style-checks">
+        {(
+          [
+            ["profiles", "Profiles"],
+            ["vertexColors", "Vertex colours"],
+            ["sketchy", "Sketchy edges"],
+            ["extensions", "Extensions"],
+            ["lineWeights", "Line weights"],
+            ["ao", "Ambient occlusion"],
+          ] as [keyof Styles, string][]
+        ).map(([k, label]) => (
+          <label key={k} className="field check">
+            <input type="checkbox" checked={k === "lineWeights" || k === "vertexColors" ? styles[k] !== false : !!styles[k]} onChange={(e) => setStyles((s) => ({ ...s, [k]: e.target.checked }))} />
+            <span>{label}</span>
+          </label>
+        ))}
+      </div>
+    </>
+  );
+  const paintSwatches = (
+    <div className="swatches">
+      {SWATCHES.map((c) => (
+        <button
+          key={hex(c)}
+          className={`swatch ${!paintMaterial && hex(c) === hex(color) ? "on" : ""}`}
+          style={{ background: hex(c) }}
+          onClick={() => {
+            setColor(c);
+            const ids = [...sel.faces, ...sel.groups];
+            if (ids.length) run({ cmd: "paint", ids, color: c });
+          }}
+        />
+      ))}
+    </div>
+  );
+  const texturesPanel = scene && (
+    <Textures
+      scene={scene}
+      paintMaterial={paintMaterial}
+      choose={(n) => {
+        setPaintMaterial(n);
+        if (n) chooseTool(selCount ? tool : "paint");
+      }}
+      run={run}
+      camera={() => api.current!.camera()}
+      sel={sel}
+      onToast={say}
+    />
+  );
   const inspector = (
     <>
         {inLayout && scene && <LayoutInspector page={L.page} viewport={L.viewport} item={L.item} scene={scene} run={run} setViewport={L.setViewport} setItem={L.setItem} />}
@@ -910,89 +995,14 @@ function ModelingApp() {
         {selCount === 0 && (
           <div className="section">
             <div className="section-title">Style</div>
-            <div className="kv">
-              <span>Preset</span>
-              <select
-                className="units-select"
-                value=""
-                onChange={(e) => {
-                  const p = STYLE_PRESETS.find((x) => x.name === e.target.value);
-                  if (p) setStyles((s) => ({ ...s, ...p.styles }));
-                }}
-              >
-                <option value="">Choose…</option>
-                {STYLE_PRESETS.map((p) => (
-                  <option key={p.name}>{p.name}</option>
-                ))}
-              </select>
-              <span>Faces</span>
-              <select className="units-select" value={styles.face ?? "textured"} onChange={(e) => setStyles((s) => ({ ...s, face: e.target.value as FaceStyle }))}>
-                <option value="textured">Shaded with textures</option>
-                <option value="physical">Physically based (roughness, metal)</option>
-                <option value="shaded">Shaded</option>
-                <option value="monochrome">Monochrome</option>
-                <option value="hiddenline">Hidden line</option>
-                <option value="wireframe">Wireframe</option>
-              </select>
-              <span>Background</span>
-              <select className="units-select" value={styles.background ?? "sky"} onChange={(e) => setStyles((s) => ({ ...s, background: e.target.value as Backdrop }))}>
-                <option value="sky">Sky and ground</option>
-                <option value="default">Plain with grid</option>
-                <option value="paper">Paper</option>
-                <option value="blueprint">Blueprint</option>
-                <option value="night">Night</option>
-              </select>
-            </div>
-            <div className="style-checks">
-              {(
-                [
-                  ["profiles", "Profiles"],
-                  ["vertexColors", "Vertex colours"],
-                  ["sketchy", "Sketchy edges"],
-                  ["extensions", "Extensions"],
-                  ["lineWeights", "Line weights"],
-                  ["ao", "Ambient occlusion"],
-                ] as [keyof Styles, string][]
-              ).map(([k, label]) => (
-                <label key={k} className="field check">
-                  <input type="checkbox" checked={k === "lineWeights" || k === "vertexColors" ? styles[k] !== false : !!styles[k]} onChange={(e) => setStyles((s) => ({ ...s, [k]: e.target.checked }))} />
-                  <span>{label}</span>
-                </label>
-              ))}
-            </div>
+            {styleControls}
           </div>
         )}
         <div className="section">
           <div className="section-title">{selCount ? "Fill" : "Paint"}</div>
-          <div className="swatches">
-            {SWATCHES.map((c) => (
-              <button
-                key={hex(c)}
-                className={`swatch ${!paintMaterial && hex(c) === hex(color) ? "on" : ""}`}
-                style={{ background: hex(c) }}
-                onClick={() => {
-                  setColor(c);
-                  const ids = [...sel.faces, ...sel.groups];
-                  if (ids.length) run({ cmd: "paint", ids, color: c });
-                }}
-              />
-            ))}
-          </div>
+          {paintSwatches}
         </div>
-        {scene && (
-          <Textures
-            scene={scene}
-            paintMaterial={paintMaterial}
-            choose={(n) => {
-              setPaintMaterial(n);
-              if (n) chooseTool(selCount ? tool : "paint");
-            }}
-            run={run}
-            camera={() => api.current!.camera()}
-            sel={sel}
-            onToast={say}
-          />
-        )}
+        {texturesPanel}
         {selCount > 0 && (
           <div className="section">
             <div className="section-title">Arrange</div>
