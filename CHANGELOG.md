@@ -6,6 +6,12 @@ What changed in each SketchCraft release, newest first. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- **SketchUp 2017-2020 files import their materials and the pictures on them.** These files came in with every face in
+  the default color: their materials were not found at all. Now the names, colors and texture pictures come across
+  (and the pictures of 2013-2016 files that share one between materials), each picture at the size SketchUp keeps for
+  it. A picture that can't be read is named in the import's message and the material keeps its color. (#17)
+
 ## [0.3.10] - 2026-11-24
 
 ### Added

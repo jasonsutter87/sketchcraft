@@ -53,7 +53,7 @@ the commands it could not match. Details are in [Keyboard shortcuts](09-shortcut
 ## Importing your old models
 
 **File › Open…** and **File › Import…** (⌘I) read `.skp` files from SketchUp 6 to 8 and from 2013 onward, which covers
-files saved by SketchUp Make 2017. You get the geometry, groups, components and colors, and textures from 2021 and later files (in files from 2017 to 2020 textures currently come in as colors, see the changelog)
+files saved by SketchUp Make 2017. You get the geometry, groups, components, colors and textures (the pictures, at the size SketchUp gives them)
 ([Files](05-files.md#opening-other-formats)). Also:
 
 - **Dimensions** (linear ones) come in as dimensions attached to what they measure. Radial dimensions, free text labels

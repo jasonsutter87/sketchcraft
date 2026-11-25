@@ -239,31 +239,11 @@ pub fn parse(d: &[u8], version: String) -> Result<SkpFile> {
                 Some(xml[j..j + xml[j..].find('"')?].to_string())
             });
             let bytes = img.and_then(|p| read(&format!("materials/{name}/{p}"), MAX_PICTURE));
-            // bounded work: a count, a pixel budget and (with the deadline above) a time limit
             let shown = name.trim_start_matches("_LC_");
             if bytes.is_none() && xml.contains("<mat:image ") {
                 crate::safety::note_skipped(shown, "its picture is missing, over 64 MB or can't be read; the material keeps its color");
             }
-            let decoded = bytes.and_then(|b| {
-                if pictures >= MAX_PICTURES {
-                    crate::safety::note_skipped(shown, "this file has more pictures than are read; the material keeps its color");
-                    return None;
-                }
-                pictures += 1;
-                let (w, h) = match crate::safety::image_dimensions(&b) {
-                    Ok(wh) => wh,
-                    Err(_) => {
-                        crate::safety::note_skipped(shown, "its picture can't be read; the material keeps its color");
-                        return None;
-                    }
-                };
-                pixels = pixels.saturating_add(w as u64 * h as u64);
-                if pixels > MAX_PIXELS {
-                    crate::safety::note_skipped(shown, "the pictures in this file add up to more than are read; the material keeps its color");
-                    return None;
-                }
-                shrink(&b, shown)
-            });
+            let decoded = bytes.and_then(|b| decode_picture(&b, shown, &mut pictures, &mut pixels));
             if let Some((data, aspect)) = decoded {
                 let mut t = tiles.remove(&id).unwrap_or_default();
                 t.sort_by(|a, b| a.total_cmp(b));
@@ -277,6 +257,29 @@ pub fn parse(d: &[u8], version: String) -> Result<SkpFile> {
     }
     file.textures = textures;
     Ok(file)
+}
+
+/// A picture from a file, ready to keep: bounded work (a count, a pixel budget; the caller's deadline bounds the time).
+/// What can't be read is said (`note_skipped`) and the material keeps its color. Gives the data URL and height / width.
+pub(crate) fn decode_picture(b: &[u8], shown: &str, pictures: &mut usize, pixels: &mut u64) -> Option<(String, f64)> {
+    if *pictures >= MAX_PICTURES {
+        crate::safety::note_skipped(shown, "this file has more pictures than are read; the material keeps its color");
+        return None;
+    }
+    *pictures += 1;
+    let (w, h) = match crate::safety::image_dimensions(b) {
+        Ok(wh) => wh,
+        Err(_) => {
+            crate::safety::note_skipped(shown, "its picture can't be read; the material keeps its color");
+            return None;
+        }
+    };
+    *pixels = pixels.saturating_add(w as u64 * h as u64);
+    if *pixels > MAX_PIXELS {
+        crate::safety::note_skipped(shown, "the pictures in this file add up to more than are read; the material keeps its color");
+        return None;
+    }
+    shrink(b, shown)
 }
 
 /// An image as a data URL no bigger than 1024 px (JPEG unless it has alpha).

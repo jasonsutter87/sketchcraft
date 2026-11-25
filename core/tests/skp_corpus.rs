@@ -68,10 +68,12 @@ struct Entry {
 
 /// What each file must read as. These are what the reader gives today for files SketchUp wrote, checked against
 /// the model each file holds; a change here is a change in what we import, so it should be deliberate.
-const CORPUS: [Entry; 6] = [
+const CORPUS: [Entry; 8] = [
     Entry { file: "v06-extruded-box.skp", version: "{6.0.1}", faces: 6, components: 1, placed: 1 },
     Entry { file: "v06-screen-text.skp", version: "{6.0.1}", faces: 0, components: 0, placed: 0 },
     Entry { file: "v13-extruded-circle.skp", version: "{13.0.1}", faces: 26, components: 1, placed: 1 },
+    Entry { file: "v15-materials.skp", version: "{15.0.0}", faces: 4, components: 1, placed: 1 },
+    Entry { file: "v16-textured.skp", version: "{16.0.1}", faces: 5, components: 5, placed: 5 },
     Entry { file: "v20-model.skp", version: "{20.2.160}", faces: 63, components: 1, placed: 1 },
     Entry { file: "v21-components.skp", version: "{21.0.0}", faces: 2453, components: 12, placed: 2 },
     Entry { file: "v22-soft-block.skp", version: "{22.0.0}", faces: 69, components: 1, placed: 1 },
