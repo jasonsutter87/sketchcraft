@@ -1,0 +1,83 @@
+@use "variables" as *;
+@use "mixins" as *;
+
+/* ---------- the Classic tray: collapsible panels down the right side (only with the Classic layout, and
+   only when it is switched on: .tray-on, set by App) ---------- */
+
+.app.tray-on {
+  grid-template-columns: 0 1fr clamp(240px, 22vw, 300px);
+}
+
+.tray {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.tray-panel {
+  border-bottom: 1px solid var(--line);
+
+  > h3 {
+    margin: 0;
+    font: inherit;
+  }
+
+  /* the panels reused here bring their own section padding; the tray's own body gives them room */
+  .tray-body {
+    padding: 4px 10px 12px;
+  }
+
+  .tray-body > .section {
+    padding: 0;
+  }
+
+  .tray-body .swatches {
+    margin: 6px 0 12px;
+  }
+}
+
+.tray-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin: 0;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: $font-s;
+  font-weight: 640;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--accent-soft);
+  }
+}
+
+.tray-caret {
+  display: inline-block;
+  width: 0;
+  height: 0;
+  border-left: 5px solid var(--muted);
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  transition: transform 0.12s;
+}
+
+.tray-panel.open .tray-caret {
+  transform: rotate(90deg);
+}
+
+.tray-empty {
+  margin: 6px 0;
+  color: var(--muted);
+  font-size: $font-xs;
+}
+
+.tray-check {
+  margin-top: 10px;
+}
