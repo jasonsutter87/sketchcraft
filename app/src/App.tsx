@@ -49,6 +49,8 @@ import { AboutDialog } from "./about";
 import { openLink } from "./links";
 import { makeSubdBox, SUBD_HOW, subdivideEntity, SubdivideDialog, type SubdivideOptions } from "./subdivide";
 import { readFigure, skippedText, useFileActions, type FigureChoice } from "./usefiles";
+import { ImportReportDialog } from "./importreportdialog";
+import type { NamedReport } from "./importreport";
 import { ErrorBoundary } from "./boundary";
 import { PhotoModeler } from "./photomodel";
 import { RefImageDialog } from "./refimage";
@@ -323,7 +325,8 @@ function ModelingApp() {
   useKeymap();
   const pluginCommandDefs = livePlugins.flatMap((pl) => pl.commands.map((c) => ({ id: `plugin:${pl.id}:${c.id}`, label: c.label, group: "Plugins" as const, key: "" })));
   useEffect(() => keymap.setExtra(pluginCommandDefs));
-  const { file, importFile, runTemplate, openExample } = useFileActions({ run, say, refresh, api, scene, figure, currentFile, setCurrentFile, setSel });
+  const [importReport, setImportReport] = useState<NamedReport | null>(null);
+  const { file, importFile, runTemplate, openExample } = useFileActions({ run, say, refresh, api, scene, figure, currentFile, setCurrentFile, setSel, onReport: setImportReport });
 
   // SubD: make one from a group or component (Subdivide…) or from a cube cage (SubD box); both end in SubD mode
   const [subdividing, setSubdividing] = useState<{ id: number; component: boolean } | null>(null);
@@ -1430,6 +1433,7 @@ function ModelingApp() {
             onClose={() => setShowPrintCheck(false)}
           />
         )}
+        {importReport && <ImportReportDialog report={importReport} onClose={() => setImportReport(null)} />}
         {showAbout && <AboutDialog onClose={() => setShowAbout(false)} />}
         {showKeys && <ShortcutSheet onClose={() => setShowKeys(false)} onCustomize={() => (setShowKeys(false), setShowKeyEditor(true))} />}
         {showKeyEditor && <ShortcutEditor onClose={() => setShowKeyEditor(false)} />}

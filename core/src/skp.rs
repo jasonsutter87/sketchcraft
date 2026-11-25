@@ -813,6 +813,10 @@ pub struct SkpFile {
     pub materials: HashMap<u32, (String, [f32; 3])>,
     /// images of textured materials (modern files)
     pub textures: HashMap<u32, crate::skp_vff::Texture>,
+    /// the materials that hold a picture (whether or not it could be read)
+    pub textured: HashSet<u32>,
+    /// the names of the file's tags (layers), where the reader finds them
+    pub tags: Vec<String>,
 }
 
 fn resolve(r: &Reader, items: &[Slot]) -> Entities {
@@ -1060,18 +1064,73 @@ fn average_color(d: &[u8], t: &RawTexture) -> Option<[f32; 3]> {
     Some([c[0] as f32 / 255.0, c[1] as f32 / 255.0, c[2] as f32 / 255.0])
 }
 
+/// The start (the tag) of the next object of a class after `from` and before `limit`: with the class's tag known, that
+/// tag followed by something that reads as an object's start (attributes, an id, a name); until then, a tag followed by
+/// no attributes and a name.
+fn next_record(d: &[u8], from: usize, limit: usize, tag: Option<u16>, newf: bool, count: u32) -> Option<usize> {
+    (from..limit).find(|&i| {
+        if d[i + 1] & 0x80 == 0 || d[i + 1] == 0xFF {
+            return false;
+        }
+        match tag {
+            Some(t) => {
+                if u16::from_le_bytes([d[i], d[i + 1]]) != t {
+                    return false;
+                }
+                let mut probe = Reader { d, p: i + 2, counter: count + 1, classes: HashMap::new(), names: HashMap::new(), objects: HashMap::new(), depth: 0, newf, old: false, log: false, jc: Vec::new(), jo: Vec::new() };
+                probe.head().is_ok() && probe.cstring().is_ok()
+            }
+            None => {
+                if d[i + 2] != 0 || d[i + 3] != 0 {
+                    return false;
+                }
+                if !newf {
+                    return &d[i + 4..i + 7] == b"\xff\xfe\xff";
+                }
+                let m = d[i + 4];
+                m <= 0x0f && d[i + 5 + m.count_ones() as usize..].starts_with(b"\xff\xfe\xff")
+            }
+        }
+    })
+}
+
+/// The tags (layers) of a classic file, by name: the objects of the CLayer class, one after another.
+fn layer_names(d: &[u8], newf: bool) -> Vec<String> {
+    let headers = class_headers(d);
+    let Some(&(hoff, _)) = headers.iter().find(|(_, n)| n == "CLayer") else { return Vec::new() };
+    let (mut names, mut p, mut count, mut tag) = (Vec::new(), hoff + 6 + 6, 2u32, None::<u16>);
+    for _ in 0..4096 {
+        let mut r = Reader { d, p, counter: count, classes: HashMap::new(), names: HashMap::new(), objects: HashMap::new(), depth: 0, newf, old: false, log: false, jc: Vec::new(), jo: Vec::new() };
+        if r.head().is_err() {
+            break;
+        }
+        let Ok(name) = r.cstring() else { break };
+        names.push(name);
+        count = r.counter + 1;
+        let from = r.p;
+        // the class's objects end where another class is declared
+        let ends = headers.iter().map(|h| h.0).find(|h| *h >= from).unwrap_or(usize::MAX);
+        let limit = (from + 4096).min(d.len().saturating_sub(12)).min(ends);
+        let Some(next) = next_record(d, from, limit, tag, newf, count).filter(|n| *n > p) else { break };
+        tag.get_or_insert(u16::from_le_bytes([d[next], d[next + 1]]));
+        p = next + 2;
+    }
+    names
+}
+
 /// Materials: each is [tag][attributes (usually none), from 2017 an id][name][u16 type][RGBA]...; textured ones
 /// (type != 0) hold their picture there instead (see `material_texture`). Every object takes a map index, so a material's
 /// is counted: from the CMaterial class's own index, one for each material, one for each attribute object a material
 /// carries, and one for a picture of its own. The class index comes from the tag the second material uses; a file with
 /// one material keeps it under `u32::MAX` (its index is the one the faces name).
-fn materials(d: &[u8], newf: bool) -> (HashMap<u32, (String, [f32; 3])>, HashMap<u32, RawTexture>) {
+fn materials(d: &[u8], newf: bool) -> (HashMap<u32, (String, [f32; 3])>, HashMap<u32, RawTexture>, HashSet<u32>) {
     let mut out = HashMap::new();
+    let mut textured: HashSet<u32> = HashSet::new();
     let mut pics: HashMap<u32, RawTexture> = HashMap::new();
     let headers = class_headers(d);
-    let Some(&(hoff, _)) = headers.iter().find(|(_, n)| n == "CMaterial") else { return (out, pics) };
+    let Some(&(hoff, _)) = headers.iter().find(|(_, n)| n == "CMaterial") else { return (out, pics, textured) };
     // (index relative to the class declaration, name, color, picture of its own or shared)
-    let mut found: Vec<(u32, String, [f32; 3], Option<(RawTexture, bool)>)> = Vec::new();
+    let mut found: Vec<(u32, String, [f32; 3], Option<(RawTexture, bool)>, bool)> = Vec::new();
     // the picture objects of materials seen, by relative index, for ones that share
     let mut images: HashMap<u32, RawTexture> = HashMap::new();
     let mut p = hoff + 6 + 9;
@@ -1109,7 +1168,7 @@ fn materials(d: &[u8], newf: bool) -> (HashMap<u32, (String, [f32; 3])>, HashMap
         if kind != 0 && matches!(pic, Some((_, true)) | None) {
             count += 1;
         }
-        found.push((rel, name, rgb, pic));
+        found.push((rel, name, rgb, pic, kind != 0));
         // the next material: skip forward (past the picture, whose bytes could look like anything) to its tag. Once a
         // second material has shown the tag every material uses, that tag followed by something that reads as a
         // material's start is the next one; until then, a tag followed by no attributes and a name.
@@ -1120,30 +1179,7 @@ fn materials(d: &[u8], newf: bool) -> (HashMap<u32, (String, [f32; 3])>, HashMap
         // the next class's first object comes with its declaration: the materials end where another class begins
         let ends = headers.iter().map(|h| h.0).find(|h| *h >= from).unwrap_or(usize::MAX);
         let limit = (from + 400_000).min(d.len().saturating_sub(12)).min(ends);
-        let next = (from..limit).find(|&i| {
-            if d[i + 1] & 0x80 == 0 || d[i + 1] == 0xFF {
-                return false;
-            }
-            match tag {
-                Some(t) => {
-                    if u16::from_le_bytes([d[i], d[i + 1]]) != t {
-                        return false;
-                    }
-                    let mut probe = Reader { d, p: i + 2, counter: count + 1, classes: HashMap::new(), names: HashMap::new(), objects: HashMap::new(), depth: 0, newf, old: false, log: false, jc: Vec::new(), jo: Vec::new() };
-                    probe.head().is_ok() && probe.cstring().is_ok()
-                }
-                None => {
-                    if d[i + 2] != 0 || d[i + 3] != 0 {
-                        return false;
-                    }
-                    if !newf {
-                        return &d[i + 4..i + 7] == b"\xff\xfe\xff";
-                    }
-                    let m = d[i + 4];
-                    m <= 0x0f && d[i + 5 + m.count_ones() as usize..].starts_with(b"\xff\xfe\xff")
-                }
-            }
-        });
+        let next = next_record(d, from, limit, tag, newf, count);
         let Some(next) = next.filter(|n| *n > p) else { break };
         tag.get_or_insert(u16::from_le_bytes([d[next], d[next + 1]]));
         p = next + 2;
@@ -1151,8 +1187,11 @@ fn materials(d: &[u8], newf: bool) -> (HashMap<u32, (String, [f32; 3])>, HashMap
     match tag {
         Some(t) => {
             let c = (t & 0x7FFF) as u32;
-            for (rel, name, rgb, pic) in found {
+            for (rel, name, rgb, pic, has_picture) in found {
                 out.insert(c + rel, (name, rgb));
+                if has_picture {
+                    textured.insert(c + rel);
+                }
                 if let Some((t, _)) = pic {
                     pics.insert(c + rel, t);
                 }
@@ -1160,15 +1199,18 @@ fn materials(d: &[u8], newf: bool) -> (HashMap<u32, (String, [f32; 3])>, HashMap
         }
         // one material: its index is learned from the faces
         None => {
-            if let Some((_, name, rgb, pic)) = found.into_iter().next() {
+            if let Some((_, name, rgb, pic, has_picture)) = found.into_iter().next() {
                 out.insert(u32::MAX, (name, rgb));
+                if has_picture {
+                    textured.insert(u32::MAX);
+                }
                 if let Some((t, true)) = pic {
                     pics.insert(u32::MAX, t);
                 }
             }
         }
     }
-    (out, pics)
+    (out, pics, textured)
 }
 
 /// Parse up to `n` list items with no skipping; returns how many parsed and
@@ -1345,8 +1387,10 @@ pub fn parse(d: &[u8]) -> Result<SkpFile> {
     }
 
     let mut known = learn(d, newf);
-    let (mats, mut pics) = materials(d, newf);
+    let (mats, mut pics, textured) = materials(d, newf);
     file.materials = mats;
+    file.textured = textured;
+    file.tags = layer_names(d, newf);
     let geometry_tag = |known: &HashMap<u32, Kind>, t: u16, i: usize| -> bool {
         if t == 0xFFFF {
             let n = d.get(i + 4..i + 6).map(|b| u16::from_le_bytes([b[0], b[1]]) as usize).unwrap_or(0);
@@ -1555,8 +1599,12 @@ pub fn parse(d: &[u8]) -> Result<SkpFile> {
         named.sort_unstable();
         named.dedup();
         let tex = pics.remove(&u32::MAX);
+        let was_textured = file.textured.remove(&u32::MAX);
         if let [only] = named[..] {
             file.materials.insert(only, lone);
+            if was_textured {
+                file.textured.insert(only);
+            }
             if let Some(t) = tex {
                 pics.insert(only, t);
             }
@@ -1586,6 +1634,8 @@ pub fn parse(d: &[u8]) -> Result<SkpFile> {
 pub fn import(m: &mut Model, d: &[u8], at: DVec3, name: &str) -> Result<ImportSummary> {
     let file = parse(d)?;
     let mut summary = ImportSummary { version: file.version.clone(), ..Default::default() };
+    let mut dims_skipped = 0usize;
+    let mut texts = 0usize;
     let s = DMat4::from_scale(DVec3::splat(INCH));
     let s_inv = DMat4::from_scale(DVec3::splat(1.0 / INCH));
 
@@ -1630,6 +1680,8 @@ pub fn import(m: &mut Model, d: &[u8], at: DVec3, name: &str) -> Result<ImportSu
         merge_into(m, &tmp, gid, base);
         let to_world = |p: DVec3| at + p * INCH;
         summary.skipped_annotations += root.dims_skipped + root.texts.len();
+        dims_skipped += root.dims_skipped;
+        texts += root.texts.len();
         for t in &root.texts {
             summary.screen_texts += t.screen as usize;
             if summary.skipped_labels.len() < MAX_LISTED_LABELS {
@@ -1686,6 +1738,7 @@ pub fn import(m: &mut Model, d: &[u8], at: DVec3, name: &str) -> Result<ImportSu
             placed += 1;
         }
     }
+    summary.report = build_report(&file, &summary, dims_skipped, texts);
     // drop definitions nothing uses (SketchUp keeps unused ones in the file)
     summary.components = m.definitions.len();
     summary.placed = placed;
@@ -1713,6 +1766,74 @@ pub struct ImportSummary {
     pub screen_texts: usize,
     /// the words of the text labels left out (the first `MAX_LISTED_LABELS`), so they can be added by hand
     pub skipped_labels: Vec<String>,
+    /// what came across and what did not, for the person to read (the app's report after an import)
+    pub report: ImportReport,
+}
+
+/// What an import brought across (counts) and what it left out, each with the reason. The faces, components, placed
+/// parts, dimensions and labels are in `ImportSummary` itself; this holds the rest and the list of what was left out.
+#[derive(Debug, Default, Clone)]
+pub struct ImportReport {
+    /// loose lines (edges no face uses)
+    pub lines: usize,
+    /// materials found in the file, and how many of them hold a picture, and how many of those pictures came across
+    pub materials: usize,
+    pub textured_materials: usize,
+    pub textures: usize,
+    pub skipped: Vec<ReportSkip>,
+}
+
+/// One kind of thing the import left out (or only half brought across).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ReportSkip {
+    /// what it is, in a few words ("text labels")
+    pub what: String,
+    /// how many (none: the file has some but they can't be counted)
+    pub count: Option<usize>,
+    /// why
+    pub why: String,
+    /// names or words from the file, a few of them (data from the file, not ours)
+    pub items: Vec<String>,
+}
+
+/// The report for an import: counts, and one entry for each kind of thing left out (see `ReportSkip`).
+fn build_report(file: &SkpFile, s: &ImportSummary, dims_skipped: usize, texts: usize) -> ImportReport {
+    let ents = || file.roots.iter().chain(file.definitions.values().map(|d| &d.1));
+    let mut r = ImportReport {
+        lines: ents().map(|e| e.lines.len()).sum(),
+        materials: file.materials.len(),
+        textured_materials: file.textured.len(),
+        textures: file.textures.len(),
+        skipped: Vec::new(),
+    };
+    let mut skip = |what: &str, count: Option<usize>, why: &str, items: Vec<String>| r.skipped.push(ReportSkip { what: what.into(), count, why: why.into(), items });
+    // pictures that could not be read: each kept its material's color
+    let mut lost: Vec<String> = file.textured.iter().filter(|k| !file.textures.contains_key(k)).filter_map(|k| file.materials.get(k).map(|m| m.0.clone())).collect();
+    lost.sort();
+    if !lost.is_empty() {
+        let said = crate::safety::peek_skipped();
+        let items = if said.is_empty() { lost.clone() } else { said };
+        skip("textures", Some(lost.len()), "the picture is missing, too big or can't be read, so the material keeps its color", items);
+    }
+    let labels = texts.saturating_sub(s.screen_texts);
+    if labels > 0 {
+        skip("text labels", Some(labels), "SketchUp text isn't placed in the model yet; the words are listed so you can add them by hand", s.skipped_labels.clone());
+    }
+    if s.screen_texts > 0 {
+        skip("screen texts", Some(s.screen_texts), "they are fixed to SketchUp's window, so they have no place in the model", Vec::new());
+    }
+    if dims_skipped > 0 {
+        skip("dimensions", Some(dims_skipped), "an end sits on geometry that wasn't read, so they can't be placed", Vec::new());
+    }
+    if s.dimensions_unattached > 0 {
+        skip("dimension ends", Some(s.dimensions_unattached), "they sit on nothing that came across, so those dimensions keep fixed points and don't follow edits", Vec::new());
+    }
+    // the default tag is always there; any other one is the person's
+    let tags: Vec<String> = file.tags.iter().filter(|t| !t.is_empty() && t.as_str() != "Layer0").cloned().collect();
+    if !tags.is_empty() {
+        skip("tags", Some(tags.len()), "SketchUp tags (layers) aren't imported yet, so everything lands untagged", tags.into_iter().take(MAX_LISTED_LABELS).collect());
+    }
+    r
 }
 
 /// How near (metres) a dimension's end must be to a vertex or an edge to attach to it: SketchUp's own tolerance,
@@ -1840,11 +1961,14 @@ mod tests {
     fn a_2017_material_table_gives_names_colors_pictures_and_sizes() {
         let pic = png();
         let d = table(&pic);
-        let (mats, pics) = materials(&d, true);
+        let (mats, pics, textured) = materials(&d, true);
         // class 5: the first material is 6, its picture 7, the plain one 8, the one sharing a picture 9
         let mut keys: Vec<_> = mats.keys().copied().collect();
         keys.sort_unstable();
         assert_eq!(keys, [6, 8, 9]);
+        let mut tx: Vec<_> = textured.into_iter().collect();
+        tx.sort_unstable();
+        assert_eq!(tx, [6, 9]);
         assert_eq!(mats[&6].0, "Brick");
         assert_eq!(mats[&8].0, "Plain");
         assert_eq!(mats[&9].0, "Again");
@@ -1871,12 +1995,12 @@ mod tests {
         let mut bad = d.clone();
         let at = bad.windows(4).position(|w| w == [0x89, b'P', b'N', b'G']).unwrap();
         bad[at - 4..at].copy_from_slice(&u32::MAX.to_le_bytes());
-        let (mats, pics) = materials(&bad, true);
+        let (mats, pics, _) = materials(&bad, true);
         assert!(pics.is_empty() || mats.len() >= pics.len());
         let mut wild = d.clone();
         let w = wild.windows(8).position(|w| w == 12f64.to_le_bytes()).unwrap();
         wild[w..w + 8].copy_from_slice(&f64::NAN.to_le_bytes());
-        let (_, pics) = materials(&wild, true);
+        let (_, pics, _) = materials(&wild, true);
         // a size that is not a number falls back to a metre, the picture still comes
         assert_eq!((pics[&6].width, pics[&6].height), (39.37, 39.37));
     }

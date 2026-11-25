@@ -195,6 +195,11 @@ pub fn parse(d: &[u8], version: String) -> Result<SkpFile> {
         mat_names.insert(id, name.text());
     }
 
+    // tags: each is a 0x3c8c record under 0x1f8/0x3a98/0x3a99, its name in 0x3c8d
+    if let Some(list) = top.at(&[0x1f8, 0x3a98, 0x3a99]) {
+        file.tags = list.all(0x3c8c).iter().filter_map(|t| t.get(0x3c8d).map(|n| n.text())).take(10_000).collect();
+    }
+
     // definitions and the model's entities
     let defs = top.at(&[0x1f9, 0x1770, 0x1771]).map(|n| n.all(0x157c)).unwrap_or_default();
     let mut keys = Keys::default();
@@ -233,6 +238,7 @@ pub fn parse(d: &[u8], version: String) -> Result<SkpFile> {
         let color = [ch("colorRed"), ch("colorGreen"), ch("colorBlue")];
         file.materials.insert(id as u32, (name.trim_start_matches("_LC_").to_string(), color));
         if attr("hasTexture").as_deref() == Some("1") {
+            file.textured.insert(id as u32);
             // the base image: the first <mat:image path="./...">
             let img = xml.find("<mat:image ").and_then(|i| {
                 let j = xml[i..].find("path=\"./")? + i + 8;

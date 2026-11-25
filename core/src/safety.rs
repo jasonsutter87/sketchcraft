@@ -489,6 +489,11 @@ pub fn note_skipped(what: &str, why: &str) {
     });
 }
 
+/// The pictures noted so far, without taking them (the import's report reads them; the command's reply takes them).
+pub fn peek_skipped() -> Vec<String> {
+    SKIPPED.with(|s| s.borrow().clone())
+}
+
 /// The pictures noted since the last call.
 pub fn take_skipped() -> Vec<String> {
     SKIPPED.with(|s| std::mem::take(&mut *s.borrow_mut()))

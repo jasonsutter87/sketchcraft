@@ -58,6 +58,11 @@ files saved by SketchUp Make 2017. You get the geometry, groups, components, col
 
 - **Dimensions** (linear ones) come in as dimensions attached to what they measure. Radial dimensions, free text labels
   with leaders and annotations in 2021 and later files are left out; the import result says how many.
+- **The import report.** When an import finishes, a **SketchUp import report** opens: what came across (faces,
+  components, materials and how many pictures, dimensions) and anything that did not, each with the reason: a picture
+  that could not be read, text labels, dimensions that could not be placed, SketchUp tags. Close it with Esc or
+  **Close**, and tick **Only show this when something was left out** to see it less. Scenes, styles and extension data
+  in a `.skp` file are not imported.
 - **Guide lines** and **section planes** are read so the file opens, but they are not placed in the model.
 - Files you save are `.sketchcraft` files. SketchCraft exports glTF, FBX, OBJ, STL, 3MF, Collada, DXF, DWG, IFC, PDF,
   PNG and MP4, but does not write `.skp`, so keep your originals if you also still use SketchUp.
