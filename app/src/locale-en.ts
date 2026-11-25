@@ -50,6 +50,7 @@ export default {
   "menu.explode": "Explode",
   "menu.hide": "Hide",
   "menu.unhide": "Unhide all",
+  "menu.hiddenGeometry": "Hidden geometry",
   "menu.clearGuides": "Clear guides",
   "menu.resetAxes": "Reset axes",
   "menu.workspaces": "Workspaces",

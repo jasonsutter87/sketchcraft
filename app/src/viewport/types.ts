@@ -66,6 +66,8 @@ export interface Styles {
   vertexColors?: boolean;
   /** a checker over every face that has its own UVs, to see how a picture stretches (the UV editor's Checker) */
   checker?: boolean;
+  /** things you have hidden drawn as faint dashed lines (View > Hidden Geometry, Shift+H); off by default */
+  showHidden?: boolean;
   /** hidden edges shown dashed (SketchUp's Back Edges, K) */
   backEdges: boolean;
   /** draw tag and edge line weights and styles (default on) */

@@ -290,9 +290,38 @@ pub fn build(root: &Model, ctx: Option<u32>) -> Value {
     // (set apart from the big literal above: json! stops expanding past a recursion limit)
     out["triUv"] = json!(if any_own_uv { tri_uv } else { Vec::new() });
     out["seams"] = json!(seams);
+    out["ghostEdges"] = json!(q(&ghost_edges(root), 1e-5));
     out["vcolors"] = json!(if any_vcol { q(&vcolors, 1e-3) } else { Vec::new() });
     out["tagStyles"] = json!(root.drafting.tag_styles);
     out["edgeStyle"] = json!(if style_table.is_empty() { vec![] } else { edge_style });
     out["edgeStyles"] = json!(style_table.iter().map(|p| json!({"w": p.w, "dash": p.dash, "color": p.rgb})).collect::<Vec<_>>());
+    out
+}
+
+/// Segments of everything that is hidden (and nothing else), for the viewer's View > Hidden Geometry: the edges of
+/// the model with every hidden flag cleared, less the ones that already draw. Empty when nothing is hidden.
+fn ghost_edges(root: &Model) -> Vec<f32> {
+    let any = root.faces.values().any(|f| f.hidden)
+        || root.edges.values().any(|e| e.hidden)
+        || root.groups.values().any(|g| g.hidden)
+        || root.instances.values().any(|i| i.hidden);
+    if !any {
+        return Vec::new();
+    }
+    let key = |a: glam::DVec3, b: glam::DVec3| {
+        let k = |p: glam::DVec3| [(p.x as f32).to_bits(), (p.y as f32).to_bits(), (p.z as f32).to_bits()];
+        let (ka, kb) = (k(a), k(b));
+        if ka <= kb { (ka, kb) } else { (kb, ka) }
+    };
+    let shown: std::collections::HashSet<_> = root.world_edges().iter().filter(|e| !e.soft).map(|e| key(e.a, e.b)).collect();
+    let mut all = root.clone();
+    all.unhide_all();
+    let mut out = Vec::new();
+    for e in all.world_edges() {
+        if e.soft || shown.contains(&key(e.a, e.b)) {
+            continue;
+        }
+        out.extend([e.a.x as f32, e.a.y as f32, e.a.z as f32, e.b.x as f32, e.b.y as f32, e.b.z as f32]);
+    }
     out
 }

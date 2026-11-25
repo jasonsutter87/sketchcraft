@@ -51,6 +51,7 @@ export default {
   "menu.explode": "Explodir",
   "menu.hide": "Ocultar",
   "menu.unhide": "Reexibir tudo",
+  "menu.hiddenGeometry": "Geometria oculta",
   "menu.clearGuides": "Apagar guias",
   "menu.resetAxes": "Redefinir eixos",
   "menu.workspaces": "Espaços de trabalho",

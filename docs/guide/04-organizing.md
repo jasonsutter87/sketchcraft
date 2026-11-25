@@ -35,6 +35,9 @@ model by tag so you can check what's where.
 ## Hiding
 
 - The eye on an Outliner row hides that thing (and everything inside it).
+- **Edit › Unhide all** (Ctrl/Cmd+Shift+H) shows everything you've hidden again.
+- **View › Hidden geometry** (Shift+H) draws what's hidden as faint dashed lines, so you can see where it is
+  before you unhide it. It's only a view: it doesn't change the model, and it starts off.
 - The Eraser with **Shift** hides an edge instead of deleting it.
 - **Hide rest of model**: while editing a group, show only what you're editing.
 

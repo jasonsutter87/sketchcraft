@@ -589,6 +589,22 @@ fn hide_tags_and_soften() {
 }
 
 #[test]
+fn the_scene_lists_what_is_hidden_as_ghost_edges_and_only_that() {
+    let mut e = Engine::new();
+    let g = run(&mut e, json!({"cmd":"begin_group","name":"A"}))["group"].clone();
+    make_box(&mut e);
+    run(&mut e, json!({"cmd":"end_group"}));
+    let shown = sketchcraft::scene::build(&e.model, None);
+    assert!(shown["ghostEdges"].as_array().unwrap().is_empty(), "nothing hidden, no ghosts");
+    run(&mut e, json!({"cmd":"hide","ids":[g]}));
+    let hidden = sketchcraft::scene::build(&e.model, None);
+    assert!(hidden["edges"].as_array().unwrap().is_empty(), "hidden edges still don't draw as real edges");
+    assert_eq!(hidden["ghostEdges"].as_array().unwrap().len(), 12 * 6, "the box's 12 edges, as segments");
+    run(&mut e, json!({"cmd":"unhide"}));
+    assert!(sketchcraft::scene::build(&e.model, None)["ghostEdges"].as_array().unwrap().is_empty());
+}
+
+#[test]
 fn every_asset_builds_and_places() {
     let mut e = Engine::new();
     let list = run(&mut e, json!({"cmd":"assets"}))["assets"].as_array().unwrap().clone();
