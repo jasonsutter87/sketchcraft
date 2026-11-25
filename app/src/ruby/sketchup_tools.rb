@@ -9,6 +9,70 @@
 # journal, as for any other script. Dialogs are recorded (their HTML, what the script
 # sent them) and their callbacks are called by events.
 
+# String#unpack and Array#pack for the common integer and string directives (Opal's own ships only with its
+# compiler): a, A, C, c, S, s, v, n, L, l, V, N, U, with a count or *
+class String
+  def unpack(fmt)
+    bytes = each_char.map { |c| c.ord & 0xff }
+    out = []
+    pos = 0
+    fmt.to_s.scan(/([a-zA-Z])(\*|\d+)?/).each do |d, n|
+      case d
+      when "a", "A"
+        len = n == "*" ? bytes.length - pos : (n || 1).to_i
+        s = bytes[pos, len].to_a.map(&:chr).join
+        out << (d == "A" ? s.sub(/[ \0]+\z/, "") : s)
+        pos += len
+      when "U"
+        cnt = n == "*" ? -1 : (n || 1).to_i
+        chars.each_with_index { |c, i| break if cnt >= 0 && i >= cnt; out << c.ord }
+      else
+        size = { "C" => 1, "c" => 1, "S" => 2, "s" => 2, "v" => 2, "n" => 2, "L" => 4, "l" => 4, "V" => 4, "N" => 4 }[d]
+        raise ArgumentError, "unpack(#{d}) isn't supported in SketchCraft yet" unless size
+        cnt = n == "*" ? (bytes.length - pos) / size : (n || 1).to_i
+        cnt.times do
+          break if pos + size > bytes.length
+          v = 0
+          size.times { |k| v += bytes[pos + k] * (256**(d == "n" || d == "N" ? size - 1 - k : k)) }
+          pos += size
+          v -= 256**size if "csl".include?(d) && v >= 2**(8 * size - 1)
+          out << v
+        end
+      end
+    end
+    out
+  end
+end
+
+class Array
+  def pack(fmt)
+    items = dup
+    out = +""
+    fmt.to_s.scan(/([a-zA-Z])(\*|\d+)?/).each do |d, n|
+      case d
+      when "a", "A"
+        s = items.shift.to_s
+        len = n == "*" ? s.length : (n || 1).to_i
+        out << s.ljust(len, d == "A" ? " " : "\0")[0, len]
+      when "U"
+        cnt = n == "*" ? items.length : (n || 1).to_i
+        cnt.times { out << items.shift.chr }
+      else
+        size = { "C" => 1, "c" => 1, "S" => 2, "s" => 2, "v" => 2, "n" => 2, "L" => 4, "l" => 4, "V" => 4, "N" => 4 }[d]
+        raise ArgumentError, "pack(#{d}) isn't supported in SketchCraft yet" unless size
+        cnt = n == "*" ? items.length : (n || 1).to_i
+        cnt.times do
+          v = items.shift.to_i % (256**size)
+          bs = (0...size).map { |k| (v / (256**k)) % 256 }
+          bs = bs.reverse if d == "n" || d == "N"
+          bs.each { |b| out << b.chr }
+        end
+      end
+    end
+    out
+  end
+end
+
 module SC
   KEYS = {}
 
@@ -74,6 +138,7 @@ module SC
   def self.status=(t); @status = t; `globalThis.__status = #{t.to_s}`; end
 
   def self.view; @view ||= Sketchup::View.new; end
+  def self.entity_by_id(i); (@snapshot_faces && @snapshot_faces[i]) || (@snapshot_groups && @snapshot_groups[i]); end
   def self.tool; @tool; end
   def self.tool=(t); @tool = t; end
   def self.dialogs; @dialogs ||= []; end
@@ -96,6 +161,7 @@ module SC
       y = (`#{ev}.y` || 0).to_i
       flags = (`#{ev}.flags` || 0).to_i
       v.cursor = [x, y]
+      v.pick_ids = (`#{ev}.pick` || [])
       tl = @tool
       case t
       when "mouse_move" then tl.onMouseMove(flags, x, y, v) if tl && tl.respond_to?(:onMouseMove)
@@ -164,6 +230,30 @@ module SC
 end
 
 module Geom
+  class Point3d
+    attr_writer :x, :y, :z
+    def set!(*a); p = Point3d.new(*a); @x, @y, @z = p.x, p.y, p.z; self; end
+    def transform!(t); p = t * self; @x, @y, @z = p.x, p.y, p.z; self; end
+    def distance_to_plane(pl); (pl[0] * @x + pl[1] * @y + pl[2] * @z + pl[3]).abs; end
+    def on_plane?(pl); distance_to_plane(pl) < 1e-6; end
+    def clone; Point3d.new(@x, @y, @z); end
+    alias dup clone
+  end
+
+  class Vector3d
+    attr_writer :x, :y, :z
+    def transform!(t); v = t.apply_vector(self); @x, @y, @z = v.x, v.y, v.z; self; end
+    def set!(*a); v = Vector3d.new(*a); @x, @y, @z = v.x, v.y, v.z; self; end
+    def clone; Vector3d.new(@x, @y, @z); end
+    alias dup clone
+    def *(k); k.is_a?(Numeric) ? scale(k) : dot(k); end
+    def axes
+      z = normalize
+      x = (z.parallel?(Vector3d.new(0, 0, 1)) ? Vector3d.new(1, 0, 0) : Vector3d.new(0, 0, 1).cross(z)).normalize
+      [x, z.cross(x).normalize, z]
+    end
+  end
+
   def self.intersect_line_plane(line, plane)
     pt, v = line
     pt = Point3d.new(pt)
@@ -213,6 +303,7 @@ module Sketchup
     def faces; @faces ||= []; end
     def start; @verts ? @verts[0] : Vertex.new(@points[0]); end
     def end; @verts ? @verts[1] : Vertex.new(@points[1]); end
+    def all_connected; Sketchup.connected_to(self); end
     def other_vertex(v); v == start ? self.end : start; end
     def used_by?(f); faces.include?(f); end
     def soft?; !!@soft; end
@@ -232,7 +323,7 @@ module Sketchup
     def outer_loop; loops[0]; end
     def typename; "Face"; end
     def parent; Sketchup.active_model; end
-    def all_connected; (SC.snapshot_connected(self)); end
+    def all_connected; Sketchup.connected_to(self); end
     def classify_point(p)
       a = Geom::Point3d.new(p)
       Geom.point_in_polygon_2D(a, @outer) ? 1 : 16
@@ -253,8 +344,36 @@ module Sketchup
     def edgeuses; @edges; end
   end
 
-  def self.snapshot_connected(f); [f]; end
+  # everything joined to `start` by shared edges: faces, edges and vertices
+  def self.connected_to(start)
+    seen = {}
+    out = []
+    queue = [start]
+    until queue.empty?
+      e = queue.shift
+      next if seen[e.object_id]
+      seen[e.object_id] = true
+      out << e
+      case e
+      when Face then queue.concat(e.edges).concat(e.vertices)
+      when Edge then queue.concat(e.faces).concat([e.start, e.end])
+      when Vertex then queue.concat(e.edges)
+      end
+    end
+    out
+  end
 
+  # entity classes scripts test for (is_a?, grep); the model only has some of them
+  %w[Image Text Dimension DimensionLinear DimensionRadial ConstructionPoint ConstructionLine SectionPlane Axes
+     Curve ArcCurve Page Behavior Classifications].each do |n|
+    const_set(n, Class.new(n == "Image" || n == "Text" || n.start_with?("Dim") || n.start_with?("Constr") || n == "SectionPlane" ? Drawingelement : Entity)) unless const_defined?(n)
+  end
+
+  class Group
+    def transformation; Geom::Transformation.new; end
+    def instances; [self]; end
+    def typename; "Group"; end
+  end
   class Selected
     def vertices; []; end
     def edges; []; end
@@ -465,22 +584,33 @@ module Sketchup
     def ==(o); o.is_a?(InputPoint) && position == o.position; end
   end
 
+  # what is under the cursor comes with the event (`pick`: ids, front first); the host does the picking
   class PickHelper
-    def do_pick(*_); 0; end
-    def count; 0; end
-    def all_picked; []; end
-    def picked_face; nil; end
-    def picked_edge; nil; end
-    def best_picked; nil; end
+    def initialize; @picked = []; end
+    def do_pick(x = nil, y = nil, *_)
+      @picked = SC.view.pick_ids.map { |i| SC.entity_by_id(i) }.compact
+      @picked.length
+    end
+    def count; @picked.length; end
+    def all_picked; @picked.dup; end
+    def best_picked; @picked.first; end
+    def picked_face; @picked.find { |e| e.is_a?(Face) }; end
+    def picked_edge; @picked.find { |e| e.is_a?(Edge) }; end
+    def picked_element; @picked.first; end
+    def leaf_at(i); @picked[i]; end
+    def element_at(i); @picked[i]; end
+    def depth_at(i); 1; end
+    def path_at(i); [@picked[i]]; end
+    def transformation_at(i); Geom::Transformation.new; end
     def init(*_); true; end
     def pick_segment(*_); false; end
   end
 
   class View
-    attr_accessor :point, :cursor
+    attr_accessor :point, :cursor, :pick_ids
     DRAW_CALLS = %w[draw draw2d draw_line draw_lines draw_points draw_polyline draw_text drawing_color= line_width=
                     line_stipple= set_color_from_line draw_geometry].freeze
-    def initialize; @point = nil; @cursor = [0, 0]; @camera = Camera.new; end
+    def initialize; @point = nil; @cursor = [0, 0]; @pick_ids = []; @camera = Camera.new; end
     DRAW_CALLS.each { |n| define_method(n) { |*_a| nil } }
     def invalidate; self; end
     def refresh; self; end
@@ -507,6 +637,16 @@ module Sketchup
   end
 end
 
+GL_POINTS = 0
+GL_LINES = 1
+GL_LINE_LOOP = 2
+GL_LINE_STRIP = 3
+GL_TRIANGLES = 4
+GL_TRIANGLE_STRIP = 5
+GL_TRIANGLE_FAN = 6
+GL_QUADS = 7
+GL_QUAD_STRIP = 8
+GL_POLYGON = 9
 VK_SHIFT = 16
 VK_CONTROL = 17
 VK_ALT = 18
@@ -564,11 +704,21 @@ module UI
     def set_size(w, h); @size = [w, h]; end
     def set_position(x, y); end
     def set_on_closed(&b); @closed = b; end
+    alias set_on_close set_on_closed
+    def set_file_or_html(*_); end
+    def get_element_value(*_); ""; end
+    def show_modal_and_wait; show; end
     def set_can_close(&b); end
     def set_background_color(c); end
     def set_minimum_size(*_); end
     def set_maximum_size(*_); end
     def write_image(*_); SC.unsupported("HtmlDialog#write_image"); end
+    # window settings (min_width=, max_height=, navigation_buttons_enabled=…) don't matter here
+    def method_missing(name, *a)
+      return a[0] if name.to_s.end_with?("=")
+      SC.unsupported("#{self.class.name.split('::').last}##{name}")
+    end
+    def respond_to_missing?(name, *_); name.to_s.end_with?("="); end
     def call_back(name, params)
       cb = @callbacks[name]
       raise "the dialog has no action callback named #{name}" unless cb
@@ -578,7 +728,10 @@ module UI
   end
 
   class WebDialog < HtmlDialog
-    def initialize(title = "", scrollable = true, pref_key = nil, w = 400, h = 400, *_); super({ dialog_title: title }); end
+    # WebDialog.new(title, scrollable, key, w, h, resizable) or WebDialog.new(a hash of the same)
+    def initialize(title = "", scrollable = true, pref_key = nil, w = 400, h = 400, *_)
+      super(title.is_a?(Hash) ? { dialog_title: title[:dialog_title] || title["dialog_title"] } : { dialog_title: title })
+    end
     def self.get_default_dialog_color; "#ffffff"; end
     def navigation_buttons_enabled=(v); end
   end
@@ -602,6 +755,13 @@ module UI
 
   def self.stop_timer(id); SC.timers.delete(id); end
 
+  class Command
+    attr_accessor :tooltip, :status_bar_text, :small_icon, :large_icon, :menu_text
+    def set_validation_proc(&b); @validation = b; end
+    def self.method_missing(name, *_); SC.unsupported("UI::Command.#{name}"); end
+  end
+
+  def self.toolbar(name); Toolbar.new(name); end
   def self.create_cursor(*_); 1; end
   def self.set_cursor(*_); end
   def self.refresh_inspectors; end
@@ -614,3 +774,106 @@ module SC
     `globalThis.__dialogs = #{SC.js(dialogs.map(&:to_h))}`
   end
 end
+
+# ---- the bits of Ruby's library that extensions lean on (no files, no network) -----------------
+
+module JSON
+  class ParserError < StandardError; end
+  class GeneratorError < StandardError; end
+
+  def self.from_js(v)
+    if `#{v} === null` then nil
+    elsif `Array.isArray(#{v})` then `#{v}`.map { |x| from_js(x) }
+    elsif `typeof #{v} === "object"`
+      h = {}
+      keys = `Object.keys(#{v})`
+      keys.each { |k| h[k] = from_js(`#{v}[#{k}]`) }
+      h
+    else v
+    end
+  end
+
+  def self.parse(src, opts = {})
+    r = begin
+      `JSON.parse(#{src.to_s})`
+    rescue Exception
+      raise ParserError, "unexpected token in JSON"
+    end
+    h = from_js(r)
+    opts[:symbolize_names] ? sym(h) : h
+  end
+
+  def self.sym(v)
+    return v.map { |x| sym(x) } if v.is_a?(Array)
+    return v unless v.is_a?(Hash)
+    h = {}
+    v.each { |k, x| h[k.to_sym] = sym(x) }
+    h
+  end
+
+  # objects of your own classes answer to_json themselves (as with Ruby's json)
+  def self.gen(v)
+    case v
+    when nil then "null"
+    when true then "true"
+    when false then "false"
+    when Numeric then v.to_s
+    when String, Symbol then `JSON.stringify(#{v.to_s})`
+    when Hash then "{" + v.map { |k, x| gen(k.to_s) + ":" + gen(x) }.join(",") + "}"
+    when Array then "[" + v.map { |x| gen(x) }.join(",") + "]"
+    else v.to_json
+    end
+  end
+
+  def self.generate(obj, *_); gen(obj); end
+  def self.pretty_generate(obj, *_); `JSON.stringify(JSON.parse(#{gen(obj)}), null, 2)`; end
+  def self.dump(obj, *_); generate(obj); end
+end
+
+class Object
+  def to_json(*_); JSON.gen(to_s); end
+end
+class Hash; def to_json(*_); JSON.gen(self); end; end
+class Array; def to_json(*_); JSON.gen(self); end; end
+class String; def to_json(*_); JSON.gen(self); end; end
+class Numeric; def to_json(*_); to_s; end; end
+class NilClass; def to_json(*_); "null"; end; end
+class TrueClass; def to_json(*_); "true"; end; end
+class FalseClass; def to_json(*_); "false"; end; end
+
+module Net
+  class HTTP
+    def self.method_missing(name, *_); SC.unsupported("Net::HTTP (extensions run without a network)"); end
+    def initialize(*_); SC.unsupported("Net::HTTP (extensions run without a network)"); end
+  end
+  HTTPS = HTTP
+end
+
+module Win32; end
+
+# the parts of Set that Opal's lacks
+class Set
+  def &(o); self.class.new(to_a.select { |x| o.include?(x) }); end unless method_defined?(:&)
+  def |(o); self.class.new(to_a + o.to_a); end unless method_defined?(:|)
+  def -(o); self.class.new(to_a.reject { |x| o.include?(x) }); end unless method_defined?(:-)
+  def intersection(o); self & o; end unless method_defined?(:intersection)
+  def union(o); self | o; end unless method_defined?(:union)
+  def difference(o); self - o; end unless method_defined?(:difference)
+  def disjoint?(o); (self & o).empty?; end unless method_defined?(:disjoint?)
+  def intersect?(o); !(self & o).empty?; end unless method_defined?(:intersect?)
+end
+
+# SketchUp's Ruby console: what is written to it is shown with the run's output
+class SCConsole
+  def show; self; end
+  def hide; self; end
+  def visible?; false; end
+  def clear; self; end
+  def write(*a); $stdout.write(*a); end
+  def puts(*a); $stdout.puts(*a); end
+  def print(*a); $stdout.write(*a); end
+  def <<(s); $stdout.write(s); self; end
+  def sync=(_); end
+  def flush; self; end
+end
+SKETCHUP_CONSOLE = SCConsole.new

@@ -6,6 +6,7 @@ import SKETCHUP_RB from "./ruby/sketchup.rb?raw";
 import SKETCHUP_TOOLS_RB from "./ruby/sketchup_tools.rb?raw";
 import { SANDBOX_PREFACE, startWorker } from "./sandbox";
 import { pluginSandboxHolds } from "./cspcheck";
+import { RUBY_SHIMS } from "./rubyshims";
 import type { Plugin } from "./plugins";
 
 let runtime: Promise<string> | null = null;
@@ -247,20 +248,7 @@ self.onmessage = (e) => {
 };`;
   // Kernel#require finds the plugin's own files by name; a few SketchUp
   // library names are already loaded
-  const shims = `
-for (const n of ["sketchup", "sketchup.rb", "extensions", "extensions.rb", "langhandler", "langhandler.rb"]) Opal.modules[n] = function () {};
-(function () {
-  const req = Opal.require;
-  Opal.require = function (name) {
-    let n = String(name).replace(/\\.(rb|rbe|rbs)$/i, "").replace(/^\\.\\//, "");
-    if (Opal.modules[n]) return req.call(Opal, n);
-    // relative to a plugin folder: try dropping leading parts
-    const parts = n.split("/");
-    for (let i = 1; i < parts.length; i++) { const m = parts.slice(i).join("/"); if (Opal.modules[m]) return req.call(Opal, m); }
-    for (const m of Object.keys(Opal.modules)) if (m.endsWith("/" + n)) return req.call(Opal, m);
-    return req.call(Opal, n);
-  };
-})();`;
+  const shims = RUBY_SHIMS;
   // loading it (no menu item chosen) gets a short leash: it runs on every launch
   const limit = opts.item == null ? 10_000 : 30_000;
   const r = await worker(`${SANDBOX_PREFACE}\n${rt}\n;\n${api.js}\n;\n${mine.js}\n;\n${shims}\n;\n${driver}`, limit, {

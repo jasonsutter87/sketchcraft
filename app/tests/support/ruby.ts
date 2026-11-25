@@ -3,13 +3,14 @@
 // events to its tool, and read back the journal.
 import fs from "node:fs";
 import path from "node:path";
-import vm from "node:vm";
+import vm, { type Context } from "node:vm";
+import { RUBY_SHIMS } from "../../src/rubyshims";
 
 const root = path.resolve(__dirname, "../..");
 const read = (p: string) => fs.readFileSync(path.join(root, p), "utf8");
 
-let compilerCtx: vm.Context | null = null;
-function compiler(): vm.Context {
+let compilerCtx: Context | null = null;
+function compiler(): Context {
   if (compilerCtx) return compilerCtx;
   const ctx = vm.createContext({ console });
   vm.runInContext(read("public/ruby/opal.js"), ctx);
@@ -66,17 +67,7 @@ export function runRuby(o: RunOpts): Ran {
   ];
   for (const js of mods) vm.runInContext(js, ctx);
   // the same name shims as ruby.ts
-  vm.runInContext(
-    `for (const n of ["sketchup", "sketchup.rb", "extensions", "extensions.rb", "langhandler", "langhandler.rb"]) Opal.modules[n] = function () {};
-(function () { const req = Opal.require; Opal.require = function (name) {
-  let n = String(name).replace(/\\.(rb|rbe|rbs)$/i, "").replace(/^\\.\\//, "");
-  if (Opal.modules[n]) return req.call(Opal, n);
-  const parts = n.split("/");
-  for (let i = 1; i < parts.length; i++) { const m = parts.slice(i).join("/"); if (Opal.modules[m]) return req.call(Opal, m); }
-  for (const m of Object.keys(Opal.modules)) if (m.endsWith("/" + n)) return req.call(Opal, m);
-  return req.call(Opal, n); }; })();`,
-    ctx,
-  );
+  vm.runInContext(RUBY_SHIMS, ctx);
   const entries = (o.entry ?? Object.keys(o.files)).map((e) => e.replace(/\.rb$/i, ""));
   ctx.process_debug = !!process.env.RUBY_DEBUG; ctx.__dj = JSON.stringify({ entries, item: o.item ?? null, answers: o.answers ?? [], selection: o.selection ?? [], model: o.model ?? null, events: o.events ?? [] });
   const out = vm.runInContext(
