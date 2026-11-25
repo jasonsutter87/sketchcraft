@@ -52,7 +52,13 @@ export function applyMarks(src, relFile, targets) {
     const lineIndent = indentOfLineAt(src, t.bodyOpen);
     const nl = src.indexOf("\n", t.bodyOpen);
     const rest = src.slice(t.bodyOpen + 1, nl < 0 ? src.length : nl);
-    let text = `\n${lineIndent}  // @debug tomb:${id}`;
+    let inner = lineIndent + "  ";
+    if (rest.trim() === "" && nl >= 0) {
+      // follow the file's own indentation: the first real line inside the block
+      const next = /^([ \t]*)\S/m.exec(src.slice(nl + 1, nl + 400));
+      if (next && next[1].length > lineIndent.length) inner = next[1];
+    }
+    let text = `\n${inner}// @debug tomb:${id}`;
     if (rest.trim() !== "") text += `\n${lineIndent}`;
     edits.push({ at: t.bodyOpen + 1, text });
     entries.push({
