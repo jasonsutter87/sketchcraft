@@ -25,6 +25,7 @@ const SUITES = [
   ['right-click', 'tools/ui-tests/right-click.mjs', 240],
   ['overlay-layout', 'tools/ui-tests/overlay-layout.mjs', 300],
   ['side-tabs', 'tools/ui-tests/side-tabs.mjs', 300],
+  ['classic-tray', 'tools/ui-tests/classic-tray.mjs', 300],
   ['outliner', 'tools/ui-tests/outliner.mjs', 300],
   ['line-styles', 'tools/ui-tests/line-styles.mjs', 300],
   ['hatches', 'tools/ui-tests/hatches.mjs', 300],
