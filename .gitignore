@@ -20,3 +20,7 @@ security-reports/
 
 # private research notes
 .research/
+
+# tombstone runs (tools/tombstones)
+.tombstones/
+tomb-hits.log
