@@ -68,3 +68,26 @@ websites, no DNS rebinding), the app has a strict content security policy,
 importers are fuzzed, plugins are sandboxed and run under an allowlist that the
 engine enforces (`core/src/policy.rs`), agents are held to a workspace folder,
 the live model file is saved atomically with backups, and updates are signed. See [SECURITY.md](../SECURITY.md).
+
+### Writing the shared model file
+
+Several programs can edit one model file (the app, the bridge, an agent over MCP). Every one of them writes it the same
+way (`Live::save_inner` in `core/src/live.rs`), so a save somebody was told succeeded is never lost:
+
+1. The model is serialised first, with no lock held (this is the slow part).
+2. A lock file beside the model (`.<name>.lock`, an advisory lock from the standard library) is taken.
+3. With the lock held, the file must still be what this program last read or wrote (modification time, size and file
+   identity). If it is not, nothing is written; the caller plans again on the newer file (the app runs the command again
+   on it, an agent's flush sets its pending work aside and takes theirs).
+4. The outgoing file is backed up when the schedule says so, and for the first write of a call that has run for a while.
+5. The new bytes go to a temp file and are flushed, the stamp is checked once more immediately before the rename, and the
+   file is renamed over the old one. A crash at any step leaves the old file or the whole new one.
+
+An agent call that runs out of time is taken back without depending on the (capped) undo list. When nobody else has written
+the file, the model goes back to what the call began with. Otherwise what the call wrote is worked out entry by entry
+(points, edges, faces, groups, placements, ... by id, as a `history::Patch`), measured from the model the call began with
+or, after somebody else's save was loaded, from that save. The rollback reloads the file as it is now and takes those
+changes off it. An entry that only the call changed goes back; an entry somebody else changed too stays as they have it.
+When anything stays, or the result would not be a consistent model, or the call is too big to track, the person's data
+wins: the call's last written version is set aside in an `unsaved-*` file (private to the owner) and the agent is told the
+rollback was not complete. If the file moves while the rollback is being written, the plan is made again on the newer file.

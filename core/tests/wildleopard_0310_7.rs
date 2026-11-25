@@ -181,7 +181,7 @@ fn a_call_that_runs_out_never_discards_what_the_app_saved_meanwhile() {
     assert!(t.elapsed() < Duration::from_secs(30), "{:?}", t.elapsed());
     assert_eq!(reply["isError"], true, "{text}");
     eprintln!("{}", text.lines().last().unwrap_or(""));
-    assert!(text.contains("NOT put back as a whole"), "{text}");
+    assert!(text.contains("someone else saved this model") && text.contains("their work was kept"), "{text}");
     // the app's rectangle is in the file and in memory; the call's own lines are gone from both
     let in_file = Live::open(doc.clone());
     let rect = DVec3::new(100.0, 100.0, 0.0);

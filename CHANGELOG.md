@@ -184,6 +184,12 @@ What changed in each SketchCraft release, newest first. The format follows
     once instead of after every command. Reports, IFC export, Reverse, Paint, Move, Make component and Bevel are fast on
     models with thousands of groups, pictures drawn for a plugin or an
     agent are limited, and line breaks no longer get through in names.
+  - Saving the model is safer when several programs edit it: every writer takes a lock and checks, right before the file
+    is replaced, that nobody else saved first, and a call from an agent that runs out of time is now taken back exactly
+    (only what the call changed, never your own saves, however big the call) and tells the agent plainly when part of it
+    could not be. After an agent's save the app runs your next step again by itself instead of asking you to repeat it,
+    files set aside are private to you, the notice says whose work was set aside, a backup is kept at the start of a long
+    agent call, and Vertex colors on thousands of groups is fast.
 
 ## [0.3.9] - 2026-11-20
 
