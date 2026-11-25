@@ -158,8 +158,8 @@ describe("tombstones: allowlist, hits, lcov", () => {
   it("reads ids from any number of logs, ignoring junk", () => {
     const d = fs.mkdtempSync(path.join(os.tmpdir(), "tomb-"));
     fs.writeFileSync(path.join(d, "a.log"), "deadbeef\nnot an id\n  0123abcd  \n");
-    fs.writeFileSync(path.join(d, "b.log"), "ts 11112222\n");
-    expect([...readHits([path.join(d, "a.log"), path.join(d, "b.log"), path.join(d, "none.log")])].sort()).toEqual(["0123abcd", "11112222", "deadbeef"]);
+    fs.writeFileSync(path.join(d, "b.log"), "ts 11112222\naaaaaaaabbbbbbbb\n");
+    expect([...readHits([path.join(d, "a.log"), path.join(d, "b.log"), path.join(d, "none.log")])].sort()).toEqual(["0123abcd", "11112222", "aaaaaaaa", "bbbbbbbb", "deadbeef"]);
   });
   it("lcov: a function is hit when a counted function starts in its signature", () => {
     const manifest = { entries: [

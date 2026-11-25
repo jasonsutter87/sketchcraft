@@ -13,7 +13,8 @@ use std::io::Write;
 pub fn write_hit(id: &str) {
     if let Ok(p) = std::env::var("SKETCHCRAFT_TOMB_LOG") {
         if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(p) {
-            let _ = writeln!(f, "{id}");
+            // one write call, so lines from parallel tests never interleave
+            let _ = f.write_all(format!("{id}\\n").as_bytes());
         }
     }
 }

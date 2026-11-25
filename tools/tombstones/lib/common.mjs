@@ -112,7 +112,10 @@ export function readHits(files) {
   for (const f of files) {
     if (!fs.existsSync(f)) continue;
     for (const line of fs.readFileSync(f, "utf8").split("\n")) {
-      const m = /([0-9a-f]{8})\s*$/.exec(line.trim());
+      const t = line.trim();
+      const run = /^((?:[0-9a-f]{8})+)$/.exec(t); // a torn log line: several ids written back to back
+      if (run) { for (let i = 0; i < t.length; i += 8) hit.add(t.slice(i, i + 8)); continue; }
+      const m = /(?:^|\s)([0-9a-f]{8})$/.exec(t);
       if (m) hit.add(m[1]);
     }
   }
