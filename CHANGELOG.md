@@ -7,6 +7,12 @@ What changed in each SketchCraft release, newest first. The format follows
 ## [Unreleased]
 
 ### Added
+- **More of SketchUp's Ruby API.** Scripts and extensions can now use `Sketchup::Tool` (mouse and key events, the
+  VCB, input points), `UI::HtmlDialog`, observers, timers, Follow Me and textures, and can read the faces and groups
+  that are already in the model. Solid Inspector² (the real extension) loads and inspects a group. A table of which
+  popular free extensions run, and what each is missing, is in the guide
+  ([SketchUp extensions: what runs](docs/guide/12-ruby-extensions.md)). The app does not yet show an extension's
+  panel or feed its tool the mouse. The engine's `faces` command can also return each face's corners.
 - **3D mouse support.** A 3Dconnexion SpaceMouse orbits, pans and zooms the view in the desktop app (macOS, Windows,
   and Linux, through `spacenavd` when it runs). **Window › 3D mouse…** sets the speed, dead zone, a flip for each axis
   and a lock for rotation or pan; the left button fits everything and the right goes to the iso view. The app reads the

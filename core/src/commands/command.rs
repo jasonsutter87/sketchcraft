@@ -164,6 +164,9 @@ pub enum Command {
         group: Option<Id>,
         #[serde(default)]
         facing: Option<[f64; 3]>,
+        /// also give each face's outline (`outer`) and hole outlines (`inner`) as points in meters
+        #[serde(default)]
+        outlines: bool,
     },
     /// The face under a point (on its plane, inside its outline), or the
     /// nearest face center if none contains it. Optional facing filter.

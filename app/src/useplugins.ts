@@ -4,7 +4,7 @@
 // held here for App to draw.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { execPlugin, type Reply, type Scene } from "./engine";
-import { runRuby } from "./ruby";
+import { modelForRuby, runRuby } from "./ruby";
 import { RUBY_REPLAY_MS, announceChange, batcher, cleanForm, cleanResult, loadPlugins, MAX_COMMANDS, runPlugin, startPluginTool, type Plugin, type PluginCommand, type PluginForm, type PluginList, type PluginResult, type ToolSession } from "./plugins";
 import type { Sel } from "./selection";
 import type { Tool } from "./Viewport";
@@ -123,8 +123,10 @@ export function usePlugins({ sel, scene, tool, setTool, say, sayAs, runForPlugin
       ...sel.instances.map((id) => ({ id, name: scene?.instances.find((i) => i.id === id)?.name ?? "", kind: "instance" })),
       ...sel.faces.map((id) => ({ id, name: "", kind: "face" })),
     ];
+    // the script may read the model as it is now (faces, groups); one read serves every round
+    const model = modelForRuby(await execPlugin({ cmd: "faces", outlines: true }, plugin.name).catch(() => null), await execPlugin({ cmd: "info" }, plugin.name).catch(() => null));
     for (let round = 0; round < 12; round++) {
-      const r = await runRuby(plugin, { item, answers, selection });
+      const r = await runRuby(plugin, { item, answers, selection, model });
       if (r.need) {
         const need = r.need;
         const got = await new Promise<Record<string, unknown> | null>((resolve) =>
@@ -171,6 +173,8 @@ export function usePlugins({ sel, scene, tool, setTool, say, sayAs, runForPlugin
       await refresh();
       setPluginRuns((n) => n + 1);
       for (const t of r.toasts.slice(0, 5)) sayAs(plugin, String(t).slice(0, 300));
+      // panels (UI::HtmlDialog) and mouse tools run in tests and through the API; the app doesn't show or feed them yet
+      for (const d of r.dialogs.slice(0, 3)) sayAs(plugin, `opened the panel "${String(d.title || "untitled").slice(0, 80)}", which SketchCraft doesn't show yet`);
       if (failed) say(`${plugin.name} stopped at ${failed}. ⌘Z undoes what it did.`, true);
       if (r.out.trim()) setPluginShown({ result: cleanResult({ title: plugin.name, text: r.out.trim() }), plugin });
       return;
