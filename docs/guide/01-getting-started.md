@@ -63,9 +63,9 @@ Plug it in and it works; nothing else needs setting up. **Window › 3D mouse…
 must move first (the dead zone), "strongest movement only" so a straight push stays straight, a lock for rotation or
 for pan, and a flip for each direction if the camera moves the wrong way for you. Without a 3D mouse nothing changes.
 
-- It reads the device directly, so you do not need 3Dconnexion's driver (3DxWare). If the driver is installed and the
-  camera does not move, quit the driver's tray or menu-bar program (or its "3Dconnexion" background service) and plug the
-  mouse in again; if the driver is what you want, leave the setting here turned off.
+- It reads the device directly, so you do not need 3Dconnexion's driver (3DxWare). If the driver is installed it may keep
+  the device to itself; if the camera does not move, quit the driver's background program and plug the mouse in again.
+  (This has not been tried with every driver version: tell us what you see.)
 - On Linux, run `spacenavd` (the app uses it when it is there) or give your user access to the device's `hidraw` file.
 - It is the desktop app only: a browser tab does not read it.
 
