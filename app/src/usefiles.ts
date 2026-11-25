@@ -6,6 +6,7 @@ import type { Reply, Scene } from "./engine";
 import { exec, onMobileApp } from "./engine";
 import { confirm } from "./ask";
 import { isModelPath, pickOpen, pickSave } from "./files";
+import { parseReport, readReportWhen, reportHeadline, shouldShow, type NamedReport } from "./importreport";
 import type { Sel } from "./selection";
 import { EMPTY } from "./selection";
 import type { ViewportApi } from "./Viewport";
@@ -55,7 +56,7 @@ const MOBILE_IMPORT = /\.(skp|fbx|dxf|obj)$/i;
 /** The model's name without its folder or extension (what a saved file is called after). */
 const modelBase = (file: string | null) => (file?.split("/").pop() ?? "model").replace(/\.sketchcraft$/, "");
 
-export function useFileActions({ run, say, refresh, api, scene, figure, currentFile, setCurrentFile, setSel }: {
+export function useFileActions({ run, say, refresh, api, scene, figure, currentFile, setCurrentFile, setSel, onReport }: {
   run: (cmd: Record<string, unknown>) => Promise<Reply>;
   say: (text: string, bad?: boolean) => void;
   refresh: () => Promise<void>;
@@ -65,6 +66,8 @@ export function useFileActions({ run, say, refresh, api, scene, figure, currentF
   currentFile: string | null;
   setCurrentFile: (p: string | null) => void;
   setSel: (s: Sel) => void;
+  /** a SketchUp import finished: what came across and what did not */
+  onReport?: (r: NamedReport) => void;
 }) {
   /** Open a bundled example (templates.ts EXAMPLES) in place of the model; the one open is kept in Backups first. */
   const openExample = async (name: string, data: string) => {
@@ -106,7 +109,10 @@ export function useFileActions({ run, say, refresh, api, scene, figure, currentF
 
   /** say what an import made, then show it */
   const reportImport = async (r: Reply, name: string) => {
-    say(`${r.layers != null ? cadSummary(name, r) : `Imported ${name}: ${r.faces} faces`}${importedSkips(r)}`, importedSkips(r) !== "");
+    const report = name.toLowerCase().endsWith(".skp") ? parseReport(r) : null;
+    const left = report && report.skipped.length > 0;
+    say(`${r.layers != null ? cadSummary(name, r) : `Imported ${name}: ${r.faces} faces`}${importedSkips(r)}${report ? ` (${reportHeadline(report)})` : ""}`, importedSkips(r) !== "" || !!left);
+    if (report && onReport && shouldShow(report, readReportWhen())) onReport({ ...report, name });
     if (r.focus) {
       await refresh();
       landOn(r);
@@ -243,6 +249,11 @@ export function useFileActions({ run, say, refresh, api, scene, figure, currentF
       if (!r.ok) return;
       // a 3MF that is not solid still opens in a slicer but prints badly: say so, and where to look
       if (kind === "3mf" && r.solid === false) say(`Exported ${path.split("/").pop()}, but the model is not solid. Tools > Print check says what to fix.`, true);
+      else if (kind === "obj" && typeof r.textures_dir === "string") {
+        // the pictures are files beside the .obj: Blender shows a missing one as purple, so say what to keep together
+        const skipped = Array.isArray(r.skipped) && r.skipped.length ? ` ${r.skipped.length} picture${r.skipped.length === 1 ? "" : "s"} could not be read and went out as plain color.` : "";
+        say(`Exported ${path.split("/").pop()} with ${r.mtl} and ${r.images} picture${r.images === 1 ? "" : "s"} in ${r.textures_dir}/. Keep them together in one folder.${skipped}`);
+      } else if (kind === "obj" && Array.isArray(r.skipped) && r.skipped.length) say(`Exported ${path.split("/").pop()}, but ${r.skipped.length} picture${r.skipped.length === 1 ? "" : "s"} could not be read and went out as plain color.`, true);
       else say(`Exported ${path.split("/").pop()}`);
     },
     section: async (kind: "svg" | "dxf") => {

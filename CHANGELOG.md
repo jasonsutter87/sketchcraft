@@ -13,6 +13,18 @@ What changed in each SketchCraft release, newest first. The format follows
   popular free extensions run, and what each is missing, is in the guide
   ([SketchUp extensions: what runs](docs/guide/12-ruby-extensions.md)). The app does not yet show an extension's
   panel or feed its tool the mouse. The engine's `faces` command can also return each face's corners.
+- **A report after every SketchUp import.** When a `.skp` import finishes, a **SketchUp import report** opens with
+  what came across (faces, components and how many were placed, materials and how many pictures, dimensions) and what
+  did not, each with the reason: pictures that could not be read, text labels and screen texts, dimensions that could not
+  be placed or will not follow edits, and SketchUp tags (not imported yet). Close it with Esc or **Close**; **Only show
+  this when something was left out** keeps it quiet for complete imports. Agents get the same as `report` in the
+  `import_skp` result. (#36)
+
+### Fixed
+- **SketchUp 2017-2020 files import their materials and the pictures on them.** These files came in with every face in
+  the default color: their materials were not found at all. Now the names, colors and texture pictures come across
+  (and the pictures of 2013-2016 files that share one between materials), each picture at the size SketchUp keeps for
+  it. A picture that can't be read is named in the import's message and the material keeps its color. (#17)
 
 ## [0.3.10] - 2026-11-24
 

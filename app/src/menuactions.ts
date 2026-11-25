@@ -79,7 +79,7 @@ export interface MenuCtx {
   /** the parts are laid out flat to look at (`lay_out_parts`), and the switch */
   laidOut: boolean;
   layOutParts: () => void;
-  toggleStyle: (key: "shadows" | "xray" | "backEdges" | "edges" | "profiles" | "vertexColors" | "sketchy" | "ao" | "notes" | "help" | "hideRest") => void;
+  toggleStyle: (key: "shadows" | "xray" | "backEdges" | "edges" | "profiles" | "vertexColors" | "sketchy" | "ao" | "notes" | "help" | "hideRest" | "showHidden") => void;
   setStyles: (patch: Partial<Styles>) => void;
   // panels, layout, language
   workspaceTo: (id: string) => void;
@@ -152,6 +152,7 @@ export function buildMenuActions(c: MenuCtx): Record<string, MenuAction> {
   for (const f of FACE_STYLES) add(`view.face.${f}`, () => c.setStyles({ face: f }), model, (s.face ?? "textured") === f);
   for (const b of BACKGROUNDS) add(`view.bg.${b}`, () => c.setStyles({ background: b }), model, (s.background ?? "default") === b);
   add("view.shadows", () => c.toggleStyle("shadows"), model, !!s.shadows);
+  add("view.hidden", () => c.toggleStyle("showHidden"), model, !!s.showHidden);
   add("view.xray", () => c.toggleStyle("xray"), model, !!s.xray);
   add("view.backedges", () => c.toggleStyle("backEdges"), model, !!s.backEdges);
   add("view.edges", () => c.toggleStyle("edges"), model, !!s.edges);

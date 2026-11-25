@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from "react";
 import { ask, confirm } from "./ask";
 import { AxisGizmo } from "./gizmo";
 import * as THREE from "three";
+import { isRotateState, orbitPivotEnabled, pivotShift } from "./viewport/pivot";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { TouchGestures, touchMapping } from "./touch";
 import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
@@ -33,7 +34,8 @@ import { combine, EMPTY, selIds, selMode, toggle, type Sel } from "./selection";
 import { formatLength, parseLengths } from "./units";
 import { autoTagColor, ACCENT, BACKGROUNDS, skyDome } from "./viewport/colors";
 import { FrameWatch } from "./viewport/framewatch";
-import { FIT_RADIUS_FLOOR, MAX_PERSPECTIVE_NEAR, fitDistance, fitRadius, perspectiveNear } from "./viewport/fit";
+import { FACE_OFFSET, FACE_OFFSET_UNDER_PICTURES, PICTURE_OFFSET } from "./viewport/depth";
+import { FIT_RADIUS_FLOOR,MAX_PERSPECTIVE_NEAR, fitDistance, fitRadius, perspectiveNear } from "./viewport/fit";
 import { styledEdges, averagedNormals, smoothNormals } from "./viewport/edges";
 import { adoptPainted, checkerTexture, forgetPainted, profileMaterial, textureFor } from "./viewport/materials";
 import { DEFAULT_TPAINT, decodePixels, Painter, sampleRgba, stroke3DCommand, trisOf, uvAt } from "./texturepaint";
@@ -220,6 +222,26 @@ export default function Viewport(props: Props) {
     controls.minDistance = FIT_RADIUS_FLOOR;
     controls.enableZoom = false; // our own wheel handler: trackpads orbit, pinch zooms
 
+    // Orbit about the surface point under the cursor when an orbit starts (SketchUp's way); off with sketchcraft.orbitPivot=off.
+    // Nothing under the cursor: the view's centre, as before. The camera's eye never moves at the start, so the view does not jump.
+    const pivotUnder = (cx: number, cy: number): THREE.Vector3 | null => {
+      let on = true;
+      try {
+        on = orbitPivotEnabled((k) => localStorage.getItem(k));
+      } catch {
+        /* private window: on */
+      }
+      if (!on || !t.current) return null;
+      return pick({ clientX: cx, clientY: cy })?.point ?? null;
+    };
+    let swipePivot: THREE.Vector3 | null = null;
+    let swipeAt = 0;
+    let pivot: THREE.Vector3 | null = null;
+    let pivotTimer = 0;
+    let lastQuat = new THREE.Quaternion();
+    let lastDown = { x: 0, y: 0 };
+    window.addEventListener("pointerdown", (e) => (lastDown = { x: e.clientX, y: e.clientY }), true);
+
     // Trackpad: two-finger swipe orbits, Shift+swipe pans, pinch zooms toward the cursor.
     // Mouse wheel: zooms toward the cursor.
     const wheel = (e: WheelEvent) => {
@@ -241,6 +263,7 @@ export default function Viewport(props: Props) {
         target.add(d);
       } else if (trackpad) {
         // orbit around the target, Z up
+        const before = cam.quaternion.clone();
         const off = cam.position.clone().sub(target);
         const r = off.length();
         const az = Math.atan2(off.y, off.x) - e.deltaX * 0.006;
@@ -248,6 +271,15 @@ export default function Viewport(props: Props) {
         el = THREE.MathUtils.clamp(el, -1.5, 1.5);
         cam.position.set(target.x + r * Math.cos(el) * Math.cos(az), target.y + r * Math.cos(el) * Math.sin(az), target.z + r * Math.sin(el));
         cam.lookAt(target);
+        // turn about the point under the cursor where the swipe began, not the view's centre
+        const now = performance.now();
+        if (now - swipeAt > 300) swipePivot = pivotUnder(e.clientX, e.clientY);
+        swipeAt = now;
+        if (swipePivot) {
+          const d = pivotShift(swipePivot, target, before, cam.quaternion);
+          cam.position.add(d);
+          target.add(d);
+        }
       } else {
         // zoom toward what's under the cursor
         const f = Math.exp((pinch ? e.deltaY * 0.012 : Math.sign(e.deltaY) * 0.12));
@@ -271,10 +303,27 @@ export default function Viewport(props: Props) {
     renderer.domElement.addEventListener("wheel", wheel, { passive: false });
     // moving the camera leaves a matched photo's view (as in SketchUp)
     controls.addEventListener("start", () => {
+      window.clearTimeout(pivotTimer);
+      lastQuat = controls.object.quaternion.clone();
+      pivot = isRotateState((controls as unknown as { state: number }).state) ? pivotUnder(lastDown.x, lastDown.y) : null;
       if (backdropOn.current) showBackdrop(null);
       rememberView();
     });
-    controls.addEventListener("end", () => rememberView());
+    controls.addEventListener("end", () => {
+      rememberView();
+      // the turn eases out for a moment after the drag ends; after that, other camera moves are not about the pivot
+      pivotTimer = window.setTimeout(() => (pivot = null), 2000);
+    });
+    // each step of a turn (and of its easing out) is made about the picked point instead of the target
+    controls.addEventListener("change", () => {
+      const cam = controls.object;
+      if (pivot) {
+        const d = pivotShift(pivot, controls.target, lastQuat, cam.quaternion);
+        cam.position.add(d);
+        controls.target.add(d);
+      }
+      lastQuat = cam.quaternion.clone();
+    });
     renderer.domElement.addEventListener("wheel", () => backdropOn.current && showBackdrop(null));
 
     const world = new THREE.Scene();
@@ -428,7 +477,7 @@ export default function Viewport(props: Props) {
     T.catcher.visible = styles.shadows;
     buildModel();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [styles.xray, styles.shadows, styles.edges, styles.parallel, styles.backEdges, styles.face, styles.profiles, styles.vertexColors, styles.checker, styles.sketchy, styles.extensions, styles.background, styles.byTag, styles.notes, styles.hideRest, styles.lineWeights]);
+  }, [styles.xray, styles.shadows, styles.edges, styles.parallel, styles.backEdges, styles.face, styles.profiles, styles.vertexColors, styles.checker, styles.sketchy, styles.extensions, styles.background, styles.byTag, styles.notes, styles.hideRest, styles.lineWeights, styles.showHidden]);
 
   // ---------------------------------------------------------------- labels
   /** Keep one DOM label per spec; positions are updated every frame. */
@@ -785,7 +834,10 @@ export default function Viewport(props: Props) {
     const sty = live.current.styles;
     const faceStyle: FaceStyle = sty.face ?? "textured";
     const bg = BACKGROUNDS[sty.background ?? "default"];
-    const common = { side: THREE.FrontSide as THREE.Side, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1, transparent: xray, opacity: xray ? 0.42 : 1, depthWrite: !xray, clippingPlanes: clip };
+    // pictures are drawn over the base mesh on the same plane: keep the base well behind them (see viewport/depth.ts)
+    const pictures = faceStyle === "textured" && !!s.triTex?.some((i) => i >= 0);
+    const baseOffset = pictures ? FACE_OFFSET_UNDER_PICTURES : FACE_OFFSET;
+    const common = { side: THREE.FrontSide as THREE.Side, polygonOffset: true, polygonOffsetFactor: baseOffset.factor, polygonOffsetUnits: baseOffset.units, transparent: xray, opacity: xray ? 0.42 : 1, depthWrite: !xray, clippingPlanes: clip };
     // physically based: a soft studio around the model to reflect, made once
     const physical = faceStyle === "physical";
     if (physical && !envMap.current) envMap.current = new THREE.PMREMGenerator(T.renderer).fromScene(new RoomEnvironment(), 0.04).texture;
@@ -859,7 +911,7 @@ export default function Viewport(props: Props) {
         geo2.setAttribute("normal", new THREE.BufferAttribute(smoothNormals(g.pos), 3));
         const mesh = new THREE.Mesh(
           geo2,
-          new THREE.MeshLambertMaterial({ map: textureFor(mat.name, mat.texture.data), vertexColors: !!vc, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 0, polygonOffsetUnits: 0, transparent: xray || (mat.opacity ?? 1) < 1, opacity: Math.min(xray ? 0.42 : 1, mat.opacity ?? 1), depthWrite: !xray && (mat.opacity ?? 1) >= 1, clippingPlanes: clip })
+          new THREE.MeshLambertMaterial({ map: textureFor(mat.name, mat.texture.data), vertexColors: !!vc, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: PICTURE_OFFSET.factor, polygonOffsetUnits: PICTURE_OFFSET.units, transparent: xray || (mat.opacity ?? 1) < 1, opacity: Math.min(xray ? 0.42 : 1, mat.opacity ?? 1), depthWrite: !xray && (mat.opacity ?? 1) >= 1, clippingPlanes: clip })
         );
         mesh.receiveShadow = live.current.styles.shadows;
         mesh.userData.texName = mat.name;
@@ -1027,6 +1079,16 @@ export default function Viewport(props: Props) {
       const soft = new THREE.LineSegments(sg, new THREE.LineDashedMaterial({ color: 0x8a8ea0, dashSize: 0.2, gapSize: 0.15 }));
       soft.computeLineDistances();
       T.model.add(soft);
+    }
+    if (live.current.styles.showHidden && s.ghostEdges?.length) {
+      // what you've hidden, faint and dashed, through faces (View > Hidden Geometry)
+      const gg = new THREE.BufferGeometry();
+      gg.setAttribute("position", new THREE.Float32BufferAttribute(s.ghostEdges, 3));
+      const ghost = new THREE.LineSegments(gg, new THREE.LineDashedMaterial({ color: 0x8a8ea0, dashSize: 0.1, gapSize: 0.08, depthTest: false, depthWrite: false, transparent: true, opacity: 0.6, clippingPlanes: clip }));
+      ghost.computeLineDistances();
+      ghost.renderOrder = 5;
+      ghost.raycast = () => {};
+      T.model.add(ghost);
     }
     addGuides(T, s);
     addAnnotationLines(T, s);

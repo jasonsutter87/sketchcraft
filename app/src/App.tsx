@@ -1,6 +1,8 @@
 import { LocaleProvider, useLocale } from "./locale";
 import { groupRepairNotice, groupRepairOf } from "./grouprepair";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { ClassicTray } from "./classictray";
+import { saveTrayOpen, toggleTrayPanel, trayShown, type TrayPanel } from "./tray";
 import { UpdateCard, checkForUpdatesNow } from "./updater";
 import { ask, AskHost } from "./ask";
 import { exec, execPlugin, inTauri, loadScene, sync, type Reply, type Scene, type Vec3 } from "./engine";
@@ -11,7 +13,7 @@ import { LocationDialog, SheetsDialog } from "./dialogs";
 import { EntityInfo } from "./entityinfo";
 import { Environments, Examples, Templates } from "./environments";
 import { Library } from "./library";
-import { Outliner } from "./outliner";
+import { Outliner, Tags } from "./outliner";
 import { RenderDialog } from "./renderdialog";
 import { ShortcutSheet } from "./shortcuts";
 import { ShortcutEditor } from "./shortcutseditor";
@@ -49,6 +51,8 @@ import { AboutDialog } from "./about";
 import { openLink } from "./links";
 import { makeSubdBox, SUBD_HOW, subdivideEntity, SubdivideDialog, type SubdivideOptions } from "./subdivide";
 import { readFigure, skippedText, useFileActions, type FigureChoice } from "./usefiles";
+import { ImportReportDialog } from "./importreportdialog";
+import type { NamedReport } from "./importreport";
 import { ErrorBoundary } from "./boundary";
 import { PhotoModeler } from "./photomodel";
 import { RefImageDialog } from "./refimage";
@@ -323,7 +327,8 @@ function ModelingApp() {
   useKeymap();
   const pluginCommandDefs = livePlugins.flatMap((pl) => pl.commands.map((c) => ({ id: `plugin:${pl.id}:${c.id}`, label: c.label, group: "Plugins" as const, key: "" })));
   useEffect(() => keymap.setExtra(pluginCommandDefs));
-  const { file, importFile, runTemplate, openExample } = useFileActions({ run, say, refresh, api, scene, figure, currentFile, setCurrentFile, setSel });
+  const [importReport, setImportReport] = useState<NamedReport | null>(null);
+  const { file, importFile, runTemplate, openExample } = useFileActions({ run, say, refresh, api, scene, figure, currentFile, setCurrentFile, setSel, onReport: setImportReport });
 
   // SubD: make one from a group or component (Subdivide…) or from a cube cage (SubD box); both end in SubD mode
   const [subdividing, setSubdividing] = useState<{ id: number; component: boolean } | null>(null);
@@ -485,7 +490,7 @@ function ModelingApp() {
     backAsked.current = true;
     void run({ cmd: "lay_out_parts", on: false });
   }, [run]);
-  const { skin, wearSkin, wsId, layout, setLayout, ws, editWs, switchWs } = useLook({ tool, chooseTool, setStyles, setTab });
+  const { skin, wearSkin, wsId, layout, setLayout, ws, editWs, switchWs, tray, setTray, trayOpen, setTrayOpen } = useLook({ tool, chooseTool, setStyles, setTab });
   // Layout: the paper covers the 3D view, which stays loaded (and paused) underneath
   const inLayout = wsId === "layout";
   wsIdRef.current = wsId;
@@ -652,6 +657,7 @@ function ModelingApp() {
       { id: "win.themes", label: "Themes…", hint: "Colors, layout and icons (skins)", run: () => setShowSkins(true) },
       ...livePlugins.flatMap((pl) => pl.commands.map((c) => ({ id: `plugin:${pl.id}:${c.id}`, label: c.label, hint: `Plugin · ${c.hint ?? pl.name}`, run: () => void runPluginCommand(pl, c.id) }))),
       { id: "win.plugins", label: "Manage plugins…", hint: "Install, turn on or off, remove", run: () => (reloadPlugins(), setShowPlugins(true)) },
+      ...(layout === "classic" ? [{ id: "win.tray", label: tray ? "Hide the tray" : "Show the tray", hint: "Classic layout · collapsible panels down the right side", run: () => setTray(!tray) }] : []),
       {
         label: ws.dock === "classic" ? "Floating layout" : "Classic layout",
         hint: ws.dock === "classic" ? "SketchCraft's floating tool bars" : "Tool bars docked above the model, like SketchUp",
@@ -709,6 +715,7 @@ function ModelingApp() {
       { label: "Subdivide…", hint: `Tools · smooth the selected group or component into a SubD shape. ${SUBD_HOW}`, run: askSubdivide },
       { label: "SubD box", hint: `Tools · a cube cage to shape. ${SUBD_HOW}`, run: () => void addSubdBox() },
       { id: "edit.clearguides", label: "Clear guides", hint: "Edit", run: () => void run({ cmd: "clear_guides" }) },
+      toggle("showHidden", "Hidden Geometry", "view.hidden"),
       toggle("xray", "X-Ray", "view.xray"),
       toggle("shadows", "Shadows", "view.shadows"),
       toggle("edges", "Edges", "view.edges"),
@@ -864,7 +871,9 @@ function ModelingApp() {
   const aiOn = labsAi();
   const tabs = panelTabs(wsId, layout, aiOn);
   const curTab = shownTab(tab, tabs);
-  const showSide = ws.showLeft || (merged && ws.showRight);
+  // the tray takes the place of the left panel (Components, Scenes and the Outliner are in it)
+  const trayLeft = trayShown(layout, tray) && !inLayout;
+  const showSide = !trayLeft && (ws.showLeft || (merged && ws.showRight));
   // the top-bar SketchCraft AI button: show the side panel on its AI tab
   const openAi = () => {
     if (!showSide) editWs(merged ? { showLeft: true, showRight: true } : { showLeft: true });
@@ -874,6 +883,132 @@ function ModelingApp() {
     setTab(t);
     if (merged) store.set(SIDE_TAB_KEY, t);
   };
+  // the Style panel's controls, and the paint swatches and textures: the Classic tray shows these same pieces
+  const styleControls = (
+    <>
+      <div className="kv">
+        <span>Preset</span>
+        <select
+          className="units-select"
+          value=""
+          onChange={(e) => {
+            const p = STYLE_PRESETS.find((x) => x.name === e.target.value);
+            if (p) setStyles((s) => ({ ...s, ...p.styles }));
+          }}
+        >
+          <option value="">Choose…</option>
+          {STYLE_PRESETS.map((p) => (
+            <option key={p.name}>{p.name}</option>
+          ))}
+        </select>
+        <span>Faces</span>
+        <select className="units-select" value={styles.face ?? "textured"} onChange={(e) => setStyles((s) => ({ ...s, face: e.target.value as FaceStyle }))}>
+          <option value="textured">Shaded with textures</option>
+          <option value="physical">Physically based (roughness, metal)</option>
+          <option value="shaded">Shaded</option>
+          <option value="monochrome">Monochrome</option>
+          <option value="hiddenline">Hidden line</option>
+          <option value="wireframe">Wireframe</option>
+        </select>
+        <span>Background</span>
+        <select className="units-select" value={styles.background ?? "sky"} onChange={(e) => setStyles((s) => ({ ...s, background: e.target.value as Backdrop }))}>
+          <option value="sky">Sky and ground</option>
+          <option value="default">Plain with grid</option>
+          <option value="paper">Paper</option>
+          <option value="blueprint">Blueprint</option>
+          <option value="night">Night</option>
+        </select>
+      </div>
+      <div className="style-checks">
+        {(
+          [
+            ["profiles", "Profiles"],
+            ["vertexColors", "Vertex colours"],
+            ["sketchy", "Sketchy edges"],
+            ["extensions", "Extensions"],
+            ["lineWeights", "Line weights"],
+            ["ao", "Ambient occlusion"],
+          ] as [keyof Styles, string][]
+        ).map(([k, label]) => (
+          <label key={k} className="field check">
+            <input type="checkbox" checked={k === "lineWeights" || k === "vertexColors" ? styles[k] !== false : !!styles[k]} onChange={(e) => setStyles((s) => ({ ...s, [k]: e.target.checked }))} />
+            <span>{label}</span>
+          </label>
+        ))}
+      </div>
+    </>
+  );
+  const paintSwatches = (
+    <div className="swatches">
+      {SWATCHES.map((c) => (
+        <button
+          key={hex(c)}
+          className={`swatch ${!paintMaterial && hex(c) === hex(color) ? "on" : ""}`}
+          style={{ background: hex(c) }}
+          onClick={() => {
+            setColor(c);
+            const ids = [...sel.faces, ...sel.groups];
+            if (ids.length) run({ cmd: "paint", ids, color: c });
+          }}
+        />
+      ))}
+    </div>
+  );
+  const texturesPanel = scene && (
+    <Textures
+      scene={scene}
+      paintMaterial={paintMaterial}
+      choose={(n) => {
+        setPaintMaterial(n);
+        if (n) chooseTool(selCount ? tool : "paint");
+      }}
+      run={run}
+      camera={() => api.current!.camera()}
+      sel={sel}
+      onToast={say}
+    />
+  );
+  const libraryEl = scene && (
+    <Library
+      scene={scene}
+      placing={placing}
+      run={run}
+      onToast={say}
+      place={(k) => {
+        // components and assets would land inside the open component's own table
+        if (k && scene.editing != null) return say("Close the component you're editing first: you can't place into a component while editing one.", true);
+        setPlacing(k);
+        setTool(k ? "place" : "select");
+      }}
+    />
+  );
+  const outlinerEl = scene && <Outliner scene={scene} sel={sel} setSel={setSel} run={run} byTag={!!styles.byTag} setByTag={(on) => setStyles((s) => ({ ...s, byTag: on }))} />;
+  const viewsEl = scene && <Views scene={scene} run={run} camera={() => ({ ...api.current!.camera(), ...sceneProps() })} goTo={(c) => showView(c as Parameters<typeof showView>[0])} onMatchPhoto={startMatch} onPhotoModel={() => setShowPhotoModel(true)} onRefImage={() => setShowRef(true)} />;
+  // the Classic tray: the same panels, stacked and collapsible (tray.ts has the order)
+  const trayOn = trayShown(layout, tray);
+  const trayPanels: Partial<Record<TrayPanel, ReactNode>> = scene
+    ? {
+        entity: selCount > 0 ? <EntityInfo scene={scene} sel={sel} run={run} /> : <p className="tray-empty">Select something to see its details.</p>,
+        materials: (
+          <>
+            {paintSwatches}
+            {texturesPanel}
+          </>
+        ),
+        components: libraryEl,
+        styles: styleControls,
+        environments: <Environments scene={scene} run={run} onToast={say} />,
+        tags: <Tags scene={scene} sel={sel} run={run} byTag={!!styles.byTag} setByTag={(on) => setStyles((s) => ({ ...s, byTag: on }))} />,
+        scenes: viewsEl,
+        outliner: outlinerEl,
+      }
+    : {};
+  const toggleTray = (id: TrayPanel) =>
+    setTrayOpen((o) => {
+      const next = toggleTrayPanel(o, id);
+      saveTrayOpen(next);
+      return next;
+    });
   const inspector = (
     <>
         {inLayout && scene && <LayoutInspector page={L.page} viewport={L.viewport} item={L.item} scene={scene} run={run} setViewport={L.setViewport} setItem={L.setItem} />}
@@ -910,89 +1045,14 @@ function ModelingApp() {
         {selCount === 0 && (
           <div className="section">
             <div className="section-title">Style</div>
-            <div className="kv">
-              <span>Preset</span>
-              <select
-                className="units-select"
-                value=""
-                onChange={(e) => {
-                  const p = STYLE_PRESETS.find((x) => x.name === e.target.value);
-                  if (p) setStyles((s) => ({ ...s, ...p.styles }));
-                }}
-              >
-                <option value="">Choose…</option>
-                {STYLE_PRESETS.map((p) => (
-                  <option key={p.name}>{p.name}</option>
-                ))}
-              </select>
-              <span>Faces</span>
-              <select className="units-select" value={styles.face ?? "textured"} onChange={(e) => setStyles((s) => ({ ...s, face: e.target.value as FaceStyle }))}>
-                <option value="textured">Shaded with textures</option>
-                <option value="physical">Physically based (roughness, metal)</option>
-                <option value="shaded">Shaded</option>
-                <option value="monochrome">Monochrome</option>
-                <option value="hiddenline">Hidden line</option>
-                <option value="wireframe">Wireframe</option>
-              </select>
-              <span>Background</span>
-              <select className="units-select" value={styles.background ?? "sky"} onChange={(e) => setStyles((s) => ({ ...s, background: e.target.value as Backdrop }))}>
-                <option value="sky">Sky and ground</option>
-                <option value="default">Plain with grid</option>
-                <option value="paper">Paper</option>
-                <option value="blueprint">Blueprint</option>
-                <option value="night">Night</option>
-              </select>
-            </div>
-            <div className="style-checks">
-              {(
-                [
-                  ["profiles", "Profiles"],
-                  ["vertexColors", "Vertex colours"],
-                  ["sketchy", "Sketchy edges"],
-                  ["extensions", "Extensions"],
-                  ["lineWeights", "Line weights"],
-                  ["ao", "Ambient occlusion"],
-                ] as [keyof Styles, string][]
-              ).map(([k, label]) => (
-                <label key={k} className="field check">
-                  <input type="checkbox" checked={k === "lineWeights" || k === "vertexColors" ? styles[k] !== false : !!styles[k]} onChange={(e) => setStyles((s) => ({ ...s, [k]: e.target.checked }))} />
-                  <span>{label}</span>
-                </label>
-              ))}
-            </div>
+            {styleControls}
           </div>
         )}
         <div className="section">
           <div className="section-title">{selCount ? "Fill" : "Paint"}</div>
-          <div className="swatches">
-            {SWATCHES.map((c) => (
-              <button
-                key={hex(c)}
-                className={`swatch ${!paintMaterial && hex(c) === hex(color) ? "on" : ""}`}
-                style={{ background: hex(c) }}
-                onClick={() => {
-                  setColor(c);
-                  const ids = [...sel.faces, ...sel.groups];
-                  if (ids.length) run({ cmd: "paint", ids, color: c });
-                }}
-              />
-            ))}
-          </div>
+          {paintSwatches}
         </div>
-        {scene && (
-          <Textures
-            scene={scene}
-            paintMaterial={paintMaterial}
-            choose={(n) => {
-              setPaintMaterial(n);
-              if (n) chooseTool(selCount ? tool : "paint");
-            }}
-            run={run}
-            camera={() => api.current!.camera()}
-            sel={sel}
-            onToast={say}
-          />
-        )}
+        {texturesPanel}
         {selCount > 0 && (
           <div className="section">
             <div className="section-title">Arrange</div>
@@ -1038,7 +1098,7 @@ function ModelingApp() {
   );
 
   return (
-    <div className={`app ${inLayout ? "ws-layout" : ""} ${showSide ? "" : "no-left"} ${ws.showRight && !merged ? "" : "no-right"} ${ws.dock === "left" ? "dock-left" : ws.dock === "classic" ? "dock-classic" : ""} ${layout === "side" ? "panels-right" : ""}`}>
+    <div className={`app ${inLayout ? "ws-layout" : ""} ${showSide ? "" : "no-left"} ${(ws.showRight || trayLeft) && !merged ? "" : "no-right"} ${trayLeft ? "tray-on" : ""} ${ws.dock === "left" ? "dock-left" : ws.dock === "classic" ? "dock-classic" : ""} ${layout === "side" ? "panels-right" : ""}`}>
       <header className="topbar" data-tauri-drag-region>
         <div className="brand" data-tauri-drag-region>
           <Logo />
@@ -1115,21 +1175,10 @@ function ModelingApp() {
           {curTab === "properties" && inspector}
           {curTab === "ai" && <AiPanel scene={scene} run={run} refresh={refresh} say={say} importFile={importFile} />}
           {curTab === "pages" && <PagesPanel L={L} />}
-          {scene && curTab === "outliner" && <Outliner scene={scene} sel={sel} setSel={setSel} run={run} byTag={!!styles.byTag} setByTag={(on) => setStyles((s) => ({ ...s, byTag: on }))} />}
+          {curTab === "outliner" && outlinerEl}
           {scene && curTab === "library" && (
             <>
-              <Library
-                scene={scene}
-                placing={placing}
-                run={run}
-                onToast={say}
-                place={(k) => {
-                  // components and assets would land inside the open component's own table
-                  if (k && scene.editing != null) return say("Close the component you're editing first: you can't place into a component while editing one.", true);
-                  setPlacing(k);
-                  setTool(k ? "place" : "select");
-                }}
-              />
+              {libraryEl}
               <details className="panel-fold" open>
                 <summary>Build</summary>
                 <BuildTools tool={tool} setTool={chooseTool} build={build} setBuild={setBuild} units={scene.units || "m"} scene={scene} run={run} />
@@ -1166,7 +1215,7 @@ function ModelingApp() {
               </details>
             </>
           )}
-          {scene && curTab === "views" && <Views scene={scene} run={run} camera={() => ({ ...api.current!.camera(), ...sceneProps() })} goTo={(c) => showView(c as Parameters<typeof showView>[0])} onMatchPhoto={startMatch} onPhotoModel={() => setShowPhotoModel(true)} onRefImage={() => setShowRef(true)} />}
+          {curTab === "views" && viewsEl}
         </div>
       </aside>
 
@@ -1364,7 +1413,7 @@ function ModelingApp() {
         {showText3d && scene && <Text3dDialog scene={scene} run={run} camera={() => api.current!.camera()} onClose={() => setShowText3d(false)} onToast={say} />}
         {showRef && scene && <RefImageDialog scene={scene} run={run} onClose={() => setShowRef(false)} onToast={say} />}
         {showPhotoModel && scene && <PhotoModeler scene={scene} run={run} onClose={() => setShowPhotoModel(false)} onToast={say} />}
-        {showSkins && <AppearanceDialog current={skin} onPick={wearSkin} onClose={() => setShowSkins(false)} onToast={say} layout={layout} onLayout={setLayout} />}
+        {showSkins && <AppearanceDialog current={skin} onPick={wearSkin} onClose={() => setShowSkins(false)} onToast={say} layout={layout} onLayout={setLayout} tray={tray} onTray={setTray} />}
         {pluginForm && (
           <ErrorBoundary onError={() => pluginForm.done(null)} fallback={() => null}>
             <PluginFormDialog form={pluginForm.form} plugin={pluginForm.plugin} units={scene?.units || "m"} done={pluginForm.done} />
@@ -1430,6 +1479,7 @@ function ModelingApp() {
             onClose={() => setShowPrintCheck(false)}
           />
         )}
+        {importReport && <ImportReportDialog report={importReport} onClose={() => setImportReport(null)} />}
         {showAbout && <AboutDialog onClose={() => setShowAbout(false)} />}
         {showKeys && <ShortcutSheet onClose={() => setShowKeys(false)} onCustomize={() => (setShowKeys(false), setShowKeyEditor(true))} />}
         {showKeyEditor && <ShortcutEditor onClose={() => setShowKeyEditor(false)} />}
@@ -1464,10 +1514,10 @@ function ModelingApp() {
             }}
           />
         )}
-        {menu && scene && <ContextMenu x={menu.x} y={menu.y} close={() => setMenu(null)} items={contextItems(scene, sel, run, setSel, () => api.current?.fit(), api.current?.sectionPlane(), (id) => api.current?.editCage(id), say, { subdivide: askSubdivide, subdBox: addSubdBox, projectTexture: askProjection, positionTexture: askPosition })} />}
+        {menu && scene && <ContextMenu x={menu.x} y={menu.y} close={() => setMenu(null)} items={contextItems(scene, sel, run, setSel, () => api.current?.fit(), api.current?.sectionPlane(), (id) => api.current?.editCage(id), say, { subdivide: askSubdivide, subdBox: addSubdBox, projectTexture: askProjection, positionTexture: askPosition }, menuActions)} />}
       </main>
 
-      {!merged && <aside className="panel right">{inspector}</aside>}
+      {!merged && <aside className="panel right">{trayOn && !inLayout ? <ClassicTray panels={trayPanels} open={trayOpen} onToggle={toggleTray} /> : inspector}</aside>}
     </div>
   );
 }

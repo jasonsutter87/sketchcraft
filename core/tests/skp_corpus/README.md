@@ -14,6 +14,8 @@ can check that our clean-room reader keeps reading what the real program wrote:
 | `v06-extruded-box.skp` | `Sketchup__skp-v6.skp` | SketchUp 6 | old |
 | `v06-screen-text.skp` | `Sketchup_DefinitionList__screentext.skp` | SketchUp 6 | old; one screen text, no geometry (#59) |
 | `v13-extruded-circle.skp` | `Sketchup_ArcCurve__ExtrudedCircle.skp` | 2013 | 2013-2016 |
+| `v15-materials.skp` | `Sketchup_Material__MaterialTests.skp` | 2015 | 2013-2016; a picture material, two more that share its picture, a plain color (#17) |
+| `v16-textured.skp` | `Sketchup_Face__ui-textured.skp` | 2016 | 2013-2016; one picture material, five faces painted with it (#17) |
 | `v20-model.skp` | `Sketchup_Skp__2020.skp` | 2020 | 2017-2020 |
 | `v21-components.skp` | `Sketchup_ComponentDefinition__2021_lc.skp` | 2021 | 2021-2022 |
 | `v22-soft-block.skp` | `Sketchup__skp-vff-soft-block.skp` | 2022 | 2021-2022, new block format |

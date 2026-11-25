@@ -72,6 +72,8 @@ export function AppearanceDialog({
   onToast,
   layout,
   onLayout,
+  tray,
+  onTray,
 }: {
   current: Skin;
   onPick: (s: Skin, useBackdrop: boolean) => void;
@@ -79,6 +81,8 @@ export function AppearanceDialog({
   onToast: (t: string, bad?: boolean) => void;
   layout: Layout;
   onLayout: (l: Layout) => void;
+  tray: boolean;
+  onTray: (on: boolean) => void;
 }) {
   const [mine, setMine] = useState<Skin[]>([]);
   const [dir, setDir] = useState("");
@@ -204,6 +208,12 @@ export function AppearanceDialog({
                 </button>
               ))}
             </div>
+            {layout === "classic" && (
+              <label className="field check tray-check" title="A right-hand column of collapsible panels: Entity Info, Materials, Components, Styles, Environments, Tags, Scenes, Outliner">
+                <input type="checkbox" checked={tray} onChange={(e) => onTray(e.target.checked)} />
+                <span>Tray: collapsible panels down the right side</span>
+              </label>
+            )}
           </>
         )}
         {editing && (
