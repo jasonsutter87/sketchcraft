@@ -142,7 +142,7 @@ export function lcovHits(manifest, lcov, root) {
     let data = byFile.get(e.file);
     if (!data) for (const [k, v] of byFile) if (k.endsWith("/" + e.file) || e.file.endsWith("/" + k)) data = v;
     if (!data) continue;
-    if (e.kind === "function" || e.kind === "method") {
+    if (["function", "method", "fn"].includes(e.kind)) {
       const fns = data.fns.filter((f) => f.line >= e.line && f.line <= e.bodyLine);
       if (!fns.length) continue;
       judged.add(e.id);
