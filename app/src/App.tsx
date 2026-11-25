@@ -1094,7 +1094,7 @@ function ModelingApp() {
   );
 
   return (
-    <div className={`app ${inLayout ? "ws-layout" : ""} ${showSide ? "" : "no-left"} ${(ws.showRight || trayLeft) && !merged ? "" : "no-right"} ${trayLeft ? "tray-on" : ""}${ws.dock === "left" ? "dock-left" : ws.dock === "classic" ? "dock-classic" : ""} ${layout === "side" ? "panels-right" : ""}`}>
+    <div className={`app ${inLayout ? "ws-layout" : ""} ${showSide ? "" : "no-left"} ${(ws.showRight || trayLeft) && !merged ? "" : "no-right"} ${trayLeft ? "tray-on" : ""} ${ws.dock === "left" ? "dock-left" : ws.dock === "classic" ? "dock-classic" : ""} ${layout === "side" ? "panels-right" : ""}`}>
       <header className="topbar" data-tauri-drag-region>
         <div className="brand" data-tauri-drag-region>
           <Logo />

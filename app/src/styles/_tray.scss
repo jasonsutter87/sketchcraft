@@ -17,6 +17,11 @@
 .tray-panel {
   border-bottom: 1px solid var(--line);
 
+  > h3 {
+    margin: 0;
+    font: inherit;
+  }
+
   /* the panels reused here bring their own section padding; the tray's own body gives them room */
   .tray-body {
     padding: 4px 10px 12px;
@@ -24,6 +29,10 @@
 
   .tray-body > .section {
     padding: 0;
+  }
+
+  .tray-body .swatches {
+    margin: 6px 0 12px;
   }
 }
 

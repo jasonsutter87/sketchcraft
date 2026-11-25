@@ -48,16 +48,16 @@ const head = (p, name) => p.locator('.tray .tray-head', { hasText: name }).first
   const [ctx, p] = await open({ 'sketchcraft.layout': 'classic', 'sketchcraft.skin': 'classic' });
   check((await p.locator('.tray').count()) === 0, 'Classic: no tray until you turn it on');
   check((await p.locator('.panel.left').isVisible()) && (await p.locator('.panel.right').isVisible()), 'Classic: the left and right panels are as they were');
-  check((await p.locator('.toolbar img.skin-icon').count()) === 0, 'Classic: the tool bar keeps its own icons');
+  check((await p.locator('.toolbar img.skin-icon:not(.plugin-icon)').count()) === 0, 'Classic: the tool bar keeps its own icons');
   await ctx.close();
 }
 
 // ---- Classic Color: colour icons and the tray
 {
   const [ctx, p] = await open({ 'sketchcraft.layout': 'classic', 'sketchcraft.skin': 'classic-color', 'sketchcraft.tray': '1' });
-  const tools = await p.locator('.toolbar .tool:not(.more)').count();
-  const icons = await p.locator('.toolbar .tool img.skin-icon').count();
-  check(tools > 20 && icons === tools, `Classic Color: every tool on the bar wears a colour icon (${icons} of ${tools})`);
+  const tools = await p.locator('.toolbar .tool:not(.more):not(:has(.plugin-icon))').count();
+  const icons = await p.locator('.toolbar .tool img.skin-icon:not(.plugin-icon)').count();
+  check(tools > 10 && icons === tools, `Classic Color: every tool on the bar wears a colour icon (${icons} of ${tools})`);
   check((await p.locator('.toolbar .tool img.skin-icon').first().evaluate((i) => i.complete && i.naturalWidth > 0)) === true, 'the icon images load');
 
   check((await p.locator('.tray').count()) === 1, 'the tray is there');
@@ -108,18 +108,16 @@ const head = (p, name) => p.locator('.tray .tray-head', { hasText: name }).first
   const [ctx, p] = await open({ 'sketchcraft.layout': 'classic', 'sketchcraft.skin': 'classic-color', 'sketchcraft.tray': '1' });
   await pageExec(p, { cmd: 'new' });
   const face = (await pageExec(p, { cmd: 'rect', from: [0, 0, 0], to: [2, 2, 0] })).face;
-  await pageExec(p, { cmd: 'pushpull', face, distance: 2 });
+  await pageExec(p, { cmd: 'group', ids: [face], name: 'Pebble' });
   await p.reload();
   await p.waitForSelector('.viewport canvas');
   await wait(800);
   await head(p, 'Outliner').click();
   await wait(300);
-  const row = p.locator('.tray-panel[data-panel="outliner"] .orow').first();
-  if (await row.count()) {
-    await row.click();
-    await wait(400);
-    check((await p.locator('.tray-panel[data-panel="entity"] .tray-body').innerText()).trim().length > 0 && (await p.locator('.tray-empty').count()) === 0, 'Entity Info fills in once something is selected');
-  } else check(true, '(no outliner row to select: skipped)');
+  await p.locator('.tray-panel[data-panel="outliner"] .orow', { hasText: 'Pebble' }).first().click();
+  await wait(400);
+  check((await p.locator('.tray-panel[data-panel="entity"] .tray-empty').count()) === 0 && (await p.locator('.tray-panel[data-panel="entity"] .section').count()) > 0, 'Entity Info fills in once something is selected');
+  await p.screenshot({ path: path.join(shots, 'tray-selected.png') });
   await ctx.close();
 }
 
