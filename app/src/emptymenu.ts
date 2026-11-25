@@ -32,7 +32,7 @@ export function emptySpaceItems(actions: Record<string, MenuAction>, hidden: boo
   add(["view.parallel", "menu.parallel", "Parallel projection"]);
   heading("Standard views", "menu.standardViews");
   for (const v of VIEWS) add([`view.${v}`, `menu.view.${v}`, v[0].toUpperCase() + v.slice(1)]);
-  heading("Style");
+  heading("Style", "menu.style");
   add(["view.xray", "menu.xray", "X-Ray"]);
   add(["view.shadows", "menu.shadows", "Shadows"]);
   add(["view.edges", "menu.edges", "Edges"]);

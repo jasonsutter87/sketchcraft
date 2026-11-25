@@ -30,6 +30,7 @@ export default {
   "menu.edit": "Editar",
   "menu.view": "Exibir",
   "menu.camera": "Câmera",
+  "menu.style": "Estilo",
   "menu.draw": "Desenhar",
   "menu.tools": "Ferramentas",
   "menu.window": "Janela",

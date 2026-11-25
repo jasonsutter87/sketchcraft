@@ -30,6 +30,7 @@ export default {
   "menu.edit": "编辑",
   "menu.view": "视图",
   "menu.camera": "相机",
+  "menu.style": "样式",
   "menu.draw": "绘图",
   "menu.tools": "工具",
   "menu.window": "窗口",
