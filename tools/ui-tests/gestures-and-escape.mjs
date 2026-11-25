@@ -226,6 +226,71 @@ const selectedTitle = (p) => p.locator('.section-title', { hasText: /selected|^F
   await ctx.close();
 }
 
+// ---- orbit pivots about the point under the cursor (#224) -----------------------------------------
+// A middle-button drag that starts on the box's top face turns the view about that spot (it stays under the
+// cursor, and the eye does not jump when the drag starts); started on empty sky, about the view's centre as before;
+// and with the setting sketchcraft.orbitPivot=off, as before everywhere. Perspective and parallel.
+for (const [parallel, storage] of [[false, {}], [true, {}], [false, { 'sketchcraft.orbitPivot': 'off' }]]) {
+  const { p, ctx } = await open({ 'sketchcraft.help': 'off', ...storage });
+  await X(p, { cmd: 'new' });
+  const r = await X(p, { cmd: 'rect', from: [-2, -2, 0], to: [2, 2, 0] });
+  await X(p, { cmd: 'pushpull', face: r.face, distance: 2 });
+  await fit(p);
+  if (parallel) {
+    await p.getByRole('button', { name: /parallel/i }).first().click({ timeout: 2000 }).catch(() => {});
+    await wait(500);
+  }
+  const eye = () => p.evaluate(() => window.__sketchcraftView.current.camera.position.toArray());
+  const isParallel = await p.evaluate(() => window.__sketchcraftView.current.camera.isOrthographicCamera);
+  const corner = [1.4, 1.2, 2]; // on the top face, off the edges
+  const [cx, cy] = await screen(p, corner);
+  const drag = async (x, y) => {
+    const e0 = await eye();
+    await p.mouse.move(x, y);
+    await p.mouse.down({ button: 'middle' });
+    await p.mouse.move(x + 1, y, { steps: 1 });
+    await wait(150);
+    const e1 = await eye();
+    await p.mouse.move(x + 90, y + 25, { steps: 12 });
+    await p.mouse.up({ button: 'middle' });
+    await wait(1500);
+    return { e0, e1, e2: await eye() };
+  };
+  const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+  const { e0, e1, e2 } = await drag(cx, cy);
+  const [nx, ny] = await screen(p, corner);
+  const off = storage['sketchcraft.orbitPivot'] === 'off';
+  const label = `${off ? 'setting off' : isParallel ? 'parallel' : 'perspective'}`;
+  check(!!parallel === !!isParallel, `the camera is ${isParallel ? 'parallel' : 'perspective'} as asked`);
+  check(dist(e0, e1) < 0.2, `${label}: the eye does not jump when the orbit starts (${dist(e0, e1).toFixed(4)})`);
+  check(dist(e1, e2) > 1, `${label}: the drag orbits (${dist(e1, e2).toFixed(2)})`);
+  const moved = Math.hypot(nx - cx - 0, ny - cy - 0);
+  if (off) check(moved > 40, `${label}: the spot swings away without the pivot (${moved.toFixed(0)} px)`);
+  else check(moved < 6, `${label}: the spot under the cursor stays put (${moved.toFixed(1)} px)`);
+  await ctx.close();
+}
+{
+  // on empty sky the view's centre stays where it is on screen
+  const { p, ctx } = await open({ 'sketchcraft.help': 'off' });
+  await X(p, { cmd: 'new' });
+  const r = await X(p, { cmd: 'rect', from: [-2, -2, 0], to: [2, 2, 0] });
+  await X(p, { cmd: 'pushpull', face: r.face, distance: 2 });
+  await fit(p);
+  const tgt = await p.evaluate(() => window.__sketchcraftView.current.controls.target.toArray());
+  const [tx, ty] = await screen(p, tgt);
+  const box = await p.locator('.viewport canvas').boundingBox();
+  await p.mouse.move(box.x + 25, box.y + 25);
+  await p.mouse.down({ button: 'middle' });
+  await p.mouse.move(box.x + 120, box.y + 50, { steps: 12 });
+  await p.mouse.up({ button: 'middle' });
+  await wait(1500);
+  const t2 = await p.evaluate(() => window.__sketchcraftView.current.controls.target.toArray());
+  const [ux, uy] = await screen(p, tgt);
+  check(Math.hypot(t2[0] - tgt[0], t2[1] - tgt[1], t2[2] - tgt[2]) < 1e-6, 'orbiting from empty sky keeps the view centre as the pivot');
+  check(Math.hypot(ux - tx, uy - ty) < 6, 'and the centre stays put on screen');
+  await ctx.close();
+}
+
 // ---- bad saved settings never stop the app starting ------------------------------------------
 for (const [what, storage] of [
   ['workspace edits: tools not a list', { 'sketchcraft.workspaceEdits': '{"model":{"tools":"x"}}' }],
