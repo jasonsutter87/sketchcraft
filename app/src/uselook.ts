@@ -58,7 +58,7 @@ export function useLook({ tool, chooseTool, setStyles, setTab }: {
   const [wsEdits, setWsEdits] = useState(rememberedEdits);
   const [layout, setLayoutState] = useState<Layout>(() => {
     const v = store.get("sketchcraft.layout");
-    return v === "classic" || v === "floating" || v === "side" ? v : (rememberedSkin().layout ?? "classic");
+    return v === "classic" || v === "floating" || v === "side" || v === "web" || v === "desktop" ? v : (rememberedSkin().layout ?? "classic");
   });
   const setLayout = (l: Layout) => {
     setLayoutState(l);

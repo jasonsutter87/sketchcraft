@@ -15,10 +15,10 @@ export interface Skin {
   dark: boolean;
   tokens: Record<SkinToken, string>;
   /** a backdrop for the model that suits the skin (applied when you pick it) */
-  backdrop?: "sky" | "default" | "paper" | "blueprint" | "night";
+  backdrop?: "sky" | "daylight" | "default" | "grey" | "paper" | "blueprint" | "night";
   /** the layout it comes with when picked from the gallery: "classic" (tool
    * bars docked above the model, like SketchUp) or "floating" (SketchCraft's own) */
-  layout?: "classic" | "floating";
+  layout?: "classic" | "floating" | "side" | "web" | "desktop";
   /** with the Classic layout: the right-hand tray of collapsible panels (Entity Info, Materials, Components...) */
   tray?: boolean;
   /** tool icons it swaps in: tool name -> an image (data: URL, SVG or bitmap) */
@@ -82,6 +82,24 @@ export const SKINS: Skin[] = [
     layout: "classic",
     tray: true,
     icons: CLASSIC_ICONS,
+  },
+  {
+    id: "harbor",
+    name: "Harbor",
+    blurb: "Cool blue-grey chrome, Open Sans and the Web layout: at home if you use SketchUp for Web.",
+    dark: false,
+    tokens: { bg: "#ffffff", panel: "#f1f1f6", line: "#dcdce4", "line-strong": "#9a9caa", text: "#363545", muted: "#5d6072", faint: "#90939f", accent: "#0063a3", "accent-soft": "#dcedf9", "accent-ink": "#0e416c", danger: "#d23c3c", glass: "rgba(241,241,246,0.98)", radius: "4px", font: `"Open Sans Variable", "Open Sans", ${SYSTEM}` },
+    backdrop: "grey",
+    layout: "web",
+  },
+  {
+    id: "harbor-desktop",
+    name: "Harbor Desktop",
+    blurb: "Harbor with the Desktop layout and a daylight sky: at home if you use SketchUp on the desktop.",
+    dark: false,
+    tokens: { bg: "#ffffff", panel: "#f1f1f6", line: "#e0e1e9", "line-strong": "#c8c8c9", text: "#333438", muted: "#555a61", faint: "#90939f", accent: "#0063a3", "accent-soft": "#dcedf9", "accent-ink": "#0e416c", danger: "#d23c3c", glass: "rgba(241,241,246,0.98)", radius: "4px", font: `"Open Sans Variable", "Open Sans", ${SYSTEM}` },
+    backdrop: "daylight",
+    layout: "desktop",
   },
   {
     id: "workshop",
@@ -190,7 +208,7 @@ export function readSkin(raw: unknown, fallbackName: string): Skin | null {
     blurb: typeof r.blurb === "string" ? r.blurb.slice(0, 120) : "Your theme",
     dark: typeof r.dark === "boolean" ? r.dark : isDark(tokens.panel),
     tokens,
-    backdrop: ["sky", "default", "paper", "blueprint", "night"].includes(r.backdrop as string) ? r.backdrop : undefined,
+    backdrop: ["sky", "daylight", "default", "grey", "paper", "blueprint", "night"].includes(r.backdrop as string) ? r.backdrop : undefined,
     icons: readIcons((r as { icons?: unknown }).icons),
   };
 }

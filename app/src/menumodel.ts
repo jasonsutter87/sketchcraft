@@ -43,8 +43,8 @@ export const EXPORT_FORMATS: [string, string][] = [
 ];
 
 export const FACE_STYLES = ["textured", "physical", "shaded", "monochrome", "hiddenline", "wireframe"] as const;
-export const BACKGROUNDS = ["default", "paper", "blueprint", "night"] as const;
-export const LAYOUTS = ["floating", "classic", "side"] as const;
+export const BACKGROUNDS = ["default", "grey", "paper", "blueprint", "night"] as const;
+export const LAYOUTS = ["floating", "classic", "side", "web", "desktop"] as const;
 export const LANGUAGES = ["system", ...LANGUAGE_IDS] as const;
 
 export const MENUS: Menu[] = [

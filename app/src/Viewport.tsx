@@ -33,7 +33,7 @@ import { Icons } from "./icons";
 import { AXES, AXIS_COLORS, closestOnLine, infer, rayFrom, setDrawingAxes, V, type Axis, type InferEnv, type Pick, type Snap } from "./inference";
 import { combine, EMPTY, selIds, selMode, toggle, type Sel } from "./selection";
 import { formatLength, parseLengths } from "./units";
-import { autoTagColor, ACCENT, BACKGROUNDS, skyDome } from "./viewport/colors";
+import { autoTagColor, ACCENT, BACKGROUNDS, hasSky, skyDome, tintSky } from "./viewport/colors";
 import { FrameWatch } from "./viewport/framewatch";
 import { FACE_OFFSET, FACE_OFFSET_UNDER_PICTURES, PICTURE_OFFSET } from "./viewport/depth";
 import { FIT_RADIUS_FLOOR,MAX_PERSPECTIVE_NEAR, fitDistance, fitRadius, perspectiveNear } from "./viewport/fit";
@@ -978,7 +978,8 @@ export default function Viewport(props: Props) {
     if (!backdropOn.current) {
       T.renderer.setClearColor(bg.clear, 1);
       T.ground.visible = bg.grid;
-      T.sky.visible = sty.background === "sky";
+      T.sky.visible = hasSky(sty.background);
+      if (hasSky(sty.background)) tintSky(T.sky, sty.background);
     }
     // section fill: the cut faces of walls and solids, dark, with a heavy outline
     if (st.current.section) {
@@ -1680,7 +1681,7 @@ export default function Viewport(props: Props) {
     backdropOn.current = !!photo;
     T.renderer.setClearColor(0xf3f4f8, photo ? 0 : 1);
     T.ground.visible = !photo;
-    T.sky.visible = !photo && live.current.styles.background === "sky";
+    T.sky.visible = !photo && hasSky(live.current.styles.background);
   }
 
   function showSnap(sn: Snap) {
