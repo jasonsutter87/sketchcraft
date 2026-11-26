@@ -12,6 +12,10 @@ describe("Android file sharing", () => {
     expect(paths).toMatch(/<cache-path [^>]*path="shared\/"/);
   });
 
+  it("the app's data is not included in device backups", () => {
+    expect(read("AndroidManifest.xml")).toContain('android:allowBackup="false"');
+  });
+
   it("the provider is not exported, and cleartext stays a build setting", () => {
     const m = read("AndroidManifest.xml");
     const provider = m.slice(m.indexOf("<provider"), m.indexOf("</provider>"));

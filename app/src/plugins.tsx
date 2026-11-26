@@ -8,9 +8,10 @@ import { confirm } from "./ask";
 import { exec } from "./engine";
 import { pickSave } from "./files";
 import { useLocale } from "./locale";
-import { cleanForm, cleanResult, type PluginField, type PluginForm, type PluginResult } from "./pluginclean";
+import { cleanForm, cleanLabel, cleanMenu, cleanResult, type PluginField, type PluginForm, type PluginResult } from "./pluginclean";
 
 export { cleanForm, cleanResult };
+export { cleanLabel, cleanMenu };
 export { allowed, announceChange, batcher, MAX_COMMANDS, RUBY_REPLAY_MS, runPlugin, startPluginTool } from "./pluginhost";
 export type { ToolPoint, ToolSession } from "./pluginhost";
 export type { PluginField, PluginForm, PluginResult };
@@ -54,7 +55,9 @@ export interface PluginList {
 export async function loadPlugins(): Promise<PluginList> {
   const r = await exec({ cmd: "plugins" });
   if (!r.ok) return { dir: "", plugins: [], problems: [] };
-  const plugins = ((r.plugins as Plugin[]) ?? []).filter((p) => p && typeof p.code === "string" && Array.isArray(p.commands));
+  const plugins = ((r.plugins as Plugin[]) ?? [])
+    .filter((p) => p && typeof p.code === "string" && Array.isArray(p.commands))
+    .map((p) => ({ ...p, name: cleanLabel(p.name, 60) || "(unnamed plugin)", commands: p.commands.map((c) => (c && typeof c === "object" ? { ...c, label: cleanLabel(c.label, 80) || "(unnamed)" } : c)) }));
   return { dir: String(r.dir ?? ""), plugins, problems: (r.problems as PluginList["problems"]) ?? [] };
 }
 
@@ -70,7 +73,7 @@ export async function loadPlugins(): Promise<PluginList> {
 export function PluginBanner({ plugin, form }: { plugin: Plugin; form?: boolean }) {
   return (
     <p className="plugin-banner small" role="note">
-      {plugin.builtin ? "From a built-in plugin." : `This ${form ? "form" : "window"} comes from the ${plugin.ruby ? "SketchUp Ruby " : ""}plugin “${plugin.name.slice(0, 60)}”, not from SketchCraft.`}
+      {plugin.builtin ? "From a built-in plugin." : `This ${form ? "form" : "window"} comes from the ${plugin.ruby ? "SketchUp Ruby " : ""}plugin “${cleanLabel(plugin.name, 60)}”, not from SketchCraft.`}
       {form && !plugin.builtin ? " Never type a password or a key here." : ""}
     </p>
   );

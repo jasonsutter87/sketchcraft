@@ -36,6 +36,10 @@ What changed in each SketchCraft release, newest first. The format follows
   (and the pictures of 2013-2016 files that share one between materials), each picture at the size SketchUp keeps for
   it. A picture that can't be read is named in the import's message and the material keeps its color. (#17)
 
+### Security
+- Plugins and extensions run under tighter limits: their menus, names and messages are capped and cleaned, and
+  the 3D mouse and SketchCraft AI helpers check what they connect to.
+
 ## [0.3.10] - 2026-11-24
 
 ### Added

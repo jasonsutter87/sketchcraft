@@ -8,6 +8,7 @@ import { SANDBOX_PREFACE, startWorker } from "./sandbox";
 import { pluginSandboxHolds } from "./cspcheck";
 import { RUBY_SHIMS } from "./rubyshims";
 import type { Plugin } from "./plugins";
+import { cleanMenu } from "./pluginclean";
 
 let runtime: Promise<string> | null = null;
 let compiler: Promise<string> | null = null;
@@ -262,7 +263,7 @@ self.onmessage = (e) => {
   });
   return {
     journal: (r.journal as RubyRun["journal"]) ?? [],
-    menu: (r.menu as string[]) ?? [],
+    menu: cleanMenu(r.menu).items,
     out: String(r.out ?? ""),
     toasts: (r.toasts as string[]) ?? [],
     dialogs: (r.dialogs as RubyDialog[]) ?? [],

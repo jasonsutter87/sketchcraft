@@ -5,14 +5,22 @@
 // against a pretend global to prove it does what it says.
 
 export const LOCKDOWN_SOURCE = `
-for (const k of ["fetch", "XMLHttpRequest", "WebSocket", "WebSocketStream", "WebTransport", "EventSource", "importScripts", "indexedDB", "caches", "Worker", "SharedWorker", "BroadcastChannel", "Request", "RTCPeerConnection", "fetchLater", "FontFace", "FontFaceSet", "Notification", "PushManager", "BackgroundFetchManager", "Cache", "CacheStorage", "FileSystemHandle", "FileSystemDirectoryHandle", "FileSystemFileHandle", "WebTransport", "RTCDataChannel", "RTCSessionDescription"]) {
-  try { Object.defineProperty(self, k, { value: undefined, writable: false, configurable: false }); } catch {}
-}
-try { Object.defineProperty(self.navigator, "sendBeacon", { value: undefined, configurable: false }); } catch {}
+// In a browser these live on the prototypes (WorkerGlobalScope.prototype,
+// WorkerNavigator.prototype), not on the global object itself, so hiding them on
+// \`self\` alone leaves Object.getPrototypeOf(self).fetch reachable. Every name is
+// closed on the object and on every prototype above it (up to Object.prototype).
+const __block = (o, k) => {
+  try { Object.defineProperty(o, k, { value: undefined, writable: false, configurable: false }); } catch {}
+};
+const __chain = (o, names) => {
+  for (let p = o; p && p !== Object.prototype; p = Object.getPrototypeOf(p)) {
+    for (const k of names) if (p === o || Object.prototype.hasOwnProperty.call(p, k)) __block(p, k);
+  }
+};
+__chain(self, ["fetch", "XMLHttpRequest", "WebSocket", "WebSocketStream", "WebTransport", "EventSource", "importScripts", "indexedDB", "IDBFactory", "caches", "Worker", "SharedWorker", "BroadcastChannel", "Request", "RTCPeerConnection", "fetchLater", "createImageBitmap", "FontFace", "FontFaceSet", "Notification", "PushManager", "BackgroundFetchManager", "Cache", "CacheStorage", "FileSystemHandle", "FileSystemDirectoryHandle", "FileSystemFileHandle", "WebTransport", "RTCDataChannel", "RTCSessionDescription"]);
+try { __block(self.navigator, "sendBeacon"); } catch {}
 // storage a plugin could use to keep data beyond its run (and cache/streaming loads)
-for (const k of ["storage", "serviceWorker", "locks", "usb", "bluetooth", "hid", "serial"]) {
-  try { Object.defineProperty(self.navigator, k, { value: undefined, configurable: false }); } catch {}
-}
+try { __chain(self.navigator, ["sendBeacon", "storage", "serviceWorker", "locks", "usb", "bluetooth", "hid", "serial", "gpu", "storageBuckets"]); } catch {}
 for (const k of ["instantiateStreaming", "compileStreaming"]) {
   try { Object.defineProperty(self.WebAssembly, k, { value: undefined, configurable: false }); } catch {}
 }
