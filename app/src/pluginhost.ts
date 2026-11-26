@@ -4,7 +4,7 @@
 import { exec, type Reply } from "./engine";
 import { pluginSandboxHolds } from "./cspcheck";
 import { SANDBOX_PREFACE, startWorker, type SandboxWorker } from "./sandbox";
-import { cleanForm, displayAllowed, cleanPoint, cleanPreview, cleanResult, type PluginForm, type PluginResult } from "./pluginclean";
+import { cleanForm, cleanLabel, displayAllowed, cleanPoint, cleanPreview, cleanResult, type PluginForm, type PluginResult } from "./pluginclean";
 import type { Plugin } from "./plugins";
 
 /**
@@ -188,14 +188,15 @@ function relayDisplay(m: { type: string; result?: unknown; text?: unknown }, plu
   if (m.type !== "show" && m.type !== "toast") return false;
   if (!displayAllowed(plugin.id)) return true;
   if (m.type === "show") env.show(cleanResult(m.result), plugin);
-  else if (m.type === "toast") env.toast(String(m.text).slice(0, 300));
+  else if (m.type === "toast") env.toast(cleanLabel(m.text, 300));
   else return false;
   return true;
 }
 
 /** A plugin said it hit an error. */
 function reportError(m: { error?: unknown }, plugin: Plugin, env: PluginEnv) {
-  env.toast(`${plugin.name}: ${String(m.error).slice(0, 300)}`, true);
+  if (!displayAllowed(plugin.id)) return;
+  env.toast(`${plugin.name}: ${cleanLabel(m.error, 300)}`, true);
 }
 
 /** Run one plugin command. `run` sends engine commands (and refreshes the model). */

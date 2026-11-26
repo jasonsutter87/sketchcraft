@@ -41,6 +41,7 @@ impl Engine {
                 let read_only = crate::format::check(text.as_bytes());
                 let mut opened: Model = serde_json::from_str(&text).map_err(|e| anyhow::anyhow!("{path} isn't a model SketchCraft can read: {e}"))?;
                 drop(text);
+                opened.clamp_colours();
                 if let Some(what) = opened.broken_refs(false).first() {
                     bail!("{path} isn't a consistent model ({what} refers to something that isn't there)");
                 }

@@ -306,6 +306,11 @@ mod spnav {
             if !m.file_type().is_socket() || !trusted_owner(m.uid(), me) {
                 continue;
             }
+            // Accepted low risk: the owner check above and this connect are two steps, so the path could be swapped
+            // between them. The paths are in root-owned folders (or sticky /tmp, where only the owner may replace a
+            // name), and all this socket can do is feed 32-byte motion events that are parsed and bounded. Checking
+            // the peer after connecting (SO_PEERCRED) needs the libc crate, which this app doesn't use, and can't
+            // be tested off Linux, so it isn't done.
             if let Ok(s) = UnixStream::connect(path) {
                 return Some(Sock(s, [0; 32], 0));
             }

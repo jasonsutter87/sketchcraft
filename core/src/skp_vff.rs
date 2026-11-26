@@ -234,7 +234,8 @@ pub fn parse(d: &[u8], version: String) -> Result<SkpFile> {
             let i = xml.find(&format!(" {k}=\""))? + k.len() + 3;
             Some(xml[i..i + xml[i..].find('"')?].to_string())
         };
-        let ch = |k: &str| attr(k).and_then(|v| v.parse::<f32>().ok()).unwrap_or(200.0) / 255.0;
+        // a channel is 0..255; anything else in the file (NaN, inf, out of range) is read as the nearest it can be
+        let ch = |k: &str| (attr(k).and_then(|v| v.trim().parse::<f64>().ok()).filter(|c| !c.is_nan()).unwrap_or(200.0).clamp(0.0, 255.0) / 255.0) as f32;
         let color = [ch("colorRed"), ch("colorGreen"), ch("colorBlue")];
         file.materials.insert(id as u32, (name.trim_start_matches("_LC_").to_string(), color));
         if attr("hasTexture").as_deref() == Some("1") {

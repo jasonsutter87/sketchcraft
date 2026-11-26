@@ -30,23 +30,29 @@ export interface PluginField {
 
 // ---- cleaning -------------------------------------------------------------------
 
+/** Text a plugin shows in a body (results, form text): line breaks kept, hidden characters taken out, cut to `max`. */
 const str = (v: unknown, max: number): string | undefined => {
-  if (typeof v === "string") return v.slice(0, max);
-  if (v == null) return undefined;
-  try {
-    return String(v).slice(0, max);
-  } catch {
-    return undefined; // an object with no usable text
+  let s: string;
+  if (typeof v === "string") s = v;
+  else if (v == null) return undefined;
+  else {
+    try {
+      s = String(v);
+    } catch {
+      return undefined; // an object with no usable text
+    }
   }
+  return s.replace(HIDDEN_IN_TEXT, "").slice(0, max);
 };
+export const cleanText = (v: unknown, max: number): string => str(v, max) ?? "";
 
 /** A plugin's result, cleaned: strings and numbers only, within limits. */
 export function cleanResult(r: unknown): PluginResult {
   const o = (r && typeof r === "object" ? r : {}) as Record<string, unknown>;
-  const out: PluginResult = { title: str(o.title, 120), text: str(o.text, 20_000) };
+  const out: PluginResult = { title: o.title == null ? undefined : cleanLabel(o.title, 120), text: str(o.text, 20_000) };
   const t = o.table as { columns?: unknown; rows?: unknown } | undefined;
   if (t && Array.isArray(t.columns) && Array.isArray(t.rows)) {
-    const columns = t.columns.slice(0, 40).map((c) => str(c, 80) ?? "");
+    const columns = t.columns.slice(0, 40).map((c) => cleanLabel(c, 80));
     const rows = t.rows.slice(0, 2000).map((row) => (Array.isArray(row) ? row.slice(0, columns.length).map((c) => (typeof c === "number" && Number.isFinite(c) ? c : (str(c, 400) ?? ""))) : []));
     out.table = { columns, rows };
   }
@@ -62,15 +68,15 @@ export function cleanForm(f: unknown): PluginForm {
     .filter((x): x is Record<string, unknown> => !!x && typeof x === "object" && typeof (x as Record<string, unknown>).id === "string")
     .map((x) => ({
       id: String(x.id).slice(0, 80),
-      label: str(x.label, 120) ?? String(x.id).slice(0, 80),
+      label: cleanLabel(x.label, 120) || cleanLabel(x.id, 80),
       type: types.includes(x.type as string) ? (x.type as PluginField["type"]) : "text",
       value: typeof x.value === "number" && Number.isFinite(x.value) ? x.value : typeof x.value === "boolean" ? x.value : (str(x.value, 400) ?? ""),
-      options: Array.isArray(x.options) ? x.options.slice(0, 100).map((s) => str(s, 80) ?? "") : undefined,
+      options: Array.isArray(x.options) ? x.options.slice(0, 100).map((s) => cleanLabel(s, 80)) : undefined,
       min: typeof x.min === "number" && Number.isFinite(x.min) ? x.min : undefined,
       max: typeof x.max === "number" && Number.isFinite(x.max) ? x.max : undefined,
-      hint: str(x.hint, 200),
+      hint: x.hint == null ? undefined : cleanLabel(x.hint, 200),
     }));
-  return { title: str(o.title, 120), text: str(o.text, 2000), ok: str(o.ok, 30), fields };
+  return { title: o.title == null ? undefined : cleanLabel(o.title, 120), text: str(o.text, 2000), ok: o.ok == null ? undefined : cleanLabel(o.ok, 30), fields };
 }
 
 // ---- tool previews -----------------------------------------------------------------
@@ -108,7 +114,12 @@ export function cleanPreview(lines: unknown, max = 5000): Point3[][] {
 // ---- names and menus --------------------------------------------------------------
 
 /** Control, bidirectional and other invisible format characters: they can make a name read as something else. */
-const HIDDEN = /[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u180e\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff\ufff9-\ufffb]/g;
+// (the same set as the engine's is_format_char and is_invisible_filler: soft hyphen, grapheme joiner, Hangul and
+// Khmer fillers, Mongolian selectors, zero-width and bidi marks, Braille blank, variation selectors, specials, tags)
+const INVISIBLE = "\\u00ad\\u034f\\u061c\\u115f\\u1160\\u17b4\\u17b5\\u180b-\\u180e\\u200b-\\u200f\\u2028-\\u202e\\u2060-\\u206f\\u2800\\u3164\\ufe00-\\ufe0f\\ufeff\\uffa0\\ufff9-\\ufffc\\u{e0000}-\\u{e007f}";
+const HIDDEN = new RegExp(`[\\u0000-\\u001f\\u007f-\\u009f${INVISIBLE}]`, "gu");
+/** the same, less line breaks and tabs: for body text that may run over several lines */
+const HIDDEN_IN_TEXT = new RegExp(`[\\u0000-\\u0008\\u000b-\\u001f\\u007f-\\u009f${INVISIBLE}]`, "gu");
 
 /** A name or label as it may be shown: no control or bidi characters, one line, cut to `max`. */
 export function cleanLabel(v: unknown, max = 80): string {

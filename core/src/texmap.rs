@@ -182,6 +182,10 @@ pub fn file_name(material: &str, ext: &str) -> String {
     if s.is_empty() {
         s = "texture".into();
     }
+    // CON, NUL, COM1... name devices on Windows, not files
+    if crate::library::is_device(&s.to_ascii_lowercase()) {
+        s.push('_');
+    }
     format!("{s}.{ext}")
 }
 
@@ -189,18 +193,21 @@ pub fn file_name(material: &str, ext: &str) -> String {
 /// materials would get the same name (after the name is made file-safe, and ignoring case, as many disks do), so one
 /// picture never overwrites another.
 #[derive(Default)]
-pub struct FileNames(std::collections::HashSet<String>);
+pub struct FileNames(std::collections::HashSet<String>, std::collections::HashMap<String, usize>);
 
 impl FileNames {
     pub fn name(&mut self, material: &str, ext: &str) -> String {
         let base = file_name(material, ext);
         let stem = base.strip_suffix(&format!(".{ext}")).unwrap_or(&base).to_string();
         let mut name = base;
-        let mut k = 2;
+        // the next number to try for this name, so many materials with one file-safe name don't each count up from 2
+        let key = stem.to_ascii_lowercase();
+        let mut k = self.1.get(&key).copied().unwrap_or(2);
         while !self.0.insert(name.to_ascii_lowercase()) {
             name = format!("{stem}-{k}.{ext}");
             k += 1;
         }
+        self.1.insert(key, k);
         name
     }
 }

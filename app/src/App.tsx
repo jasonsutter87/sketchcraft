@@ -1,4 +1,5 @@
 import { LocaleProvider, useLocale } from "./locale";
+import { cleanLabel } from "./pluginclean";
 import { glideOn, setGlide as saveGlide } from "./glide";
 import { groupRepairNotice, groupRepairOf } from "./grouprepair";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
@@ -329,14 +330,14 @@ function ModelingApp() {
   const runForPlugin = useCallback(
     async (cmd: Record<string, unknown>, plugin?: Plugin): Promise<Reply> => {
       const r = await execPlugin(cmd, plugin?.name);
-      if (!r.ok) say(`${plugin ? `Plugin “${plugin.name}”: ` : ""}${r.error ?? "That didn't work"}`, true);
+      if (!r.ok) say(`${plugin ? `Plugin “${cleanLabel(plugin.name, 40)}”: ` : ""}${cleanLabel(r.error, 300) || "That didn't work"}`, true);
       await refresh();
       return r;
     },
     [refresh, say]
   );
   // what a plugin says is shown as the plugin's, never in the app's own voice
-  const sayAs = useCallback((plugin: Plugin, t: string, bad?: boolean, undo?: boolean) => say(plugin.builtin ? t : `Plugin “${plugin.name.slice(0, 40)}”: ${t}`, bad, undo), [say]);
+  const sayAs = useCallback((plugin: Plugin, t: string, bad?: boolean, undo?: boolean) => say(plugin.builtin ? t : `Plugin “${cleanLabel(plugin.name, 40)}”: ${t}`, bad, undo), [say]);
   const { plugins, setPlugins, pluginShown, setPluginShown, pluginRuns, toolSession, pluginTool, pluginForm, reloadPlugins, livePlugins, pluginButtons, runPluginCommand } = usePlugins({ sel, scene, tool, setTool, say, sayAs, runForPlugin, refresh });
   // every shortcut change re-renders the app (so tool tips and the ? sheet show the new keys); plugin commands can be given keys too
   useKeymap();

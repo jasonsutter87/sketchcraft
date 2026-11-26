@@ -17,6 +17,7 @@ import { TouchGestures, touchMapping } from "./touch";
 import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { GTAOPass } from "three/examples/jsm/postprocessing/GTAOPass.js";
+import { setupAO, skipAO, syncAO } from "./viewport/ao";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { Line2 } from "three/examples/jsm/lines/Line2.js";
@@ -375,6 +376,8 @@ export default function Viewport(props: Props) {
     ground.add(catcher);
     world.add(ground);
     const sky = skyDome();
+    skipAO(sky);
+    skipAO(ground);
     world.add(sky);
 
     const model = new THREE.Group();
@@ -382,6 +385,8 @@ export default function Viewport(props: Props) {
     const preview = new THREE.Group();
     const cage = new THREE.Group();
     world.add(model, overlay, preview, cage, cloudGroup.current);
+    // only the model's own faces cast ambient occlusion
+    for (const o of [overlay, preview, cage]) skipAO(o);
 
     t.current = { renderer, persp, ortho, camera: persp, controls, world, sun, model, overlay, preview, cage, ground, sky, catcher, pickMesh: null, editMesh: null, groundZ: 0 };
     const syncControlsNear = () => syncPerspectiveNear(t.current!.camera.position.distanceTo(controls.target));
@@ -391,8 +396,7 @@ export default function Viewport(props: Props) {
       const { clientWidth: w, clientHeight: h } = el;
       renderer.setSize(w, h);
       frames.invalidate(); // a resized canvas starts blank, even at the same size
-      ao.current?.composer.setSize(w, h);
-      ao.current?.gt.setSize(w, h);
+      ao.current?.composer.setSize(w, h); // sizes the AO pass too, in device pixels
       persp.aspect = w / Math.max(h, 1);
       persp.updateProjectionMatrix();
       syncOrtho(false);
@@ -435,6 +439,7 @@ export default function Viewport(props: Props) {
           const rp = new RenderPass(world, cam);
           const gt = new GTAOPass(world, cam, size.x, size.y);
           gt.output = GTAOPass.OUTPUT.Default;
+          setupAO(gt);
           composer.addPass(rp);
           composer.addPass(gt);
           composer.addPass(new OutputPass());
@@ -443,7 +448,7 @@ export default function Viewport(props: Props) {
           ao.current = { composer, rp, gt };
         }
         ao.current.rp.camera = cam;
-        ao.current.gt.camera = cam;
+        syncAO(ao.current.gt, cam, cam.position.distanceTo(controls.target));
         ao.current.composer.render();
       } else renderer.render(world, cam);
       if (draw) frames.drew(renderer, world, cam, extra);
@@ -939,6 +944,7 @@ export default function Viewport(props: Props) {
       pg.setAttribute("normal", new THREE.BufferAttribute(averagedNormals(s.positions), 3));
       const outline = new THREE.Mesh(pg, profileMaterial(bg.line, 2.2, clip));
       outline.raycast = () => {}; // not pickable
+      skipAO(outline); // an outline is not a surface: in the AO pass it would speckle every profile
       T.model.add(outline);
     }
 
