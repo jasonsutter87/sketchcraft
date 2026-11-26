@@ -107,15 +107,19 @@ impl Model {
     pub fn opening_definition(&mut self, kind: &str, w: f64, h: f64) -> Result<Id> {
         let (w, h) = ((w * 1000.0).round() / 1000.0, (h * 1000.0).round() / 1000.0);
         let src = source(kind, w, h);
-        if let Some((&id, _)) = self.definitions.iter().find(|(_, d)| d.cuts && d.source.as_deref() == Some(src.as_str())) {
-            return Ok(id);
-        }
         let mut e = crate::Engine::new();
         for c in script(kind, w, h) {
             let r = e.exec_json(&c.to_string());
             if r["ok"] != true {
                 bail!("making a {kind}: {}", r["error"]);
             }
+        }
+        // reuse one already in the model only if it is exactly what this recipe makes: a file could carry a
+        // definition under this name with other geometry
+        let want = serde_json::to_vec(&e.model).unwrap_or_default();
+        let same = |d: &Definition| d.cuts && d.source.as_deref() == Some(src.as_str()) && serde_json::to_vec(&*d.model).is_ok_and(|v| v == want);
+        if let Some((&id, _)) = self.definitions.iter().find(|(_, d)| same(d)) {
+            return Ok(id);
         }
         let id = self.new_id();
         let name = if kind == "door" { "Door" } else { "Window" };

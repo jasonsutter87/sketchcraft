@@ -151,3 +151,14 @@ fn undo_takes_a_window_back_out() {
     assert_eq!(wall_faces(&e, g), faces);
     assert!(e.model.instances.is_empty());
 }
+
+#[test]
+fn a_planted_definition_with_the_same_name_is_not_reused() {
+    let mut e = Engine::new();
+    let (_, front) = wall(&mut e);
+    // a definition that claims to be a 1 x 1 window but holds something else
+    let fake = sketchcraft::model::Definition { name: "Window".into(), model: std::sync::Arc::new(sketchcraft::model::Model::default()), attrs: Default::default(), source: Some("builtin:window@1.000x1.000".into()), cuts: true, face_me: false };
+    e.model.definitions.insert(9_000, fake);
+    let inst = ok(&mut e, json!({"cmd": "opening", "kind": "window", "host": front, "at": [3, -0.1, 1.5], "width": 1.0, "height": 1.0}))["instance"].as_u64().unwrap();
+    assert_ne!(e.model.instances[&(inst as u32)].def, 9_000);
+}
