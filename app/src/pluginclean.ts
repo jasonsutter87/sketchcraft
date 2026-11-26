@@ -116,7 +116,7 @@ export function cleanPreview(lines: unknown, max = 5000): Point3[][] {
 /** Control, bidirectional and other invisible format characters: they can make a name read as something else. */
 // (the same set as the engine's is_format_char and is_invisible_filler: soft hyphen, grapheme joiner, Hangul and
 // Khmer fillers, Mongolian selectors, zero-width and bidi marks, Braille blank, variation selectors, specials, tags)
-const INVISIBLE = "\\u00ad\\u034f\\u061c\\u115f\\u1160\\u17b4\\u17b5\\u180b-\\u180e\\u200b-\\u200f\\u2028-\\u202e\\u2060-\\u206f\\u2800\\u3164\\ufe00-\\ufe0f\\ufeff\\uffa0\\ufff9-\\ufffc\\u{e0000}-\\u{e007f}";
+const INVISIBLE = "\\u00ad\\u034f\\u061c\\u115f\\u1160\\u17b4\\u17b5\\u180b-\\u180e\\u200b-\\u200f\\u2028-\\u202e\\u2060-\\u206f\\u2800\\u3164\\ufe00-\\ufe0f\\ufeff\\uffa0\\ufff9-\\ufffc\\u{1d173}-\\u{1d17a}\\u{e0000}-\\u{e007f}\\u{e0100}-\\u{e01ef}";
 const HIDDEN = new RegExp(`[\\u0000-\\u001f\\u007f-\\u009f${INVISIBLE}]`, "gu");
 /** the same, less line breaks and tabs: for body text that may run over several lines */
 const HIDDEN_IN_TEXT = new RegExp(`[\\u0000-\\u0008\\u000b-\\u001f\\u007f-\\u009f${INVISIBLE}]`, "gu");

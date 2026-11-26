@@ -671,7 +671,7 @@ function ModelingApp() {
       { label: "3D Text…", hint: "File", run: () => setShowText3d(true) },
       { label: "Generate report (CSV)…", hint: "File", run: file.report },
       { id: "win.themes", label: "Themes…", hint: "Colors, layout and icons (skins)", run: () => setShowSkins(true) },
-      ...livePlugins.flatMap((pl) => pl.commands.map((c) => ({ id: `plugin:${pl.id}:${c.id}`, label: c.label, hint: `Plugin · ${c.hint ?? pl.name}`, run: () => void runPluginCommand(pl, c.id) }))),
+      ...livePlugins.flatMap((pl) => pl.commands.map((c) => ({ id: `plugin:${pl.id}:${c.id}`, label: c.label, hint: `Plugin · ${cleanLabel(c.hint ?? pl.name, 120)}`, run: () => void runPluginCommand(pl, c.id) }))),
       { id: "win.plugins", label: "Manage plugins…", hint: "Install, turn on or off, remove", run: () => (reloadPlugins(), setShowPlugins(true)) },
       ...(layout === "classic" ? [{ id: "win.tray", label: tray ? "Hide the tray" : "Show the tray", hint: "Classic layout · collapsible panels down the right side", run: () => setTray(!tray) }] : []),
       {

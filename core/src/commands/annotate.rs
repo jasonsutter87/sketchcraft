@@ -240,7 +240,7 @@ impl Engine {
             Command::Report { path } => {
                 let rows = crate::dynamic::report(m);
                 if let Some(p) = &path {
-                    std::fs::write(p, crate::dynamic::report_csv(&rows))?;
+                    crate::safety::write_output(p, crate::dynamic::report_csv(&rows))?;
                 }
                 json!({"rows": rows, "path": path})
             }

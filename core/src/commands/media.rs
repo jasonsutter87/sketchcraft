@@ -51,7 +51,7 @@ impl Engine {
                 let (head, b64) = data.split_once(',').unwrap_or(("", &data));
                 let ext = if head.contains("jpeg") { "jpg" } else { "png" };
                 let bytes = base64::engine::general_purpose::STANDARD.decode(b64.trim())?;
-                std::fs::write(dir.join(format!("frame_{index:05}.{ext}")), bytes)?;
+                crate::safety::write_output(dir.join(format!("frame_{index:05}.{ext}")), bytes)?;
                 json!({"index": index})
             }
             Command::VideoFinish { session, path, fps } => {

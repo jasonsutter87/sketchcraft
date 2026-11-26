@@ -114,7 +114,9 @@ impl Engine {
                 if let Some(dir) = std::path::Path::new(&path).parent() {
                     std::fs::create_dir_all(dir).ok();
                 }
-                img.save_with_format(&path, image::ImageFormat::Png)?;
+                let mut buf = std::io::Cursor::new(Vec::new());
+                img.write_to(&mut buf, image::ImageFormat::Png)?;
+                crate::safety::write_output(&path, buf.into_inner())?;
                 json!({"path": path, "width": img.width(), "height": img.height()})
             }
             Command::SheetIr { sheet, limit_kb } => {

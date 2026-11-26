@@ -69,7 +69,7 @@ impl Engine {
                     if let Some(dir) = std::path::Path::new(path).parent() {
                         std::fs::create_dir_all(dir).ok();
                     }
-                    img.save(path)?;
+                    crate::safety::save_image(&img, path)?;
                     None
                 } else {
                     use base64::Engine as _;
@@ -91,7 +91,7 @@ impl Engine {
                     // flat figures turn to face this camera
                     let turned = whole.facing(glam::DVec3::from(cam.eye));
                     let fixed = render::RenderOpts { camera: Some(cam.clone()), ..opts.clone() };
-                    render::render(turned.as_ref().unwrap_or(whole), &fixed).save(path)?;
+                    crate::safety::save_image(&render::render(turned.as_ref().unwrap_or(whole), &fixed), path)?;
                 }
                 json!({"out": out, "camera": {"eye": cam.eye, "target": cam.target, "fov": cam.fov}})
             }

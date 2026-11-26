@@ -247,3 +247,36 @@ fn colours_in_a_saved_model_are_brought_into_range_when_it_opens() {
     assert_eq!(m.color, [1.0, 0.0, 1.0]);
     assert_eq!(m.opacity, 1.0);
 }
+
+#[cfg(unix)]
+#[test]
+fn an_agents_writes_dont_follow_a_link_put_in_place_late_but_the_persons_do() {
+    let base = Tmp::new("late");
+    let target = base.path().join("target.obj");
+    let link = base.path().join("late.obj");
+    std::os::unix::fs::symlink(&target, &link).unwrap();
+    sketchcraft::safety::set_no_follow(true);
+    assert!(sketchcraft::safety::write_output(&link, b"x").is_err(), "an agent's export isn't written through a link");
+    assert!(sketchcraft::safety::write_atomic(&link, b"x").is_err(), "nor is an atomic write");
+    assert!(!target.exists());
+    sketchcraft::safety::set_no_follow(false);
+    sketchcraft::safety::write_output(&link, b"y").unwrap();
+    assert_eq!(std::fs::read(&target).unwrap(), b"y", "the person's own export goes where the link points, as before");
+}
+
+#[test]
+fn colours_read_from_any_file_are_in_range_tag_colours_too() {
+    let v = json!({"materials": {"m": {"color": [3.0, -1.0, 1e39], "opacity": 7.0, "roughness": -2.0, "emission": 1e9}}, "tag_colors": {"t": [2.0, 0.5, -1.0]}});
+    let base: Value = serde_json::to_value(sketchcraft::model::Model::default()).unwrap();
+    let mut whole = base.clone();
+    for (k, x) in v.as_object().unwrap() {
+        whole[k] = x.clone();
+    }
+    let m: sketchcraft::model::Model = serde_json::from_value(whole).unwrap();
+    let mat = &m.materials["m"];
+    assert_eq!(mat.color, [1.0, 0.0, 1.0]);
+    assert_eq!(mat.opacity, 1.0);
+    assert_eq!(mat.roughness, Some(0.0));
+    assert_eq!(mat.emission, Some(100.0));
+    assert_eq!(m.tag_colors["t"], [1.0, 0.5, 0.0]);
+}

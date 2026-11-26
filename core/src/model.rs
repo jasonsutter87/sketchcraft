@@ -364,23 +364,24 @@ pub struct View {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Material {
     /// The color (for textures: the image's average color, used by renders).
+    #[serde(deserialize_with = "unit_range::colour")]
     pub color: [f32; 3],
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub texture: Option<Texture>,
     /// see-through in the view (reference images); 1 = solid
-    #[serde(default = "one", skip_serializing_if = "is_one")]
+    #[serde(default = "one", skip_serializing_if = "is_one", deserialize_with = "unit_range::opacity")]
     pub opacity: f32,
     /// physically based: 0 mirror-smooth .. 1 matte (none: by its name)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "unit_range::optional")]
     pub roughness: Option<f32>,
     /// 0 paint, plastic, wood .. 1 metal
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "unit_range::optional")]
     pub metalness: Option<f32>,
     /// clear glass (renders see through it)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub glass: Option<bool>,
-    /// glows (a lamp, a screen): how bright, 0..
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// glows (a lamp, a screen): how bright, 0..100
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "unit_range::emission")]
     pub emission: Option<f32>,
 }
 
@@ -443,7 +444,7 @@ pub struct Model {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub environment: Option<String>,
     /// a color per tag (for Color by tag)
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty", deserialize_with = "unit_range::colours")]
     pub tag_colors: BTreeMap<String, [f32; 3]>,
     #[serde(default)]
     pub definitions: BTreeMap<Id, Definition>,
@@ -1935,6 +1936,14 @@ impl Model {
     /// The plain-color material for `color` (made if it isn't there yet); its name.
     /// Material colours and finishes from a file brought into range (0..1), here and in component definitions: a
     /// file edited by hand or by another program may hold anything.
+    /// Anything `clamp_colours` would change, here or in a definition at any depth.
+    fn colours_out_of_range(&self) -> bool {
+        let off = |x: f32| !(0.0..=1.0).contains(&x);
+        self.materials.values().any(|m| m.color.iter().any(|c| off(*c)) || off(m.opacity) || m.roughness.is_some_and(off) || m.metalness.is_some_and(off) || m.emission.is_some_and(|e| !(0.0..=100.0).contains(&e)))
+            || self.tag_colors.values().any(|c| c.iter().any(|x| off(*x)))
+            || self.definitions.values().any(|d| d.model.colours_out_of_range())
+    }
+
     pub fn clamp_colours(&mut self) {
         let fix = |m: &mut Material| {
             for c in &mut m.color {
@@ -1944,12 +1953,16 @@ impl Model {
             for x in [&mut m.roughness, &mut m.metalness] {
                 *x = x.filter(|v| !v.is_nan()).map(|v| v.clamp(0.0, 1.0));
             }
-            m.emission = m.emission.filter(|v| v.is_finite()).map(|v| v.max(0.0));
+            m.emission = m.emission.filter(|v| !v.is_nan()).map(|v| v.clamp(0.0, 100.0));
         };
         self.materials.values_mut().for_each(fix);
+        for c in self.tag_colors.values_mut() {
+            *c = c.map(|x| if x.is_nan() { 0.8 } else { x.clamp(0.0, 1.0) });
+        }
         for d in self.definitions.values_mut() {
-            if d.model.materials.values().any(|m| m.color.iter().any(|c| !(0.0..=1.0).contains(c))) {
-                std::sync::Arc::make_mut(&mut d.model).materials.values_mut().for_each(fix);
+            // only a definition (at any depth) that needs it is copied out of its shared Arc
+            if d.model.colours_out_of_range() {
+                std::sync::Arc::make_mut(&mut d.model).clamp_colours();
             }
         }
     }
@@ -3347,5 +3360,38 @@ mod lookup_tests {
                 faces.extend(new);
             }
         }
+    }
+}
+
+/// Colours and finishes as they are read from any file (a saved model, a backup, the undo history, a library
+/// component), brought into range on the way in: a file edited by hand or by another program may hold anything,
+/// and a number that isn't one would be saved as `null` and the file would not open again.
+mod unit_range {
+    use serde::{Deserialize, Deserializer};
+    use std::collections::BTreeMap;
+
+    fn unit(x: f32, or: f32) -> f32 {
+        if x.is_nan() {
+            or
+        } else {
+            x.clamp(0.0, 1.0)
+        }
+    }
+    pub fn colour<'de, D: Deserializer<'de>>(d: D) -> Result<[f32; 3], D::Error> {
+        let c = <[f32; 3]>::deserialize(d)?;
+        Ok(c.map(|x| unit(x, 0.8)))
+    }
+    pub fn colours<'de, D: Deserializer<'de>>(d: D) -> Result<BTreeMap<String, [f32; 3]>, D::Error> {
+        let m = BTreeMap::<String, [f32; 3]>::deserialize(d)?;
+        Ok(m.into_iter().map(|(k, c)| (k, c.map(|x| unit(x, 0.8)))).collect())
+    }
+    pub fn opacity<'de, D: Deserializer<'de>>(d: D) -> Result<f32, D::Error> {
+        Ok(unit(f32::deserialize(d)?, 1.0))
+    }
+    pub fn optional<'de, D: Deserializer<'de>>(d: D) -> Result<Option<f32>, D::Error> {
+        Ok(Option::<f32>::deserialize(d)?.filter(|x| !x.is_nan()).map(|x| x.clamp(0.0, 1.0)))
+    }
+    pub fn emission<'de, D: Deserializer<'de>>(d: D) -> Result<Option<f32>, D::Error> {
+        Ok(Option::<f32>::deserialize(d)?.filter(|x| !x.is_nan()).map(|x| x.clamp(0.0, 100.0)))
     }
 }

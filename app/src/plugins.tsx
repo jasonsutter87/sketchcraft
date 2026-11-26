@@ -233,7 +233,7 @@ export function PluginsDialog({
     if (!!r.ruby !== !!look.ruby || r.sha256 !== look.sha256) {
       await exec({ cmd: "remove_plugin", id: r.id });
       await reload();
-      return onToast(`${f.name} installed as something other than what was shown, so it was removed again.`, true);
+      return onToast(`${cleanLabel(f.name, 80)} installed as something other than what was shown, so it was removed again.`, true);
     }
     await reload();
     onToast(`${r.replaced ? "Updated" : "Installed"} ${cleanLabel(r.name, 60)}. Its commands are in File › Plugins and Shift+S.`);

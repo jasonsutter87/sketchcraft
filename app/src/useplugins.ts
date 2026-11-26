@@ -86,7 +86,7 @@ export function usePlugins({ sel, scene, tool, setTool, say, sayAs, runForPlugin
       toast: (t, bad, undo) => sayAs(plugin, t, bad, undo),
       ask: (form, pl) => new Promise((resolve) => setPluginForm({ form, plugin: pl, done: (a) => (setPluginForm(null), resolve(a)) })),
       preview: (lines) => setPluginTool((p) => (p ? { ...p, preview: lines } : p)),
-      hint: (text) => setPluginTool((p) => (p ? { ...p, hint: plugin.builtin ? text : `Plugin: ${text}` } : p)),
+      hint: (text) => setPluginTool((p) => (p ? { ...p, hint: plugin.builtin ? cleanLabel(text, 300) : `Plugin: ${cleanLabel(text, 300)}` } : p)),
       anchor: (pt) => setPluginTool((p) => (p ? { ...p, anchor: pt } : p)),
       ended: () => {
         if (toolSession.current === session) {
@@ -158,13 +158,13 @@ export function usePlugins({ sel, scene, tool, setTool, say, sayAs, runForPlugin
         const started = Date.now();
         for (const [i, cmd] of r.journal.entries()) {
           if (Date.now() - started > RUBY_REPLAY_MS) {
-            failed = `step ${i + 1} (${String(cmd.cmd)}): it took over ${RUBY_REPLAY_MS / 1000} seconds, so the rest was skipped`;
+            failed = `step ${i + 1} (${cleanLabel(cmd.cmd, 40)}): it took over ${RUBY_REPLAY_MS / 1000} seconds, so the rest was skipped`;
             break;
           }
           // Ruby's recorded commands are plugin commands too: same limits as JavaScript plugins
           const res = await execPlugin(cmd, plugin.name);
           if (!res.ok) {
-            failed = `step ${i + 1} (${String(cmd.cmd)}): ${res.error}`;
+            failed = `step ${i + 1} (${cleanLabel(cmd.cmd, 40)}): ${cleanLabel(res.error, 300)}`;
             break;
           }
         }
