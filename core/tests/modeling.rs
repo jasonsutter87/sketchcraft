@@ -1859,7 +1859,7 @@ fn photos_solve_corners_and_camera_distances_together() {
     let truth = [("North-east", DVec3::new(14.0, 12.0, 4.0)), ("South", DVec3::new(3.0, -15.0, 2.0)), ("West", DVec3::new(-12.0, 6.0, 6.0))];
     let mut e = Engine::new();
     let target = DVec3::new(3.0, 2.0, 1.5);
-    let views: Vec<View> = truth.iter().map(|(n, eye)| View { name: n.to_string(), eye: eye.to_array(), target: target.to_array(), fov: 45.0, photo: Some("data:image/png;base64,AA==".into()), style: None, tags: None, hidden: None, section: None }).collect();
+    let views: Vec<View> = truth.iter().map(|(n, eye)| View { name: n.to_string(), eye: eye.to_array(), target: target.to_array(), fov: 45.0, photo: Some("data:image/png;base64,AA==".into()), style: None, tags: None, hidden: None, section: None, only: None }).collect();
     // marks where the true corners appear in each photo
     let points: Vec<PhotoPoint> = corners
         .iter()

@@ -115,6 +115,8 @@ export interface SavedView {
   fov: number;
   /** Match Photo: the photo behind this view (data URL) */
   photo?: string;
+  /** shows only these and hides the rest, even what is drawn later (#229) */
+  only?: number[];
 }
 
 export type Annotation =

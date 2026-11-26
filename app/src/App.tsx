@@ -1009,7 +1009,7 @@ function ModelingApp() {
     />
   );
   const outlinerEl = scene && <Outliner scene={scene} sel={sel} setSel={setSel} run={run} byTag={!!styles.byTag} setByTag={(on) => setStyles((s) => ({ ...s, byTag: on }))} />;
-  const viewsEl = scene && <Views scene={scene} run={run} camera={() => ({ ...api.current!.camera(), ...sceneProps() })} goTo={(c) => showView(c as Parameters<typeof showView>[0])} onMatchPhoto={startMatch} onPhotoModel={() => setShowPhotoModel(true)} onRefImage={() => setShowRef(true)} />;
+  const viewsEl = scene && <Views scene={scene} run={run} camera={() => ({ ...api.current!.camera(), ...sceneProps() })} goTo={(c) => showView(c as Parameters<typeof showView>[0])} onMatchPhoto={startMatch} onPhotoModel={() => setShowPhotoModel(true)} onRefImage={() => setShowRef(true)} selected={selIds(sel)} />;
   // the Classic tray: the same panels, stacked and collapsible (tray.ts has the order)
   const trayOn = trayShown(layout, tray);
   const trayPanels: Partial<Record<TrayPanel, ReactNode>> = scene

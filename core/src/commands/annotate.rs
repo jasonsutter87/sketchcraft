@@ -61,7 +61,9 @@ impl Engine {
                         m.tags.insert(t.clone(), *on);
                     }
                 }
-                if let Some(hidden) = &v.hidden {
+                if let Some(only) = &v.only {
+                    m.show_only(only);
+                } else if let Some(hidden) = &v.hidden {
                     let h: std::collections::BTreeSet<Id> = hidden.iter().copied().collect();
                     for (id, g) in m.groups.iter_mut() {
                         g.hidden = h.contains(id);
@@ -72,10 +74,28 @@ impl Engine {
                     for (id, f) in m.faces.iter_mut() {
                         f.hidden = h.contains(id);
                     }
+                    // lines: a scene saved before lines were remembered lists none, so they all show again (a
+                    // "show only" scene shown before it may have hidden them)
+                    for (id, e) in m.edges.iter_mut() {
+                        e.hidden = h.contains(id);
+                    }
                 }
                 serde_json::to_value(&v)?
             }
-            Command::SaveView { name, eye, target, fov, photo, style, section, camera_only } => {
+            Command::SaveView { name, eye, target, fov, photo, style, section, camera_only, only } => {
+                let only = match only {
+                    None => None,
+                    Some(_) if camera_only => bail!("a scene can't be camera only and show only some things"),
+                    Some(ids) => {
+                        let mut ids: Vec<Id> = ids.into_iter().filter(|id| m.faces.contains_key(id) || m.edges.contains_key(id) || m.groups.contains_key(id) || m.instances.contains_key(id)).collect();
+                        ids.sort_unstable();
+                        ids.dedup();
+                        if ids.is_empty() {
+                            bail!("nothing to show: name the groups, components, faces or edges the scene shows");
+                        }
+                        Some(ids)
+                    }
+                };
                 if let Some(p) = photo.as_deref() {
                     crate::safety::check_picture(p).map_err(|e| anyhow::anyhow!("photo: {e}"))?;
                 }
@@ -85,11 +105,11 @@ impl Engine {
                 let (tags, hidden) = if camera_only {
                     (None, None)
                 } else {
-                    let hidden: Vec<Id> = m.groups.iter().filter(|(_, g)| g.hidden).map(|(k, _)| *k).chain(m.instances.iter().filter(|(_, i)| i.hidden).map(|(k, _)| *k)).chain(m.faces.iter().filter(|(_, f)| f.hidden).map(|(k, _)| *k)).collect();
+                    let hidden: Vec<Id> = m.groups.iter().filter(|(_, g)| g.hidden).map(|(k, _)| *k).chain(m.instances.iter().filter(|(_, i)| i.hidden).map(|(k, _)| *k)).chain(m.faces.iter().filter(|(_, f)| f.hidden).map(|(k, _)| *k)).chain(m.edges.iter().filter(|(_, e)| e.hidden).map(|(k, _)| *k)).collect();
                     (Some(m.tags.clone()), Some(hidden))
                 };
                 let (style, section) = if camera_only { (None, None) } else { (style, section) };
-                m.views.push(crate::model::View { name, eye, target, fov, photo, style, tags, hidden, section });
+                m.views.push(crate::model::View { name, eye, target, fov, photo, style, tags, hidden, section, only });
                 json!({})
             }
             Command::MatchPhoto { name, width, height, red, green, origin, distance, photo } => {
@@ -99,7 +119,7 @@ impl Engine {
                 }
                 let cam = crate::matchphoto::solve(width, height, red, green, origin, distance)?;
                 m.views.retain(|v| v.name != name);
-                m.views.push(crate::model::View { name: name.clone(), eye: cam.eye.to_array(), target: cam.target.to_array(), fov: cam.fov, photo, style: None, tags: None, hidden: None, section: None });
+                m.views.push(crate::model::View { name: name.clone(), eye: cam.eye.to_array(), target: cam.target.to_array(), fov: cam.fov, photo, style: None, tags: None, hidden: None, section: None, only: None });
                 json!({"view": name, "eye": cam.eye.to_array(), "target": cam.target.to_array(), "fov": cam.fov})
             }
             Command::DeleteView { name } => {
