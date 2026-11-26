@@ -5,6 +5,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { execPlugin, type Reply, type Scene } from "./engine";
 import { modelForRuby, runRuby } from "./ruby";
+import { cleanLabel, displayAllowed } from "./pluginclean";
 import { RUBY_REPLAY_MS, announceChange, batcher, cleanForm, cleanResult, loadPlugins, MAX_COMMANDS, runPlugin, startPluginTool, type Plugin, type PluginCommand, type PluginForm, type PluginList, type PluginResult, type ToolSession } from "./plugins";
 import type { Sel } from "./selection";
 import type { Tool } from "./Viewport";
@@ -146,7 +147,7 @@ export function usePlugins({ sel, scene, tool, setTool, say, sayAs, runForPlugin
         answers.push(need.prompts.map((_, i) => String(got[`f${i}`] ?? "")));
         continue;
       }
-      if (r.error) return say(`${plugin.name}: ${r.error}`, true);
+      if (r.error) return displayAllowed(plugin.id) ? say(`${plugin.name}: ${cleanLabel(r.error, 300)}`, true) : undefined;
       if (r.journal.length > MAX_COMMANDS) return say(`${plugin.name} made ${r.journal.length} changes in one run; the most is ${MAX_COMMANDS}, so none were applied.`, true);
       let failed = "";
       // everything it recorded is ONE undo step (and one save)
@@ -172,9 +173,10 @@ export function usePlugins({ sel, scene, tool, setTool, say, sayAs, runForPlugin
       }
       await refresh();
       setPluginRuns((n) => n + 1);
-      for (const t of r.toasts.slice(0, 5)) sayAs(plugin, String(t).slice(0, 300));
+      // every message a plugin shows is cleaned and counts against its rate limit
+      for (const t of r.toasts.slice(0, 5)) if (displayAllowed(plugin.id)) sayAs(plugin, cleanLabel(t, 300));
       // panels (UI::HtmlDialog) and mouse tools run in tests and through the API; the app doesn't show or feed them yet
-      for (const d of r.dialogs.slice(0, 3)) sayAs(plugin, `opened the panel "${String(d.title || "untitled").slice(0, 80)}", which SketchCraft doesn't show yet`);
+      for (const d of r.dialogs.slice(0, 3)) if (displayAllowed(plugin.id)) sayAs(plugin, `opened the panel "${cleanLabel(d.title, 80) || "untitled"}", which SketchCraft doesn't show yet`);
       if (failed) say(`${plugin.name} stopped at ${failed}. ⌘Z undoes what it did.`, true);
       if (r.out.trim()) setPluginShown({ result: cleanResult({ title: plugin.name, text: r.out.trim() }), plugin });
       return;

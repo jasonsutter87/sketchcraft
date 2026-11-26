@@ -85,20 +85,34 @@ pub fn chat(url: &str, messages: &Value) -> Result<String, String> {
 }
 
 fn agent() -> Caller {
-    Caller::Mcp(Workspace::at(private_workspace(&std::env::temp_dir())))
+    Caller::Mcp(Workspace::at(shared_workspace()))
+}
+
+/// The one private workspace this process uses: made once, so a failure to make a folder never leaves a new
+/// one in the temp folder on every call.
+fn shared_workspace() -> std::path::PathBuf {
+    static WS: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+    WS.get_or_init(|| {
+        let base = std::env::temp_dir();
+        private_workspace(&base).unwrap_or_else(|| {
+            eprintln!("could not make a private empty workspace folder in {}", base.display());
+            // a name that is never created: nothing can be opened through it
+            base.join("sketchcraft-ai-no-workspace").join("unavailable")
+        })
+    })
+    .clone()
 }
 
 /// An empty folder only this user can use. `base/sketchcraft-ai-empty-workspace` is kept when it is a real
 /// folder (not a link) we own that nobody else can open; on a shared `/tmp` another user may have made it
 /// first, and then a fresh folder with its own name (made with mode 0700) is used instead.
-pub fn private_workspace(base: &std::path::Path) -> std::path::PathBuf {
+pub fn private_workspace(base: &std::path::Path) -> Option<std::path::PathBuf> {
     let fixed = base.join("sketchcraft-ai-empty-workspace");
     if make_private(&fixed) {
-        return fixed;
+        return Some(fixed);
     }
     let unique = base.join(format!("sketchcraft-ai-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0)));
-    let _ = make_private(&unique);
-    unique
+    make_private(&unique).then_some(unique)
 }
 
 #[cfg(unix)]
@@ -419,18 +433,22 @@ mod tests {
         let _ = std::fs::remove_dir_all(&base);
         std::fs::create_dir_all(&base).unwrap();
         let first = private_workspace(&base);
+        let first = first.unwrap();
         assert_eq!(first, base.join("sketchcraft-ai-empty-workspace"));
         assert_eq!(std::fs::metadata(&first).unwrap().permissions().mode() & 0o077, 0);
-        assert_eq!(private_workspace(&base), first); // again: the same one
+        assert_eq!(private_workspace(&base), Some(first.clone())); // again: the same one
         // somebody else's (open to others) is refused for a fresh folder
         std::fs::set_permissions(&first, std::fs::Permissions::from_mode(0o777)).unwrap();
-        let second = private_workspace(&base);
+        let second = private_workspace(&base).unwrap();
         assert_ne!(second, first);
         assert_eq!(std::fs::metadata(&second).unwrap().permissions().mode() & 0o077, 0);
         // a link in its place is refused too
         std::fs::remove_dir(&first).unwrap();
         std::os::unix::fs::symlink(&base, &first).unwrap();
-        assert_ne!(private_workspace(&base), first);
+        assert_ne!(private_workspace(&base), Some(first.clone()));
+        // a base that can't be written to gives nothing, and makes nothing
+        assert_eq!(private_workspace(&base.join("missing/deeper")), None);
+        assert_eq!(shared_workspace(), shared_workspace());
         let _ = std::fs::remove_dir_all(&base);
     }
 

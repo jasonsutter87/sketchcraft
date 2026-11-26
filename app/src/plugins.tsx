@@ -168,6 +168,8 @@ export function PluginResultDialog({ result, plugin, onClose, onToast, onCutPlan
   );
 }
 
+const MAX_PLUGIN_BYTES = 8 << 20;
+
 /** The Plugins window: every plugin, on or off, install from a .zip, remove yours. */
 export function PluginsDialog({
   list,
@@ -187,6 +189,8 @@ export function PluginsDialog({
   const [busy, setBusy] = useState(false);
   const install = async (f: File | undefined) => {
     if (!f) return;
+    // the engine refuses anything over 8 MB: say so before reading the whole file
+    if (f.size > MAX_PLUGIN_BYTES) return onToast(`Couldn't read ${cleanLabel(f.name, 60)}: that plugin is over 8 MB`, true);
     setBusy(true);
     const data = await new Promise<string>((res) => {
       const fr = new FileReader();
@@ -200,21 +204,23 @@ export function PluginsDialog({
       setBusy(false);
       return onToast(`Couldn't read ${f.name}: ${look.error}`, true);
     }
-    const files = (look.files as { name: string; bytes: number }[]) ?? [];
-    const cmds = (look.commands as string[]) ?? [];
+    const files = ((look.files as { name: string; bytes: number }[]) ?? []).map((x) => ({ name: cleanLabel(x.name, 60), bytes: Number(x.bytes) || 0 }));
+    const cmds = ((look.commands as unknown[]) ?? []).map((c) => cleanLabel(c, 80)).filter(Boolean);
     const was = look.installed as { version?: string | null; sha256?: string } | null;
+    // every text from the plugin's own files is cleaned, one line, and capped before it is shown
+    const c = { kind: cleanLabel(look.kind, 40), version: cleanLabel(look.version, 40), author: cleanLabel(look.author, 80), description: cleanLabel(look.description, 300), name: cleanLabel(look.name, 60), oldVersion: cleanLabel(was?.version, 40) };
     const replacing = !!was;
     const lines = [
-      `${look.kind}${look.version ? ` · version ${look.version}` : ""}${look.author ? ` · by ${look.author}` : ""}`,
-      look.description ? String(look.description) : "",
+      `${c.kind}${c.version ? ` · version ${c.version}` : ""}${c.author ? ` · by ${c.author}` : ""}`,
+      c.description,
       cmds.length ? `${look.ruby ? "Menu items (read from its Ruby code)" : "Commands"}: ${cmds.slice(0, 12).join(", ")}` : look.ruby ? "Menu items: none found in its Ruby code (it may add them when it runs)" : "",
       look.ruby ? "This is a SketchUp Ruby extension: its Ruby code runs every time SketchCraft starts, and the menu it builds comes from that code." : "",
       `${files.length} file${files.length === 1 ? "" : "s"}: ${files.slice(0, 8).map((x) => `${x.name} (${x.bytes} B)`).join(", ")}${files.length > 8 ? ", …" : ""}`,
       `Fingerprint (SHA-256): ${String(look.sha256).slice(0, 16)}…`,
-      replacing ? `This REPLACES the installed copy (version ${was?.version ?? "unknown"}${was?.sha256 === look.sha256 ? ", identical files" : ", different files"}). The old one is kept in .removed.` : "",
+      replacing ? `This REPLACES the installed copy (version ${c.oldVersion || "unknown"}${was?.sha256 === look.sha256 ? ", identical files" : ", different files"}). The old one is kept in .removed.` : "",
       "Plugins can draw, edit and inspect the model. Install only ones you trust.",
     ].filter(Boolean);
-    const yes = await confirm(`${replacing ? "Replace" : "Install"} “${String(look.name).slice(0, 60)}”?`, lines.join("\n"), replacing ? "Replace" : "Install");
+    const yes = await confirm(`${replacing ? "Replace" : "Install"} “${c.name}”?`, lines.join("\n"), replacing ? "Replace" : "Install");
     if (!yes) {
       setBusy(false);
       return;
