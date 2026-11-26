@@ -224,3 +224,64 @@ fn an_opening_in_a_locked_wall_is_refused() {
     let err = fails(&mut e, json!({"cmd": "opening", "kind": "window", "host": front, "at": [3, -0.1, 1.5], "width": 1.0, "height": 1.0}));
     assert!(err.contains("locked"), "{err}");
 }
+
+/// The south face of a wall along x (normal -y) that covers point (x, z).
+fn south_at(e: &Engine, g: u64, x: f64, z: f64) -> u32 {
+    *e.model.faces.iter().find(|(&k, f)| f.group == Some(g as u32) && e.model.normal(k).y < -0.99 && !f.outer.is_empty() && e.model.contains(k, DVec3::new(x, e.model.p(f.outer[0]).y, z))).unwrap().0
+}
+
+fn solid(e: &mut Engine, g: u64) -> bool {
+    ok(e, json!({"cmd": "volume", "id": g}))["solid"] == true
+}
+
+#[test]
+fn the_retest_repros_for_overlapping_openings_are_refused() {
+    // R0311-R-E03, as security-reports/R0.3.11-retest-engine.md runs it
+    let mut e = Engine::new();
+    let g = ok(&mut e, json!({"cmd": "wall", "points": [[0, 0, 0], [8, 0, 0]], "thickness": 0.2, "height": 2.7}))["group"].as_u64().unwrap();
+    let w = |e: &mut Engine, x: f64, wd: f64, ht: f64| {
+        let host = south_at(e, g, x, 0.3);
+        e.exec_json(&json!({"cmd": "opening", "kind": "window", "host": host, "at": [x, 0, 1.2], "width": wd, "height": ht, "sill": 0.9}).to_string())
+    };
+    assert_eq!(w(&mut e, 2.0, 1.2, 1.0)["ok"], true);
+    assert!(solid(&mut e, g));
+    for (x, wd, ht) in [(2.5, 1.2, 1.0), (2.0, 1.2, 1.0), (2.0, 3.0, 1.7)] {
+        let r = w(&mut e, x, wd, ht);
+        assert_eq!(r["ok"], false, "window at {x} ({wd} x {ht}) overlaps: {r}");
+        assert!(solid(&mut e, g));
+    }
+    let host = south_at(&e, g, 2.0, 0.3);
+    let r = e.exec_json(&json!({"cmd": "opening", "kind": "door", "host": host, "at": [2.3, 0, 1], "width": 0.9, "height": 2.1}).to_string());
+    assert_eq!(r["ok"], false, "a door over the window: {r}");
+    assert!(solid(&mut e, g));
+
+    // two windows correctly placed, then the first resized into the second, taller, higher sill
+    let mut e = Engine::new();
+    let g = ok(&mut e, json!({"cmd": "wall", "points": [[0, 0, 0], [8, 0, 0]], "thickness": 0.2, "height": 2.7}))["group"].as_u64().unwrap();
+    let first = w(&mut e, 2.0, 1.2, 1.0)["instance"].as_u64().unwrap();
+    assert_eq!(w(&mut e, 4.0, 1.2, 1.0)["ok"], true);
+    assert!(solid(&mut e, g));
+    assert_eq!(e.exec_json(&json!({"cmd": "opening_edit", "instance": first, "width": 3.5}).to_string())["ok"], false);
+    assert!(solid(&mut e, g));
+    ok(&mut e, json!({"cmd": "opening_edit", "instance": first, "height": 1.5}));
+    assert!(solid(&mut e, g), "taller, beside its neighbour");
+    ok(&mut e, json!({"cmd": "opening_edit", "instance": first, "sill": 1.1}));
+    assert!(solid(&mut e, g), "higher sill");
+}
+
+#[test]
+fn a_window_follows_its_wall_when_the_wall_gets_thicker() {
+    // R0311-R-E07: rebuild thickness .3 left the window off the wall (openings_off_the_wall: 1)
+    let mut e = Engine::new();
+    let g = ok(&mut e, json!({"cmd": "wall", "points": [[0, 0, 0], [8, 0, 0]], "thickness": 0.2, "height": 2.7}))["group"].as_u64().unwrap();
+    let host = south_at(&e, g, 2.0, 0.3);
+    let inst = ok(&mut e, json!({"cmd": "opening", "kind": "window", "host": host, "at": [2, 0, 1.2], "width": 1.2, "height": 1.0}))["instance"].as_u64().unwrap();
+    let r = ok(&mut e, json!({"cmd": "rebuild", "group": g, "set": {"thickness": 0.3}}));
+    assert_eq!(r["openings"], 1, "{r}");
+    assert!(r["openings_off_the_wall"].is_null(), "{r}");
+    assert!((e.model.instances[&(inst as u32)].transform.w_axis.y + 0.15).abs() < 1e-9, "on the new face, y = -0.15");
+    assert!(solid(&mut e, g));
+    ok(&mut e, json!({"cmd": "rebuild", "group": g, "set": {"thickness": 0.15}}));
+    assert!((e.model.instances[&(inst as u32)].transform.w_axis.y + 0.075).abs() < 1e-9, "and back in when thinner");
+    assert!(solid(&mut e, g));
+}

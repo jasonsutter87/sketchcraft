@@ -235,6 +235,29 @@ impl Model {
         }
     }
 
+    /// An opening's place on the rebuilt part `g`: where it was, if its back is still on a face, or else slid along the
+    /// face's normal `n` onto the nearest face of `g` facing the same way (within 0.6 m, a wall's thickness).
+    fn follow_face(&self, g: Id, back: &[DVec3], t: DMat4, n: DVec3) -> Option<(DMat4, Id)> {
+        let world: Vec<DVec3> = back.iter().map(|p| t.transform_point3(*p)).collect();
+        if let Some(host) = self.wall_face_for(&world, &[g]) {
+            return Some((t, host));
+        }
+        let here = n.dot(*world.first()?);
+        let mut shifts: Vec<f64> = self
+            .faces
+            .iter()
+            .filter(|(&k, f)| f.group == Some(g) && !f.outer.is_empty() && self.normal(k).dot(n) > 0.999)
+            .map(|(_, f)| n.dot(self.p(f.outer[0])) - here)
+            .filter(|d| d.abs() <= 0.6)
+            .collect();
+        shifts.sort_by(|a, b| a.abs().total_cmp(&b.abs()));
+        shifts.into_iter().find_map(|d| {
+            let moved = DMat4::from_translation(n * d) * t;
+            let world: Vec<DVec3> = back.iter().map(|p| moved.transform_point3(*p)).collect();
+            self.wall_face_for(&world, &[g]).map(|host| (moved, host))
+        })
+    }
+
     /// A fingerprint of the group's own geometry, seen from where it was made (so moving it whole keeps the print).
     pub(crate) fn part_print(&self, g: Id, frame: DMat4) -> u64 {
         let back = frame.inverse();
@@ -304,13 +327,14 @@ impl Model {
         part.check()?;
 
         // the doors and windows cut into it, to cut again
-        let mut openings: Vec<(Id, std::sync::Arc<Model>, DMat4)> = Vec::new();
+        // (with the outward normal of the face each sits on, to follow that face if the wall gets thicker or thinner)
+        let mut openings: Vec<(Id, std::sync::Arc<Model>, DMat4, DVec3)> = Vec::new();
         for (&id, inst) in &self.instances {
             let Some(def) = self.definitions.get(&inst.def).filter(|d| d.cuts) else { continue };
             let Some(back) = crate::openings::back_outline(&def.model) else { continue };
             let world: Vec<DVec3> = back.iter().map(|p| inst.transform.transform_point3(*p)).collect();
-            if self.wall_face_for(&world, &[g]).is_some() {
-                openings.push((id, def.model.clone(), inst.transform));
+            if let Some(face) = self.wall_face_for(&world, &[g]) {
+                openings.push((id, def.model.clone(), inst.transform, self.normal(face)));
             }
         }
 
@@ -341,11 +365,18 @@ impl Model {
         self.put_back_looks(g, &looks);
 
         let (mut kept, mut lost) = (0, 0);
-        for (_, def, t) in openings {
+        for (id, def, t, n) in openings {
             self.check_deadline()?;
             let back = crate::openings::back_outline(&def).unwrap_or_default();
-            let world: Vec<DVec3> = back.iter().map(|p| t.transform_point3(*p)).collect();
-            if self.wall_face_for(&world, &[g]).is_some_and(|host| crate::openings::cut(self, &def, t, host).is_ok()) {
+            // where the face it sat on is now: a thicker or thinner wall moves its sides out or in (R0311-R-E07)
+            let Some((t, host)) = self.follow_face(g, &back, t, n) else {
+                lost += 1;
+                continue;
+            };
+            if crate::openings::cut(self, &def, t, host).is_ok() {
+                if let Some(i) = self.instances.get_mut(&id) {
+                    i.transform = t;
+                }
                 kept += 1;
             } else {
                 lost += 1;
