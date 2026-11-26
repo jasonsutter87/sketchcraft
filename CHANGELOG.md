@@ -58,6 +58,9 @@ What changed in each SketchCraft release, newest first. The format follows
   Camera menus too. (#226)
 
 ### Fixed
+- **Deleting a line across a face heals it.** Erase the edge between two faces that lie flat together and they
+  become one face again, as in SketchUp, instead of both disappearing. Holes left by a shape drawn inside a face fill
+  in the same way. An edge on a fold or a corner still takes its faces with it. (#262)
 - **Cleaner ambient occlusion.** AO in the Architectural style no longer speckles along profile lines, now works in
   Parallel and the standard views, stays sharp on HiDPI screens, and scales its shading with the zoom, so it reads
   the same on a chair and on a whole building. (#265)
