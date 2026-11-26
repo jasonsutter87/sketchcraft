@@ -310,8 +310,18 @@ fn confine(raw: &str, ws: &Workspace) -> Result<String, String> {
         if name.starts_with('.') || crate::library::reserved(&name) || crate::library::is_protected(&walked, root) {
             return Err(format!("{raw:?}: agents can't use hidden files, Backups or the Plugins folder"));
         }
+        // a link that still names something here after resolving points at nothing yet: writing would follow it
+        // and make a file wherever it points
+        if is_link(&walked) {
+            return Err(format!("{raw:?} is a link; an agent writes and reads files in the workspace itself, not through links"));
+        }
     }
     Ok(full.to_string_lossy().into_owned())
+}
+
+/// Is `p` itself a symbolic link (whether or not what it points at exists)?
+fn is_link(p: &Path) -> bool {
+    std::fs::symlink_metadata(p).is_ok_and(|m| m.file_type().is_symlink())
 }
 
 struct Walk {
@@ -610,6 +620,9 @@ pub fn vet(caller: &Caller, cmd: &mut Value) -> Result<(), String> {
             };
             for x in extras {
                 let x = resolve(&x);
+                if is_link(&x) {
+                    return Err(format!("{} is a link: \"{c}\" would write through it, and an agent writes files in the workspace itself", x.display()));
+                }
                 if x.exists() && !ws.owns(&x) {
                     return Err(format!("{} already exists and wasn't made by this agent (or has changed since): \"{c}\" would write into it, and an agent doesn't replace the person's files", x.display()));
                 }
