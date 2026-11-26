@@ -162,3 +162,19 @@ fn a_planted_definition_with_the_same_name_is_not_reused() {
     let inst = ok(&mut e, json!({"cmd": "opening", "kind": "window", "host": front, "at": [3, -0.1, 1.5], "width": 1.0, "height": 1.0}))["instance"].as_u64().unwrap();
     assert_ne!(e.model.instances[&(inst as u32)].def, 9_000);
 }
+
+#[test]
+fn a_door_leaves_the_wall_a_closed_solid() {
+    // a door's foot is on the wall's own bottom edge: no reveal lies across the doorway (Jason's by-eye check
+    // showed "Not solid: has open edges" after a door; the library's Door did the same)
+    let mut e = Engine::new();
+    let (g, front) = wall(&mut e);
+    ok(&mut e, json!({"cmd": "opening", "kind": "door", "host": front, "at": [3, -0.1, 1], "width": 0.9, "height": 2.1}));
+    let v = ok(&mut e, json!({"cmd": "volume", "id": g}));
+    assert_eq!(v["solid"], true, "{v}");
+    assert!((v["volume"].as_f64().unwrap() - (6.0 * 0.2 * 2.7 - 0.9 * 0.2 * 2.1)).abs() < 1e-6, "{v}");
+    let front2 = *e.model.faces.iter().find(|(&k, f)| f.group == Some(g as u32) && e.model.normal(k).y < -0.99 && e.model.contains(k, DVec3::new(1.0, -0.1, 1.0)) && !f.outer.is_empty()).unwrap().0;
+    let lib = ok(&mut e, json!({"cmd": "insert", "asset": "door", "at": [0.5, -0.1, 0], "rotate": 0, "host": front2}));
+    assert!(lib["opening"]["faces"].as_u64().is_some(), "{lib}");
+    assert_eq!(ok(&mut e, json!({"cmd": "volume", "id": g}))["solid"], true, "the library's Door too");
+}
