@@ -1,5 +1,5 @@
 import { LocaleProvider, useLocale } from "./locale";
-import { cleanLabel } from "./pluginclean";
+import { cleanLabel, cleanText } from "./pluginclean";
 import { glideOn, setGlide as saveGlide } from "./glide";
 import { groupRepairNotice, groupRepairOf } from "./grouprepair";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
@@ -310,7 +310,10 @@ function ModelingApp() {
   const wsIdRef = useRef<string>("model");
 
   // `undo`: the toast carries an Undo button (a plugin run that changed the model)
-  const say = useCallback((text: string, bad = false, undo = false) => {
+  const say = useCallback((raw: string, bad = false, undo = false) => {
+    // every message passes here, a plugin's or an engine error's among them: no hidden or direction-changing
+    // characters, and a sane length
+    const text = cleanText(raw, 600);
     setToast({ text, bad, undo });
     window.setTimeout(() => setToast((t) => (t?.text === text ? null : t)), undo ? 9000 : bad && text.length > 120 ? 9000 : 3600);
   }, []);

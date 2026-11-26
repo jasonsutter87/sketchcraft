@@ -514,6 +514,22 @@ pub fn set_no_follow(on: bool) {
     NO_FOLLOW.with(|c| c.set(on));
 }
 
+/// Sets it for one command and puts back what was there when dropped, so a later write on this thread that isn't
+/// part of a command (an autosave) isn't held to an agent's rules.
+pub struct NoFollow(bool);
+impl NoFollow {
+    pub fn set(on: bool) -> NoFollow {
+        let was = no_follow();
+        set_no_follow(on);
+        NoFollow(was)
+    }
+}
+impl Drop for NoFollow {
+    fn drop(&mut self) {
+        set_no_follow(self.0);
+    }
+}
+
 /// Is it set on this thread? (Work handed to other threads carries it over with `set_no_follow`.)
 pub fn no_follow() -> bool {
     NO_FOLLOW.with(|c| c.get())

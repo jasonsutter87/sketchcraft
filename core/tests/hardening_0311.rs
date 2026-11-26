@@ -280,3 +280,51 @@ fn colours_read_from_any_file_are_in_range_tag_colours_too() {
     assert_eq!(mat.emission, Some(100.0));
     assert_eq!(m.tag_colors["t"], [1.0, 0.5, 0.0]);
 }
+
+#[test]
+fn the_no_follow_rule_lasts_for_one_command_only() {
+    sketchcraft::safety::set_no_follow(false);
+    {
+        let _g = sketchcraft::safety::NoFollow::set(true);
+        assert!(sketchcraft::safety::no_follow());
+    }
+    assert!(!sketchcraft::safety::no_follow(), "put back when the command is done");
+    // and after a real command from an agent, the thread is back to the person's rules
+    let mut e = Engine::new();
+    let r = e.exec_json_as(&Caller::Mcp(Workspace::anywhere()), &json!({"cmd": "info"}).to_string());
+    assert_eq!(r["ok"], true, "{r}");
+    assert!(!sketchcraft::safety::no_follow());
+}
+
+#[test]
+fn a_command_run_inside_another_leaves_the_outer_ones_rule_as_it_was() {
+    sketchcraft::safety::set_no_follow(false);
+    let mut e = Engine::new();
+    {
+        // an agent's command in progress...
+        let _outer = sketchcraft::safety::NoFollow::set(true);
+        // ...runs another (here a person-level one, which sets the rule off for itself while it runs)
+        ok(&mut e, json!({"cmd": "rect", "from": [0, 0, 0], "to": [1, 1, 0]}));
+        // the rest of the outer command, its writes included, is still held to the agent's rule
+        assert!(sketchcraft::safety::no_follow(), "on again for the rest of the outer command");
+        let base = Tmp::new("nested");
+        let target = base.path().join("t.obj");
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(&target, base.path().join("l.obj")).unwrap();
+            assert!(sketchcraft::safety::write_output(base.path().join("l.obj"), b"x").is_err());
+            assert!(!target.exists());
+        }
+    }
+    assert!(!sketchcraft::safety::no_follow(), "off once the outer command returns");
+    // end to end: an agent's command that runs nested commands of its own (the environment is built from several)
+    let r = e.exec_json_as(&Caller::Mcp(Workspace::anywhere()), &json!({"cmd": "environment", "kind": "trees"}).to_string());
+    let _ = r; // allowed or not, the thread is back to the person's rules afterwards
+    assert!(!sketchcraft::safety::no_follow(), "off after an agent's command with nested commands");
+}
+
+#[test]
+fn vertex_colours_from_a_file_are_in_range() {
+    let c: sketchcraft::model::FaceColors = serde_json::from_value(json!({"outer": [[2.0, -1.0, 0.5, 9.0]]})).unwrap();
+    assert_eq!(c.outer[0], [1.0, 0.0, 0.5, 1.0]);
+}

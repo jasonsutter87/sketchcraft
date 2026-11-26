@@ -466,7 +466,8 @@ impl Engine {
             return json!({"ok": false, "error": e});
         }
         self.untrusted = !matches!(caller, Caller::Ui) || self.nested_untrusted;
-        crate::safety::set_no_follow(self.untrusted);
+        // for this command only (put back as it was when the command returns or unwinds)
+        let _no_follow = crate::safety::NoFollow::set(self.untrusted);
         if let Err(e) = self.resolve(&mut v) {
             crate::policy::settle(caller, false);
             return json!({"ok": false, "error": e.to_string()});
