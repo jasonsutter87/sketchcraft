@@ -561,7 +561,7 @@ impl Model {
     }
 
     /// The upright face in `groups` that an opening's back outline (world points) lies on and within, if any.
-    fn wall_face_for(&self, world: &[DVec3], groups: &[Id]) -> Option<Id> {
+    pub(crate) fn wall_face_for(&self, world: &[DVec3], groups: &[Id]) -> Option<Id> {
         if world.is_empty() {
             return None;
         }

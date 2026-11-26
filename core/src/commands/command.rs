@@ -1459,6 +1459,16 @@ pub enum Command {
         #[serde(default)]
         name: Option<String>,
     },
+    /// What a group was made as (wall, stairs, roof, column) and the settings it remembers.
+    PartInfo { group: Id },
+    /// Change a remembered wall's, stair's, roof's or column's settings and remake it in place.
+    Rebuild {
+        group: Id,
+        #[serde(default)]
+        set: serde_json::Map<String, serde_json::Value>,
+        #[serde(default)]
+        force: bool,
+    },
     /// Walls along a path: `thickness` and `height`; `closed` makes a room.
     Wall {
         points: Vec<[f64; 3]>,

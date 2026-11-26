@@ -95,6 +95,20 @@ pub(crate) fn cut_on_plane(m: &mut Model, outline: &[DVec3], n: DVec3, group: Op
 /// `host`; through the wall when the face behind is near and parallel.
 /// Returns how many faces were opened (1, or 2 through a thick wall).
 pub fn cut(m: &mut Model, def: &Model, transform: DMat4, host: Id) -> Result<usize> {
+    // a door or window in a remembered wall is part of it, not a hand edit: the wall can still be rebuilt (#263)
+    let group = m.faces.get(&host).and_then(|f| f.group);
+    let fresh = group.and_then(|g| m.groups.get(&g)?.recipe.as_ref().map(|r| (g, glam::DMat4::from_cols_array(&r.frame), r.print))).filter(|&(g, frame, print)| m.part_print(g, frame) == print);
+    let r = cut_into(m, def, transform, host);
+    if let (Ok(_), Some((g, frame, _))) = (&r, fresh) {
+        let print = m.part_print(g, frame);
+        if let Some(r) = m.groups.get_mut(&g).and_then(|g| g.recipe.as_mut()) {
+            r.print = print;
+        }
+    }
+    r
+}
+
+fn cut_into(m: &mut Model, def: &Model, transform: DMat4, host: Id) -> Result<usize> {
     let Some(local) = back_outline(def) else { bail!("this component has no flat back to cut an opening with") };
     let f = m.faces.get(&host).cloned().ok_or_else(|| anyhow::anyhow!("no face {host}"))?;
     let n = m.normal(host);
