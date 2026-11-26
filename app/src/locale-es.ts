@@ -257,6 +257,8 @@ export default {
   "tool.stairs": "Escalera: haz clic en la base y luego en la dirección",
   "tool.roof": "Tejado: haz clic en una superficie plana superior",
   "tool.column": "Columna",
+  "tool.door": "Puerta: haz clic en el lado de un muro",
+  "tool.window": "Ventana: haz clic en el lado de un muro",
   "tool.smoove": "Suavizar terreno (Mayús excava)",
   "tool.stamp": "Estampar una plataforma en el terreno",
   "tool.drape": "Proyectar líneas sobre el terreno",

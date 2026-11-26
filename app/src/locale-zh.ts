@@ -257,6 +257,8 @@ export default {
   "tool.stairs": "楼梯：点击底部，再点方向",
   "tool.roof": "屋顶：点击平顶",
   "tool.column": "柱",
+  "tool.door": "门：点击墙的侧面",
+  "tool.window": "窗：点击墙的侧面",
   "tool.smoove": "地形涂抹（Shift 下挖）",
   "tool.stamp": "在地形上压出平台",
   "tool.drape": "将线铺到地形上",

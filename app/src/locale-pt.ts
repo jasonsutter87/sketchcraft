@@ -257,6 +257,8 @@ export default {
   "tool.stairs": "Escada: clique na base, depois na direção",
   "tool.roof": "Telhado: clique em um topo plano",
   "tool.column": "Coluna",
+  "tool.door": "Porta: clique na lateral de uma parede",
+  "tool.window": "Janela: clique na lateral de uma parede",
   "tool.smoove": "Suavizar terreno (Shift escava)",
   "tool.stamp": "Carimbar um platô no terreno",
   "tool.drape": "Projetar linhas sobre o terreno",

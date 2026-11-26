@@ -257,6 +257,8 @@ export default {
   "tool.stairs": "Scala: fai clic alla base, poi indica la direzione",
   "tool.roof": "Tetto: fai clic sulla sommità piana",
   "tool.column": "Colonna",
+  "tool.door": "Porta: clic sul lato di un muro",
+  "tool.window": "Finestra: clic sul lato di un muro",
   "tool.smoove": null,
   "tool.stamp": null,
   "tool.drape": null,

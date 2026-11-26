@@ -11,6 +11,7 @@ pub mod backups;
 pub mod assets;
 pub mod builders;
 pub mod recipe;
+pub mod doorwin;
 pub mod callouts;
 pub mod cloud;
 pub mod commands;

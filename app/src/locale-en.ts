@@ -256,6 +256,8 @@ export default {
   "tool.stairs": "Stairs: click the bottom, then the direction",
   "tool.roof": "Roof: click a flat top",
   "tool.column": "Column",
+  "tool.door": "Door: click the side of a wall",
+  "tool.window": "Window: click the side of a wall",
   "tool.smoove": "Smoove terrain (Shift digs)",
   "tool.stamp": "Stamp a pad into terrain",
   "tool.drape": "Drape lines on terrain",

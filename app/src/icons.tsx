@@ -185,6 +185,20 @@ export const Icons = {
       <path d="M7 4h10M7 20h10M9 4v16M15 4v16" />
     </Svg>
   ),
+  /** Door tool: a door in a wall, with its handle */
+  door: () => (
+    <Svg>
+      <path d="M3 20h18M7 20V4h10v16" />
+      <circle cx="14.5" cy="12.5" r="0.9" />
+    </Svg>
+  ),
+  /** Window tool: a four-pane window */
+  window: () => (
+    <Svg>
+      <rect x="5" y="5" width="14" height="14" rx="1" />
+      <path d="M12 5v14M5 12h14" />
+    </Svg>
+  ),
   /** Themes: a palette */
   theme: () => (
     <Svg>

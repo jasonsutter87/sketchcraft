@@ -15,6 +15,8 @@ const BUILD_TOOLS: { id: Tool; name: string; how: string }[] = [
   { id: "stairs", name: "Stairs", how: "Click where the bottom step starts, then the direction it climbs." },
   { id: "roof", name: "Roof", how: "Click a flat top face: the top of your walls or a ceiling you drew." },
   { id: "column", name: "Column", how: "Click to drop a column." },
+  { id: "door", name: "Door", how: "Click the side of a wall: a door on the floor, cut through the wall." },
+  { id: "window", name: "Window", how: "Click the side of a wall: a window at its sill height, cut through the wall." },
 ];
 
 /** Room mode's panel: what a click on a wall adds, walls down, and the rooms by name (rename here). */
@@ -87,7 +89,7 @@ export function BuildTools({ tool, setTool, build, setBuild, units, scene, run }
 }
 
 /** The tools that have settings to show while they're in use (#263: they were easy to miss, below the library). */
-export const SETTINGS_TOOLS: ReadonlySet<Tool> = new Set<Tool>(["room", "wall", "stairs", "roof", "column"]);
+export const SETTINGS_TOOLS: ReadonlySet<Tool> = new Set<Tool>(["room", "wall", "stairs", "roof", "column", "door", "window"]);
 
 /** A build tool's settings. `compact`: just the inputs, for the card over the view while the tool is in use. */
 export function BuildOptions({ tool, build, setBuild, units, scene, run, compact = false }: { tool: Tool; build: BuildSettings; setBuild: (b: BuildSettings) => void; units: string; scene: Scene | null; run: Run; compact?: boolean }) {
@@ -143,6 +145,19 @@ export function BuildOptions({ tool, build, setBuild, units, scene, run, compact
             />
           </label>
           <LengthInput label="Overhang" value={build.roofOverhang} units={units} onChange={set("roofOverhang")} />
+        </>
+      )}
+      {tool === "door" && (
+        <>
+          <LengthInput label="Width" value={build.doorWidth} units={units} onChange={set("doorWidth")} />
+          <LengthInput label="Height" value={build.doorHeight} units={units} onChange={set("doorHeight")} />
+        </>
+      )}
+      {tool === "window" && (
+        <>
+          <LengthInput label="Width" value={build.windowWidth} units={units} onChange={set("windowWidth")} />
+          <LengthInput label="Height" value={build.windowHeight} units={units} onChange={set("windowHeight")} />
+          <LengthInput label="Sill height" value={build.windowSill} units={units} onChange={set("windowSill")} />
         </>
       )}
       {tool === "column" && (

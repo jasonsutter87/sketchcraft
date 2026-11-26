@@ -9,6 +9,11 @@ What changed in each SketchCraft release, newest first. The format follows
 ## [0.3.11] - 2026-11-26
 
 ### Added
+- **Door and Window tools.** In the **Arch** tab, pick **Door** or **Window**, hover the side of a wall to see where it
+  goes, and click: it's centred where you clicked, a door on the floor and a window at its sill, cut through the
+  wall and marked as an IFC door or window. Width, height and sill are in the card over the view. In a wall made with
+  the Wall tool, select a placed one to change its size or sill in **Entity Info**. Agents use `opening`,
+  `opening_info` and `opening_edit`. (#264)
 - **Walls, stairs, roofs and columns keep their settings.** Select one you placed and change its thickness, height,
   rise, pitch or roof type in **Entity Info**: it's remade in place, with its doors and windows cut again. A wall
   you've edited by hand asks before your edits are replaced. While the Wall, Stairs, Roof, Column or Room tool is in
