@@ -31,7 +31,7 @@ pub fn write_obj_report(m: &Model, path: &str) -> Result<ObjReport> {
     if let Some(dir) = p.parent() {
         std::fs::create_dir_all(dir).ok();
     }
-    let mtl_path = p.with_extension("mtl");
+    let (mtl_path, tex_dir) = obj_siblings(p);
     let mtl_name = mtl_path.file_name().unwrap().to_string_lossy().to_string();
 
     let mut mtl = String::new();
@@ -68,7 +68,7 @@ pub fn write_obj_report(m: &Model, path: &str) -> Result<ObjReport> {
         }
     }
     // textures: one material per image, the image beside the OBJ
-    let tex_dir_name = format!("{}_textures", p.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "model".into()));
+    let tex_dir_name = tex_dir.file_name().unwrap().to_string_lossy().to_string();
     let mut tex_mats: std::collections::BTreeMap<String, String> = Default::default();
     let mut tex_files = crate::texmap::FileNames::default();
     let mut vt = 0usize;
@@ -90,7 +90,7 @@ pub fn write_obj_report(m: &Model, path: &str) -> Result<ObjReport> {
                         }
                         Ok((ext, data)) => {
                             let file = tex_files.name(mname, ext);
-                            let dir = p.with_file_name(&tex_dir_name);
+                            let dir = &tex_dir;
                             // a picture that can't be written fails the export: an .obj naming missing images is the "purple" model
                             std::fs::create_dir_all(&dir).with_context(|| format!("can't make the textures folder {}", dir.display()))?;
                             std::fs::write(dir.join(&file), data).with_context(|| format!("can't write the picture {}", dir.join(&file).display()))?;
@@ -133,6 +133,16 @@ pub fn write_obj_report(m: &Model, path: &str) -> Result<ObjReport> {
     std::fs::write(&mtl_path, mtl)?;
     let images = tex_mats.len();
     Ok(ObjReport { triangles: count, mtl: mtl_name, textures_dir: (images > 0).then_some(tex_dir_name), images, skipped })
+}
+
+/// The material file and the textures folder an OBJ export writes beside `path`.
+/// Named after it, but with no spaces: `mtllib` and `map_Kd` take space-separated
+/// arguments (`mtllib a.mtl b.mtl`), so "My House.mtl" reads as two files in
+/// Blender's and other importers, and the model comes in untextured (#222).
+pub fn obj_siblings(path: &Path) -> (std::path::PathBuf, std::path::PathBuf) {
+    let stem = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "model".into());
+    let safe: String = stem.chars().map(|c| if c.is_whitespace() || c.is_control() { '_' } else { c }).collect();
+    (path.with_file_name(format!("{safe}.mtl")), path.with_file_name(format!("{safe}_textures")))
 }
 
 /// One OBJ token: no spaces or control characters, so a name from the model

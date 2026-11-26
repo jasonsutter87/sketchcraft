@@ -6,6 +6,8 @@
 .stage {
   position: relative;
   overflow: hidden;
+  /* the view bar folds by the model view's own width (see .views below) */
+  container-type: inline-size;
 }
 
 .viewport {
@@ -190,6 +192,37 @@
 
     &:hover {
       background: rgba(255, 255, 255, 0.16);
+    }
+  }
+}
+
+/* The floating view bar (Vertical and Floating layouts) stays one row over the model: on a narrow model view the
+   style toggles fold behind ⋯, and come back as a second row while it's open (#226). Classic docks the bar as a
+   strip above the model, where it can wrap. */
+.views {
+  .views-more {
+    display: none;
+  }
+
+  .view-toggles {
+    display: contents;
+  }
+}
+
+@container (max-width: 960px) {
+  .app:not(.dock-classic) .views {
+    flex-wrap: nowrap;
+
+    .views-more {
+      display: block;
+    }
+
+    &:not(.more) .view-toggles {
+      display: none;
+    }
+
+    &.more {
+      flex-wrap: wrap;
     }
   }
 }

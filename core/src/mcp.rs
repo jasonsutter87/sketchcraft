@@ -169,6 +169,9 @@ fn tools() -> Value {
     json!([
         {
             "name": "sketchcraft_run",
+            "title": "Run SketchCraft commands",
+            // run can delete geometry (erase, undo) and write files (export_*), so it is neither read-only nor idempotent
+            "annotations": {"readOnlyHint": false, "destructiveHint": true, "idempotentHint": false, "openWorldHint": false},
             "description": format!("Run SketchCraft modeling commands in order and return each reply. Stops at the first error (the failed command changes nothing).\n\n{REFERENCE}"),
             "inputSchema": {
                 "type": "object",
@@ -178,6 +181,8 @@ fn tools() -> Value {
         },
         {
             "name": "sketchcraft_render",
+            "title": "Render the model",
+            "annotations": {"readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false},
             "description": "Render the current model and return the image. view: iso (default), front, back, left, right, top; or camera {eye, target, fov}. With sheet: a saved sheet's id, the drawing sheet instead (px wide, default 1600), to check a layout.",
             "inputSchema": {
                 "type": "object",
@@ -194,6 +199,8 @@ fn tools() -> Value {
         },
         {
             "name": "sketchcraft_info",
+            "title": "Model summary",
+            "annotations": {"readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false},
             "description": "Model summary: counts, bounds, groups, materials, and every face (id, normal, center, area).",
             "inputSchema": {"type": "object", "properties": {}}
         }
@@ -402,6 +409,20 @@ fn call(live: &mut Live, caller: &Caller, params: &Value) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_tool_declares_all_four_annotation_hints() {
+        // MCP directories (OpenAI's among them) reject a tool missing any hint or with a non-boolean one
+        for t in tools().as_array().unwrap() {
+            let a = &t["annotations"];
+            for hint in ["readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint"] {
+                assert!(a[hint].is_boolean(), "{} has no boolean {hint}", t["name"]);
+            }
+            if a["readOnlyHint"] == true {
+                assert_eq!(a["destructiveHint"], false, "{} is read-only but destructive", t["name"]);
+            }
+        }
+    }
 
     #[test]
     fn run_replies_cut_the_model_s_own_words_like_info_does() {

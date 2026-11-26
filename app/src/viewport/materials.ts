@@ -2,7 +2,13 @@ import * as THREE from "three";
 
 /** Back faces pushed out by a few screen pixels: a silhouette outline. */
 export function profileMaterial(color: number, px: number, clip: THREE.Plane[]): THREE.MeshBasicMaterial {
-  const m = new THREE.MeshBasicMaterial({ color, side: THREE.BackSide, clippingPlanes: clip });
+  // An inverted hull: the back faces, pushed out a few pixels. Where a back face
+  // is itself in view (the back of a single-face wall, the inside of an open
+  // box) the hull lies at the face's own depth, so it must lose to it: faces
+  // take polygonOffset 1/1, and shifting the hull ~2 px along its own plane
+  // moves its depth by ~2 slopes more, so 4/4 keeps it behind (#253: speckled
+  // walls with profiles on). Real silhouettes still show: nothing covers them.
+  const m = new THREE.MeshBasicMaterial({ color, side: THREE.BackSide, clippingPlanes: clip, polygonOffset: true, polygonOffsetFactor: 4, polygonOffsetUnits: 4 });
   m.onBeforeCompile = (shader) => {
     shader.uniforms.profilePx = { value: px };
     shader.vertexShader = shader.vertexShader
