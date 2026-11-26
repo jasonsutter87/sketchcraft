@@ -328,3 +328,17 @@ fn vertex_colours_from_a_file_are_in_range() {
     let c: sketchcraft::model::FaceColors = serde_json::from_value(json!({"outer": [[2.0, -1.0, 0.5, 9.0]]})).unwrap();
     assert_eq!(c.outer[0], [1.0, 0.0, 0.5, 1.0]);
 }
+
+#[test]
+fn two_materials_of_one_colour_are_one_entry_in_the_obj_materials() {
+    let dir = Tmp::new("mtl");
+    let mut e = Engine::new();
+    ok(&mut e, json!({"cmd": "rect", "from": [0, 0, 0], "to": [1, 1, 0]}));
+    for name in ["Pink", "AlsoPink"] {
+        e.model.materials.insert(name.into(), sketchcraft::model::Material { color: [1.0, 0.0, 1.0], ..Default::default() });
+    }
+    let path = dir.path().join("m.obj");
+    ok(&mut e, json!({"cmd": "export_obj", "path": path}));
+    let mtl = std::fs::read_to_string(dir.path().join("m.mtl")).unwrap();
+    assert_eq!(mtl.matches("newmtl c_ff00ff").count(), 1, "{mtl}");
+}
