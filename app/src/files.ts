@@ -1,10 +1,15 @@
-// File pickers: native dialogs in the desktop app, typed paths in a browser.
+// File pickers: native dialogs in the desktop app; in a browser, the path typed into the
+// app's own text box (the browser's prompt() is unstyled and blocks the page).
 import { open, save } from "@tauri-apps/plugin-dialog";
+import { ask } from "./ask";
 
 const inTauri = "__TAURI_INTERNALS__" in window;
 
+/** A typed path, trimmed; nothing typed is the same as Cancel. */
+const nonEmpty = (v: string | null) => v?.trim() || null;
+
 export async function pickOpen(): Promise<string | null> {
-  if (!inTauri) return window.prompt("Open which file? (full path to .sketchcraft, .skp, .dwg, .dxf, .fbx, .obj, or a .ply / .las / .xyz scan)");
+  if (!inTauri) return nonEmpty(await ask("Open which file?", "", "The full path on this computer: .sketchcraft, .skp, .dwg, .dxf, .ifc, .fbx, .obj, or a .ply / .las / .xyz / .pts scan."));
   const r = await open({
     multiple: false,
     filters: [
@@ -22,7 +27,7 @@ export async function pickOpen(): Promise<string | null> {
 }
 
 export async function pickSave(defaultName: string, ext: string, label: string): Promise<string | null> {
-  if (!inTauri) return window.prompt(`Save to which path? (.${ext})`, defaultName);
+  if (!inTauri) return nonEmpty(await ask("Save to which path?", defaultName, `The full path on this computer, ending in .${ext}.`));
   const r = await save({ defaultPath: defaultName, filters: [{ name: label, extensions: [ext] }] });
   return r ?? null;
 }
