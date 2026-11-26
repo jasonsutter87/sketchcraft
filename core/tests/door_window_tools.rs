@@ -178,3 +178,49 @@ fn a_door_leaves_the_wall_a_closed_solid() {
     assert!(lib["opening"]["faces"].as_u64().is_some(), "{lib}");
     assert_eq!(ok(&mut e, json!({"cmd": "volume", "id": g}))["solid"], true, "the library's Door too");
 }
+
+#[test]
+fn an_opening_that_would_overlap_another_is_refused_and_changes_nothing() {
+    // R0311-R-E03: overlapping cuts corrupted the wall and still answered ok
+    let mut e = Engine::new();
+    let (g, front) = wall(&mut e);
+    let w1 = ok(&mut e, json!({"cmd": "opening", "kind": "window", "host": front, "at": [2, -0.1, 1.5], "width": 1.0, "height": 1.0}))["instance"].as_u64().unwrap();
+    let faces = e.model.faces.clone();
+    let host = *e.model.faces.iter().find(|(&k, _)| e.model.normal(k).y < -0.99 && e.model.contains(k, DVec3::new(2.8, -0.1, 0.5))).unwrap().0;
+    let err = fails(&mut e, json!({"cmd": "opening", "kind": "door", "host": host, "at": [2.6, -0.1, 1], "width": 0.9, "height": 2.1}));
+    assert!(err.contains("overlap"), "{err}");
+    assert_eq!(e.model.faces, faces);
+    // the back face of the same wall counts too
+    let back = *e.model.faces.iter().find(|(&k, f)| f.group == Some(g as u32) && e.model.normal(k).y > 0.99 && !f.outer.is_empty()).unwrap().0;
+    assert!(fails(&mut e, json!({"cmd": "opening", "kind": "window", "host": back, "at": [2.2, 0.1, 1.5], "width": 1.0, "height": 1.0})).contains("overlap"));
+    // touching is refused too (it leaves faces back to back); 10 cm of wall between them is fine
+    let host = *e.model.faces.iter().find(|(&k, _)| e.model.normal(k).y < -0.99 && e.model.contains(k, DVec3::new(4.0, -0.1, 1.5))).unwrap().0;
+    assert!(fails(&mut e, json!({"cmd": "opening", "kind": "window", "host": host, "at": [3.0, -0.1, 1.5], "width": 1.0, "height": 1.0})).contains("touch"));
+    let w2 = ok(&mut e, json!({"cmd": "opening", "kind": "window", "host": host, "at": [3.1, -0.1, 1.5], "width": 1.0, "height": 1.0}))["instance"].as_u64().unwrap();
+    assert_eq!(ok(&mut e, json!({"cmd": "volume", "id": g}))["solid"], true);
+    // a resize into its neighbour is refused too, and nothing changes
+    let faces = e.model.faces.clone();
+    assert!(fails(&mut e, json!({"cmd": "opening_edit", "instance": w2, "width": 2.0})).contains("overlap"));
+    assert_eq!(e.model.faces, faces);
+    assert_eq!(ok(&mut e, json!({"cmd": "opening_info", "instance": w1}))["width"], 1.0);
+}
+
+#[test]
+fn a_tool_door_passes_check_solid() {
+    // R0311-R-E04: the stray floor sheet under every Door-tool door
+    let mut e = Engine::new();
+    let (g, front) = wall(&mut e);
+    ok(&mut e, json!({"cmd": "opening", "kind": "door", "host": front, "at": [3, -0.1, 1], "width": 0.9, "height": 2.1}));
+    let r = ok(&mut e, json!({"cmd": "check_solid", "id": g}));
+    assert!(r["solid"] == true || r["ok_solid"] == true || r["problems"].as_array().is_some_and(|p| p.is_empty()), "{r}");
+}
+
+#[test]
+fn an_opening_in_a_locked_wall_is_refused() {
+    // R0311-R-E06
+    let mut e = Engine::new();
+    let (g, front) = wall(&mut e);
+    ok(&mut e, json!({"cmd": "lock", "ids": [g], "locked": true}));
+    let err = fails(&mut e, json!({"cmd": "opening", "kind": "window", "host": front, "at": [3, -0.1, 1.5], "width": 1.0, "height": 1.0}));
+    assert!(err.contains("locked"), "{err}");
+}

@@ -198,3 +198,35 @@ fn a_file_cannot_give_a_part_a_scaled_or_huge_frame() {
         assert!(m.groups[&(g as u32)].recipe.is_none(), "{bad} is dropped");
     }
 }
+
+#[test]
+fn a_rebuild_keeps_the_paint_and_edge_styles() {
+    // R0311-R-E07: rebuild dropped paint and edge styles
+    let mut e = Engine::new();
+    let g = wall(&mut e);
+    let front = *e.model.faces.iter().find(|(&k, f)| f.group == Some(g as u32) && e.model.normal(k).y < -0.99 && !f.outer.is_empty()).unwrap().0;
+    ok(&mut e, json!({"cmd": "paint", "ids": [front], "color": [0.8, 0.3, 0.2]}));
+    let mat = e.model.faces[&front].material.clone();
+    let edge = *e.model.edges.iter().find(|(_, x)| x.group == Some(g as u32) && e.model.vertices[&x.a].p.z.abs() < 1e-9 && e.model.vertices[&x.b].p.z.abs() < 1e-9).unwrap().0;
+    e.model.edges.get_mut(&edge).unwrap().soft = true;
+    let ends = { let x = &e.model.edges[&edge]; (e.model.vertices[&x.a].p, e.model.vertices[&x.b].p) };
+    // edited by hand? softening isn't geometry: no
+    ok(&mut e, json!({"cmd": "rebuild", "group": g, "set": {"height": 3.0}}));
+    let front = e.model.faces.iter().find(|(&k, f)| f.group == Some(g as u32) && e.model.normal(k).y < -0.99 && !f.outer.is_empty()).unwrap().1;
+    assert_eq!(front.material, mat, "the front keeps its paint");
+    let soft = e.model.edges.values().find(|x| { let (a, b) = (e.model.vertices[&x.a].p, e.model.vertices[&x.b].p); (a.distance(ends.0) < 1e-9 && b.distance(ends.1) < 1e-9) || (a.distance(ends.1) < 1e-9 && b.distance(ends.0) < 1e-9) });
+    assert!(soft.is_some_and(|x| x.soft), "the same edge is still soft");
+}
+
+#[test]
+fn a_file_recipe_with_too_many_corners_is_dropped() {
+    // R0311-R-E05: a 4,096-corner recipe from a file made a forced rebuild run 8-29 s
+    let mut e = Engine::new();
+    let g = wall(&mut e);
+    let text = serde_json::to_string(&e.model).unwrap();
+    let pts: Vec<[f64; 3]> = (0..2500).map(|i| [i as f64 * 0.01, 0.0, 0.0]).collect();
+    let bad = text.replace("\"points\":[[0.0,0.0,0.0],[4.0,0.0,0.0]]", &format!("\"points\":{}", serde_json::to_string(&pts).unwrap()));
+    assert_ne!(bad, text, "the test found the wall's points");
+    let m: sketchcraft::model::Model = serde_json::from_str(&bad).unwrap();
+    assert!(m.groups[&(g as u32)].recipe.is_none());
+}

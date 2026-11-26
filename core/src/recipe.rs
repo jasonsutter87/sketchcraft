@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
 /// The most corners a remembered wall path or roof outline may have (a file could name any number).
-const MAX_POINTS: usize = 4096;
+const MAX_POINTS: usize = 2000; // the Wall tool takes no more from an agent (policy MAX_POINTS_UNTRUSTED)
 
 /// What a tool made, and with which settings. Coordinates are where it was first made; `Recipe::frame` carries it to
 /// where it is now.
@@ -124,6 +124,13 @@ fn frame_ok(f: &[f64; 16]) -> bool {
     f.iter().all(|&x| crate::model::sane(x)) && rigid(DMat4::from_cols_array(f)) && f[15] == 1.0 && f[3] == 0.0 && f[7] == 0.0 && f[11] == 0.0
 }
 
+/// A part's paint and edge styles, kept across a rebuild (see `Model::part_looks`).
+struct Looks {
+    frame: DMat4,
+    faces: Vec<(DVec3, f64, Option<String>)>,
+    edges: std::collections::HashMap<([i64; 3], [i64; 3]), (bool, bool, Option<Box<crate::drafting::EdgeDraft>>, bool)>,
+}
+
 /// A move or turn about a vertical axis, no scaling and no mirror: a remembered part can follow it.
 fn rigid(t: DMat4) -> bool {
     let m = DMat3::from_mat4(t);
@@ -157,6 +164,75 @@ impl Model {
             Part::Roof { outline, style, pitch, overhang, thickness } => (self.roof_over(&outline.iter().map(v).collect::<Vec<_>>(), style, *pitch, *overhang, *thickness)?, json!({})),
             Part::Column { at, size, height, round } => (self.column(v(at), *size, *height, *round)?, json!({})),
         })
+    }
+
+    /// What a part looks like beyond its shape: each painted face's material by its plane, and each styled edge's
+    /// style by its ends, in the part's own frame (so a rebuild can put them back where they still fit).
+    fn part_looks(&self, g: Id, frame: DMat4) -> Looks {
+        let back = frame.inverse();
+        let key = |p: DVec3| {
+            let q = back.transform_point3(p);
+            [(q.x * 1e4).round() as i64, (q.y * 1e4).round() as i64, (q.z * 1e4).round() as i64]
+        };
+        let faces = self
+            .faces
+            .iter()
+            .filter(|(_, f)| f.group == Some(g) && f.material.is_some())
+            .map(|(&k, f)| {
+                let n = back.transform_vector3(self.normal(k));
+                let p = back.transform_point3(self.p(f.outer[0]));
+                (n, n.dot(p), f.material.clone())
+            })
+            .collect();
+        let edges = self
+            .edges
+            .values()
+            .filter(|e| e.group == Some(g) && (e.soft || e.hidden || e.draft.is_some() || e.seam))
+            .map(|e| {
+                let (a, b) = (key(self.p(e.a)), key(self.p(e.b)));
+                ((a.min(b), a.max(b)), (e.soft, e.hidden, e.draft.clone(), e.seam))
+            })
+            .collect();
+        Looks { frame, faces, edges }
+    }
+
+    /// Put `looks` back on the rebuilt part: a face takes the paint of the old face on its plane, facing its way; an
+    /// edge with the same two ends takes its old style. Faces and edges the new shape doesn't have are simply gone.
+    fn put_back_looks(&mut self, g: Id, looks: &Looks) {
+        if looks.faces.is_empty() && looks.edges.is_empty() {
+            return;
+        }
+        let back = looks.frame.inverse();
+        let ids: Vec<Id> = self.faces.iter().filter(|(_, f)| f.group == Some(g)).map(|(&k, _)| k).collect();
+        for k in ids {
+            let n = back.transform_vector3(self.normal(k));
+            let w = n.dot(back.transform_point3(self.p(self.faces[&k].outer[0])));
+            let paint = looks.faces.iter().filter(|(m, d, _)| m.dot(n) > 0.999 && (d - w).abs() < 1e-4).map(|(_, _, mat)| mat.clone()).next();
+            if let (Some(mat), Some(f)) = (paint, self.faces.get_mut(&k)) {
+                f.material = mat;
+            }
+        }
+        let key = |p: DVec3| {
+            let q = back.transform_point3(p);
+            [(q.x * 1e4).round() as i64, (q.y * 1e4).round() as i64, (q.z * 1e4).round() as i64]
+        };
+        let at: Vec<(Id, ([i64; 3], [i64; 3]))> = self
+            .edges
+            .iter()
+            .filter(|(_, e)| e.group == Some(g))
+            .map(|(&k, e)| {
+                let (a, b) = (key(self.p(e.a)), key(self.p(e.b)));
+                (k, (a.min(b), a.max(b)))
+            })
+            .collect();
+        for (k, ends) in at {
+            if let (Some((soft, hidden, draft, seam)), Some(e)) = (looks.edges.get(&ends), self.edges.get_mut(&k)) {
+                e.soft = *soft;
+                e.hidden = *hidden;
+                e.draft = draft.clone();
+                e.seam = *seam;
+            }
+        }
     }
 
     /// A fingerprint of the group's own geometry, seen from where it was made (so moving it whole keeps the print).
@@ -238,12 +314,16 @@ impl Model {
             }
         }
 
+        // the paint on its faces and the styles on its edges, to put back on the matching ones (R0311-R-E07)
+        let looks = self.part_looks(g, frame);
+        self.check_deadline()?;
         // the new geometry first (if the settings can't be built, nothing has changed), then swap it in
         let prev = self.active_group;
         self.active_group = self.groups[&g].parent;
         let made = self.make_part(&part);
         self.active_group = prev;
         let (fresh, extra) = made?;
+        self.check_deadline()?;
         self.faces.retain(|_, f| f.group != Some(g));
         self.edges.retain(|_, e| e.group != Some(g));
         self.vertices.retain(|_, x| x.group != Some(g));
@@ -258,9 +338,11 @@ impl Model {
             x.p = frame.transform_point3(x.p);
         }
         self.groups.remove(&fresh);
+        self.put_back_looks(g, &looks);
 
         let (mut kept, mut lost) = (0, 0);
         for (_, def, t) in openings {
+            self.check_deadline()?;
             let back = crate::openings::back_outline(&def).unwrap_or_default();
             let world: Vec<DVec3> = back.iter().map(|p| t.transform_point3(*p)).collect();
             if self.wall_face_for(&world, &[g]).is_some_and(|host| crate::openings::cut(self, &def, t, host).is_ok()) {
