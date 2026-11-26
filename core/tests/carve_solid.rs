@@ -117,3 +117,20 @@ fn a_grid_of_cut_pairs_stays_solid() {
     }
     assert!(bad.is_empty(), "{} of {tried} pairs not solid", bad.len());
 }
+
+#[test]
+fn a_cut_beside_a_face_with_thousands_of_corners_is_quick() {
+    let mut e = Engine::new();
+    // a disc of 4,000 corners, made a solid; a pocket cut into its top beside the rim
+    let n = 4000;
+    let pts: Vec<[f64; 3]> = (0..n).map(|i| {
+        let a = i as f64 / n as f64 * std::f64::consts::TAU;
+        [10.0 * a.cos(), 10.0 * a.sin(), 0.0]
+    }).collect();
+    let f = ok(&mut e, json!({"cmd": "polygon", "points": pts}))["face"].clone();
+    ok(&mut e, json!({"cmd": "pushpull", "face": f, "distance": 2}));
+    let t = std::time::Instant::now();
+    cut(&mut e, [-2.0, -2.0], [2.0, 2.0], 2.0, -1.0);
+    assert!(t.elapsed().as_secs_f64() < 3.0, "{:?}", t.elapsed());
+    assert!(solid(&mut e));
+}

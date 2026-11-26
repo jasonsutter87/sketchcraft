@@ -1374,6 +1374,13 @@ impl Model {
         if verts.is_empty() {
             return Ok(());
         }
+        // the vertices in a grid of cells, so an edge looks only at the ones near it
+        let size = ((hi - lo).max_element() / 64.0).max(WELD * 100.0);
+        let cell = |p: DVec3| (((p.x - lo.x) / size).floor() as i64, ((p.y - lo.y) / size).floor() as i64, ((p.z - lo.z) / size).floor() as i64);
+        let mut grid: HashMap<(i64, i64, i64), Vec<usize>> = HashMap::new();
+        for (i, (_, p)) in verts.iter().enumerate() {
+            grid.entry(cell(*p)).or_default().push(i);
+        }
         // faces whose box meets the box (an edge can cross it with no corner inside)
         let near: Vec<Id> = self
             .faces
@@ -1398,7 +1405,10 @@ impl Model {
             let mut splits: Vec<(Id, Id, Vec<Id>)> = Vec::new();
             let mut fix = |m: &Model, l: &[Id]| -> Vec<Id> {
                 let mut out = Vec::with_capacity(l.len());
+                let mine: std::collections::HashSet<Id> = l.iter().copied().collect();
                 for (a, b) in pairs(l) {
+                    // a face with a great many corners beside a big cut is real work: the time limit is kept here too
+                    crate::deadline::poll();
                     out.push(a);
                     let (pa, pb) = (m.p(a), m.p(b));
                     let ab = pb - pa;
@@ -1406,9 +1416,26 @@ impl Model {
                     if len2 < WELD * WELD {
                         continue;
                     }
-                    let mut on: Vec<(f64, Id)> = verts
-                        .iter()
-                        .filter(|(id, _)| *id != a && *id != b && !l.contains(id))
+                    // the cells the edge's box covers (an edge longer than the whole box is clipped to it)
+                    let (c0, c1) = (cell(pa.min(pb).max(lo)), cell(pa.max(pb).min(hi)));
+                    let mut cand: Vec<usize> = Vec::new();
+                    if (c1.0 - c0.0 + 1) * (c1.1 - c0.1 + 1) * (c1.2 - c0.2 + 1) <= 4096 {
+                        for x in c0.0..=c1.0 {
+                            for y in c0.1..=c1.1 {
+                                for z in c0.2..=c1.2 {
+                                    if let Some(v) = grid.get(&(x, y, z)) {
+                                        cand.extend(v);
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        cand.extend(0..verts.len());
+                    }
+                    let mut on: Vec<(f64, Id)> = cand
+                        .into_iter()
+                        .map(|i| &verts[i])
+                        .filter(|(id, _)| *id != a && *id != b && !mine.contains(id))
                         .filter_map(|(id, p)| {
                             let t = (*p - pa).dot(ab) / len2;
                             (t > 1e-9 && t < 1.0 - 1e-9 && (pa + ab * t).distance(*p) < WELD).then_some((t, *id))
@@ -1488,6 +1515,7 @@ impl Model {
             if g2.iter().all(|q| q.x <= lo.0) || g2.iter().all(|q| q.x >= hi.0) || g2.iter().all(|q| q.y <= lo.1) || g2.iter().all(|q| q.y >= hi.1) {
                 continue;
             }
+            crate::deadline::poll();
             let inter = tpoly.intersection(&poly_of(self, g));
             if inter.unsigned_area() > 1e-9 {
                 hits.push((id, inter));
@@ -1509,6 +1537,7 @@ impl Model {
         let mut all = MultiPolygon::new(vec![]);
         for (gid, inter) in &hits {
             self.subtract_region(*gid, &to3(inter), &t.outer)?;
+            crate::deadline::poll();
             all = all.union(inter);
         }
         self.subtract_region(fid, &to3(&all), &[])?;
