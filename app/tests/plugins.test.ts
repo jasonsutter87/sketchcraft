@@ -11,13 +11,14 @@ describe("cleanResult (what a plugin shows)", () => {
     expect(r.title).toHaveLength(120);
     expect(r.text).toHaveLength(20_000);
     expect(r.table!.columns).toHaveLength(40);
-    expect(r.table!.rows).toHaveLength(2000);
+    // 40 columns: 10,000 cells is 250 rows
+    expect(r.table!.rows).toHaveLength(250);
     expect(r.table!.rows[0]).toHaveLength(40);
   });
   it("turns cells into strings or finite numbers", () => {
     const r = cleanResult({ table: { columns: ["a"], rows: [[NaN], [Infinity], [{ x: 1 }], [null], [true], ["s".repeat(900)]] } });
     expect(r.table!.rows.slice(0, 5)).toEqual([["NaN"], ["Infinity"], ["[object Object]"], [""], ["true"]]);
-    expect(r.table!.rows[5][0]).toHaveLength(400);
+    expect(r.table!.rows[5][0]).toHaveLength(200);
   });
   it("makes a row that is not a list an empty row", () => {
     expect(cleanResult({ table: { columns: ["a"], rows: ["nope", 5, null] } }).table!.rows).toEqual([[], [], []]);
