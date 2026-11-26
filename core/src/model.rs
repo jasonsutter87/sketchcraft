@@ -352,6 +352,10 @@ pub struct View {
     pub hidden: Option<Vec<Id>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub section: Option<[f64; 6]>,
+    /// A scene that shows only these (groups, components, faces, edges) and hides everything else, including
+    /// whatever is drawn after the scene was saved (#229). None: `hidden` says what's hidden, as before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub only: Option<Vec<Id>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

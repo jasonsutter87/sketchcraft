@@ -431,6 +431,10 @@ pub enum Command {
         /// true: the camera only (SketchUp's scene with its other properties unticked)
         #[serde(default)]
         camera_only: bool,
+        /// Show only these (groups, components, faces, edges) when the scene is shown, and hide everything else,
+        /// including what is drawn later (#229).
+        #[serde(default)]
+        only: Option<Vec<Id>>,
     },
     /// Go to a saved view's state: tags shown / hidden and what's hidden as
     /// they were. Returns the view (camera, style, section) for the app.

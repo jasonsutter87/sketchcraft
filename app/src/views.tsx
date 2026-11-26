@@ -45,22 +45,31 @@ function SectionList({ scene, run }: { scene: Scene; run: Run }) {
   );
 }
 
-export function Views({ scene, run, camera, goTo, onMatchPhoto, onPhotoModel, onRefImage }: { scene: Scene; run: Run; camera: () => Cam; goTo: (c: Cam & { photo?: string }) => void; onMatchPhoto: (f: File) => void; onPhotoModel: () => void; onRefImage: () => void }) {
+export function Views({ scene, run, camera, goTo, onMatchPhoto, onPhotoModel, onRefImage, selected = [] }: { scene: Scene; run: Run; camera: () => Cam; goTo: (c: Cam & { photo?: string }) => void; onMatchPhoto: (f: File) => void; onPhotoModel: () => void; onRefImage: () => void; selected?: number[] }) {
   const [name, setName] = useState("");
   const photoInput = useRef<HTMLInputElement>(null);
-  const save = async () => {
+  /** `only`: a scene that shows just the selection, and hides what is drawn later (#229) */
+  const save = async (only?: number[]) => {
     const n = name.trim() || `View ${scene.views.length + 1}`;
-    await run({ cmd: "save_view", name: n, ...camera() });
+    await run({ cmd: "save_view", name: n, ...camera(), ...(only ? { only } : {}) });
     setName("");
   };
   return (
     <>
       <div className="row">
         <input className="num wide-input" placeholder="Name this view" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && save()} />
-        <button className="btn small" onClick={save}>
+        <button className="btn small" onClick={() => save()}>
           <Icons.plus /> Save
         </button>
       </div>
+      <button
+        className="btn small ghost only-save"
+        disabled={!selected.length}
+        onClick={() => save(selected)}
+        title={selected.length ? "This scene shows only what's selected now. Everything else is hidden in it, even things you draw later." : "Select the groups or objects this scene should show, then save it here"}
+      >
+        Save showing only the selection{selected.length ? ` (${selected.length})` : ""}
+      </button>
       <div className="photo-actions" role="group" aria-label="From photos">
         <span className="section-label">From photos</span>
         <button onClick={() => photoInput.current?.click()}>
@@ -82,6 +91,11 @@ export function Views({ scene, run, camera, goTo, onMatchPhoto, onPhotoModel, on
           <li key={v.name} onClick={() => goTo(v)}>
             {v.photo ? <img className="view-thumb" src={v.photo} alt="" /> : <Icons.camera />}
             <span className="name">{v.name}</span>
+            {v.only && (
+              <span className="muted small" title="Shows only what it was saved with; everything else stays hidden here, even things drawn later">
+                only {v.only.length}
+              </span>
+            )}
             <button
               className="eye"
               title="Delete view"
