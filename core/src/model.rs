@@ -146,12 +146,18 @@ mod lenient {
         Ok(Vec::<Vec<[Option<f64>; 2]>>::deserialize(d)?.into_iter().map(|r| r.into_iter().map(f32s).collect()).collect())
     }
 
+    /// Vertex colours (RGBA, 0..1): a value past either end is read as that end; a missing one stays NaN, so the
+    /// face's colours are dropped as before (`vet_face_data`).
+    fn rgba(a: [Option<f64>; 4]) -> [f32; 4] {
+        f32s(a).map(|x| if x.is_nan() { x } else { x.clamp(0.0, 1.0) })
+    }
+
     pub fn ring4<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<[f32; 4]>, D::Error> {
-        Ok(Vec::<[Option<f64>; 4]>::deserialize(d)?.into_iter().map(f32s).collect())
+        Ok(Vec::<[Option<f64>; 4]>::deserialize(d)?.into_iter().map(rgba).collect())
     }
 
     pub fn rings4<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<Vec<[f32; 4]>>, D::Error> {
-        Ok(Vec::<Vec<[Option<f64>; 4]>>::deserialize(d)?.into_iter().map(|r| r.into_iter().map(f32s).collect()).collect())
+        Ok(Vec::<Vec<[Option<f64>; 4]>>::deserialize(d)?.into_iter().map(|r| r.into_iter().map(rgba).collect()).collect())
     }
 }
 

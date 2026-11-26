@@ -280,3 +280,24 @@ fn colours_read_from_any_file_are_in_range_tag_colours_too() {
     assert_eq!(mat.emission, Some(100.0));
     assert_eq!(m.tag_colors["t"], [1.0, 0.5, 0.0]);
 }
+
+#[test]
+fn the_no_follow_rule_lasts_for_one_command_only() {
+    sketchcraft::safety::set_no_follow(false);
+    {
+        let _g = sketchcraft::safety::NoFollow::set(true);
+        assert!(sketchcraft::safety::no_follow());
+    }
+    assert!(!sketchcraft::safety::no_follow(), "put back when the command is done");
+    // and after a real command from an agent, the thread is back to the person's rules
+    let mut e = Engine::new();
+    let r = e.exec_json_as(&Caller::Mcp(Workspace::anywhere()), &json!({"cmd": "info"}).to_string());
+    assert_eq!(r["ok"], true, "{r}");
+    assert!(!sketchcraft::safety::no_follow());
+}
+
+#[test]
+fn vertex_colours_from_a_file_are_in_range() {
+    let c: sketchcraft::model::FaceColors = serde_json::from_value(json!({"outer": [[2.0, -1.0, 0.5, 9.0]]})).unwrap();
+    assert_eq!(c.outer[0], [1.0, 0.0, 0.5, 1.0]);
+}

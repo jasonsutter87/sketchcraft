@@ -6,7 +6,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 
 const HELP: &str = "Opening and saving DWG needs a converter: install LibreDWG (brew install libredwg) or the free ODA File Converter, then try again. DXF works without one.";
 
@@ -90,12 +90,15 @@ pub fn to_dxf(dwg: &Path, tmp: &Path) -> Result<PathBuf> {
     Ok(out)
 }
 
-/// Convert our DXF to a DWG at `dwg`.
+/// Convert our DXF to a DWG at `dwg`. The converter writes beside the DXF (a folder of our own), and the drawing is
+/// then written to `dwg` as every other export is (`write_output`: not through a link for an agent or a plugin).
 pub fn from_dxf(dxf: &Path, dwg: &Path) -> Result<()> {
     if let Some(bin) = find("dxf2dwg") {
+        let made = dxf.with_extension("dwg");
         let mut c = Command::new(bin);
-        c.arg("-y").arg("-o").arg(crate::safety::path_arg(dwg)).arg(crate::safety::path_arg(dxf));
+        c.arg("-y").arg("-o").arg(crate::safety::path_arg(&made)).arg(crate::safety::path_arg(dxf));
         run(c)?;
+        crate::safety::write_output(dwg, std::fs::read(&made).context("the DWG converter didn't produce a drawing")?)?;
     } else if let Some(bin) = oda() {
         let dir = dxf.parent().unwrap_or(Path::new("."));
         let out = dir.join("out");
@@ -104,7 +107,7 @@ pub fn from_dxf(dxf: &Path, dwg: &Path) -> Result<()> {
         c.arg(crate::safety::path_arg(dir)).arg(crate::safety::path_arg(&out)).args(["ACAD2018", "DWG", "0", "1", "*.DXF"]);
         run(c)?;
         let made = out.join(dxf.with_extension("dwg").file_name().unwrap());
-        std::fs::copy(&made, dwg)?;
+        crate::safety::write_output(dwg, std::fs::read(&made).context("the DWG converter didn't produce a drawing")?)?;
     } else {
         bail!("{HELP}");
     }
