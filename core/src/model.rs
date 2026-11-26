@@ -1298,6 +1298,7 @@ impl Model {
                 out[0] = kept;
             }
             for i in 1..out.len() {
+                self.check_deadline()?;
                 if self.faces.contains_key(&out[i]) {
                     self.punch_through(out[i])?;
                 }
@@ -1809,6 +1810,27 @@ impl Model {
     }
 
     /// The plain-color material for `color` (made if it isn't there yet); its name.
+    /// Material colours and finishes from a file brought into range (0..1), here and in component definitions: a
+    /// file edited by hand or by another program may hold anything.
+    pub fn clamp_colours(&mut self) {
+        let fix = |m: &mut Material| {
+            for c in &mut m.color {
+                *c = if c.is_nan() { 0.8 } else { c.clamp(0.0, 1.0) };
+            }
+            m.opacity = if m.opacity.is_nan() { 1.0 } else { m.opacity.clamp(0.0, 1.0) };
+            for x in [&mut m.roughness, &mut m.metalness] {
+                *x = x.filter(|v| !v.is_nan()).map(|v| v.clamp(0.0, 1.0));
+            }
+            m.emission = m.emission.filter(|v| v.is_finite()).map(|v| v.max(0.0));
+        };
+        self.materials.values_mut().for_each(fix);
+        for d in self.definitions.values_mut() {
+            if d.model.materials.values().any(|m| m.color.iter().any(|c| !(0.0..=1.0).contains(c))) {
+                std::sync::Arc::make_mut(&mut d.model).materials.values_mut().for_each(fix);
+            }
+        }
+    }
+
     pub fn color_material(&mut self, color: [f32; 3]) -> String {
         let name = format!(
             "#{:02x}{:02x}{:02x}",
