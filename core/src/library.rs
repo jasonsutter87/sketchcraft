@@ -271,8 +271,15 @@ pub fn fold(name: &str) -> String {
 /// Windows device names (a file called `NUL` or `COM1.obj` is the device).
 pub(crate) fn is_device(folded: &str) -> bool {
     let stem = folded.split('.').next().unwrap_or("").trim_end();
-    matches!(stem, "con" | "prn" | "aux" | "nul" | "conin$" | "conout$")
-        || ((stem.starts_with("com") || stem.starts_with("lpt")) && stem.len() == 4 && stem.as_bytes()[3].is_ascii_digit() && stem.as_bytes()[3] != b'0')
+    if matches!(stem, "con" | "prn" | "aux" | "nul" | "conin$" | "conout$") {
+        return true;
+    }
+    // com1..com9 and lpt1..lpt9, also with the superscript digits Windows treats the same way
+    let rest = stem.strip_prefix("com").or_else(|| stem.strip_prefix("lpt"));
+    rest.is_some_and(|r| {
+        let mut it = r.chars();
+        matches!((it.next(), it.next()), (Some(c), None) if matches!(c, '1'..='9' | '\u{b9}' | '\u{b2}' | '\u{b3}'))
+    })
 }
 
 /// Folder names the library never writes into: the model's own `Backups` and `Plugins` (a

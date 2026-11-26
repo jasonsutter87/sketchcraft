@@ -74,7 +74,7 @@ pub fn ruby_menu_labels(files: &[(String, Vec<u8>)]) -> Vec<String> {
                 let t = rest.trim_start_matches(|c: char| c == '(' || c == ' ' || c == '\t');
                 let Some(q) = t.chars().next().filter(|c| *c == '"' || *c == '\'') else { continue };
                 if let Some(end) = t[1..].find(q) {
-                    let label: String = t[1..1 + end].chars().filter(|c| !c.is_control()).take(80).collect();
+                    let label: String = t[1..1 + end].chars().filter(|c| !c.is_control() && !crate::text::is_format_char(*c) && !crate::text::is_invisible_filler(*c)).take(80).collect();
                     if !label.trim().is_empty() && !out.contains(&label) && out.len() < 50 {
                         out.push(label);
                     }
@@ -217,6 +217,10 @@ pub fn install(bytes: &[u8], file_name: Option<&str>, opts: &InstallOpts) -> Res
     // a single SketchUp Ruby script (.rb)
     if file_name.is_some_and(|n| n.to_ascii_lowercase().ends_with(".rb")) {
         let name = Path::new(file_name.unwrap()).file_name().and_then(|n| n.to_str()).unwrap_or("script.rb").to_string();
+        // the same name checks the archive's files get
+        if name.starts_with('.') || name.contains('\\') || name.contains(':') || !plain_file_name(&name) {
+            bail!("unsafe file name: {}", name.chars().filter(|c| !c.is_control() && !crate::text::is_format_char(*c) && !crate::text::is_invisible_filler(*c)).take(80).collect::<String>());
+        }
         let text = std::str::from_utf8(bytes).context("that .rb file isn't text")?;
         return install_ruby(vec![(name, text.as_bytes().to_vec())], opts);
     }
@@ -254,7 +258,7 @@ pub fn install(bytes: &[u8], file_name: Option<&str>, opts: &InstallOpts) -> Res
         let Some(rel) = name.strip_prefix(&prefix) else { continue };
         // safe names only: no parent dirs, no absolute paths, no hidden files
         if rel.is_empty() || rel.split('/').any(|p| p.is_empty() || p == ".." || p.starts_with('.')) || rel.contains('\\') || rel.contains(':') || !plain_file_name(rel) {
-            bail!("unsafe file name in the plugin: {}", name.chars().filter(|c| !c.is_control() && !crate::text::is_format_char(*c)).collect::<String>());
+            bail!("unsafe file name in the plugin: {}", name.chars().filter(|c| !c.is_control() && !crate::text::is_format_char(*c) && !crate::text::is_invisible_filler(*c)).take(80).collect::<String>());
         }
         let ext = Path::new(rel).extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
         if !matches!(ext.as_str(), "json" | "js" | "svg" | "png" | "md" | "txt" | "rb") {
@@ -359,9 +363,9 @@ fn plain_file_name(rel: &str) -> bool {
         return false;
     }
     !rel.split('/').any(|part| {
-        let stem = part.split('.').next().unwrap_or("").trim_end().to_ascii_lowercase();
-        matches!(stem.as_str(), "con" | "prn" | "aux" | "nul" | "conin$" | "conout$")
-            || ((stem.starts_with("com") || stem.starts_with("lpt")) && stem.len() == 4 && stem.as_bytes()[3].is_ascii_digit())
+        let f = crate::library::fold(part);
+        let stem = f.split('.').next().unwrap_or("").trim_end();
+        crate::library::is_device(&f) || stem == "com0" || stem == "lpt0"
     })
 }
 

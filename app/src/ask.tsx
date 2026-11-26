@@ -18,21 +18,26 @@ interface Ask {
 let show: ((a: Ask) => void) | null = null;
 // one question at a time: a second one waits its turn (and is answered after the first)
 let busy = false;
+let current: Ask | null = null;
 const waiting: Ask[] = [];
 function open(a: Ask) {
   if (!show) return a.done(null);
   if (busy) return void waiting.push(a);
   busy = true;
   const done = a.done;
-  show({
+  const shown: Ask = {
     ...a,
     done: (v) => {
+      if (current !== shown) return;
+      current = null;
       done(v);
       busy = false;
       const next = waiting.shift();
       if (next) open(next);
     },
-  });
+  };
+  current = shown;
+  show(shown);
 }
 
 /** Ask for a line of text; null if cancelled. */
@@ -62,6 +67,8 @@ export function AskHost() {
     };
     return () => {
       show = null;
+      // the host went away with a question open: answer it (cancelled) so the next one isn't stuck behind it
+      current?.done(null);
     };
   }, []);
   useEffect(() => {
