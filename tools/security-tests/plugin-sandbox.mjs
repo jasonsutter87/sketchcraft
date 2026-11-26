@@ -86,6 +86,21 @@ const types = await p.evaluate(async () => {
 });
 check(types && ['Worker', 'SharedWorker', 'fetch', 'XMLHttpRequest', 'WebSocket', 'importScripts', 'BroadcastChannel'].every((k) => types[k] === 'undefined') && types.spawned === 'threw', `lockdown: no Worker, no network APIs (${JSON.stringify(types)})`);
 
+// 1b. the same names are closed on the prototypes (a real worker keeps fetch etc. there, not on self)
+const protos = await p.evaluate(async () => {
+  const { runPlugin } = await import('/src/plugins.tsx');
+  let shown = null;
+  await runPlugin({ id: 'x', name: 'X', commands: [{ id: 'go', label: 'Go' }], builtin: false, code: `sketchcraft.command('go', async (ctx) => {
+    const reach = [];
+    for (let o = self; o && o !== Object.prototype; o = Object.getPrototypeOf(o)) for (const k of ['fetch','importScripts','indexedDB','caches','createImageBitmap','XMLHttpRequest']) { try { if (typeof Reflect.get(o, k, self) === 'function' || (k === 'indexedDB' || k === 'caches') && Reflect.get(o, k, self)) reach.push(k); } catch {} }
+    let dir = 'none'; try { const g = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(navigator), 'storage'); dir = typeof (g && g.get && g.get.call(navigator)); } catch { dir = 'threw'; }
+    ctx.show({ text: JSON.stringify({ reach, dir }) }); });` }, 'go', {
+    selection: { faces: [], edges: [], groups: [], instances: [] }, units: 'm', run: async () => ({ ok: true }), show: (res) => (shown = JSON.parse(res.text)), toast: () => {}, ask: async () => null,
+  });
+  return shown;
+});
+check(protos && protos.reach.length === 0 && (protos.dir === 'undefined' || protos.dir === 'none' || protos.dir === 'threw'), `lockdown: nothing left on the prototypes (${JSON.stringify(protos)})`);
+
 // 2. what the engine says to a plugin that asks for forbidden things
 r = await runJs(`
   await ctx.run({ cmd: 'save_text', path: ${JSON.stringify(marker)}, text: 'x' });

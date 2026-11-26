@@ -265,19 +265,49 @@ impl ReportSource for Hid {
     }
 }
 
+/// Only a socket owned by root (the system daemon) or by the person running the app is trusted: another
+/// user could create `/tmp/.spnav.sock` and steer the camera.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn trusted_owner(owner: u32, me: u32) -> bool {
+    owner == 0 || owner == me
+}
+
+/// Read toward a full 32-byte event, keeping what has arrived across timeouts so a slow sender never
+/// shifts the framing. `Ok(true)` once `buf` holds a whole event (and `have` is reset), `Ok(false)` on a timeout.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn fill_frame<R: std::io::Read>(r: &mut R, buf: &mut [u8; 32], have: &mut usize) -> std::io::Result<bool> {
+    while *have < buf.len() {
+        match r.read(&mut buf[*have..]) {
+            Ok(0) => return Err(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "the 3D mouse driver closed the connection")),
+            Ok(n) => *have += n,
+            Err(e) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => return Ok(false),
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e),
+        }
+    }
+    *have = 0;
+    Ok(true)
+}
+
 #[cfg(target_os = "linux")]
 mod spnav {
     use super::*;
-    use std::io::Read;
+    use std::os::unix::fs::{FileTypeExt, MetadataExt};
     use std::os::unix::net::UnixStream;
 
-    pub struct Sock(UnixStream);
+    pub struct Sock(UnixStream, [u8; 32], usize);
 
-    /// spacenavd listens on /var/run/spnav.sock (older builds: /tmp/.spnav.sock).
+    /// spacenavd listens on /var/run/spnav.sock (older builds: /tmp/.spnav.sock). Only a socket
+    /// owned by root or by this user is used.
     pub fn open() -> Option<Sock> {
+        let me = std::fs::metadata("/proc/self").map(|m| m.uid()).ok()?;
         for path in ["/var/run/spnav.sock", "/run/spnav.sock", "/tmp/.spnav.sock"] {
+            let Ok(m) = std::fs::symlink_metadata(path) else { continue };
+            if !m.file_type().is_socket() || !trusted_owner(m.uid(), me) {
+                continue;
+            }
             if let Ok(s) = UnixStream::connect(path) {
-                return Some(Sock(s));
+                return Some(Sock(s, [0; 32], 0));
             }
         }
         None
@@ -286,10 +316,10 @@ mod spnav {
     impl ReportSource for Sock {
         fn next(&mut self, timeout: Duration) -> Result<Option<Input>, String> {
             let _ = self.0.set_read_timeout(Some(timeout));
-            let mut b = [0u8; 32];
-            match self.0.read_exact(&mut b) {
-                Ok(()) => Ok(parse_spnav(&b).map(Input::Spnav)),
-                Err(e) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => Ok(None),
+            let Sock(stream, buf, have) = self;
+            match fill_frame(stream, buf, have) {
+                Ok(true) => Ok(parse_spnav(buf).map(Input::Spnav)),
+                Ok(false) => Ok(None),
                 Err(e) => Err(e.to_string()),
             }
         }
@@ -354,6 +384,40 @@ mod tests {
         assert!(d.feed(&[9, 1, 2, 3, 4, 5, 6]).is_none()); // an id we don't know
         assert!(d.feed(&[3]).is_none());
         assert_eq!(d.feed(&rep(1, &[0, 0, 0])).unwrap().t, [0, 0, 0]); // letting go is a change
+    }
+
+    #[test]
+    fn only_root_or_me_may_own_the_socket() {
+        assert!(trusted_owner(0, 1000));
+        assert!(trusted_owner(1000, 1000));
+        assert!(!trusted_owner(1001, 1000));
+    }
+
+    #[test]
+    fn a_slow_sender_does_not_break_the_framing() {
+        // a reader that hands out 10 bytes, times out, then the rest
+        struct Slow(Vec<Result<Vec<u8>, std::io::ErrorKind>>);
+        impl std::io::Read for Slow {
+            fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+                match self.0.remove(0) {
+                    Ok(b) => {
+                        out[..b.len()].copy_from_slice(&b);
+                        Ok(b.len())
+                    }
+                    Err(k) => Err(k.into()),
+                }
+            }
+        }
+        let data: Vec<u8> = (0..32).collect();
+        let mut r = Slow(vec![Ok(data[..10].to_vec()), Err(std::io::ErrorKind::TimedOut), Ok(data[10..].to_vec())]);
+        let (mut buf, mut have) = ([0u8; 32], 0usize);
+        assert!(!fill_frame(&mut r, &mut buf, &mut have).unwrap());
+        assert_eq!(have, 10);
+        assert!(fill_frame(&mut r, &mut buf, &mut have).unwrap());
+        assert_eq!(have, 0);
+        assert_eq!(buf.to_vec(), data);
+        let mut closed = Slow(vec![Ok(vec![])]);
+        assert!(fill_frame(&mut closed, &mut buf, &mut have).is_err());
     }
 
     #[test]

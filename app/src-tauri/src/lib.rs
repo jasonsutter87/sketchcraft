@@ -61,7 +61,9 @@ fn ai_state(state: tauri::State<App>) -> String {
 #[tauri::command]
 async fn ai_chat(messages: Value, url: Option<String>) -> Result<Value, String> {
     let u = ai::endpoint(url.as_deref());
-    let text = ai::chat(&u, &messages)?;
+    // the socket I/O blocks (up to minutes): do it on a thread meant for that, not on the async runtime
+    let url = u.clone();
+    let text = tauri::async_runtime::spawn_blocking(move || ai::chat(&url, &messages)).await.map_err(|e| e.to_string())??;
     Ok(serde_json::json!({"text": text, "url": u}))
 }
 

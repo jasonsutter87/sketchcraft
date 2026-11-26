@@ -16,19 +16,36 @@ interface Ask {
 }
 
 let show: ((a: Ask) => void) | null = null;
+// one question at a time: a second one waits its turn (and is answered after the first)
+let busy = false;
+const waiting: Ask[] = [];
+function open(a: Ask) {
+  if (!show) return a.done(null);
+  if (busy) return void waiting.push(a);
+  busy = true;
+  const done = a.done;
+  show({
+    ...a,
+    done: (v) => {
+      done(v);
+      busy = false;
+      const next = waiting.shift();
+      if (next) open(next);
+    },
+  });
+}
 
 /** Ask for a line of text; null if cancelled. */
 export function ask(title: string, value = "", hint?: string, titleId?: string): Promise<string | null> {
   return new Promise((done) => {
-    if (show) show({ title, value, hint, titleId, done });
-    else done(null);
+    open({ title, value, hint, titleId, done });
   });
 }
 
 /** Ask a yes / no question (`ok` labels the yes); true if confirmed. */
 export function confirm(title: string, hint: string, ok = "OK"): Promise<boolean> {
   return new Promise((done) => {
-    if (show) show({ title, value: "", hint, confirm: ok, done: (v) => done(v != null) });
+    if (show) open({ title, value: "", hint, confirm: ok, done: (v) => done(v != null) });
     else done(false);
   });
 }
@@ -51,15 +68,15 @@ export function AskHost() {
     if (a && !a.confirm) setTimeout(() => input.current?.select(), 0);
     if (!a?.confirm) return;
     const key = (e: KeyboardEvent) => {
-      if (e.key === "Enter") (e.preventDefault(), a.done(""), setA(null));
+      if (e.key === "Enter") (e.preventDefault(), setA(null), a.done(""));
     };
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
   }, [a]);
   if (!a) return null;
   const finish = (v: string | null) => {
-    a.done(v);
     setA(null);
+    a.done(v);
   };
   return (
     <Sheet onClose={() => finish(null)} label={a.titleId ? t(a.titleId) : a.title} className="ask">
