@@ -31,6 +31,9 @@ What changed in each SketchCraft release, newest first. The format follows
   `import_skp` result. (#36)
 
 ### Fixed
+- **Cleaner ambient occlusion.** AO in the Architectural style no longer speckles along profile lines, now works in
+  Parallel and the standard views, stays sharp on HiDPI screens, and scales its shading with the zoom, so it reads
+  the same on a chair and on a whole building. (#265)
 - **SketchUp 2017-2020 files import their materials and the pictures on them.** These files came in with every face in
   the default color: their materials were not found at all. Now the names, colors and texture pictures come across
   (and the pictures of 2013-2016 files that share one between materials), each picture at the size SketchUp keeps for
