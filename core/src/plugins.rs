@@ -253,8 +253,8 @@ pub fn install(bytes: &[u8], file_name: Option<&str>, opts: &InstallOpts) -> Res
         let name = f.name()?.trim_start_matches("./").to_string();
         let Some(rel) = name.strip_prefix(&prefix) else { continue };
         // safe names only: no parent dirs, no absolute paths, no hidden files
-        if rel.is_empty() || rel.split('/').any(|p| p.is_empty() || p == ".." || p.starts_with('.')) || rel.contains('\\') || rel.contains(':') {
-            bail!("unsafe file name in the plugin: {name}");
+        if rel.is_empty() || rel.split('/').any(|p| p.is_empty() || p == ".." || p.starts_with('.')) || rel.contains('\\') || rel.contains(':') || !plain_file_name(rel) {
+            bail!("unsafe file name in the plugin: {}", name.chars().filter(|c| !c.is_control() && !crate::text::is_format_char(*c)).collect::<String>());
         }
         let ext = Path::new(rel).extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
         if !matches!(ext.as_str(), "json" | "js" | "svg" | "png" | "md" | "txt" | "rb") {
@@ -352,6 +352,19 @@ fn gate(about: &Value, opts: &InstallOpts) -> Result<Option<Value>> {
 /// A SketchUp Ruby extension: its .rb files (the top-level ones load it),
 /// with a plugin.json written for it. Its commands are the menu items it adds
 /// when it loads (the app finds them by running it).
+/// Names a zip may not carry: control or direction characters (a name could read as something else), and the
+/// names Windows keeps for devices (`con`, `nul`, `com1`...), which can't be written as files there.
+fn plain_file_name(rel: &str) -> bool {
+    if rel.chars().any(|c| c.is_control() || crate::text::is_format_char(c) || crate::text::is_invisible_filler(c)) {
+        return false;
+    }
+    !rel.split('/').any(|part| {
+        let stem = part.split('.').next().unwrap_or("").trim_end().to_ascii_lowercase();
+        matches!(stem.as_str(), "con" | "prn" | "aux" | "nul" | "conin$" | "conout$")
+            || ((stem.starts_with("com") || stem.starts_with("lpt")) && stem.len() == 4 && stem.as_bytes()[3].is_ascii_digit())
+    })
+}
+
 fn install_ruby(files: Vec<(String, Vec<u8>)>, opts: &InstallOpts) -> Result<Value> {
     let entries: Vec<String> = files.iter().filter(|(n, _)| !n.contains('/') && n.to_ascii_lowercase().ends_with(".rb")).map(|(n, _)| n.clone()).collect();
     let Some(first) = entries.first() else { bail!("no .rb file at the top of it (a SketchUp extension loads from one)") };
