@@ -87,6 +87,11 @@
     pointer-events: none;
   }
 
+  /* the coach is down in the status bar here: the card can have the top-left corner */
+  .tool-settings {
+    left: 12px;
+  }
+
   .coach {
     top: auto;
     left: 12px;

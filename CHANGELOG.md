@@ -68,6 +68,9 @@ What changed in each SketchCraft release, newest first. The format follows
   Camera menus too. (#226)
 
 ### Fixed
+- **A door leaves the wall solid.** A door, from the Door tool or the library, used to leave a face lying across the
+  doorway on the floor, so the wall showed as "Not solid: has open edges". The floor of the doorway is open now.
+- **The tool settings card sits beside the tool tip** instead of on top of it.
 - **Deleting a line across a face heals it.** Erase the edge between two faces that lie flat together and they
   become one face again, as in SketchUp, instead of both disappearing. Holes left by a shape drawn inside a face fill
   in the same way. An edge on a fold or a corner still takes its faces with it. (#262)

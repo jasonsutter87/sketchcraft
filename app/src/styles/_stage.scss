@@ -230,8 +230,9 @@
 // a build tool's settings over the view while it's in use (#263)
 .tool-settings {
   position: absolute;
-  top: 56px;
-  left: 12px;
+  /* beside the tool coach (max 280 px wide, top-left), never over it */
+  top: calc(var(--below-views, 66px) - 2px);
+  left: 306px;
   z-index: 6;
   width: 210px;
   padding: 8px 10px;

@@ -14,6 +14,23 @@ use glam::{DMat4, DVec2, DVec3};
 use crate::geom;
 use crate::model::{Id, Model};
 
+/// Does the segment a-b lie along one of the edges of the closed outline `rim` (within 0.1 mm)?
+fn along_rim(a: DVec3, b: DVec3, rim: &[DVec3]) -> bool {
+    let on = |p: DVec3, s: DVec3, e: DVec3| {
+        let d = e - s;
+        let len2 = d.length_squared();
+        if len2 < 1e-18 {
+            return false;
+        }
+        let t = (p - s).dot(d) / len2;
+        (-1e-6..=1.0 + 1e-6).contains(&t) && (s + d * t).distance(p) < 1e-4
+    };
+    (0..rim.len()).any(|k| {
+        let (s, e) = (rim[k], rim[(k + 1) % rim.len()]);
+        on(a, s, e) && on(b, s, e)
+    })
+}
+
 /// The back outline of a component's geometry, in its own coordinates.
 pub fn back_outline(def: &Model) -> Option<Vec<DVec3>> {
     let mut best: Option<(f64, Vec<DVec3>)> = None;
@@ -121,6 +138,8 @@ fn cut_into(m: &mut Model, def: &Model, transform: DMat4, host: Id) -> Result<us
     for p in &mut outline {
         *p -= n * (p.dot(n) - w);
     }
+    // the wall face's own outline, before the cut: an opening edge lying along it (a door's foot) gets no reveal
+    let rim = m.pts(&f.outer);
     let group = f.group;
     let mut opened = cut_on_plane(m, &outline, n, group)?;
     if opened == 0 {
@@ -155,6 +174,15 @@ fn cut_into(m: &mut Model, def: &Model, transform: DMat4, host: Id) -> Result<us
         for i in 0..outline.len() {
             let j = (i + 1) % outline.len();
             let quad = [outline[i], outline[j], back[j], back[i]];
+            // along the wall's own edge (a door's foot on the floor) there is no side to fill: the quad lies on the
+            // wall's bottom face, so drawing it splits that face, and the piece across the doorway goes (kept as a
+            // reveal it lay across the opening and left the wall with open edges)
+            if along_rim(outline[i], outline[j], &rim) {
+                if let Ok(id) = m.add_polygon(&quad) {
+                    m.faces.remove(&id);
+                }
+                continue;
+            }
             if let Ok(id) = m.add_polygon(&quad) {
                 let mid = (quad[0] + quad[1] + quad[2] + quad[3]) / 4.0;
                 if m.normal(id).dot(c - n * (d / 2.0) - mid) < 0.0 {

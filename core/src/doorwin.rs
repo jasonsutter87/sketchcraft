@@ -17,6 +17,8 @@ use serde_json::{json, Map, Value};
 const DOOR: ((f64, f64), (f64, f64)) = ((0.4, 3.0), (1.5, 3.5));
 const WINDOW: ((f64, f64), (f64, f64)) = ((0.2, 5.0), (0.2, 3.0));
 const MAX_SILL: f64 = 3.0;
+/// The least wall left between two openings, in metres.
+const GAP: f64 = 0.05;
 
 fn ifc_class(kind: &str) -> &'static str {
     if kind == "door" {
@@ -156,12 +158,40 @@ impl Model {
         Ok(DMat4::from_cols(side.along.extend(0.0), (-side.n).extend(0.0), DVec3::Z.extend(0.0), origin.extend(1.0)))
     }
 
+    /// Refuse an opening at `t` (`w` x `h`) that would overlap a door or window already cut into this wall (either of
+    /// its faces): the cuts would cross and leave the wall with open edges (R0311-R-E03). `skip` is the one being
+    /// resized. At least `GAP` of wall stays between two openings: cuts that touch leave faces back to back too.
+    fn refuse_overlap(&self, side: &Side, kind: &str, t: DMat4, w: f64, h: f64, skip: Option<Id>) -> Result<()> {
+        let a0 = t.w_axis.truncate().dot(side.along);
+        let (z0, plane) = (t.w_axis.z, side.n.dot(side.plane));
+        for (&id, i) in &self.instances {
+            if Some(id) == skip {
+                continue;
+            }
+            let Some(d) = self.definitions.get(&i.def).filter(|d| d.cuts) else { continue };
+            let Some(back) = crate::openings::back_outline(&d.model) else { continue };
+            let pts: Vec<DVec3> = back.iter().map(|p| i.transform.transform_point3(*p)).collect();
+            // in this wall: on its face or the one behind (walls are at most 0.6 m thick), and upright like it
+            if pts.is_empty() || !pts.iter().all(|p| (side.n.dot(*p) - plane).abs() < 0.65) {
+                continue;
+            }
+            let ext = |g: &dyn Fn(&DVec3) -> f64| pts.iter().fold((f64::MAX, f64::MIN), |(l, h), p| (l.min(g(p)), h.max(g(p))));
+            let ((b0, b1), (y0, y1)) = (ext(&|p| p.dot(side.along)), ext(&|p| p.z));
+            if a0 < b1 + GAP && b0 < a0 + w + GAP && z0 < y1 + GAP && y0 < z0 + h + GAP {
+                bail!("that {kind} would overlap or touch {} already in this wall: leave at least {} cm of wall between them", i.name, GAP * 100.0);
+            }
+        }
+        Ok(())
+    }
+
     /// Put a door or window in the wall face `host`, centred near `at`. A window sits `sill` above the wall's foot.
     pub fn place_opening(&mut self, kind: &str, host: Id, at: DVec3, w: f64, h: f64, sill: f64) -> Result<Value> {
         let sill = if kind == "door" { 0.0 } else { sill };
         check_size(kind, w, h, sill)?;
+        self.check_unlocked(&[host])?;
         let side = self.wall_side(host)?;
         let t = Self::opening_frame(&side, kind, at.dot(side.along), w, h, sill)?;
+        self.refuse_overlap(&side, kind, t, w, h, None)?;
         let def = self.opening_definition(kind, w, h)?;
         let inst = self.place(def, DVec3::ZERO, 0.0, None)?;
         self.instances.get_mut(&inst).unwrap().transform = t;
@@ -211,6 +241,7 @@ impl Model {
         check_size(kind, w, h, up)?;
         let centre = i.transform.w_axis.truncate().dot(side.along) + w0 / 2.0;
         let t = Self::opening_frame(&side, kind, centre, w, h, up)?;
+        self.refuse_overlap(&side, kind, t, w, h, Some(inst))?;
         let def = self.opening_definition(kind, w, h)?;
         let before = self.instances[&inst].clone();
         if let Some(x) = self.instances.get_mut(&inst) {
