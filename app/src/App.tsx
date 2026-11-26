@@ -1,4 +1,5 @@
 import { LocaleProvider, useLocale } from "./locale";
+import { glideOn, setGlide as saveGlide } from "./glide";
 import { groupRepairNotice, groupRepairOf } from "./grouprepair";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { ClassicTray } from "./classictray";
@@ -269,6 +270,12 @@ function ModelingApp() {
   const [showSheets, setShowSheets] = useState(false);
   const [showLocation, setShowLocation] = useState(false);
   const [showRender, setShowRender] = useState(false);
+  /** Camera > Smooth Camera (#251): kept by glide.ts, mirrored here so the menu shows its check */
+  const [glide, setGlideState] = useState(glideOn);
+  const setGlide = (on: boolean) => {
+    setGlideState(on);
+    saveGlide(on);
+  };
   /** the view bar's style toggles, unfolded on a narrow model view */
   const [viewsMore, setViewsMore] = useState(false);
   // bumps when the section moves, so its height box refreshes
@@ -730,6 +737,7 @@ function ModelingApp() {
       toggle("edges", "Edges", "view.edges"),
       { id: "view.backedges", label: "Back edges", hint: "View", run: () => setStyles((s) => ({ ...s, backEdges: !s.backEdges, xray: false })) },
       toggle("parallel", "Parallel projection", "view.parallel"),
+      { id: "view.glide", label: glide ? "Smooth camera: off" : "Smooth camera: on", hint: "Camera · the glide after an orbit or pan", run: () => setGlide(!glide) },
       { id: "view.vertexcolors", label: "Vertex colours", hint: "View · show the colours painted on corners", run: () => setStyles((s) => ({ ...s, vertexColors: s.vertexColors === false })) },
       toggle("hideRest", "Hide rest of model (while editing)", "view.hiderest"),
       ...WORKSPACES.map((w) => ({ id: `ws.${w.id}`, label: `${w.name} workspace`, hint: w.blurb, run: () => switchWs(w.id) })),
@@ -805,6 +813,8 @@ function ModelingApp() {
       api.current?.clearSection();
       setSection(false);
     },
+    glide,
+    toggleGlide: () => setGlide(!glide),
     laidOut: !!scene?.laid_out,
     layOutParts: () => (scene?.laid_out ? backFromLaidOut() : void run({ cmd: "lay_out_parts", on: true })),
     toggleStyle: (k) =>

@@ -103,6 +103,7 @@ export default {
   "menu.nextView": "Nächste Ansicht",
   "menu.perspective": "Perspektive",
   "menu.parallel": "Parallele Projektion",
+  "menu.glide": "Weiche Kamera",
   "menu.tool.arc": "2-Punkt-Bogen",
   "menu.tool.arccenter": "Bogen (Mittelpunkt)",
   "menu.outliner": "Gliederung",
