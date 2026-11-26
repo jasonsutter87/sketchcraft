@@ -115,7 +115,13 @@ pub struct Recipe {
 /// geometry is all that matters, and it is kept.
 pub(crate) fn lenient<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Recipe>, D::Error> {
     let v = Option::<Value>::deserialize(d)?;
-    Ok(v.and_then(|v| serde_json::from_value::<Recipe>(v).ok()).filter(|r| r.part.check().is_ok() && r.frame.iter().all(|x| x.is_finite())))
+    Ok(v.and_then(|v| serde_json::from_value::<Recipe>(v).ok()).filter(|r| r.part.check().is_ok() && frame_ok(&r.frame)))
+}
+
+/// A frame from a file: a move or turn about a vertical axis, within range (a scaled or huge one would rebuild the
+/// part out of shape or out of the model's range).
+fn frame_ok(f: &[f64; 16]) -> bool {
+    f.iter().all(|&x| crate::model::sane(x)) && rigid(DMat4::from_cols_array(f)) && f[15] == 1.0 && f[3] == 0.0 && f[7] == 0.0 && f[11] == 0.0
 }
 
 /// A move or turn about a vertical axis, no scaling and no mirror: a remembered part can follow it.

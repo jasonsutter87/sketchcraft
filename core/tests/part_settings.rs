@@ -185,3 +185,16 @@ fn a_door_in_a_wall_is_cut_again_after_a_rebuild() {
     assert_eq!(r["openings"], 1, "{r}");
     assert_eq!(e.model.faces.values().filter(|f| f.group == Some(g as u32)).count(), solid_faces, "the opening is there again");
 }
+
+#[test]
+fn a_file_cannot_give_a_part_a_scaled_or_huge_frame() {
+    let mut e = Engine::new();
+    let g = wall(&mut e);
+    let text = serde_json::to_string(&e.model).unwrap();
+    let one = "\"frame\":[1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0]";
+    assert!(text.contains(one), "the test knows how a frame is written");
+    for bad in ["[1e300,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0]", "[2.0,0.0,0.0,0.0,0.0,2.0,0.0,0.0,0.0,0.0,2.0,0.0,0.0,0.0,0.0,1.0]", "[1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,1e300,0.0,0.0,1.0]"] {
+        let m: sketchcraft::model::Model = serde_json::from_str(&text.replace(one, &format!("\"frame\":{bad}"))).unwrap();
+        assert!(m.groups[&(g as u32)].recipe.is_none(), "{bad} is dropped");
+    }
+}
