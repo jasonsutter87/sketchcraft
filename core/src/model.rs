@@ -597,6 +597,15 @@ impl Face {
     }
 }
 
+/// What `Model::heal` did: which face stayed, which one went, the sides of the one that went, and the sides that
+/// lay between them (each as (smaller id, larger id)).
+struct Healed {
+    keep: Id,
+    gone: Id,
+    gone_sides: Vec<(Id, Id)>,
+    shared: BTreeSet<(Id, Id)>,
+}
+
 /// A vertex and where it is.
 type Placed = (Id, DVec3);
 
@@ -1503,7 +1512,8 @@ impl Model {
             if self.faces.remove(id).is_some() {
                 // a face's edges stay behind as lines, like a real modeler
             } else if let Some(e) = self.edges.remove(id) {
-                // deleting an edge deletes the faces that need it
+                // deleting the edge between two faces lying flat together heals them into one, as in SketchUp;
+                // any other edge takes the faces that need it with it
                 let index = by_edge.get_or_insert_with(|| {
                     let mut ix: HashMap<(Id, Id), Vec<Id>> = HashMap::new();
                     for (&k, f) in &self.faces {
@@ -1515,8 +1525,27 @@ impl Model {
                     }
                     ix
                 });
-                for f in index.get(&(e.a.min(e.b), e.a.max(e.b))).into_iter().flatten() {
-                    self.faces.remove(f);
+                let key = (e.a.min(e.b), e.a.max(e.b));
+                let users: Vec<Id> = index.get(&key).into_iter().flatten().copied().filter(|f| self.faces.contains_key(f)).collect();
+                let healed = if let [a, b] = users[..] { self.heal(a, b, key) } else { None };
+                if let Some(h) = healed {
+                    // keep the index true: the kept face now has the other's sides, and the sides between them have no face
+                    for s in &h.gone_sides {
+                        let list = index.entry(*s).or_default();
+                        list.retain(|&f| f != h.gone);
+                        if !h.shared.contains(s) && !list.contains(&h.keep) {
+                            list.push(h.keep);
+                        }
+                    }
+                    for s in &h.shared {
+                        if let Some(list) = index.get_mut(s) {
+                            list.retain(|&f| f != h.keep && f != h.gone);
+                        }
+                    }
+                } else {
+                    for f in users {
+                        self.faces.remove(&f);
+                    }
                 }
             } else if let Some(i) = self.annotations.iter().position(|a| a.id() == *id) {
                 self.annotations.remove(i);
@@ -1547,6 +1576,88 @@ impl Model {
         self.check_deadline()?;
         self.gc();
         Ok(())
+    }
+
+    /// Merge faces `a` and `b` into one when they lie flat together: the same plane, the same side out, the same group
+    /// and the same visibility. Every side the two share leaves the outline; the edges themselves stay as lines, as in
+    /// SketchUp. The bigger face keeps its id, material and picture placement; per-corner data (texture coordinates,
+    /// vertex colours) carries over when both faces have it. Returns None, changing nothing, when the faces don't lie
+    /// flat together or the merged outline isn't one face (it would pass a corner twice, or have two outlines).
+    fn heal(&mut self, a: Id, b: Id, edge: (Id, Id)) -> Option<Healed> {
+        let (fa, fb) = (&self.faces[&a], &self.faces[&b]);
+        if fa.group != fb.group || fa.hidden != fb.hidden {
+            return None;
+        }
+        let n = self.normal(a);
+        if n.dot(self.normal(b)) < 1.0 - 1e-6 {
+            return None;
+        }
+        let p0 = self.vertices[&fa.outer[0]].p;
+        if fb.loops().flatten().any(|v| (self.vertices[v].p - p0).dot(n).abs() > 1e-5) {
+            return None;
+        }
+        // the sides of both faces; a side the other face runs the other way lies between them and goes
+        let sides: Vec<(Id, Id)> = fa.loops().chain(fb.loops()).flat_map(|l| pairs(l)).collect();
+        let all: BTreeSet<(Id, Id)> = sides.iter().copied().collect();
+        let shared: BTreeSet<(Id, Id)> = sides.iter().filter(|&&(x, y)| all.contains(&(y, x))).map(|&(x, y)| (x.min(y), x.max(y))).collect();
+        if !shared.contains(&edge) {
+            return None; // the two run the deleted edge the same way: not one surface
+        }
+        let mut next = BTreeMap::new();
+        for &(x, y) in sides.iter().filter(|&&(x, y)| !all.contains(&(y, x))) {
+            if next.insert(x, y).is_some() {
+                return None; // the outline would pass this corner twice
+            }
+        }
+        let mut loops = Vec::new();
+        while let Some((start, mut v)) = next.pop_first() {
+            let mut l = vec![start];
+            while v != start {
+                l.push(v);
+                v = next.remove(&v)?;
+            }
+            if l.len() < 3 {
+                return None;
+            }
+            loops.push(l);
+        }
+        // the one loop turning the face's way is its outline; the rest are holes
+        let (mut outers, holes): (Vec<Vec<Id>>, Vec<Vec<Id>>) = loops.into_iter().partition(|l| geom::newell_raw(&self.pts(l)).dot(n) > 0.0);
+        if outers.len() != 1 {
+            return None;
+        }
+        let (keep, gone) = if self.face_area(a) >= self.face_area(b) { (a, b) } else { (b, a) };
+        let old = self.faces.remove(&gone)?;
+        let gone_sides = old.loops().flat_map(|l| pairs(l)).map(|(x, y)| (x.min(y), x.max(y))).collect();
+        let kept = self.faces[&keep].clone();
+        let mut merged = kept.clone();
+        merged.outer = outers.remove(0);
+        merged.holes = holes;
+        // per-corner data, looked up by corner: the kept face's values win where both faces have that corner
+        // a face's per-corner values: its outline's, then each hole's
+        type Rings<'a, T> = (&'a Vec<T>, &'a Vec<Vec<T>>);
+        fn carry<T: Copy>(parts: [(&Face, Option<Rings<T>>); 2], to: &Face) -> Option<(Vec<T>, Vec<Vec<T>>)> {
+            let mut at = HashMap::new();
+            for (f, d) in parts {
+                let (o, h) = d?;
+                for (l, vals) in f.loops().zip(std::iter::once(o).chain(h)) {
+                    at.extend(l.iter().copied().zip(vals.iter().copied()));
+                }
+            }
+            let ring = |l: &Vec<Id>| l.iter().map(|v| at.get(v).copied()).collect::<Option<Vec<T>>>();
+            Some((ring(&to.outer)?, to.holes.iter().map(ring).collect::<Option<_>>()?))
+        }
+        fn uv<'a>(f: &Face, u: &'a Option<FaceUv>) -> Option<Rings<'a, [f32; 2]>> {
+            u.as_ref().filter(|u| u.fits(f)).map(|u| (&u.outer, &u.holes))
+        }
+        fn col(f: &Face) -> Option<Rings<'_, [f32; 4]>> {
+            f.vcol.as_ref().filter(|c| c.fits(f)).map(|c| (&c.outer, &c.holes))
+        }
+        merged.uv = carry([(&old, uv(&old, &old.uv)), (&kept, uv(&kept, &kept.uv))], &merged).map(|(outer, holes)| FaceUv { outer, holes });
+        merged.uv2 = carry([(&old, uv(&old, &old.uv2)), (&kept, uv(&kept, &kept.uv2))], &merged).map(|(outer, holes)| FaceUv { outer, holes });
+        merged.vcol = carry([(&old, col(&old)), (&kept, col(&kept))], &merged).map(|(outer, holes)| FaceColors { outer, holes });
+        self.faces.insert(keep, merged);
+        Some(Healed { keep, gone, gone_sides, shared })
     }
 
     /// Drop vertices nothing uses.

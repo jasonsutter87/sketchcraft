@@ -31,6 +31,9 @@ What changed in each SketchCraft release, newest first. The format follows
   `import_skp` result. (#36)
 
 ### Fixed
+- **Deleting a line across a face heals it.** Erase the edge between two faces that lie flat together and they
+  become one face again, as in SketchUp, instead of both disappearing. Holes left by a shape drawn inside a face fill
+  in the same way. An edge on a fold or a corner still takes its faces with it. (#262)
 - **SketchUp 2017-2020 files import their materials and the pictures on them.** These files came in with every face in
   the default color: their materials were not found at all. Now the names, colors and texture pictures come across
   (and the pictures of 2013-2016 files that share one between materials), each picture at the size SketchUp keeps for
