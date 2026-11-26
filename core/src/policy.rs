@@ -293,6 +293,10 @@ fn confine(raw: &str, ws: &Workspace) -> Result<String, String> {
             if name.starts_with('.') || crate::library::reserved(&name) || crate::library::is_protected(&walked, &base) {
                 return Err(format!("{raw:?}: agents can't use hidden files, Backups or the Plugins folder (--any-path lifts the folder limit, not this)"));
             }
+            // a link left after resolving points at nothing yet: the hidden-name and folder rules never see where
+            if is_link(&walked) {
+                return Err(format!("{raw:?} is a link; an agent reads and writes files themselves, not through links"));
+            }
         }
         return Ok(full.to_string_lossy().into_owned());
     };
@@ -604,6 +608,9 @@ pub fn vet(caller: &Caller, cmd: &mut Value) -> Result<(), String> {
             }
             let resolved = resolve(p);
             reject_side_name(&resolved)?;
+            if is_link(&resolved) {
+                return Err(format!("{path:?} is a link: an agent writes files themselves, not through links"));
+            }
             if resolved.exists() && !ws.owns(&resolved) {
                 return Err(format!("{path:?} already exists and wasn't made by this agent (or has changed since): an agent writes new file names, it doesn't replace the person's files"));
             }

@@ -217,3 +217,33 @@ fn texture_files_never_get_a_windows_device_name_and_many_alike_are_quick() {
     assert_eq!(all.len(), 5000, "every picture its own file");
     assert!(t.elapsed().as_secs_f64() < 1.0, "{:?}", t.elapsed());
 }
+
+#[cfg(unix)]
+#[test]
+fn an_agent_with_any_path_doesnt_write_through_a_link_either() {
+    let base = Tmp::new("anylink");
+    let target = base.path().join("elsewhere.obj");
+    std::os::unix::fs::symlink(&target, base.path().join("dl.obj")).unwrap();
+    let mut e = Engine::new();
+    ok(&mut e, json!({"cmd": "rect", "from": [0, 0, 0], "to": [1, 1, 0]}));
+    let r = e.exec_json_as(&Caller::Mcp(Workspace::anywhere()), &json!({"cmd": "export_obj", "path": base.path().join("dl.obj")}).to_string());
+    assert_eq!(r["ok"], false, "{r}");
+    assert!(!target.exists(), "nothing was written where the link points");
+}
+
+#[test]
+fn colours_in_a_saved_model_are_brought_into_range_when_it_opens() {
+    let dir = Tmp::new("open");
+    let mut e = Engine::new();
+    ok(&mut e, json!({"cmd": "rect", "from": [0, 0, 0], "to": [1, 1, 0]}));
+    let path = dir.path().join("m.sketchcraft");
+    ok(&mut e, json!({"cmd": "save", "path": path}));
+    let mut v: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    v["materials"] = json!({"odd": {"color": [7.0, -3.0, 1e30], "opacity": 9.0}});
+    std::fs::write(&path, v.to_string()).unwrap();
+    let mut back = Engine::new();
+    ok(&mut back, json!({"cmd": "open", "path": path}));
+    let m = &back.model.materials["odd"];
+    assert_eq!(m.color, [1.0, 0.0, 1.0]);
+    assert_eq!(m.opacity, 1.0);
+}
