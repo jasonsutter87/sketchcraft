@@ -51,7 +51,7 @@ import { isMac, isTypingTarget } from "./keymap";
 import { paintCommand, paintReach } from "./paintmods";
 import { DEFAULT_VPAINT, effectiveRadius, extendStroke, ringPoints, sceneDiagonal, stepRadius, strokeCommand } from "./vertexpaint";
 import type { Tool, BuildSettings, FaceStyle, Backdrop, Styles, Cam, ViewportApi, PluginPoint, Props, Op, LabelSpec, Last, WallPlan, RoomPreview, RoomRow, TPaintRun } from "./viewport/types";
-import { areaText, dragLabel, fillRects, gridStep, modeLabel, roomLabel, roomMode, roomModeKey, snapGrid, type Rect, type RoomMode } from "./viewport/rooms";
+import { areaText, dragLabel, fillRects, gridStep, centreCorners, groundCorners, modeLabel, roomLabel, roomMode, roomModeKey, snapRoomPoint, type Rect, type RoomMode, type RoomSnap } from "./viewport/rooms";
 export { autoTagColor };
 export type { Tool, BuildSettings, FaceStyle, Backdrop, Styles, Cam, ViewportApi, PluginPoint };
 
@@ -1217,7 +1217,7 @@ export default function Viewport(props: Props) {
     let current = true;
     void exec({ cmd: "rooms" }).then((r) => {
       if (!current || !r.ok) return;
-      st.current.rooms = ((r as unknown as { rooms: RoomRow[] }).rooms ?? []).map((x) => ({ id: x.id, name: x.name, area: x.area, center: x.center }));
+      st.current.rooms = ((r as unknown as { rooms: RoomRow[] }).rooms ?? []).map((x) => ({ id: x.id, name: x.name, area: x.area, center: x.center, outline: x.outline, thickness: x.thickness }));
       st.current.labels = [...annotationSpecs(), ...roomSpecs()];
       syncLabels();
       placeLabels();
@@ -2639,11 +2639,22 @@ export default function Viewport(props: Props) {
   }
 
   /** The ground point under the mouse, snapped to the room grid (0.1 m, or 6 in). */
-  function groundCorner(e: { clientX: number; clientY: number }): THREE.Vector3 | null {
+  /** A Room tool corner under the pointer: on a corner already there, in line with one, or on the grid. */
+  function roomPoint(e: { clientX: number; clientY: number }): RoomSnap | null {
     const q = ray(e).intersectPlane(new THREE.Plane(UP, 0), new THREE.Vector3());
     if (!q) return null;
-    const step = gridStep(units);
-    return new THREE.Vector3(snapGrid(q.x, step), snapGrid(q.y, step), 0);
+    const s = live.current.scene;
+    // rooms are drawn along their walls' centre lines: those corners are what a new room lines up with (a wall's
+    // faces are half a thickness either side, and a room snapped to them would sit off its neighbour)
+    const rooms = st.current.rooms.filter((r) => r.outline?.length && r.thickness);
+    const centre = rooms.flatMap((r) => centreCorners(r.outline!, r.thickness!));
+    const t = Math.max(0, ...rooms.map((r) => r.thickness!));
+    const other = (s ? groundCorners(s.edges) : []).filter((c) => !centre.some((k) => Math.abs(k[0] - c[0]) <= t && Math.abs(k[1] - c[1]) <= t));
+    return snapRoomPoint(q, [...centre, ...other], (x, y) => toScreen2(new THREE.Vector3(x, y, 0)), gridStep(units));
+  }
+  function groundCorner(e: { clientX: number; clientY: number }): THREE.Vector3 | null {
+    const p = roomPoint(e);
+    return p ? new THREE.Vector3(p.x, p.y, 0) : null;
   }
 
   async function commitRoom() {
@@ -3121,10 +3132,13 @@ export default function Viewport(props: Props) {
       return;
     };
     const moveRoom = ({ e, L, op }: MoveArgs<"room">) => {
-      const c = groundCorner(e);
-      if (!c) return;
+      const p = roomPoint(e);
+      if (!p) return;
+      const c = new THREE.Vector3(p.x, p.y, 0);
       op.b = c;
-      setHint(null);
+      // the far corner says what it snapped to, as the first one did
+      if (p.kind === "grid") setHint(null);
+      else setHint({ ...toScreen2(c), label: p.kind === "corner" ? "Corner" : "In line", kind: p.kind === "corner" ? "endpoint" : "axis" });
       op.alt = e.altKey;
       const mode = roomMode(op.alt);
       const key = `${op.a.x},${op.a.y},${c.x},${c.y},${mode}`;
@@ -3383,8 +3397,8 @@ export default function Viewport(props: Props) {
         const id = h ? h.owner : null;
         if (L.tool === "wallpull" || L.tool === "room") lookAtWall(h?.face ? h.owner : null, h?.point);
         if (L.tool === "room") {
-          const c = groundCorner(e);
-          if (c && !h?.face) setHint({ ...toScreen2(c), label: "Corner", kind: "endpoint" });
+          const p = roomPoint(e);
+          if (p && !h?.face) setHint({ ...toScreen2(new THREE.Vector3(p.x, p.y, 0)), label: p.kind === "corner" ? "Corner" : p.kind === "inline" ? "In line" : "Grid", kind: p.kind === "corner" ? "endpoint" : "axis" });
           else setHint(null);
         }
         if (id !== st.current.hover || he !== st.current.hoverEdge) {

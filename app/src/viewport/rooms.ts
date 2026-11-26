@@ -107,3 +107,92 @@ export function labelPoint(p: Pt[]): Pt {
   for (const c of fillRects(p)) if (!best || (c[2] - c[0]) * (c[3] - c[1]) > (best[2] - best[0]) * (best[3] - best[1])) best = c;
   return best ? [(best[0] + best[2]) / 2, (best[1] + best[3]) / 2] : (p[0] ?? [0, 0]);
 }
+
+/** Where a Room tool corner goes, and why: on a corner already there, in line with one, or on the grid. */
+export type RoomSnap = { x: number; y: number; kind: "corner" | "inline" | "grid" };
+
+/**
+ * Snap a point on the ground for the Room tool. A corner already in the model (`corners`, ground points) within
+ * `cornerPx` on screen wins; else the point lines up with a corner along x and/or y (within `linePx` on screen, so
+ * a room's side lands on a neighbour's wall line); else it goes to the grid. `screen` maps a ground point to pixels.
+ */
+export function snapRoomPoint(q: { x: number; y: number }, corners: [number, number][], screen: (x: number, y: number) => { x: number; y: number }, step: number, cornerPx = 12, linePx = 8): RoomSnap {
+  const at = screen(q.x, q.y);
+  let best: [number, number] | null = null;
+  let bestD = cornerPx;
+  for (const c of corners) {
+    const s = screen(c[0], c[1]);
+    const d = Math.hypot(s.x - at.x, s.y - at.y);
+    if (d < bestD) {
+      bestD = d;
+      best = c;
+    }
+  }
+  if (best) return { x: best[0], y: best[1], kind: "corner" };
+  // in line: the corner whose x (or y) is nearest on screen, measured where the pointer is
+  let x: number | null = null;
+  let y: number | null = null;
+  let dx = linePx;
+  let dy = linePx;
+  for (const c of corners) {
+    const sx = screen(c[0], q.y);
+    const ex = Math.hypot(sx.x - at.x, sx.y - at.y);
+    if (ex < dx) {
+      dx = ex;
+      x = c[0];
+    }
+    const sy = screen(q.x, c[1]);
+    const ey = Math.hypot(sy.x - at.x, sy.y - at.y);
+    if (ey < dy) {
+      dy = ey;
+      y = c[1];
+    }
+  }
+  if (x != null || y != null) return { x: x ?? snapGrid(q.x, step), y: y ?? snapGrid(q.y, step), kind: "inline" };
+  return { x: snapGrid(q.x, step), y: snapGrid(q.y, step), kind: "grid" };
+}
+
+/** The corners on the ground (z near `groundZ`) among a scene's edge ends, each once. */
+export function groundCorners(edges: number[], groundZ = 0): [number, number][] {
+  const seen = new Set<string>();
+  const out: [number, number][] = [];
+  for (let i = 0; i + 2 < edges.length; i += 3) {
+    if (Math.abs(edges[i + 2] - groundZ) > 0.05) continue;
+    const k = `${Math.round(edges[i] * 1e4)},${Math.round(edges[i + 1] * 1e4)}`;
+    if (!seen.has(k)) {
+      seen.add(k);
+      out.push([edges[i], edges[i + 1]]);
+    }
+  }
+  return out;
+}
+
+/**
+ * A room's wall centre-line corners from its inside outline (a rectilinear polygon) and wall thickness: each side moved
+ * out by half the thickness.
+ */
+export function centreCorners(inside: [number, number][], thickness: number): [number, number][] {
+  const n = inside.length;
+  if (n < 3) return [];
+  let area = 0;
+  for (let i = 0; i < n; i++) {
+    const [x0, y0] = inside[i];
+    const [x1, y1] = inside[(i + 1) % n];
+    area += x0 * y1 - x1 * y0;
+  }
+  const ccw = area > 0;
+  const d = thickness / 2;
+  // the outward normal of the side from point i to point i + 1
+  const out = (i: number): [number, number] => {
+    const [x0, y0] = inside[i];
+    const [x1, y1] = inside[(i + 1) % n];
+    const len = Math.hypot(x1 - x0, y1 - y0) || 1;
+    const [dx, dy] = [(x1 - x0) / len, (y1 - y0) / len];
+    return ccw ? [dy, -dx] : [-dy, dx];
+  };
+  return inside.map((p, i) => {
+    const a = out((i + n - 1) % n);
+    const b = out(i);
+    return [p[0] + (a[0] + b[0]) * d, p[1] + (a[1] + b[1]) * d] as [number, number];
+  });
+}
