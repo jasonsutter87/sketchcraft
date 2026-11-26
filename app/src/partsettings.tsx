@@ -86,3 +86,34 @@ export function PartSettings({ group, scene, run }: { group: number; scene: Scen
     </div>
   );
 }
+
+type OpeningInfo = { instance: number; kind: "door" | "window" | null; width?: number; height?: number; sill?: number | null; resizable?: boolean };
+
+/** A door or window from the Door or Window tool: its size, and a window's sill, changed in place (#264). */
+export function OpeningSettings({ instance, scene, run }: { instance: number; scene: Scene; run: Run }) {
+  const [info, setInfo] = useState<OpeningInfo | null>(null);
+  useEffect(() => {
+    let live = true;
+    exec({ cmd: "opening_info", instance }).then((r) => live && setInfo(r.ok ? (r as unknown as OpeningInfo) : null));
+    return () => {
+      live = false;
+    };
+  }, [instance, scene]);
+  if (!info?.kind) return null;
+  const units = scene.units || "m";
+  const set = (k: "width" | "height" | "sill") => (v: number) => {
+    if (info[k] === v) return;
+    void run({ cmd: "opening_edit", instance, [k]: v });
+  };
+  return (
+    <div className="part-settings">
+      <div className="part-settings-title">{info.kind === "door" ? "Door" : "Window"} size</div>
+      {!info.resizable && <p className="hint">Only a door or window in a wall made with the Wall tool can be resized here. Delete this one and place a new one.</p>}
+      <fieldset disabled={!info.resizable}>
+        <LengthInput label="Width" value={Number(info.width)} units={units} onChange={set("width")} />
+        <LengthInput label="Height" value={Number(info.height)} units={units} onChange={set("height")} />
+        {info.kind === "window" && info.sill != null && <LengthInput label="Sill height" value={info.sill} units={units} onChange={set("sill")} />}
+      </fieldset>
+    </div>
+  );
+}

@@ -184,6 +184,7 @@ impl Command {
                 | Command::Assets
                 | Command::WallInfo { .. }
                 | Command::PartInfo { .. }
+                | Command::OpeningInfo { .. }
                 | Command::RoomPreview { .. }
                 | Command::Rooms
                 | Command::TextureUv { .. }
@@ -1247,6 +1248,7 @@ impl Engine {
                 Command::Drape { .. } | Command::Wall { .. } | Command::Stairs { .. } | Command::FloorplanBuild { .. } | Command::RoomInfo { .. } | Command::Roof { .. } |
                 Command::Column { .. } | Command::Insert { .. } | Command::Assets { .. } |
                 Command::WallPull { .. } | Command::WallInfo { .. } | Command::PartInfo { .. } | Command::Rebuild { .. } |
+                Command::Opening { .. } | Command::OpeningInfo { .. } | Command::OpeningEdit { .. } |
                 Command::RoomRect { .. } | Command::RoomPreview { .. } | Command::Rooms
             ) => self.run_build(c),
             c @ (

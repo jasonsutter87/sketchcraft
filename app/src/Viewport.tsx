@@ -18,6 +18,7 @@ import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { GTAOPass } from "three/examples/jsm/postprocessing/GTAOPass.js";
 import { setupAO, skipAO, syncAO } from "./viewport/ao";
+import { openingSpot } from "./viewport/openingspot";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { Line2 } from "three/examples/jsm/lines/Line2.js";
@@ -1689,6 +1690,25 @@ export default function Viewport(props: Props) {
   }
   const T0 = () => t.current!;
 
+  /** The Door or Window tool's size, from the build settings (a door stands on the floor). */
+  function openingSize(kind: "door" | "window") {
+    const b = live.current.build;
+    return kind === "door" ? { w: b.doorWidth, h: b.doorHeight, sill: 0 } : { w: b.windowWidth, h: b.windowHeight, sill: b.windowSill };
+  }
+
+  /** Door and Window tools: where the opening would go on the hovered wall, or why it can't (#264). */
+  function hoverOpening(e: { clientX: number; clientY: number }, kind: "door" | "window") {
+    clearPreview();
+    const T = t.current;
+    const h = pick(e);
+    if (!T || !h?.face) return live.current.onMeasure("", "");
+    const z = openingSize(kind);
+    const spot = openingSpot(kind, h.face.outer, h.face.normal, arr(h.point), z.w, z.h, z.sill);
+    if (!spot.ok) return live.current.onMeasure(spot.why, "");
+    T.preview.add(polyline(spot.corners.map((c) => V(c)), ACCENT, true));
+    live.current.onMeasure(kind === "door" ? "Door" : "Window", `${formatLength(z.w, units)} × ${formatLength(z.h, units)}`);
+  }
+
   function clearPreview() {
     const T = t.current;
     if (!T) return;
@@ -3342,6 +3362,9 @@ export default function Viewport(props: Props) {
           return moveScale({ e, L: L as Live, E, op, lock });
       }
 
+      // Door and Window tools: the opening's outline on the hovered wall (#264)
+      if (L.tool === "door" || L.tool === "window") return hoverOpening(e, L.tool);
+
       // nothing in progress: show what a click would hit
       if (["axes", "line", "freehand", "spline", "arc", "arccenter", "arc3", "pie", "rect", "rrect", "circle", "polygon", "tape", "dimension", "text", "move", "rotate", "scale", "place", "wall", "stairs", "column", "protractor"].includes(L.tool)) {
         const sn = infer(E, e, {});
@@ -3750,6 +3773,15 @@ export default function Viewport(props: Props) {
       await run({ cmd: "flip_edge", edge: he });
       return;
     };
+    const downOpening = async ({ e, L }: DownArgs) => {
+      const kind = L.tool === "door" ? "door" : "window";
+      const h = pick(e);
+      if (!h?.face) return L.onToast(`Click the side of a wall to put a ${kind} there.`, true);
+      const z = openingSize(kind);
+      await run({ cmd: "opening", kind, host: h.face.id, at: arr(h.point), width: z.w, height: z.h, sill: z.sill });
+      clearPreview();
+      return;
+    };
     const downColumn = async ({ e, L, E }: DownArgs) => {
       const sn = infer(E, e, {});
       const b = L.build;
@@ -4026,6 +4058,9 @@ export default function Viewport(props: Props) {
           return downFlipedge({ e, L: L as Live, E, op, sel });
         case "column":
           return downColumn({ e, L: L as Live, E, op, sel });
+        case "door":
+        case "window":
+          return downOpening({ e, L: L as Live, E, op, sel });
         case "paint":
           return downPaint({ e, L: L as Live, E, op, sel });
         case "vpaint":

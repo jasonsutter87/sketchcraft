@@ -35,6 +35,14 @@ impl Engine {
             Command::Drape { group, ids } => json!({"lines": m.drape(group, &ids)?}),
             Command::Wall { points, thickness, height, closed } => json!({"group": m.build_part(Part::Wall { points, thickness, height, closed })?.0}),
             Command::PartInfo { group } => m.part_info(group)?,
+            Command::Opening { kind, host, at, width, height, sill } => {
+                if kind != "door" && kind != "window" {
+                    bail!("kind is door or window");
+                }
+                m.place_opening(&kind, host, v3(at), width, height, sill)?
+            }
+            Command::OpeningInfo { instance } => m.opening_info(instance)?,
+            Command::OpeningEdit { instance, width, height, sill } => m.edit_opening(instance, width, height, sill)?,
             Command::Rebuild { group, set, force } => m.rebuild_part(group, &set, force)?,
             Command::RoomInfo { name } => m.room_info(&name)?,
             Command::FloorplanBuild { plan } => {

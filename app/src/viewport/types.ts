@@ -10,7 +10,7 @@ export type Tool =
   | "push" | "offset" | "followme" | "move" | "rotate" | "scale"
   | "tape" | "dimension" | "text" | "paint" | "vpaint" | "tpaint" | "erase" | "orbit" | "pan" | "zoom" | "section" | "place"
   | "position" | "lookaround" | "walk" | "zoomwindow" | "protractor"
-  | "wall" | "wallpull" | "room" | "stairs" | "roof" | "column"
+  | "wall" | "wallpull" | "room" | "stairs" | "roof" | "column" | "door" | "window"
   | "smoove" | "stamp" | "drape" | "flipedge"
   | "plugin";
 
@@ -29,6 +29,12 @@ export interface BuildSettings {
   columnSize: number;
   columnHeight: number;
   columnRound: boolean;
+  /** Door and Window tools (#264) */
+  doorWidth: number;
+  doorHeight: number;
+  windowWidth: number;
+  windowHeight: number;
+  windowSill: number;
   /** Sandbox */
   smooveRadius: number;
   smooveHeight: number;

@@ -257,6 +257,8 @@ export default {
   "tool.stairs": "Treppe: erst den Fuß anklicken, dann die Richtung",
   "tool.roof": "Dach: eine ebene Oberseite anklicken",
   "tool.column": "Säule",
+  "tool.door": "Tür: auf die Seite einer Wand klicken",
+  "tool.window": "Fenster: auf die Seite einer Wand klicken",
   "tool.smoove": "Gelände formen (Umschalt gräbt)",
   "tool.stamp": "Eine Fläche ins Gelände stempeln",
   "tool.drape": "Linien auf das Gelände legen",

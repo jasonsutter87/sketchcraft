@@ -1459,6 +1459,29 @@ pub enum Command {
         #[serde(default)]
         name: Option<String>,
     },
+    /// Door or Window tool: a `kind` ("door" or "window") `width` x `height` in the wall face `host`, centred near
+    /// `at`; a window `sill` above the wall's foot. Cut through the wall and classed IfcDoor or IfcWindow.
+    Opening {
+        kind: String,
+        host: Id,
+        at: [f64; 3],
+        width: f64,
+        height: f64,
+        #[serde(default = "sill_default")]
+        sill: f64,
+    },
+    /// A placed door's or window's size and sill, and whether it can be resized.
+    OpeningInfo { instance: Id },
+    /// Resize a placed door or window, or move a window's sill (in a wall the Wall tool made).
+    OpeningEdit {
+        instance: Id,
+        #[serde(default)]
+        width: Option<f64>,
+        #[serde(default)]
+        height: Option<f64>,
+        #[serde(default)]
+        sill: Option<f64>,
+    },
     /// What a group was made as (wall, stairs, roof, column) and the settings it remembers.
     PartInfo { group: Id },
     /// Change a remembered wall's, stair's, roof's or column's settings and remake it in place.
@@ -2027,6 +2050,10 @@ fn arc_segments() -> usize {
 
 fn bezier_segments() -> usize {
     16
+}
+
+fn sill_default() -> f64 {
+    0.9
 }
 
 fn wall_t() -> f64 {
