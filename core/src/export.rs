@@ -93,7 +93,7 @@ pub fn write_obj_report(m: &Model, path: &str) -> Result<ObjReport> {
                             let dir = &tex_dir;
                             // a picture that can't be written fails the export: an .obj naming missing images is the "purple" model
                             std::fs::create_dir_all(&dir).with_context(|| format!("can't make the textures folder {}", dir.display()))?;
-                            std::fs::write(dir.join(&file), data).with_context(|| format!("can't write the picture {}", dir.join(&file).display()))?;
+                            crate::safety::write_output(dir.join(&file), data).with_context(|| format!("can't write the picture {}", dir.join(&file).display()))?;
                             let id = format!("t_{}", file.rsplit_once('.').map(|x| x.0).unwrap_or(&file));
                             let c = m.find_material(mname).map(|x| x.color).unwrap_or([1.0; 3]);
                             writeln!(mtl, "newmtl {id}\nKd {} {} {}\nmap_Kd {tex_dir_name}/{file}\n", c[0], c[1], c[2])?;
@@ -129,8 +129,8 @@ pub fn write_obj_report(m: &Model, path: &str) -> Result<ObjReport> {
             }
         }
     }
-    std::fs::write(p, obj)?;
-    std::fs::write(&mtl_path, mtl)?;
+    crate::safety::write_output(p, obj)?;
+    crate::safety::write_output(&mtl_path, mtl)?;
     let images = tex_mats.len();
     Ok(ObjReport { triangles: count, mtl: mtl_name, textures_dir: (images > 0).then_some(tex_dir_name), images, skipped })
 }
@@ -342,7 +342,7 @@ pub fn write_glb(m: &Model, path: &str) -> Result<usize> {
     if let Some(dir) = Path::new(path).parent() {
         std::fs::create_dir_all(dir).ok();
     }
-    std::fs::write(path, out)?;
+    crate::safety::write_output(path, out)?;
     Ok(tris)
 }
 
@@ -369,6 +369,6 @@ pub fn write_stl(m: &Model, path: &str, scale: f64) -> Result<usize> {
     if let Some(dir) = Path::new(path).parent() {
         std::fs::create_dir_all(dir).ok();
     }
-    std::fs::write(path, out)?;
+    crate::safety::write_output(path, out)?;
     Ok(tris.len())
 }

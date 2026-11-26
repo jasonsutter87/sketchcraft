@@ -23,3 +23,7 @@ it("results and forms: titles, labels, options and hints are one clean line", ()
   const f = cleanForm({ title: "T‮", text: "t", ok: "O\nK", fields: [{ id: "a", label: "L‮", options: ["o​"], hint: "h\n2" }] });
   expect([f.title, f.ok, f.fields[0].label, f.fields[0].options?.[0], f.fields[0].hint]).toEqual(["T", "O K", "L", "o", "h 2"]);
 });
+
+it("also removes variation selectors past U+E0100 and musical formatting characters", () => {
+  expect(cleanLabel("A\u{e0100}B\u{1d173}C")).toBe("ABC");
+});

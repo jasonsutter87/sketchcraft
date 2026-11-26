@@ -3716,6 +3716,7 @@ dependencies = [
  "geo",
  "glam",
  "image",
+ "libc",
  "pdf-writer",
  "serde",
  "serde_json",
