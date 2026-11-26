@@ -1041,6 +1041,7 @@ impl Model {
         }
 
         let cutting = split.is_some() && hole_in.is_none();
+        let mut inner_holes: Vec<Vec<Id>> = Vec::new();
         if let Some((pid, fnorm)) = hole_in.or(split) {
             if fnorm.dot(n) < 0.0 {
                 lp.reverse();
@@ -1048,7 +1049,20 @@ impl Model {
             if hole_in.is_some() {
                 let mut hole = lp.clone();
                 hole.reverse();
-                self.faces.get_mut(&pid).unwrap().holes.push(hole);
+                // holes of the face that the new loop goes around are the new face's now: left in the old face
+                // too, they would overlap its new hole
+                let around: Vec<usize> = self.faces[&pid]
+                    .holes
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, h)| geom::to2d(&self.pts(h), u, v).iter().all(|p| geom::inside_or_on(*p, &mine)))
+                    .map(|(i, _)| i)
+                    .collect();
+                let parent = self.faces.get_mut(&pid).unwrap();
+                for i in around.iter().rev() {
+                    inner_holes.push(parent.holes.remove(*i));
+                }
+                parent.holes.push(hole);
             } else {
                 // the loop touches the face's outline: share whole edges with the
                 // faces across it, or the solid opens along that outline
@@ -1059,7 +1073,7 @@ impl Model {
             // ground-like faces face up
             lp.reverse();
         }
-        let face = Face { outer: lp, group, ..Default::default() };
+        let face = Face { outer: lp, holes: inner_holes, group, ..Default::default() };
         Ok(match look {
             Some(look) if !cutting => self.insert_face_with(face, look),
             _ => self.insert_face(face),
@@ -1069,6 +1083,7 @@ impl Model {
     /// Remove the area of loop `cut` from face `pid` (they share an edge or
     /// touch), rebuilding its outline. Pieces left over become extra faces.
     fn cut_from(&mut self, pid: Id, cut: &[Id]) -> Result<()> {
+        self.check_deadline()?;
         use geo::{BooleanOps, Coord, LineString, Polygon};
         let parent = self.faces[&pid].clone();
         let fp = self.pts(&parent.outer);
@@ -1083,10 +1098,17 @@ impl Model {
         let result = ppoly.difference(&cpoly);
 
         // reuse existing vertices wherever the result lands on one
-        let mut known: Vec<(glam::DVec2, Id)> = Vec::new();
+        // by 1e-6 cells, so a face with thousands of holes isn't searched point by point for every corner
+        let mut known: HashMap<(i64, i64), Vec<(glam::DVec2, Id)>> = HashMap::new();
+        let cell = |q: glam::DVec2| ((q.x * 1e6).floor() as i64, (q.y * 1e6).floor() as i64);
+        let find = |known: &HashMap<(i64, i64), Vec<(glam::DVec2, Id)>>, q: glam::DVec2| -> Option<Id> {
+            let (cx, cy) = cell(q);
+            (cx - 1..=cx + 1).flat_map(|x| (cy - 1..=cy + 1).map(move |y| (x, y))).filter_map(|c| known.get(&c)).flatten().find(|(k, _)| k.distance(q) < 1e-6).map(|(_, id)| *id)
+        };
         for id in parent.loops().flatten().chain(cut.iter()) {
             let p = self.p(*id);
-            known.push((glam::DVec2::new(p.dot(u), p.dot(v)), *id));
+            let q = glam::DVec2::new(p.dot(u), p.dot(v));
+            known.entry(cell(q)).or_default().push((q, *id));
         }
         let mut to_ids = |m: &mut Model, ls: &LineString<f64>, ccw: bool| -> Vec<Id> {
             let mut pts2: Vec<glam::DVec2> = ls.coords().map(|c| glam::DVec2::new(c.x, c.y)).collect();
@@ -1099,11 +1121,11 @@ impl Model {
             let mut ids: Vec<Id> = pts2
                 .iter()
                 .map(|q| {
-                    if let Some((_, id)) = known.iter().find(|(k, _)| k.distance(*q) < 1e-6) {
-                        *id
+                    if let Some(id) = find(&known, *q) {
+                        id
                     } else {
                         let id = m.vertex_in(u * q.x + v * q.y + n * depth, parent.group);
-                        known.push((*q, id));
+                        known.entry(cell(*q)).or_default().push((*q, id));
                         id
                     }
                 })
@@ -1268,10 +1290,20 @@ impl Model {
         // Carved all the way to the far side (a window pushed through a wall):
         // the bottom of the recess lies back to back on the far face, so both go
         // and the recess becomes a hole.
+        // The sides too: a side along the outline of the face it was cut from (a notch at a part's edge, a door
+        // at the foot of a wall) lies back to back on the outside face there, and a side around a hole that was
+        // already through lies on that hole's own wall.
         if carving {
             if let Some(kept) = self.punch_through(top_id)? {
                 out[0] = kept;
             }
+            for i in 1..out.len() {
+                if self.faces.contains_key(&out[i]) {
+                    self.punch_through(out[i])?;
+                }
+            }
+            let first = out[0];
+            out = std::iter::once(first).chain(out[1..].iter().copied().filter(|id| self.faces.contains_key(id))).collect();
         }
         Ok(out)
     }
@@ -1361,8 +1393,15 @@ impl Model {
             }
             1 => {
                 // a hole runs against its face's outline; `top` faces the other
-                // way, so its own outline already does
-                self.faces.get_mut(&far).unwrap().holes.push(t.outer.clone());
+                // way, so its own outline already does. Holes of the far face inside the new opening are part of it.
+                let inside: Vec<bool> = self.faces[&far].holes.iter().map(|h| geom::to2d(&self.pts(h), u, v).iter().all(|p| geom::inside_or_on(*p, &mine))).collect();
+                let f = self.faces.get_mut(&far).unwrap();
+                let mut k = 0;
+                f.holes.retain(|_| {
+                    k += 1;
+                    !inside[k - 1]
+                });
+                f.holes.push(t.outer.clone());
                 Ok(Some(far))
             }
             _ => {
@@ -2550,6 +2589,12 @@ impl Model {
         if !self.instances.values().all(|i| i.transform.to_cols_array().iter().all(|&x| sane(x))) {
             return bad("a placement");
         }
+        // a colour or finish that isn't a number would be saved as null, and the file would not open again
+        let fin = |x: f32| x.is_finite();
+        let mat_ok = |m: &Material| m.color.iter().all(|&c| fin(c)) && fin(m.opacity) && m.roughness.is_none_or(fin) && m.metalness.is_none_or(fin) && m.emission.is_none_or(fin);
+        if !self.materials.values().all(mat_ok) || !self.definitions.values().all(|d| d.model.materials.values().all(mat_ok)) {
+            return bad("a material's colour");
+        }
         if !self.views.iter().all(|v| v.eye.iter().chain(v.target.iter()).all(|&x| sane(x)) && sane(v.fov)) {
             return bad("a view");
         }
@@ -2746,7 +2791,7 @@ impl Model {
         let faces: usize = self.faces.values().map(|f| 80 + 10 * f.outer.len() + f.holes.iter().map(|h| 10 * h.len() + 4).sum::<usize>() + f.material.as_ref().map_or(0, |m| jl(m) + 4) + f.data_estimate()).sum();
         let mats: usize = self.materials.iter().map(|(k, m)| jl(k) + 200 + m.texture.as_ref().map_or(0, |t| jl(&t.data) + 200)).sum();
         let clouds: usize = self.clouds.values().map(|c| jl(&c.name) + 128 + (4 * c.points.len() + c.colors.len()) * 4 / 3 + 8).sum();
-        let views: usize = self.views.iter().map(|v| 320 + jl(&v.name) + v.photo.as_ref().map_or(0, |p| jl(p)) + v.style.as_ref().map_or(0, jsz) + v.tags.as_ref().map_or(0, |t| t.keys().map(|k| jl(k) + 12).sum()) + v.hidden.as_ref().map_or(0, |h| 12 * h.len())).sum();
+        let views: usize = self.views.iter().map(|v| 320 + jl(&v.name) + v.photo.as_ref().map_or(0, |p| jl(p)) + v.style.as_ref().map_or(0, jsz) + v.tags.as_ref().map_or(0, |t| t.keys().map(|k| jl(k) + 12).sum()) + v.hidden.as_ref().map_or(0, |h| 12 * h.len()) + v.only.as_ref().map_or(0, |o| 12 * o.len())).sum();
         let anns: usize = self.annotations.iter().map(|a| 260 + if let Annotation::Text { text, .. } = a { jl(text) } else { 0 }).sum();
         let groups: usize = self.groups.values().map(|g| 110 + jl(&g.name) + g.tag.as_ref().map_or(0, |t| jl(t))).sum();
         let insts: usize = self.instances.values().map(|i| 420 + jl(&i.name) + i.tag.as_ref().map_or(0, |t| jl(t)) + attr_json(&i.attrs)).sum();
@@ -2986,7 +3031,8 @@ impl Model {
         // a picture counts for the room its text really takes (a string read from a file or a command has spare room at the end)
         let tex: usize = self.materials.values().map(|m| 64 + m.texture.as_ref().map_or(0, |t| t.data.capacity())).sum();
         let faces: usize = self.faces.values().map(|f| 96 + 4 * (f.outer.len() + f.holes.iter().map(Vec::len).sum::<usize>()) + f.data_bytes()).sum();
-        let photos: usize = self.views.iter().map(|v| 160 + v.photo.as_ref().map_or(0, String::len)).sum();
+        // scenes: the photo, and the lists of what each hides or shows (copied into every undo step)
+        let photos: usize = self.views.iter().map(|v| 160 + v.photo.as_ref().map_or(0, String::len) + 8 * (v.hidden.as_ref().map_or(0, Vec::len) + v.only.as_ref().map_or(0, Vec::len))).sum();
         let clouds: usize = self.clouds.values().map(|c| 64 + 4 * c.points.len() + c.colors.len()).sum();
         self.text_bytes() + clouds + self.vertices.len() * 64 + self.edges.len() * 72 + faces + self.groups.len() * 96 + self.instances.len() * 200 + self.definitions.len() * 128 + tex + photos + self.annotations.len() * 120 + self.guides.len() * 80 + self.sheets.len() * 160 + self.sheet_items.len() * 160
     }

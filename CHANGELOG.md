@@ -73,6 +73,9 @@ What changed in each SketchCraft release, newest first. The format follows
   flicker against each other far away (clicking the face still selects it). An OBJ export now fails if a picture can't be
   written, says which pictures it couldn't read, and names its `.mtl` file and pictures folder without spaces. (#222)
 - **Guides inside an open component show.**
+- **Drawing around a hole, and pushing through at a part's edge.** A rectangle drawn around an opening that already
+  goes through now takes that opening with it, instead of leaving two holes on top of each other, and a notch pushed
+  through at the edge or corner of a part leaves a closed solid with no thin face across the notch.
 - **SketchUp 2017-2020 files import their materials and the pictures on them.** These files came in with every face in
   the default color: their materials were not found at all. Now the names, colors and texture pictures come across
   (and the pictures of 2013-2016 files that share one between materials), each picture at the size SketchUp keeps for
@@ -81,6 +84,8 @@ What changed in each SketchCraft release, newest first. The format follows
 ### Security
 - Plugins and extensions run under tighter limits: their menus, names and messages are capped and cleaned, and
   the 3D mouse and SketchCraft AI helpers check what they connect to.
+- Hardening for 0.3.11: stricter checks on what agents and plugins can write and save, on numbers read from imported
+  files, and on how much a model's scenes may hold.
 
 ## [0.3.10] - 2026-11-24
 

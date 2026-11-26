@@ -281,7 +281,7 @@ pub fn build(root: &Model, ctx: Option<u32>) -> Value {
             .chain((!std::ptr::eq(m, root)).then_some(&m.guides).into_iter().flatten().map(|g| json!({
                 "id": g.id,
                 "p": t.transform_point3(g.p).to_array(),
-                "dir": g.dir.map(|d| t.transform_vector3(d).normalize().to_array()),
+                "dir": g.dir.map(|d| t.transform_vector3(d).normalize_or_zero()).filter(|d| *d != glam::DVec3::ZERO).map(|d| d.to_array()),
             })))
             .collect::<Vec<_>>(),
         "views": root.views,

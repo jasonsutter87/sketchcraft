@@ -3,6 +3,10 @@
 
 use super::*;
 
+/// What an agent or a plugin may save as scenes (#229's "show only" lists are copied into every undo step).
+const MAX_SCENES_UNTRUSTED: usize = 500;
+const MAX_SCENE_IDS_UNTRUSTED: usize = 20_000;
+
 impl Engine {
     pub(super) fn run_annotate(&mut self, cmd: Command) -> Result<Value> {
         // the laid-out view is the session's, not the model's (and always of the whole model, never inside `edit`)
@@ -61,7 +65,10 @@ impl Engine {
                         m.tags.insert(t.clone(), *on);
                     }
                 }
-                if let Some(only) = &v.only {
+                // a list from a file that names nothing left (empty, or every id gone) would hide the whole model:
+                // such a scene shows as an ordinary one
+                let only: Option<Vec<Id>> = v.only.as_ref().map(|o| o.iter().copied().filter(|id| m.faces.contains_key(id) || m.edges.contains_key(id) || m.groups.contains_key(id) || m.instances.contains_key(id)).collect()).filter(|o: &Vec<Id>| !o.is_empty());
+                if let Some(only) = &only {
                     m.show_only(only);
                 } else if let Some(hidden) = &v.hidden {
                     let h: std::collections::BTreeSet<Id> = hidden.iter().copied().collect();
@@ -83,6 +90,17 @@ impl Engine {
                 serde_json::to_value(&v)?
             }
             Command::SaveView { name, eye, target, fov, photo, style, section, camera_only, only } => {
+                // an agent or a plugin keeps to a few hundred scenes and lists of what a scene shows that fit a
+                // model; every scene is copied into each undo step
+                if self.untrusted {
+                    let new = !m.views.iter().any(|v| v.name == name);
+                    if new && m.views.len() >= MAX_SCENES_UNTRUSTED {
+                        bail!("this model has {} scenes; an agent or a plugin can add up to {MAX_SCENES_UNTRUSTED}", m.views.len());
+                    }
+                    if only.as_ref().is_some_and(|o| o.len() > MAX_SCENE_IDS_UNTRUSTED) {
+                        bail!("a scene can show up to {MAX_SCENE_IDS_UNTRUSTED} things when an agent or a plugin saves it; name groups instead of every face");
+                    }
+                }
                 let only = match only {
                     None => None,
                     Some(_) if camera_only => bail!("a scene can't be camera only and show only some things"),
