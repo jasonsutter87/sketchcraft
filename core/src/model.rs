@@ -1209,6 +1209,14 @@ impl Model {
                 pairs(l).any(|(a, b)| using(a, b).iter().any(|&g| g != fid && self.normal(g).dot(n) > 1.0 - 1e-9))
             });
         let carving = embedded && d < 0.0;
+        // Pushed into the solid as far as the far side, or past it, or to within
+        // a millimetre of it (the drag rounds to 0.1 mm): it stops on the far
+        // face, and the recess goes right through.
+        let d = match carving.then(|| self.far_face(fid)).flatten() {
+            Some((_, depth)) if -d > depth - 1e-3 => -depth,
+            _ => d,
+        };
+        let dir = n * d;
         self.check_deadline()?;
 
         let mut map: HashMap<Id, Id> = HashMap::new();
@@ -1253,7 +1261,111 @@ impl Model {
         } else if d > 0.0 {
             self.faces.get_mut(&fid).unwrap().reverse(); // becomes the bottom
         }
+        // Carved all the way to the far side (a window pushed through a wall):
+        // the bottom of the recess lies back to back on the far face, so both go
+        // and the recess becomes a hole.
+        if carving {
+            if let Some(kept) = self.punch_through(top_id)? {
+                out[0] = kept;
+            }
+        }
         Ok(out)
+    }
+
+    /// How a face of the group covers the outline `mine` (2D, in the basis of the
+    /// outline's plane): 0 the same outline, 1 strictly inside it, 2 inside and
+    /// touching its outline. None: it doesn't cover it.
+    fn covers(&self, g: &Face, ids: &[Id], mine: &[glam::DVec2], u: DVec3, v: DVec3) -> Option<u8> {
+        if same_set(&g.outer, ids) && g.holes.is_empty() {
+            return Some(0);
+        }
+        let outer2 = geom::to2d(&self.pts(&g.outer), u, v);
+        let holes2: Vec<_> = g.holes.iter().map(|h| geom::to2d(&self.pts(h), u, v)).collect();
+        let in_hole = |p: &glam::DVec2| holes2.iter().any(|h| geom::inside(*p, h));
+        let mid = mine.iter().copied().sum::<glam::DVec2>() / mine.len() as f64;
+        if mine.iter().all(|p| geom::inside(*p, &outer2) && !in_hole(p)) {
+            Some(1)
+        } else if mine.iter().all(|p| geom::inside_or_on(*p, &outer2) && !in_hole(p)) && geom::inside(mid, &outer2) && !in_hole(&mid) {
+            Some(2)
+        } else {
+            None
+        }
+    }
+
+    /// The nearest face of `fid`'s group behind it (facing the other way, parallel)
+    /// that covers its whole outline, and how far back it is.
+    fn far_face(&self, fid: Id) -> Option<(Id, f64)> {
+        let f = &self.faces[&fid];
+        let fp = self.pts(&f.outer);
+        let n = geom::newell(&fp).normalize_or_zero();
+        if n == DVec3::ZERO {
+            return None;
+        }
+        let (u, v) = geom::basis(n);
+        let mine = geom::to2d(&fp, u, v);
+        let mut best: Option<(Id, f64)> = None;
+        for (&id, g) in &self.faces {
+            if id == fid || g.group != f.group {
+                continue;
+            }
+            let gp = self.pts(&g.outer);
+            if geom::newell(&gp).normalize_or_zero().dot(n) > -1.0 + 1e-9 {
+                continue;
+            }
+            let depth = (fp[0] - gp[0]).dot(n);
+            if depth <= WELD || best.is_some_and(|(_, b)| b <= depth) {
+                continue;
+            }
+            if self.covers(g, &[], &mine, u, v).is_some() {
+                best = Some((id, depth));
+            }
+        }
+        best
+    }
+
+    /// `top` lies on a face of its group that faces the other way (back to back,
+    /// zero thickness between them): take `top`'s area out of that face and drop
+    /// `top`. Returns a face to report in its place (the far face, or a side when
+    /// the far face is gone), or None when nothing was there.
+    fn punch_through(&mut self, top: Id) -> Result<Option<Id>> {
+        let t = self.faces[&top].clone();
+        let tp = self.pts(&t.outer);
+        let n = geom::newell(&tp).normalize_or_zero();
+        if n == DVec3::ZERO {
+            return Ok(None);
+        }
+        let (u, v) = geom::basis(n);
+        let mine = geom::to2d(&tp, u, v);
+        let hit = self.faces.iter().find_map(|(&id, f)| {
+            if id == top || f.group != t.group {
+                return None;
+            }
+            let fp = self.pts(&f.outer);
+            if geom::newell(&fp).normalize_or_zero().dot(n) > -1.0 + 1e-9 || (fp[0] - tp[0]).dot(n).abs() > PLANAR {
+                return None;
+            }
+            self.covers(f, &t.outer, &mine, u, v).map(|how| (id, how))
+        });
+        let Some((far, how)) = hit else { return Ok(None) };
+        self.faces.remove(&top);
+        match how {
+            0 => {
+                self.faces.remove(&far);
+                // nothing left there: report a wall of the new opening
+                let side = self.faces.iter().find(|(_, f)| f.group == t.group && pairs(&t.outer).any(|(a, b)| f.uses_edge(a, b))).map(|(&k, _)| k);
+                Ok(side)
+            }
+            1 => {
+                // a hole runs against its face's outline; `top` faces the other
+                // way, so its own outline already does
+                self.faces.get_mut(&far).unwrap().holes.push(t.outer.clone());
+                Ok(Some(far))
+            }
+            _ => {
+                self.cut_from(far, &t.outer)?;
+                Ok(Some(far))
+            }
+        }
     }
 
     // ----- editing ------------------------------------------------------------

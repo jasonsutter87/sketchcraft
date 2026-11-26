@@ -15,6 +15,11 @@
 .brand {
   @include row(8px);
   min-width: 0;
+
+  /* the logo keeps its size on a narrow window; the file name shortens instead */
+  > svg {
+    flex-shrink: 0;
+  }
 }
 
 .brand-name {
@@ -55,6 +60,12 @@
 
 .top-actions {
   @include row(6px);
+
+  /* a button's label stays on one line ("SketchCraft AI" wrapped at 1280 px); the file name gives way instead */
+  > * {
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
 }
 
 .icon-btn {

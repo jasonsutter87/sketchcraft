@@ -54,8 +54,8 @@ export function parseLength(raw: string, units: Units | string): number {
   const s = raw.trim().toLowerCase();
   if (!s) return NaN;
   const num = (t: string) => {
-    // "6 1/2" or "1/2" or "6.5"
-    const m = /^(-?\d+(?:\.\d+)?)?\s*(?:(\d+)\/(\d+))?$/.exec(t.trim());
+    // "6 1/2" or "1/2" or "6.5" or ".5" or "6." (a leading or trailing point, as SketchUp takes it)
+    const m = /^(-?(?:\d+(?:\.\d*)?|\.\d+))?\s*(?:(\d+)\/(\d+))?$/.exec(t.trim());
     if (!m || (m[1] === undefined && m[2] === undefined)) return NaN;
     const whole = m[1] !== undefined ? Number(m[1]) : 0;
     const f = m[2] !== undefined ? Number(m[2]) / Number(m[3]) : 0;
@@ -87,7 +87,7 @@ export function parseLengths(text: string, units: Units | string): number[] {
 
 function splitSpaces(text: string): string[] {
   // split where a new number follows a unit mark ("8' 12'", "2m 3m")...
-  const parts = text.trim().split(/(?<=['"a-z])\s+(?=-?\d)/i);
+  const parts = text.trim().split(/(?<=['"a-z])\s+(?=-?\.?\d)/i);
   // ...but keep feet and the inches after them as one length: "10' 6 1/2\"" (as SketchUp reads it)
   const out: string[] = [];
   for (const p of parts) {

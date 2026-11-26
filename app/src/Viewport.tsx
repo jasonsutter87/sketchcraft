@@ -97,6 +97,9 @@ export default function Viewport(props: Props) {
   const [box, setBox] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
 
   const live = useRef(props);
+  /** a standard view turned Parallel on by itself: the way it looks (camera direction), to go back to perspective
+   *  once the camera turns away from it */
+  const autoParallel = useRef<THREE.Vector3 | null>(null);
   /** How many quick presses in a row (1 single, 2 double, 3 triple) and the last press */
   const clicks = useRef(1);
   const lastDown = useRef<{ t: number; x: number; y: number; button: number } | null>(null);
@@ -289,8 +292,15 @@ export default function Viewport(props: Props) {
         rc.setFromCamera(new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1), cam);
         const focus = rc.ray.intersectPlane(new THREE.Plane().setFromNormalAndCoplanarPoint(cam.getWorldDirection(new THREE.Vector3()).negate(), target), new THREE.Vector3()) ?? target.clone();
         if (cam === T.ortho) {
+          // toward the cursor too: the point under it stays put
+          const ndc = new THREE.Vector3(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1, 0);
+          const before = ndc.clone().unproject(T.ortho);
           T.ortho.zoom = THREE.MathUtils.clamp(T.ortho.zoom / f, 0.02, 200);
           T.ortho.updateProjectionMatrix();
+          const shift = before.sub(ndc.clone().unproject(T.ortho));
+          T.ortho.position.add(shift);
+          target.add(shift);
+          T.ortho.updateMatrixWorld();
         } else {
           const minR = FIT_RADIUS_FLOOR;
           if (f < 1 && cam.position.distanceTo(target) * f < minR) return;
@@ -342,6 +352,9 @@ export default function Viewport(props: Props) {
     const grid = new THREE.GridHelper(600, 600, 0xd5d8e2, 0xe4e6ee);
     grid.rotation.x = Math.PI / 2;
     (grid.material as THREE.Material).depthWrite = false;
+    // drawn before the model, so a face on the floor always covers it (#253: a
+    // box's bottom face fought with the grid when looked at inside the box)
+    grid.renderOrder = -10;
     ground.add(grid);
     // the drawing axes (moved and turned by the Axes tool)
     axesGroup.current.matrixAutoUpdate = false;
@@ -350,7 +363,10 @@ export default function Viewport(props: Props) {
       axesGroup.current.add(new THREE.Line(g, new THREE.LineBasicMaterial({ color: c, transparent: true, opacity: 0.55 })));
     }
     world.add(axesGroup.current);
-    const catcher = new THREE.Mesh(new THREE.PlaneGeometry(2000, 2000), new THREE.ShadowMaterial({ opacity: 0.22 }));
+    // pushed further back than model faces are (they take polygonOffset 1/1), so
+    // a face lying on the floor wins even at grazing angles, where the offset
+    // scales with the slope and outgrows the 1 cm the ground sits below
+    const catcher = new THREE.Mesh(new THREE.PlaneGeometry(2000, 2000), new THREE.ShadowMaterial({ opacity: 0.22, polygonOffset: true, polygonOffsetFactor: 6, polygonOffsetUnits: 12 }));
     catcher.receiveShadow = true;
     catcher.visible = false;
     ground.add(catcher);
@@ -392,6 +408,12 @@ export default function Viewport(props: Props) {
       }
       controls.update();
       const cam = t.current!.camera;
+      // orbited away from a standard view that turned Parallel on: back to perspective
+      const ap = autoParallel.current;
+      if (ap && cam.getWorldDirection(new THREE.Vector3()).dot(ap) < Math.cos(THREE.MathUtils.degToRad(1))) {
+        autoParallel.current = null;
+        live.current.onParallel?.(false);
+      }
       if (sky.visible) {
         sky.position.copy(cam.position);
         sky.scale.setScalar(Math.max(cam.near * 10, Math.min(cam.far * 0.5, 5000)));
@@ -463,10 +485,13 @@ export default function Viewport(props: Props) {
     const T = t.current;
     if (!T) return;
     const want = styles.parallel ? T.ortho : T.persp;
+    if (!styles.parallel) autoParallel.current = null;
     if (T.camera !== want) {
       if (styles.parallel) syncOrtho(true);
       else {
-        T.persp.position.copy(T.ortho.position);
+        // as close as parallel was zoomed: the same size on screen at the target
+        const off = T.ortho.position.clone().sub(T.controls.target);
+        T.persp.position.copy(T.controls.target).addScaledVector(off, 1 / Math.max(T.ortho.zoom, 1e-3));
         T.persp.quaternion.copy(T.ortho.quaternion);
       }
       T.camera = want;
@@ -779,6 +804,7 @@ export default function Viewport(props: Props) {
       }
     }
     T.model.children.forEach((c) => (c as THREE.Mesh).geometry?.dispose());
+    if (T.pickMesh && T.pickMesh.parent !== T.model) T.pickMesh.geometry.dispose(); // the undrawn pick copy
     T.model.clear();
     const xray = live.current.styles.xray;
     const clip = st.current.section ? [st.current.section] : st.current.cutaway ? [st.current.cutaway] : [];
@@ -873,11 +899,32 @@ export default function Viewport(props: Props) {
       if (faceStyle === "monochrome") return new THREE.MeshLambertMaterial({ ...common, side, color: 0xeceef3 });
       return new THREE.MeshLambertMaterial({ ...common, side, vertexColors: true });
     };
-    const front = new THREE.Mesh(geo, mat(THREE.FrontSide));
-    const back = new THREE.Mesh(bgeo, mat(THREE.BackSide));
+    // Under a textured face only its picture is drawn (the textured meshes below): a plain copy under it, in the
+    // same plane, fought it for depth, and the plain color flickered through in perspective (#222). Picking still
+    // uses every face (pick, below).
+    const texturedTri = (tri: number) => {
+      const ti = s.triTex?.[tri] ?? -1;
+      return ti >= 0 && !!s.materials.find((m) => m.name === s.textures[ti])?.texture;
+    };
+    let shown = geo;
+    let shownBack = bgeo;
+    if (faceStyle === "textured" && s.triTex?.some((ti) => ti >= 0)) {
+      const collapse = (g: THREE.BufferGeometry) => {
+        const c = g.clone();
+        const a = c.getAttribute("position").array as Float32Array;
+        for (let tri = 0; tri < s.triFace.length; tri++) if (texturedTri(tri)) for (let k = 3; k < 9; k++) a[tri * 9 + k] = a[tri * 9 + (k % 3)];
+        return c;
+      };
+      shown = collapse(geo);
+      shownBack = collapse(bgeo);
+    }
+    const front = new THREE.Mesh(shown, mat(THREE.FrontSide));
+    const back = new THREE.Mesh(shownBack, mat(THREE.BackSide));
     front.castShadow = back.castShadow = live.current.styles.shadows;
     front.receiveShadow = live.current.styles.shadows;
     T.model.add(front, back);
+    // what clicks hit: every face (not drawn; the shown meshes may leave textured faces to their pictures)
+    const pick = shown === geo ? front : new THREE.Mesh(geo, front.material);
 
     // profiles: an outline around every shape
     const box = new THREE.Box3().setFromBufferAttribute(geo.getAttribute("position") as THREE.BufferAttribute);
@@ -915,6 +962,7 @@ export default function Viewport(props: Props) {
           new THREE.MeshLambertMaterial({ map: textureFor(mat.name, mat.texture.data), vertexColors: !!vc, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: PICTURE_OFFSET.factor, polygonOffsetUnits: PICTURE_OFFSET.units, transparent: xray || (mat.opacity ?? 1) < 1, opacity: Math.min(xray ? 0.42 : 1, mat.opacity ?? 1), depthWrite: !xray && (mat.opacity ?? 1) >= 1, clippingPlanes: clip })
         );
         mesh.receiveShadow = live.current.styles.shadows;
+        mesh.castShadow = live.current.styles.shadows; // the plain faces under it are gone
         mesh.userData.texName = mat.name;
         T.model.add(mesh);
       }
@@ -1096,7 +1144,7 @@ export default function Viewport(props: Props) {
     addAnnotationLines(T, s);
     st.current.labels = [...annotationSpecs(), ...roomSpecs()];
     syncLabels();
-    T.pickMesh = front;
+    T.pickMesh = pick;
 
     addFigures(T, s, clip);
     // turn them to the camera now, not after the next frame is drawn (a new figure flashed its
@@ -1764,16 +1812,26 @@ export default function Viewport(props: Props) {
   function view(name: "iso" | "top" | "front" | "right" | "back" | "left") {
     const T = t.current!;
     setFov(40);
-    const dirs: Record<string, Vec3> = { iso: [1, -1.35, 0.95], top: [0, -0.001, 1], front: [0, -1, 0.08], back: [0, 1, 0.08], right: [1, 0, 0.08], left: [-1, 0, 0.08] };
+    // Top, Front, Right...: straight along an axis, in parallel projection (zooming in perspective slides the eye
+    // sideways, and tall parts lean as if the model turned, #232); orbiting away goes back to perspective
+    const flat = name !== "iso";
+    const dirs: Record<string, Vec3> = { iso: [1, -1.35, 0.95], top: [0, -0.001, 1], front: [0, -1, 0], back: [0, 1, 0], right: [1, 0, 0], left: [-1, 0, 0] };
     const d = V(dirs[name]).normalize();
     const dist = T.camera.position.distanceTo(T.controls.target);
+    // leave parallel first (if it was switched on for an earlier view), so the camera below is the one shown
+    if (!flat && autoParallel.current) {
+      autoParallel.current = null;
+      live.current.onParallel?.(false);
+    }
     T.persp.position.copy(T.controls.target.clone().addScaledVector(d, dist));
     T.persp.lookAt(T.controls.target);
-    if (T.camera === T.ortho) {
-      T.ortho.position.copy(T.persp.position);
-      T.ortho.quaternion.copy(T.persp.quaternion);
-    }
+    // in parallel, the camera shown turns too: fit() aims along the shown camera (Top then Front did nothing in parallel)
+    if (T.camera === T.ortho) syncOrtho(true);
     fit();
+    if (flat && live.current.onParallel && (autoParallel.current || !live.current.styles.parallel)) {
+      autoParallel.current = d.clone().negate();
+      if (T.camera !== T.ortho) live.current.onParallel(true);
+    }
   }
 
   /** Orbit around the target by a drag of (dx, dy) pixels (the axis gizmo). */
@@ -2166,9 +2224,9 @@ export default function Viewport(props: Props) {
         op.r = Math.abs(lens[0]);
         return void (await commitCircle());
       case "carc":
-        if (!op.a || !lens.length) return;
-        // typed: the angle in degrees
-        op.ang = THREE.MathUtils.degToRad(lens[0]) * Math.sign(op.ang || 1);
+        if (!op.a || !nums.length) return;
+        // typed: the angle in degrees (a plain number, as Rotate takes it: a length would be read in the model's units)
+        op.ang = THREE.MathUtils.degToRad(nums[0]) * Math.sign(op.ang || 1);
         return void (await commitCarc());
       case "rrect":
         if (!op.b || !lens.length) return;
@@ -3576,7 +3634,7 @@ export default function Viewport(props: Props) {
     const downTape = async ({ e, E, op }: DownArgs) => {
       if (op?.t === "tape") return void (await commitTape(infer(E, e, { anchor: op.p0, lock: st.current.lock }).p));
       const sn = infer(E, e, {});
-      st.current.op = { t: "tape", p0: sn.p, along: sn.kind === "on-edge" && sn.along ? sn.along : null, cur: sn.p };
+      st.current.op = { t: "tape", p0: sn.p, along: (sn.kind === "on-edge" || sn.kind === "on-guide") && sn.along ? sn.along : null, cur: sn.p };
       return;
     };
     const downDimension = async ({ e, E, op }: DownArgs) => {

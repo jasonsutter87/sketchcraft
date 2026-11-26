@@ -1,7 +1,7 @@
 // Inference ("snapping") engine: figures out what the cursor means in 3D.
 // Priority: endpoint > center / origin > midpoint > guide point > axis from the last point >
-// in line with two points hovered earlier (where their lines cross) > in line with one >
-// on an edge / guide > on a face > on the ground (or the drawing plane).
+// in line with two points hovered earlier (where their lines cross) > on an edge / guide /
+// drawing axis > in line with one hovered point > on a face > on the ground (or the drawing plane).
 import * as THREE from "three";
 import type { FaceInfo, Scene } from "./engine";
 
@@ -163,11 +163,8 @@ export function infer(env: InferEnv, e: { clientX: number; clientY: number }, op
   const up = new THREE.Vector3(0, 0, 1);
   const planeN = plane?.normal ?? (hit?.face ? V(hit.face.normal) : up);
 
-  // axis lock (arrow keys): the cursor rides that axis from the anchor
-  if (opts.anchor && opts.lock != null) {
-    const q = closestOnLine(ray, opts.anchor, AXES[opts.lock]);
-    return { p: q, kind: "axis", axis: opts.lock, label: `On ${AXIS_NAMES[opts.lock]} Axis`, normal: plane?.normal ?? up };
-  }
+  // axis lock (Shift, arrow keys): the cursor rides that axis from the anchor
+  const locked = opts.anchor && opts.lock != null ? { o: opts.anchor, k: opts.lock } : null;
 
   // points: endpoints, midpoints, guide points
   let best: { p: THREE.Vector3; d: number; kind: Snap["kind"]; label: string } | null = null;
@@ -194,6 +191,18 @@ export function infer(env: InferEnv, e: { clientX: number; clientY: number }, op
       const b = new THREE.Vector3(segs[i + 3], segs[i + 4], segs[i + 5]);
       consider(a.add(b).multiplyScalar(0.5), "midpoint", "Midpoint", 10);
     }
+  }
+  if (locked) {
+    // still inferring while locked: a point under the cursor sets how far along
+    // the axis, where it projects onto it (as SketchUp does), #253
+    if (!best) for (const g of s.guides) if (!g.dir) consider(V(g.p), "guide-point", "Guide Point", 10);
+    const along = AXES[locked.k];
+    if (best) {
+      const b = best as { p: THREE.Vector3; label: string };
+      const q = locked.o.clone().addScaledVector(along, b.p.clone().sub(locked.o).dot(along));
+      return { p: q, from: b.p.clone(), kind: "axis", axis: locked.k, label: `On ${AXIS_NAMES[locked.k]} Axis · ${b.label}`, normal: plane?.normal ?? up };
+    }
+    return { p: closestOnLine(ray, locked.o, along), kind: "axis", axis: locked.k, label: `On ${AXIS_NAMES[locked.k]} Axis`, normal: plane?.normal ?? up };
   }
   // a point of a scan (after the model's own points, before guides)
   if (!best && env.cloudPoint) {
@@ -258,23 +267,9 @@ export function infer(env: InferEnv, e: { clientX: number; clientY: number }, op
     if (x) return { p: x.q, from: x.a.clone(), from2: x.b.clone(), kind: "axis", axis: x.ka, axis2: x.kb, label: "From Points", normal: plane?.normal ?? (hit?.face ? V(hit.face.normal) : up) };
   }
 
-  // in line with a point hovered earlier, along an axis
-  {
-    let fp: { q: THREE.Vector3; d: number; k: Axis; r: THREE.Vector3 } | null = null;
-    for (const r of recent) {
-      for (const k of [0, 1, 2] as Axis[]) {
-        const q = closestOnLine(ray, r, AXES[k]);
-        if (q.distanceTo(r) < 0.05 || !onPlane(q) || !visible(q)) continue;
-        const sc = screen(env, q);
-        if (sc.behind) continue;
-        const d = Math.hypot(sc.x - mx, sc.y - my);
-        if (d < 7 && (!fp || d < fp.d)) fp = { q, d, k, r };
-      }
-    }
-    if (fp) return { p: fp.q, from: fp.r.clone(), kind: "axis", axis: fp.k, label: "From Point", normal: plane?.normal ?? (hit?.face ? V(hit.face.normal) : up) };
-  }
-
-  // on an edge or a guide line
+  // on an edge, a guide line or one of the drawing axes. Before "From Point": an
+  // edge drawn along an axis lies on the axis lines through its own corners, so
+  // From Point used to win over most of a rectangle's sides (#231)
   let line: { p: THREE.Vector3; d: number; along: THREE.Vector3; label: string; kind: Snap["kind"] } | null = null;
   const onSeg = (a: THREE.Vector3, b: THREE.Vector3, label: string, kind: Snap["kind"], infinite: boolean) => {
     const dir = b.clone().sub(a);
@@ -295,9 +290,30 @@ export function infer(env: InferEnv, e: { clientX: number; clientY: number }, op
     onSeg(new THREE.Vector3(segs[i], segs[i + 1], segs[i + 2]), new THREE.Vector3(segs[i + 3], segs[i + 4], segs[i + 5]), "On Edge", "on-edge", false);
   }
   for (const g of s.guides) if (g.dir) onSeg(V(g.p), V(g.p).add(V(g.dir)), "On Guide", "on-guide", true);
+  // the drawing axes themselves (as drawn: 300 m out from the origin), when no edge or guide is nearer
+  if (!line) {
+    const o = s.axes ? V(s.axes[0]) : new THREE.Vector3();
+    for (const k of [0, 1, 2] as Axis[]) onSeg(o, o.clone().addScaledVector(AXES[k], 300), `On ${AXIS_NAMES[k]} Axis`, "on-edge", false);
+  }
   if (line) {
     const l = line as { p: THREE.Vector3; along: THREE.Vector3; label: string; kind: Snap["kind"] };
     return { p: l.p, kind: l.kind, label: l.label, along: l.along, normal: planeN.clone(), face: hit?.face ?? undefined };
+  }
+
+  // in line with a point hovered earlier, along an axis
+  {
+    let fp: { q: THREE.Vector3; d: number; k: Axis; r: THREE.Vector3 } | null = null;
+    for (const r of recent) {
+      for (const k of [0, 1, 2] as Axis[]) {
+        const q = closestOnLine(ray, r, AXES[k]);
+        if (q.distanceTo(r) < 0.05 || !onPlane(q) || !visible(q)) continue;
+        const sc = screen(env, q);
+        if (sc.behind) continue;
+        const d = Math.hypot(sc.x - mx, sc.y - my);
+        if (d < 7 && (!fp || d < fp.d)) fp = { q, d, k, r };
+      }
+    }
+    if (fp) return { p: fp.q, from: fp.r.clone(), kind: "axis", axis: fp.k, label: "From Point", normal: plane?.normal ?? (hit?.face ? V(hit.face.normal) : up) };
   }
 
   // drawing plane, face, ground
