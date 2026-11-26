@@ -58,6 +58,9 @@ What changed in each SketchCraft release, newest first. The format follows
   Camera menus too. (#226)
 
 ### Fixed
+- **Cleaner ambient occlusion.** AO in the Architectural style no longer speckles along profile lines, now works in
+  Parallel and the standard views, stays sharp on HiDPI screens, and scales its shading with the zoom, so it reads
+  the same on a chair and on a whole building. (#265)
 - **Push/Pull through a wall.** A shape drawn on a wall and pushed to the far side now opens a hole right through,
   instead of leaving a face on the far side. A push past the far wall, or within a millimetre of it, stops there. (#255)
 - **No black specks or wedges with Profiles on.** The profile outline could show through faces it sat right behind:
