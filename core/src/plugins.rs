@@ -5,6 +5,9 @@
 //! live in ~/Documents/SketchCraft/Plugins. Also here: `parts`, the sizes a
 //! cut list needs.
 
+
+/// Most commands one plugin may add (app/src/pluginclean.ts MAX_MENU_ITEMS is the same).
+pub const MAX_PLUGIN_COMMANDS: usize = 50;
 use crate::model::{Id, Model};
 use glam::DVec3;
 use serde_json::{json, Value};
@@ -37,6 +40,8 @@ fn entry(id: &str, manifest: &str, code: String, builtin: bool, folder: Option<&
     // command icons, sent as data URLs: inline SVG ("<svg ...>"), or a small
     // SVG or PNG file beside main.js
     if let Some(cmds) = o.get_mut("commands").and_then(|c| c.as_array_mut()) {
+        // a plugin adds at most this many commands to the menus (the same limit as a Ruby extension's menu)
+        cmds.truncate(MAX_PLUGIN_COMMANDS);
         for c in cmds {
             let Some(icon) = c.get("icon").and_then(|i| i.as_str()).map(str::to_string) else { continue };
             let data = if icon.trim_start().starts_with("<svg") && icon.len() <= 64 * 1024 {

@@ -17,7 +17,7 @@ const __chain = (o, names) => {
     for (const k of names) if (p === o || Object.prototype.hasOwnProperty.call(p, k)) __block(p, k);
   }
 };
-const __NET = ["fetch", "XMLHttpRequest", "WebSocket", "WebSocketStream", "WebTransport", "EventSource", "importScripts", "indexedDB", "IDBFactory", "caches", "Worker", "SharedWorker", "BroadcastChannel", "Request", "RTCPeerConnection", "fetchLater", "createImageBitmap", "FontFace", "FontFaceSet", "Notification", "PushManager", "BackgroundFetchManager", "Cache", "CacheStorage", "FileSystemHandle", "FileSystemDirectoryHandle", "FileSystemFileHandle", "WebTransport", "RTCDataChannel", "RTCSessionDescription"];
+const __NET = ["fetch", "XMLHttpRequest", "WebSocket", "WebSocketStream", "WebTransport", "EventSource", "importScripts", "indexedDB", "IDBFactory", "caches", "Worker", "SharedWorker", "BroadcastChannel", "Request", "RTCPeerConnection", "fetchLater", "createImageBitmap", "FontFace", "FontFaceSet", "Notification", "PushManager", "BackgroundFetchManager", "Cache", "CacheStorage", "FileSystemHandle", "FileSystemDirectoryHandle", "FileSystemFileHandle", "WebTransport", "RTCDataChannel", "RTCSessionDescription", "webkitRequestFileSystem", "webkitRequestFileSystemSync", "webkitResolveLocalFileSystemURL", "webkitResolveLocalFileSystemSyncURL", "requestFileSystem", "requestFileSystemSync"];
 __chain(self, __NET);
 try { __block(self.navigator, "sendBeacon"); } catch {}
 // storage a plugin could use to keep data beyond its run (and cache/streaming loads)

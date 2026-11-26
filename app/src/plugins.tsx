@@ -8,7 +8,7 @@ import { confirm } from "./ask";
 import { exec } from "./engine";
 import { pickSave } from "./files";
 import { useLocale } from "./locale";
-import { cleanForm, cleanLabel, cleanMenu, cleanResult, cleanText, type PluginField, type PluginForm, type PluginResult } from "./pluginclean";
+import { cleanForm, cleanLabel, cleanMenu, cleanResult, cleanText, MAX_MENU_ITEMS, type PluginField, type PluginForm, type PluginResult } from "./pluginclean";
 
 export { cleanForm, cleanResult };
 export { cleanLabel, cleanMenu };
@@ -57,7 +57,7 @@ export async function loadPlugins(): Promise<PluginList> {
   if (!r.ok) return { dir: "", plugins: [], problems: [] };
   const plugins = ((r.plugins as Plugin[]) ?? [])
     .filter((p) => p && typeof p.code === "string" && Array.isArray(p.commands))
-    .map((p) => ({ ...p, name: cleanLabel(p.name, 60) || "(unnamed plugin)", version: p.version == null ? undefined : cleanLabel(p.version, 30), author: p.author == null ? undefined : cleanLabel(p.author, 80), description: p.description == null ? undefined : cleanText(p.description, 600), commands: p.commands.map((c) => (c && typeof c === "object" ? { ...c, label: cleanLabel(c.label, 80) || "(unnamed)" } : c)) }));
+    .map((p) => ({ ...p, name: cleanLabel(p.name, 60) || "(unnamed plugin)", version: p.version == null ? undefined : cleanLabel(p.version, 30), author: p.author == null ? undefined : cleanLabel(p.author, 80), description: p.description == null ? undefined : cleanText(p.description, 600), commands: p.commands.slice(0, MAX_MENU_ITEMS).map((c) => (c && typeof c === "object" ? { ...c, label: cleanLabel(c.label, 80) || "(unnamed)", hint: c.hint == null ? undefined : cleanLabel(c.hint, 200) } : c)) }));
   const problems = (Array.isArray(r.problems) ? (r.problems as PluginList["problems"]) : []).map((x) => ({ id: cleanLabel(x?.id, 80), error: cleanLabel(x?.error, 300) }));
   return { dir: String(r.dir ?? ""), plugins, problems };
 }

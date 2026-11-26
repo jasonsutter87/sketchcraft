@@ -27,3 +27,18 @@ it("results and forms: titles, labels, options and hints are one clean line", ()
 it("also removes variation selectors past U+E0100 and musical formatting characters", () => {
   expect(cleanLabel("A\u{e0100}B\u{1d173}C")).toBe("ABC");
 });
+
+it("a result table shows a bounded number of cells, each one clean line", () => {
+  const columns = Array.from({ length: 40 }, (_, i) => `c${i}`);
+  const rows = Array.from({ length: 2000 }, () => columns.map(() => "x".repeat(400) + "‮"));
+  const r = cleanResult({ table: { columns, rows } });
+  const cells = (r.table?.rows.length ?? 0) * (r.table?.columns.length ?? 0);
+  expect(cells).toBeLessThanOrEqual(10_000);
+  expect(String(r.table?.rows[0][0]).length).toBe(200);
+  expect(String(r.table?.rows[0][0])).not.toContain("‮");
+});
+
+it("every Unicode format character is removed", () => {
+  // U+061C, U+08E2, U+110BD and U+13430 are all category Cf
+  expect(cleanLabel("a࣢b\u{110bd}c\u{13430}d")).toBe("abcd");
+});

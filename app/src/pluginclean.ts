@@ -53,7 +53,9 @@ export function cleanResult(r: unknown): PluginResult {
   const t = o.table as { columns?: unknown; rows?: unknown } | undefined;
   if (t && Array.isArray(t.columns) && Array.isArray(t.rows)) {
     const columns = t.columns.slice(0, 40).map((c) => cleanLabel(c, 80));
-    const rows = t.rows.slice(0, 2000).map((row) => (Array.isArray(row) ? row.slice(0, columns.length).map((c) => (typeof c === "number" && Number.isFinite(c) ? c : (str(c, 400) ?? ""))) : []));
+    // at most MAX_TABLE_CELLS cells, so a huge table can't stall the window drawing it
+    const maxRows = Math.min(2000, Math.floor(MAX_TABLE_CELLS / Math.max(1, columns.length)));
+    const rows = t.rows.slice(0, maxRows).map((row) => (Array.isArray(row) ? row.slice(0, columns.length).map((c) => (typeof c === "number" && Number.isFinite(c) ? c : cleanLabel(c, 200))) : []));
     out.table = { columns, rows };
   }
   return out;
@@ -117,9 +119,9 @@ export function cleanPreview(lines: unknown, max = 5000): Point3[][] {
 // (the same set as the engine's is_format_char and is_invisible_filler: soft hyphen, grapheme joiner, Hangul and
 // Khmer fillers, Mongolian selectors, zero-width and bidi marks, Braille blank, variation selectors, specials, tags)
 const INVISIBLE = "\\u00ad\\u034f\\u061c\\u115f\\u1160\\u17b4\\u17b5\\u180b-\\u180e\\u200b-\\u200f\\u2028-\\u202e\\u2060-\\u206f\\u2800\\u3164\\ufe00-\\ufe0f\\ufeff\\uffa0\\ufff9-\\ufffc\\u{1d173}-\\u{1d17a}\\u{e0000}-\\u{e007f}\\u{e0100}-\\u{e01ef}";
-const HIDDEN = new RegExp(`[\\u0000-\\u001f\\u007f-\\u009f${INVISIBLE}]`, "gu");
+const HIDDEN = new RegExp(`[\\u0000-\\u001f\\u007f-\\u009f${INVISIBLE}\\p{Cf}]`, "gu");
 /** the same, less line breaks and tabs: for body text that may run over several lines */
-const HIDDEN_IN_TEXT = new RegExp(`[\\u0000-\\u0008\\u000b-\\u001f\\u007f-\\u009f${INVISIBLE}]`, "gu");
+const HIDDEN_IN_TEXT = new RegExp(`[\\u0000-\\u0008\\u000b-\\u001f\\u007f-\\u009f${INVISIBLE}\\p{Cf}]`, "gu");
 
 /** A name or label as it may be shown: no control or bidi characters, one line, cut to `max`. */
 export function cleanLabel(v: unknown, max = 80): string {
@@ -134,6 +136,8 @@ export function cleanLabel(v: unknown, max = 80): string {
 
 /** Most menu items one extension may add, and the longest label. */
 export const MAX_MENU_ITEMS = 50;
+/** Most cells a plugin's result table shows. */
+export const MAX_TABLE_CELLS = 10_000;
 export const MAX_LABEL = 80;
 
 /**
