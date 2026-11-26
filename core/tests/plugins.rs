@@ -83,6 +83,13 @@ fn install_turn_off_and_remove_a_plugin() {
     let r = run(&mut e, json!({"cmd":"install_plugin","data": b64(&evil)}));
     assert_eq!(r["ok"], false, "{r}");
     assert!(!home.join("escape.js").exists() && !home.join("Plugins/evil").exists());
+    // names with direction marks or control characters, and Windows device names, are refused too
+    for bad in ["m\u{202E}rb.rb", "a\u{1}b.rb", "con.rb", "sub/NUL.txt", "com1.rb", "lpt9.rb"] {
+        let z = zip_of(&[("plugin.json", r#"{"name":"Odd","commands":[]}"#), ("main.js", ""), (bad, "x")]);
+        let r = run(&mut e, json!({"cmd":"install_plugin","data": b64(&z)}));
+        assert_eq!(r["ok"], false, "{bad}: {r}");
+        assert!(r["error"].as_str().unwrap().contains("unsafe file name"), "{r}");
+    }
     // and one without plugin.json
     let r = run(&mut e, json!({"cmd":"install_plugin","data": b64(&zip_of(&[("main.js", "")]))}));
     assert!(r["error"].as_str().unwrap().contains("plugin.json"));

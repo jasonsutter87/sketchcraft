@@ -4,7 +4,7 @@
 import { exec, type Reply } from "./engine";
 import { pluginSandboxHolds } from "./cspcheck";
 import { SANDBOX_PREFACE, startWorker, type SandboxWorker } from "./sandbox";
-import { cleanForm, cleanPoint, cleanPreview, cleanResult, type PluginForm, type PluginResult } from "./pluginclean";
+import { cleanForm, displayAllowed, cleanPoint, cleanPreview, cleanResult, type PluginForm, type PluginResult } from "./pluginclean";
 import type { Plugin } from "./plugins";
 
 /**
@@ -185,6 +185,8 @@ async function answerAsk(m: { rid: number; form: unknown }, worker: Worker, plug
 
 /** The messages that only show something to the person (true when it was one of them). */
 function relayDisplay(m: { type: string; result?: unknown; text?: unknown }, plugin: Plugin, env: PluginEnv): boolean {
+  if (m.type !== "show" && m.type !== "toast") return false;
+  if (!displayAllowed(plugin.id)) return true;
   if (m.type === "show") env.show(cleanResult(m.result), plugin);
   else if (m.type === "toast") env.toast(String(m.text).slice(0, 300));
   else return false;
