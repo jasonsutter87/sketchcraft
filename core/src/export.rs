@@ -36,8 +36,12 @@ pub fn write_obj_report(m: &Model, path: &str) -> Result<ObjReport> {
 
     let mut mtl = String::new();
     writeln!(mtl, "newmtl default\nKd 0.95 0.94 0.91\n")?;
+    // materials are named by colour: two of one colour share one entry (a file must not name a material twice)
+    let mut written = std::collections::BTreeSet::new();
     for mat in m.materials.values() {
-        writeln!(mtl, "newmtl {}\nKd {} {} {}\n", color_id(mat.color), mat.color[0], mat.color[1], mat.color[2])?;
+        if written.insert(color_id(mat.color)) {
+            writeln!(mtl, "newmtl {}\nKd {} {} {}\n", color_id(mat.color), mat.color[0], mat.color[1], mat.color[2])?;
+        }
     }
 
     let mut obj = format!("# SketchCraft export\nmtllib {mtl_name}\n");
@@ -63,7 +67,7 @@ pub fn write_obj_report(m: &Model, path: &str) -> Result<ObjReport> {
         }
     }
     for (name, c) in &colors {
-        if !m.materials.keys().any(|k| mat_id(k) == *name) {
+        if !m.materials.keys().any(|k| mat_id(k) == *name) && written.insert(name.clone()) {
             writeln!(mtl, "newmtl {}\nKd {} {} {}\n", name, c[0], c[1], c[2])?;
         }
     }

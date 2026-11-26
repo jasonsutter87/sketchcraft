@@ -1086,34 +1086,51 @@ impl Model {
                 // the loop touches the face's outline: share whole edges with the
                 // faces across it, or the solid opens along that outline
                 lp = self.stitch_loop(&lp);
+                // holes of the face inside the new loop are the new face's (as for a loop drawn strictly inside)
+                let around: Vec<Vec<Id>> = self.faces[&pid].holes.iter().filter(|h| geom::to2d(&self.pts(h), u, v).iter().all(|p| geom::inside_or_on(*p, &mine))).cloned().collect();
+                inner_holes.extend(around);
                 self.cut_from(pid, &lp)?;
             }
         } else if n.z < -0.999 {
             // ground-like faces face up
             lp.reverse();
         }
+        let around: Vec<DVec3> = if cutting { self.pts(&lp) } else { vec![] };
         let face = Face { outer: lp, holes: inner_holes, group, ..Default::default() };
-        Ok(match look {
+        let id = match look {
             Some(look) if !cutting => self.insert_face_with(face, look),
             _ => self.insert_face(face),
-        })
+        };
+        // splitting a face can merge points in a line (a corner of the face beside it), leaving its edge whole
+        // where the new shape meets it at a corner: put those corners back, so the shape is seen as part of the surface
+        if cutting {
+            self.mend_t_junctions(&around, group)?;
+        }
+        Ok(id)
     }
 
     /// Remove the area of loop `cut` from face `pid` (they share an edge or
     /// touch), rebuilding its outline. Pieces left over become extra faces.
     fn cut_from(&mut self, pid: Id, cut: &[Id]) -> Result<()> {
+        let region = vec![(self.pts(cut), vec![])];
+        self.subtract_region(pid, &region, cut)
+    }
+
+    /// Remove `region` (polygons in 3D on the face's plane, each an outline and its holes) from face `pid`. Pieces
+    /// left over become extra faces; nothing left removes the face. `near` are vertices to reuse where the result
+    /// lands on them (any other point is welded to a vertex already there, or made).
+    fn subtract_region(&mut self, pid: Id, region: &[(Vec<DVec3>, Vec<Vec<DVec3>>)], near: &[Id]) -> Result<()> {
         self.check_deadline()?;
-        use geo::{BooleanOps, Coord, LineString, Polygon};
+        use geo::{BooleanOps, Coord, LineString, MultiPolygon, Polygon};
         let parent = self.faces[&pid].clone();
         let fp = self.pts(&parent.outer);
         let n = geom::newell(&fp);
         let (u, v) = geom::basis(n);
         let depth = fp[0].dot(n);
-        let ring = |ids: &[Id]| -> LineString<f64> {
-            LineString::from(geom::to2d(&self.pts(ids), u, v).iter().map(|p| Coord { x: p.x, y: p.y }).collect::<Vec<_>>())
-        };
+        let ring3 = |pts: &[DVec3]| -> LineString<f64> { LineString::from(geom::to2d(pts, u, v).iter().map(|p| Coord { x: p.x, y: p.y }).collect::<Vec<_>>()) };
+        let ring = |ids: &[Id]| -> LineString<f64> { ring3(&self.pts(ids)) };
         let ppoly = Polygon::new(ring(&parent.outer), parent.holes.iter().map(|h| ring(h)).collect());
-        let cpoly = Polygon::new(ring(cut), vec![]);
+        let cpoly = MultiPolygon::new(region.iter().map(|(o, hs)| Polygon::new(ring3(o), hs.iter().map(|h| ring3(h)).collect())).collect());
         let result = ppoly.difference(&cpoly);
 
         // reuse existing vertices wherever the result lands on one
@@ -1124,7 +1141,7 @@ impl Model {
             let (cx, cy) = cell(q);
             (cx - 1..=cx + 1).flat_map(|x| (cy - 1..=cy + 1).map(move |y| (x, y))).filter_map(|c| known.get(&c)).flatten().find(|(k, _)| k.distance(q) < 1e-6).map(|(_, id)| *id)
         };
-        for id in parent.loops().flatten().chain(cut.iter()) {
+        for id in parent.loops().flatten().chain(near.iter()) {
             let p = self.p(*id);
             let q = glam::DVec2::new(p.dot(u), p.dot(v));
             known.entry(cell(q)).or_default().push((q, *id));
@@ -1322,10 +1339,209 @@ impl Model {
                     self.punch_through(out[i])?;
                 }
             }
-            let first = out[0];
-            out = std::iter::once(first).chain(out[1..].iter().copied().filter(|id| self.faces.contains_key(id))).collect();
+            // what is left of them, where it lies only partly on a face across (a cut beside another cut)
+            for i in 0..out.len() {
+                self.check_deadline()?;
+                if self.faces.contains_key(&out[i]) {
+                    self.cancel_overlaps(out[i])?;
+                }
+            }
+            // where cuts meet, a corner of one face can sit in the middle of a neighbour's edge: put it into that edge
+            let around: Vec<DVec3> = f.outer.iter().map(|v| self.p(*v)).flat_map(|p| [p, p + dir]).collect();
+            self.mend_t_junctions(&around, f.group)?;
+            let mut left: Vec<Id> = out.iter().copied().filter(|id| self.faces.contains_key(id)).collect();
+            // the first is the face the reply names: the pushed one if it's still there, else what took its place
+            if self.faces.contains_key(&out[0]) || left.is_empty() {
+                left.retain(|id| *id != out[0]);
+                left.insert(0, out[0]);
+            }
+            out = left;
         }
         Ok(out)
+    }
+
+    /// Vertices of `group` inside the box around `pts` that lie in the middle of a face's edge there become corners of
+    /// that face, and the edge is split at them (keeping its style), so every edge is shared whole by its two faces.
+    fn mend_t_junctions(&mut self, pts: &[DVec3], group: Option<Id>) -> Result<()> {
+        let (mut lo, mut hi) = (DVec3::splat(f64::MAX), DVec3::splat(f64::MIN));
+        for p in pts {
+            lo = lo.min(*p);
+            hi = hi.max(*p);
+        }
+        let (lo, hi) = (lo - DVec3::splat(WELD * 10.0), hi + DVec3::splat(WELD * 10.0));
+        let inside = |p: DVec3| p.cmpge(lo).all() && p.cmple(hi).all();
+        let verts: Vec<(Id, DVec3)> = self.vertices.iter().filter(|(_, v)| v.group == group && inside(v.p)).map(|(&id, v)| (id, v.p)).collect();
+        if verts.is_empty() {
+            return Ok(());
+        }
+        // the vertices in a grid of cells, so an edge looks only at the ones near it
+        let size = ((hi - lo).max_element() / 64.0).max(WELD * 100.0);
+        let cell = |p: DVec3| (((p.x - lo.x) / size).floor() as i64, ((p.y - lo.y) / size).floor() as i64, ((p.z - lo.z) / size).floor() as i64);
+        let mut grid: HashMap<(i64, i64, i64), Vec<usize>> = HashMap::new();
+        for (i, (_, p)) in verts.iter().enumerate() {
+            grid.entry(cell(*p)).or_default().push(i);
+        }
+        // faces whose box meets the box (an edge can cross it with no corner inside)
+        let near: Vec<Id> = self
+            .faces
+            .iter()
+            .filter(|(_, f)| {
+                f.group == group && {
+                    let (mut a, mut b) = (DVec3::splat(f64::MAX), DVec3::splat(f64::MIN));
+                    for v in f.outer.iter() {
+                        let p = self.p(*v);
+                        a = a.min(p);
+                        b = b.max(p);
+                    }
+                    a.cmple(hi).all() && b.cmpge(lo).all()
+                }
+            })
+            .map(|(&id, _)| id)
+            .collect();
+        for fid in near {
+            self.check_deadline()?;
+            let face = self.faces[&fid].clone();
+            let mut changed = false;
+            let mut splits: Vec<(Id, Id, Vec<Id>)> = Vec::new();
+            let mut fix = |m: &Model, l: &[Id]| -> Vec<Id> {
+                let mut out = Vec::with_capacity(l.len());
+                let mine: std::collections::HashSet<Id> = l.iter().copied().collect();
+                for (a, b) in pairs(l) {
+                    // a face with a great many corners beside a big cut is real work: the time limit is kept here too
+                    crate::deadline::poll();
+                    out.push(a);
+                    let (pa, pb) = (m.p(a), m.p(b));
+                    let ab = pb - pa;
+                    let len2 = ab.length_squared();
+                    if len2 < WELD * WELD {
+                        continue;
+                    }
+                    // the cells the edge's box covers (an edge longer than the whole box is clipped to it)
+                    let (c0, c1) = (cell(pa.min(pb).max(lo)), cell(pa.max(pb).min(hi)));
+                    let mut cand: Vec<usize> = Vec::new();
+                    if (c1.0 - c0.0 + 1) * (c1.1 - c0.1 + 1) * (c1.2 - c0.2 + 1) <= 4096 {
+                        for x in c0.0..=c1.0 {
+                            for y in c0.1..=c1.1 {
+                                for z in c0.2..=c1.2 {
+                                    if let Some(v) = grid.get(&(x, y, z)) {
+                                        cand.extend(v);
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        cand.extend(0..verts.len());
+                    }
+                    let mut on: Vec<(f64, Id)> = cand
+                        .into_iter()
+                        .map(|i| &verts[i])
+                        .filter(|(id, _)| *id != a && *id != b && !mine.contains(id))
+                        .filter_map(|(id, p)| {
+                            let t = (*p - pa).dot(ab) / len2;
+                            (t > 1e-9 && t < 1.0 - 1e-9 && (pa + ab * t).distance(*p) < WELD).then_some((t, *id))
+                        })
+                        .collect();
+                    if !on.is_empty() {
+                        on.sort_by(|x, y| x.0.total_cmp(&y.0));
+                        on.dedup_by_key(|x| x.1);
+                        let mid: Vec<Id> = on.iter().map(|x| x.1).collect();
+                        out.extend(&mid);
+                        splits.push((a, b, mid));
+                        changed = true;
+                    }
+                }
+                out
+            };
+            let outer = fix(self, &face.outer);
+            let holes: Vec<Vec<Id>> = face.holes.iter().map(|h| fix(self, h)).collect();
+            if !changed {
+                continue;
+            }
+            let f = self.faces.get_mut(&fid).unwrap();
+            f.outer = outer;
+            f.holes = holes;
+            // the edge record splits the same way, its style kept
+            for (a, b, mid) in splits {
+                let chain: Vec<Id> = std::iter::once(a).chain(mid).chain(std::iter::once(b)).collect();
+                let old = self.find_edge(a, b).and_then(|id| self.edges.remove(&id));
+                for w in chain.windows(2) {
+                    if self.find_edge(w[0], w[1]).is_none() {
+                        let id = self.new_id();
+                        let e = match &old {
+                            Some(o) => Edge { a: w[0], b: w[1], ..o.clone() },
+                            None => Edge { a: w[0], b: w[1], group, ..Default::default() },
+                        };
+                        self.edges.insert(id, e);
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// `fid` lies on faces of its group that face the other way, only partly (cuts side by side: a pocket beside a
+    /// hole, two notches in a row): where they overlap there is nothing between them, so that area goes from both.
+    fn cancel_overlaps(&mut self, fid: Id) -> Result<()> {
+        use geo::{Area, BooleanOps, Coord, LineString, MultiPolygon, Polygon};
+        let Some(t) = self.faces.get(&fid).cloned() else { return Ok(()) };
+        let tp = self.pts(&t.outer);
+        let n = geom::newell(&tp).normalize_or_zero();
+        if n == DVec3::ZERO {
+            return Ok(());
+        }
+        let (u, v) = geom::basis(n);
+        let depth = tp[0].dot(n);
+        let ring = |pts: &[DVec3]| -> LineString<f64> { LineString::from(geom::to2d(pts, u, v).iter().map(|p| Coord { x: p.x, y: p.y }).collect::<Vec<_>>()) };
+        let poly_of = |m: &Model, f: &Face| Polygon::new(ring(&m.pts(&f.outer)), f.holes.iter().map(|h| ring(&m.pts(h))).collect());
+        let tpoly = poly_of(self, &t);
+        let (lo, hi) = {
+            let b = tpoly.exterior().coords().fold((f64::MAX, f64::MAX, f64::MIN, f64::MIN), |b, c| (b.0.min(c.x), b.1.min(c.y), b.2.max(c.x), b.3.max(c.y)));
+            ((b.0, b.1), (b.2, b.3))
+        };
+        let mut hits: Vec<(Id, MultiPolygon<f64>)> = Vec::new();
+        for (k, (&id, g)) in self.faces.iter().enumerate() {
+            if k % 256 == 0 {
+                self.check_deadline()?;
+            }
+            if id == fid || g.group != t.group {
+                continue;
+            }
+            let gp = self.pts(&g.outer);
+            if geom::newell(&gp).normalize_or_zero().dot(n) > -1.0 + 1e-9 || (gp[0].dot(n) - depth).abs() > PLANAR {
+                continue;
+            }
+            // a box test first: most faces on the plane are nowhere near
+            let g2 = geom::to2d(&gp, u, v);
+            if g2.iter().all(|q| q.x <= lo.0) || g2.iter().all(|q| q.x >= hi.0) || g2.iter().all(|q| q.y <= lo.1) || g2.iter().all(|q| q.y >= hi.1) {
+                continue;
+            }
+            crate::deadline::poll();
+            let inter = tpoly.intersection(&poly_of(self, g));
+            if inter.unsigned_area() > 1e-9 {
+                hits.push((id, inter));
+            }
+        }
+        if hits.is_empty() {
+            return Ok(());
+        }
+        let to3 = |mp: &MultiPolygon<f64>| -> Vec<(Vec<DVec3>, Vec<Vec<DVec3>>)> {
+            let back = |ls: &LineString<f64>| -> Vec<DVec3> {
+                let mut pts: Vec<DVec3> = ls.coords().map(|c| u * c.x + v * c.y + n * depth).collect();
+                if pts.len() > 1 && pts.first() == pts.last() {
+                    pts.pop();
+                }
+                pts
+            };
+            mp.0.iter().map(|p| (back(p.exterior()), p.interiors().iter().map(back).collect())).collect()
+        };
+        let mut all = MultiPolygon::new(vec![]);
+        for (gid, inter) in &hits {
+            self.subtract_region(*gid, &to3(inter), &t.outer)?;
+            crate::deadline::poll();
+            all = all.union(inter);
+        }
+        self.subtract_region(fid, &to3(&all), &[])?;
+        Ok(())
     }
 
     /// How a face of the group covers the outline `mine` (2D, in the basis of the
@@ -1404,6 +1620,14 @@ impl Model {
         });
         let Some((far, how)) = hit else { return Ok(None) };
         self.faces.remove(&top);
+        // a bottom with holes of its own (a ring around something left standing, a pillar under a pocket): only its
+        // own area goes from the far face, so what stands inside keeps its foot
+        if !t.holes.is_empty() {
+            let region = vec![(tp.clone(), t.holes.iter().map(|h| self.pts(h)).collect())];
+            let near: Vec<Id> = t.loops().flatten().copied().collect();
+            self.subtract_region(far, &region, &near)?;
+            return Ok(Some(far).filter(|f| self.faces.contains_key(f)));
+        }
         match how {
             0 => {
                 self.faces.remove(&far);
