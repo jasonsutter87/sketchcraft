@@ -6,7 +6,23 @@ What changed in each SketchCraft release, newest first. The format follows
 
 ## [Unreleased]
 
+## [0.3.11] - 2026-11-26
+
 ### Added
+- **Two themes for people coming from SketchUp.** **Themes › Harbor** has a Web layout: floating cards along the top,
+  a one-column tool rail, and panel tiles on the right that slide out. **Harbor Desktop** has a docked tool bar, document
+  tabs, a strip of saved views, the tray on the right and a status bar (in the desktop app on macOS its menus are in the
+  Mac menu bar). Daylight and Studio grey backdrops come with them. The other layouts are unchanged.
+- **Classic Color icons and a tray.** **Themes › Classic Color** draws every tool with an original colour icon, and the
+  Classic layout can show a right-hand tray of collapsible panels: Entity Info, Materials, Components, Styles,
+  Environments, Tags, Scenes and the Outliner. Turn the tray on under the Classic layout. (#228)
+- **Orbit around the spot under the cursor.** Orbiting (the Orbit tool, the middle button, Space and drag, a trackpad
+  or touch) now turns around the surface point where it starts, not the middle of the view; empty sky still turns
+  around the middle. (#224)
+- **See and bring back what you've hidden.** **View › Hidden geometry** (Shift+H) draws hidden things as faint dashed
+  lines, and **Edit › Unhide all** has a key, Ctrl+Shift+H (⌘⇧H on a Mac). (#225)
+- **Right-click on empty space.** Right-clicking the empty view opens a menu: Select all, Paste, Paste in place, Zoom
+  extents, Unhide all, the camera views and projection, and the X-ray, Shadows and Edges switches. (#227)
 - **Scenes that show only some things.** In **Views**, select the groups or objects a scene is about and click
   **Save showing only the selection**: that scene hides everything else, and things you draw later stay hidden in
   it too, so you no longer hide new work in every scene by hand. Other scenes show everything as before. Agents use
@@ -30,7 +46,33 @@ What changed in each SketchCraft release, newest first. The format follows
   this when something was left out** keeps it quiet for complete imports. Agents get the same as `report` in the
   `import_skp` result. (#36)
 
+### Changed
+- **The standard views are flat.** Top, Front, Right, Back and Left switch to Parallel projection, and orbiting away
+  switches back to perspective. Parallel projection you turn on yourself stays on. In Parallel projection the scroll
+  wheel zooms toward the cursor, and changing from one standard view to another works again. (#232)
+- **Opening a file in a browser.** **File › Open** and **File › Import** show the browser's own file chooser instead of
+  asking for a path: `.sketchcraft`, `.skp`, `.fbx`, `.dxf` and `.obj` open from the file you pick. Save As and exports
+  ask for a path in the app's own box. The desktop app keeps its system dialogs.
+- **The view bar folds on a narrow window.** In the Vertical layout, when the model view is narrower than 960 px, X-ray,
+  Edges, Shadows and the other style switches fold behind **⋯** so the bar stays one row. They are in the View and
+  Camera menus too. (#226)
+
 ### Fixed
+- **Push/Pull through a wall.** A shape drawn on a wall and pushed to the far side now opens a hole right through,
+  instead of leaving a face on the far side. A push past the far wall, or within a millimetre of it, stops there. (#255)
+- **No black specks or wedges with Profiles on.** The profile outline could show through faces it sat right behind:
+  speckles inside open boxes and on the back of single walls, and black wedges on thin panels such as a 2.3 mm back
+  panel. (#253, #254)
+- **The floor no longer flickers through faces at ground level.** (#253)
+- **Shift still snaps.** With the direction locked by Shift, you can still snap to a point on other geometry: the length
+  is taken from where that point lines up on the locked direction, as in SketchUp. (#253)
+- **Edges and guides win over From Point.** Hovering an edge says "On Edge" again, so the Tape Measure makes a parallel
+  guide from it, and the drawing axes count as lines to snap to. (#231)
+- **Distances without a leading zero.** Typing `.12` (or `12.`) into the Value box works. (#252)
+- **Textures in perspective and in OBJ files.** The plain face under a picture is no longer drawn, so the two can't
+  flicker against each other far away (clicking the face still selects it). An OBJ export now fails if a picture can't be
+  written, says which pictures it couldn't read, and names its `.mtl` file and pictures folder without spaces. (#222)
+- **Guides inside an open component show.**
 - **SketchUp 2017-2020 files import their materials and the pictures on them.** These files came in with every face in
   the default color: their materials were not found at all. Now the names, colors and texture pictures come across
   (and the pictures of 2013-2016 files that share one between materials), each picture at the size SketchUp keeps for
@@ -1034,7 +1076,8 @@ The first build with installers (never published as a release).
   import and export, and PNG renders with dimensions and labels.
 - Installers for macOS, Windows and Linux, and the CLI for each.
 
-[Unreleased]: https://github.com/jasonsutter87/sketchcraft/compare/v0.3.10...HEAD
+[Unreleased]: https://github.com/jasonsutter87/sketchcraft/compare/v0.3.11...HEAD
+[0.3.11]: https://github.com/jasonsutter87/sketchcraft/compare/v0.3.10...v0.3.11
 [0.3.10]: https://github.com/jasonsutter87/sketchcraft/compare/v0.3.9...v0.3.10
 [0.3.9]: https://github.com/jasonsutter87/sketchcraft/compare/v0.3.8...v0.3.9
 [0.3.8]: https://github.com/jasonsutter87/sketchcraft/compare/v0.3.7...v0.3.8
