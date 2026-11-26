@@ -269,7 +269,7 @@ pub fn fold(name: &str) -> String {
 }
 
 /// Windows device names (a file called `NUL` or `COM1.obj` is the device).
-fn is_device(folded: &str) -> bool {
+pub(crate) fn is_device(folded: &str) -> bool {
     let stem = folded.split('.').next().unwrap_or("").trim_end();
     matches!(stem, "con" | "prn" | "aux" | "nul" | "conin$" | "conout$")
         || ((stem.starts_with("com") || stem.starts_with("lpt")) && stem.len() == 4 && stem.as_bytes()[3].is_ascii_digit() && stem.as_bytes()[3] != b'0')

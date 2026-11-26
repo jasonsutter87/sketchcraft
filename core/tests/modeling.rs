@@ -198,10 +198,15 @@ fn door_at_ground_splits_wall_and_recesses() {
     assert!(all.iter().all(|f| f["id"] != door), "door base removed: the recess is open");
     let back = all.iter().find(|f| f["id"] == r["face"]).unwrap();
     assert_eq!(vec3(&back["normal"]), -DVec3::Y);
-    // the recess floor faces up, its ceiling faces down
+    // the recess has a ceiling facing down; its floor would lie back to back on the box's own bottom at z = 0, so
+    // the two go and the bottom is notched under the door (as in SketchUp), and the box stays a closed solid
     let created: Vec<&Value> = r["created"].as_array().unwrap().iter().map(|id| all.iter().find(|f| &f["id"] == id).unwrap()).collect();
-    assert!(created.iter().any(|f| vec3(&f["normal"]) == DVec3::Z));
-    assert!(created.iter().any(|f| vec3(&f["normal"]) == -DVec3::Z));
+    assert!(created.iter().any(|f| vec3(&f["normal"]) == -DVec3::Z), "the ceiling");
+    assert!(!created.iter().any(|f| vec3(&f["normal"]) == DVec3::Z), "no floor left on the bottom face");
+    // facing down: the 8 x 12 bottom less the 1 x 0.3 notch, plus the recess ceiling of the same size
+    let down: f64 = all.iter().filter(|f| vec3(&f["normal"]) == -DVec3::Z).map(|f| f["area"].as_f64().unwrap()).sum();
+    assert!((down - 96.0).abs() < 1e-6, "{down}");
+    assert_eq!(run(&mut e, json!({"cmd": "check_solid"}))["solid"], true);
 }
 
 #[test]
