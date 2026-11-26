@@ -3,7 +3,7 @@
 import { stopWatching } from "./photocraft";
 import type { RefObject } from "react";
 import type { Reply, Scene } from "./engine";
-import { exec, onMobileApp } from "./engine";
+import { exec, inTauri, onMobileApp } from "./engine";
 import { confirm } from "./ask";
 import { isModelPath, pickOpen, pickSave } from "./files";
 import { parseReport, readReportWhen, reportHeadline, shouldShow, type NamedReport } from "./importreport";
@@ -39,11 +39,13 @@ function importedSkips(r: Reply): string {
 }
 
 /** Android: the native picker greys out .skp (Android has no MIME type for it) and returns content:// URIs the
- *  engine can't read from disk, so the phone picks through the web view instead, which gives the bytes and the real name. */
-function pickFileMobile(): Promise<File | null> {
+ *  engine can't read from disk, so the phone picks through the web view instead, which gives the bytes and the real name.
+ *  A browser picks the same way: nobody knows a file's full path, and the page gets its bytes. */
+function pickFileHere(accept?: string): Promise<File | null> {
   return new Promise((resolve) => {
     const input = document.createElement("input");
     input.type = "file";
+    if (accept) input.accept = accept;
     input.onchange = () => resolve(input.files?.[0] ?? null);
     input.oncancel = () => resolve(null);
     input.click();
@@ -52,6 +54,11 @@ function pickFileMobile(): Promise<File | null> {
 
 /** what the phone can import from bytes (Open of a .sketchcraft and the scan/IFC imports still need a path) */
 const MOBILE_IMPORT = /\.(skp|fbx|dxf|obj)$/i;
+/** in a browser: picked files, not typed paths (scans, IFC and DWG still need the desktop app, which reads them from disk) */
+const inBrowser = !inTauri;
+const BROWSER_OPEN = /\.(sketchcraft|skp|fbx|dxf|obj)$/i;
+const BROWSER_ACCEPT = ".sketchcraft,.skp,.fbx,.dxf,.obj";
+const BROWSER_ONLY = "In a browser SketchCraft opens .sketchcraft, .skp, .fbx, .dxf and .obj files; scans, IFC and DWG open in the desktop app";
 
 /** The model's name without its folder or extension (what a saved file is called after). */
 const modelBase = (file: string | null) => (file?.split("/").pop() ?? "model").replace(/\.sketchcraft$/, "");
@@ -187,11 +194,30 @@ export function useFileActions({ run, say, refresh, api, scene, figure, currentF
     },
     open: async () => {
       if (onMobileApp) {
-        const f = await pickFileMobile();
+        const f = await pickFileHere();
         if (!f) return;
         if (!MOBILE_IMPORT.test(f.name)) return say(`${f.name}: on the phone SketchCraft can open .skp, .fbx, .dxf and .obj files for now`, true);
         await run({ cmd: "new" });
         await importFile(f);
+        setCurrentFile(null);
+        setSel(EMPTY);
+        return;
+      }
+      if (inBrowser) {
+        const f = await pickFileHere(BROWSER_ACCEPT);
+        if (!f) return;
+        if (!BROWSER_OPEN.test(f.name)) return say(`${f.name}: ${BROWSER_ONLY}`, true);
+        stopWatching();
+        if (/\.sketchcraft$/i.test(f.name)) {
+          // no path in a browser: ⌘S asks where to save
+          const r = await run({ cmd: "open", data: await f.text() });
+          if (!r.ok) return;
+          api.current?.fitSoon();
+          await refresh();
+        } else {
+          await run({ cmd: "new" });
+          await importFile(f);
+        }
         setCurrentFile(null);
         setSel(EMPTY);
         return;
@@ -227,9 +253,15 @@ export function useFileActions({ run, say, refresh, api, scene, figure, currentF
     },
     import: async () => {
       if (onMobileApp) {
-        const f = await pickFileMobile();
+        const f = await pickFileHere();
         if (!f) return;
         if (!MOBILE_IMPORT.test(f.name)) return say(`${f.name}: on the phone SketchCraft can import .skp, .fbx, .dxf and .obj files for now`, true);
+        return importFile(f);
+      }
+      if (inBrowser) {
+        const f = await pickFileHere(BROWSER_ACCEPT.replace(".sketchcraft,", ""));
+        if (!f) return;
+        if (!MOBILE_IMPORT.test(f.name)) return say(`${f.name}: ${BROWSER_ONLY}`, true);
         return importFile(f);
       }
       const path = await pickOpen();

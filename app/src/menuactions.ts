@@ -81,6 +81,9 @@ export interface MenuCtx {
   layOutParts: () => void;
   toggleStyle: (key: "shadows" | "xray" | "backEdges" | "edges" | "profiles" | "vertexColors" | "sketchy" | "ao" | "notes" | "help" | "hideRest" | "showHidden") => void;
   setStyles: (patch: Partial<Styles>) => void;
+  /** the camera glides to a stop after an orbit or pan (#251) */
+  glide: boolean;
+  toggleGlide: () => void;
   // panels, layout, language
   workspaceTo: (id: string) => void;
   showTab: (tab: "outliner" | "library" | "views") => void;
@@ -181,6 +184,7 @@ export function buildMenuActions(c: MenuCtx): Record<string, MenuAction> {
   add("view.next", c.nextView, model);
   add("view.perspective", () => c.setStyles({ parallel: false }), model, !s.parallel);
   add("view.parallel", () => c.setStyles({ parallel: true }), model, !!s.parallel);
+  add("view.glide", c.toggleGlide, true, c.glide);
 
   // every tool a menu offers (Draw, Tools, Camera)
   for (const id of ["orbit", "pan", "zoom", "zoomwindow", "position", "lookaround", "walk", "line", "freehand", "spline", "arc", "arccenter", "arc3", "pie", "rect", "rrect", "circle", "polygon", "wall", "room", "select", "move", "rotate", "scale", "push", "wallpull", "followme", "offset", "tape", "dimension", "text", "paint", "vpaint", "tpaint", "erase", "section"] as const) {

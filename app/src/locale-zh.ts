@@ -103,6 +103,7 @@ export default {
   "menu.nextView": "下一视图",
   "menu.perspective": "透视",
   "menu.parallel": "平行投影",
+  "menu.glide": "平滑相机",
   "menu.tool.arc": "两点圆弧",
   "menu.tool.arccenter": "圆弧（圆心）",
   "menu.outliner": "大纲",

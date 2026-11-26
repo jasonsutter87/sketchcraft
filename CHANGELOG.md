@@ -11,6 +11,8 @@ What changed in each SketchCraft release, newest first. The format follows
   **Save showing only the selection**: that scene hides everything else, and things you draw later stay hidden in
   it too, so you no longer hide new work in every scene by hand. Other scenes show everything as before. Agents use
   `save_view` with `only`. (#229)
+- **Smooth camera can be turned off.** **Camera › Smooth camera** (on by default) is the glide after an orbit or a
+  pan; turn it off and the camera stops the moment you let go of the button. The choice is remembered. (#251)
 - **More of SketchUp's Ruby API.** Scripts and extensions can now use `Sketchup::Tool` (mouse and key events, the
   VCB, input points), `UI::HtmlDialog`, observers, timers, Follow Me and textures, and can read the faces and groups
   that are already in the model. Solid Inspector² (the real extension) loads and inspects a group. A table of which

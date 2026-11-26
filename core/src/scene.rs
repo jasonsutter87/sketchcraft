@@ -275,7 +275,15 @@ pub fn build(root: &Model, ctx: Option<u32>) -> Value {
         "editTransform": t.to_cols_array(),
         "tags": root.tags,
         "tagColors": root.tag_colors,
-        "guides": root.guides.iter().map(|g| json!({"id": g.id, "p": g.p.to_array(), "dir": g.dir.map(|d| d.to_array())})).collect::<Vec<_>>(),
+        // the model's guides, and while a component is open, its own (made
+        // inside it, kept in its coordinates) placed where it is
+        "guides": root.guides.iter().map(|g| json!({"id": g.id, "p": g.p.to_array(), "dir": g.dir.map(|d| d.to_array())}))
+            .chain((!std::ptr::eq(m, root)).then_some(&m.guides).into_iter().flatten().map(|g| json!({
+                "id": g.id,
+                "p": t.transform_point3(g.p).to_array(),
+                "dir": g.dir.map(|d| t.transform_vector3(d).normalize().to_array()),
+            })))
+            .collect::<Vec<_>>(),
         "views": root.views,
         "timeline": root.timeline,
         "classes": root.classes,

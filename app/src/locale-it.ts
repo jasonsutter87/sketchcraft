@@ -103,6 +103,7 @@ export default {
   "menu.nextView": "Vista successiva",
   "menu.perspective": "Prospettiva",
   "menu.parallel": "Proiezione parallela",
+  "menu.glide": "Fotocamera fluida",
   "menu.tool.arc": "Arco a 2 punti",
   "menu.tool.arccenter": "Arco dal centro",
   "menu.outliner": "Struttura",
