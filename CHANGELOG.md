@@ -7,6 +7,11 @@ What changed in each SketchCraft release, newest first. The format follows
 ## [Unreleased]
 
 ### Added
+- **Walls, stairs, roofs and columns keep their settings.** Select one you placed and change its thickness, height,
+  rise, pitch or roof type in **Entity Info**: it's remade in place, with its doors and windows cut again. A wall
+  you've edited by hand asks before your edits are replaced. While the Wall, Stairs, Roof, Column or Room tool is in
+  use, its settings now show in a small card over the view instead of only below the library. Agents use `part_info`
+  and `rebuild`. (#263)
 - **Scenes that show only some things.** In **Views**, select the groups or objects a scene is about and click
   **Save showing only the selection**: that scene hides everything else, and things you draw later stay hidden in
   it too, so you no longer hide new work in every scene by hand. Other scenes show everything as before. Agents use

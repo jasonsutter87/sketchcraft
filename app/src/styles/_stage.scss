@@ -226,3 +226,49 @@
     }
   }
 }
+
+// a build tool's settings over the view while it's in use (#263)
+.tool-settings {
+  position: absolute;
+  top: 56px;
+  left: 12px;
+  z-index: 6;
+  width: 210px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--panel, #fff);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.16);
+  font-size: 12px;
+  .build-options {
+    margin: 0;
+  }
+  .field {
+    margin: 4px 0;
+  }
+}
+// phones: the panels already sit under the view
+@media (max-width: 700px) {
+  .tool-settings {
+    display: none;
+  }
+}
+
+// Entity Info: a placed wall's, stair's, roof's or column's settings (#263)
+.part-settings {
+  margin: 8px 0;
+  .part-settings-title {
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  fieldset {
+    border: 0;
+    margin: 0;
+    padding: 0;
+    &:disabled {
+      opacity: 0.5;
+    }
+  }
+  .part-edited span {
+    font-size: 11px;
+  }
+}

@@ -8,7 +8,7 @@ import { UpdateCard, checkForUpdatesNow } from "./updater";
 import { ask, AskHost } from "./ask";
 import { exec, execPlugin, inTauri, loadScene, sync, type Reply, type Scene, type Vec3 } from "./engine";
 import { Icons, Logo } from "./icons";
-import { BuildTools, Sandbox } from "./buildpanels";
+import { BuildOptions, BuildTools, SETTINGS_TOOLS, Sandbox } from "./buildpanels";
 import { ContextMenu, contextItems } from "./contextmenu";
 import { LocationDialog, SheetsDialog } from "./dialogs";
 import { EntityInfo } from "./entityinfo";
@@ -1561,6 +1561,12 @@ function ModelingApp() {
           </ErrorBoundary>
         )}
         {showWs && <WorkspaceDialog ws={ws} onChange={editWs} onReset={() => editWs(null)} onClose={() => setShowWs(false)} />}
+        {/* a build tool's settings, over the view while it's in use (#263: they were easy to miss, below the library) */}
+        {scene && SETTINGS_TOOLS.has(tool) && (
+          <div className="tool-settings" role="group" aria-label="Tool settings">
+            <BuildOptions tool={tool} build={build} setBuild={setBuild} units={scene.units || "m"} scene={scene} run={run} compact />
+          </div>
+        )}
         {scene?.laid_out && <LaidOutBar laid={scene.laid_out} selected={selIds(sel)} units={scene.units || "m"} onBack={backFromLaidOut} />}
         {toast && (
           <div className={`toast ${toast.bad ? "bad" : ""}`}>
