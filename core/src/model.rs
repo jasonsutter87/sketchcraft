@@ -1584,8 +1584,12 @@ impl Model {
     /// vertex colours) carries over when both faces have it. Returns None, changing nothing, when the faces don't lie
     /// flat together or the merged outline isn't one face (it would pass a corner twice, or have two outlines).
     fn heal(&mut self, a: Id, b: Id, edge: (Id, Id)) -> Option<Healed> {
-        let (fa, fb) = (&self.faces[&a], &self.faces[&b]);
+        let (fa, fb) = (self.faces.get(&a)?, self.faces.get(&b)?);
         if fa.group != fb.group || fa.hidden != fb.hidden {
+            return None;
+        }
+        // a damaged file or a script can leave a face naming a corner that isn't there: delete it as before, never panic
+        if fa.outer.len() < 3 || fb.outer.len() < 3 || !fa.loops().chain(fb.loops()).flatten().all(|v| self.vertices.contains_key(v)) {
             return None;
         }
         let n = self.normal(a);

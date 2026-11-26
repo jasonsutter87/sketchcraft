@@ -145,3 +145,14 @@ fn undo_brings_the_line_and_both_faces_back() {
     assert_eq!(faces_at_z(&e, 0.0).len(), 2);
     edge_at(&e, [1.5, 0.0, 0.0], [1.5, 2.0, 0.0]);
 }
+
+#[test]
+fn a_face_naming_a_missing_corner_is_deleted_without_a_panic() {
+    // a damaged file or a script could leave this; deleting falls back to the old behaviour
+    let mut e = split_rect();
+    let f = faces_at_z(&e, 0.0)[0];
+    e.model.faces.get_mut(&f).unwrap().outer.insert(1, 999_999);
+    let line = edge_at(&e, [1.5, 0.0, 0.0], [1.5, 2.0, 0.0]);
+    let r = e.exec_json(&json!({"cmd": "delete", "ids": [line]}).to_string());
+    assert!(r.get("ok").is_some(), "a reply, not a panic: {r}");
+}
