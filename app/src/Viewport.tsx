@@ -1,4 +1,5 @@
 import { descendants } from "./grouptree";
+import { glideOn, watchGlide } from "./glide";
 import { translate, useLocale } from "./locale";
 import { TEXTURING_SET } from "./texturing-set";
 import { fixtureOf, wallSnap } from "./fixtures";
@@ -216,8 +217,10 @@ export default function Viewport(props: Props) {
     const ortho = new THREE.OrthographicCamera(-10, 10, 10, -10, -10000, 10000);
     ortho.up.set(0, 0, 1);
     const controls = new OrbitControls(persp, renderer.domElement);
-    controls.enableDamping = true;
+    // the glide after an orbit or pan: Camera > Smooth Camera (#251)
+    controls.enableDamping = glideOn();
     controls.dampingFactor = 0.14;
+    const unwatchGlide = watchGlide((on) => (controls.enableDamping = on));
     controls.screenSpacePanning = true;
     controls.zoomToCursor = true;
     controls.minDistance = FIT_RADIUS_FLOOR;
@@ -431,6 +434,7 @@ export default function Viewport(props: Props) {
       cancelAnimationFrame(raf);
       ro.disconnect();
       controls.removeEventListener("change", syncControlsNear);
+      unwatchGlide();
       controls.dispose();
       renderer.dispose();
       el.removeChild(renderer.domElement);

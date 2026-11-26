@@ -102,6 +102,7 @@ export default {
   "menu.nextView": "Next view",
   "menu.perspective": "Perspective",
   "menu.parallel": "Parallel projection",
+  "menu.glide": "Smooth camera",
   "menu.tool.arc": "2-Point Arc",
   "menu.tool.arccenter": "Arc (center)",
   "menu.outliner": "Outliner",

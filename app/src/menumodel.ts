@@ -160,6 +160,7 @@ export const MENUS: Menu[] = [
       SEP,
       act("view.perspective", "menu.perspective", "radio"),
       act("view.parallel", "menu.parallel", "radio"),
+      act("view.glide", "menu.glide", "check"),
       SEP,
       tool("orbit"),
       tool("pan"),
