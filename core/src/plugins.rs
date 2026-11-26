@@ -219,7 +219,7 @@ pub fn install(bytes: &[u8], file_name: Option<&str>, opts: &InstallOpts) -> Res
         let name = Path::new(file_name.unwrap()).file_name().and_then(|n| n.to_str()).unwrap_or("script.rb").to_string();
         // the same name checks the archive's files get
         if name.starts_with('.') || name.contains('\\') || name.contains(':') || !plain_file_name(&name) {
-            bail!("unsafe file name: {}", name.chars().filter(|c| !c.is_control() && !crate::text::is_format_char(*c)).collect::<String>());
+            bail!("unsafe file name: {}", name.chars().filter(|c| !c.is_control() && !crate::text::is_format_char(*c) && !crate::text::is_invisible_filler(*c)).take(80).collect::<String>());
         }
         let text = std::str::from_utf8(bytes).context("that .rb file isn't text")?;
         return install_ruby(vec![(name, text.as_bytes().to_vec())], opts);
@@ -258,7 +258,7 @@ pub fn install(bytes: &[u8], file_name: Option<&str>, opts: &InstallOpts) -> Res
         let Some(rel) = name.strip_prefix(&prefix) else { continue };
         // safe names only: no parent dirs, no absolute paths, no hidden files
         if rel.is_empty() || rel.split('/').any(|p| p.is_empty() || p == ".." || p.starts_with('.')) || rel.contains('\\') || rel.contains(':') || !plain_file_name(rel) {
-            bail!("unsafe file name in the plugin: {}", name.chars().filter(|c| !c.is_control() && !crate::text::is_format_char(*c)).collect::<String>());
+            bail!("unsafe file name in the plugin: {}", name.chars().filter(|c| !c.is_control() && !crate::text::is_format_char(*c) && !crate::text::is_invisible_filler(*c)).take(80).collect::<String>());
         }
         let ext = Path::new(rel).extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
         if !matches!(ext.as_str(), "json" | "js" | "svg" | "png" | "md" | "txt" | "rb") {

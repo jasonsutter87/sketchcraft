@@ -8,7 +8,7 @@ import { confirm } from "./ask";
 import { exec } from "./engine";
 import { pickSave } from "./files";
 import { useLocale } from "./locale";
-import { cleanForm, cleanLabel, cleanMenu, cleanResult, type PluginField, type PluginForm, type PluginResult } from "./pluginclean";
+import { cleanForm, cleanLabel, cleanMenu, cleanResult, cleanText, type PluginField, type PluginForm, type PluginResult } from "./pluginclean";
 
 export { cleanForm, cleanResult };
 export { cleanLabel, cleanMenu };
@@ -57,8 +57,9 @@ export async function loadPlugins(): Promise<PluginList> {
   if (!r.ok) return { dir: "", plugins: [], problems: [] };
   const plugins = ((r.plugins as Plugin[]) ?? [])
     .filter((p) => p && typeof p.code === "string" && Array.isArray(p.commands))
-    .map((p) => ({ ...p, name: cleanLabel(p.name, 60) || "(unnamed plugin)", commands: p.commands.map((c) => (c && typeof c === "object" ? { ...c, label: cleanLabel(c.label, 80) || "(unnamed)" } : c)) }));
-  return { dir: String(r.dir ?? ""), plugins, problems: (r.problems as PluginList["problems"]) ?? [] };
+    .map((p) => ({ ...p, name: cleanLabel(p.name, 60) || "(unnamed plugin)", version: p.version == null ? undefined : cleanLabel(p.version, 30), author: p.author == null ? undefined : cleanLabel(p.author, 80), description: p.description == null ? undefined : cleanText(p.description, 600), commands: p.commands.map((c) => (c && typeof c === "object" ? { ...c, label: cleanLabel(c.label, 80) || "(unnamed)" } : c)) }));
+  const problems = (Array.isArray(r.problems) ? (r.problems as PluginList["problems"]) : []).map((x) => ({ id: cleanLabel(x?.id, 80), error: cleanLabel(x?.error, 300) }));
+  return { dir: String(r.dir ?? ""), plugins, problems };
 }
 
 
@@ -104,7 +105,7 @@ export function PluginResultDialog({ result, plugin, onClose, onToast, onCutPlan
     if (!path) return;
     const r = await exec({ cmd: "save_text", path, text: csv });
     if (r.ok) onToast(`Saved ${path.split("/").pop()}`);
-    else onToast(r.error ?? "Couldn't save it", true);
+    else onToast(cleanLabel(r.error, 300) || "Couldn't save it", true);
   };
   return (
     <Sheet onClose={onClose} label={result.title ?? plugin.name} className="plugin-result">
@@ -202,7 +203,7 @@ export function PluginsDialog({
     const look = await exec({ cmd: "install_plugin", data, name: f.name, preview: true });
     if (!look.ok) {
       setBusy(false);
-      return onToast(`Couldn't read ${f.name}: ${look.error}`, true);
+      return onToast(`Couldn't read ${cleanLabel(f.name, 80)}: ${cleanLabel(look.error, 300)}`, true);
     }
     const files = ((look.files as { name: string; bytes: number }[]) ?? []).map((x) => ({ name: cleanLabel(x.name, 60), bytes: Number(x.bytes) || 0 }));
     const cmds = ((look.commands as unknown[]) ?? []).map((c) => cleanLabel(c, 80)).filter(Boolean);
@@ -227,7 +228,7 @@ export function PluginsDialog({
     }
     const r = await exec({ cmd: "install_plugin", data, name: f.name, replace: replacing });
     setBusy(false);
-    if (!r.ok) return onToast(`Couldn't install ${f.name}: ${r.error}`, true);
+    if (!r.ok) return onToast(`Couldn't install ${cleanLabel(f.name, 80)}: ${cleanLabel(r.error, 300)}`, true);
     // what was shown must be what was installed: same kind and same files
     if (!!r.ruby !== !!look.ruby || r.sha256 !== look.sha256) {
       await exec({ cmd: "remove_plugin", id: r.id });
@@ -235,17 +236,17 @@ export function PluginsDialog({
       return onToast(`${f.name} installed as something other than what was shown, so it was removed again.`, true);
     }
     await reload();
-    onToast(`${r.replaced ? "Updated" : "Installed"} ${r.name}. Its commands are in File › Plugins and Shift+S.`);
+    onToast(`${r.replaced ? "Updated" : "Installed"} ${cleanLabel(r.name, 60)}. Its commands are in File › Plugins and Shift+S.`);
   };
   const toggle = async (p: Plugin, on: boolean) => {
     const r = await exec({ cmd: "plugin_enable", id: p.id, on });
-    if (!r.ok) return onToast(r.error ?? "Couldn't change it", true);
+    if (!r.ok) return onToast(cleanLabel(r.error, 300) || "Couldn't change it", true);
     await reload();
   };
   const remove = async (p: Plugin) => {
     if (!(await confirm(`Remove ${p.name}?`, "It's moved to the .removed folder inside Plugins, so you can put it back.", "Remove"))) return;
     const r = await exec({ cmd: "remove_plugin", id: p.id });
-    if (!r.ok) return onToast(r.error ?? "Couldn't remove it", true);
+    if (!r.ok) return onToast(cleanLabel(r.error, 300) || "Couldn't remove it", true);
     await reload();
     onToast(`Removed ${p.name}`);
   };

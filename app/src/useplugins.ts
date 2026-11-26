@@ -48,7 +48,7 @@ export function usePlugins({ sel, scene, tool, setTool, say, sayAs, runForPlugin
       if (rubyMenus[p.id] && menuSig.current[p.id] === sig) continue;
       menuSig.current[p.id] = sig;
       runRuby(p, {}).then((r) => {
-        if (menuSig.current[p.id] === sig) setRubyMenus((m) => ({ ...m, [p.id]: r.error ? { error: r.error } : r.menu }));
+        if (menuSig.current[p.id] === sig) setRubyMenus((m) => ({ ...m, [p.id]: r.error ? { error: cleanLabel(r.error, 300) } : r.menu }));
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

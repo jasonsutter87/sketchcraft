@@ -85,20 +85,25 @@ pub fn chat(url: &str, messages: &Value) -> Result<String, String> {
 }
 
 fn agent() -> Caller {
-    Caller::Mcp(Workspace::at(shared_workspace()))
+    match shared_workspace() {
+        Some(ws) => Caller::Mcp(Workspace::at(ws)),
+        // no private folder could be made: no folder at all, then (a plugin's caller reaches modeling commands only,
+        // never a file), rather than a path in the shared temp folder that someone else could make first
+        None => Caller::Plugin,
+    }
 }
 
 /// The one private workspace this process uses: made once, so a failure to make a folder never leaves a new
 /// one in the temp folder on every call.
-fn shared_workspace() -> std::path::PathBuf {
-    static WS: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+fn shared_workspace() -> Option<std::path::PathBuf> {
+    static WS: std::sync::OnceLock<Option<std::path::PathBuf>> = std::sync::OnceLock::new();
     WS.get_or_init(|| {
         let base = std::env::temp_dir();
-        private_workspace(&base).unwrap_or_else(|| {
-            eprintln!("could not make a private empty workspace folder in {}", base.display());
-            // a name that is never created: nothing can be opened through it
-            base.join("sketchcraft-ai-no-workspace").join("unavailable")
-        })
+        let ws = private_workspace(&base);
+        if ws.is_none() {
+            eprintln!("could not make a private empty workspace folder in {}: SketchCraft AI works on the model only", base.display());
+        }
+        ws
     })
     .clone()
 }
