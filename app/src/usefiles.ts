@@ -1,6 +1,7 @@
 // File actions: New, Open, Save, the imports and the exports. Each runs engine commands and
 // says what happened.
 import { stopWatching } from "./photocraft";
+import { MAX_BROWSER_FILE, fileTooBig } from "./filelimits";
 import type { RefObject } from "react";
 import type { Reply, Scene } from "./engine";
 import { exec, inTauri, onMobileApp } from "./engine";
@@ -32,6 +33,7 @@ export function skippedText(list: string[]): string {
   const shown = list.slice(0, 3).join("; ");
   return `${list.length} picture${list.length === 1 ? " was" : "s were"} left out: ${shown}${list.length > 3 ? `; and ${list.length - 3} more` : ""}.`;
 }
+
 
 /** What an import left out, to follow its "Imported ..." line (empty when nothing was). */
 function importedSkips(r: Reply): string {
@@ -132,6 +134,7 @@ export function useFileActions({ run, say, refresh, api, scene, figure, currentF
   const importFile = async (file: File) => {
     let r: Reply;
     const lower = file.name.toLowerCase();
+    if (fileTooBig(file)) return say(`${file.name} is too big to open here (the most is ${MAX_BROWSER_FILE / 1024 / 1024} MB)`, true);
     if (lower.endsWith(".skp") || lower.endsWith(".fbx")) {
       const bytes = new Uint8Array(await file.arrayBuffer());
       let bin = "";
@@ -207,6 +210,7 @@ export function useFileActions({ run, say, refresh, api, scene, figure, currentF
         const f = await pickFileHere(BROWSER_ACCEPT);
         if (!f) return;
         if (!BROWSER_OPEN.test(f.name)) return say(`${f.name}: ${BROWSER_ONLY}`, true);
+        if (fileTooBig(f)) return say(`${f.name} is too big to open here (the most is ${MAX_BROWSER_FILE / 1024 / 1024} MB)`, true);
         stopWatching();
         if (/\.sketchcraft$/i.test(f.name)) {
           // no path in a browser: ⌘S asks where to save

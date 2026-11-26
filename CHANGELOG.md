@@ -40,6 +40,8 @@ What changed in each SketchCraft release, newest first. The format follows
   it. A picture that can't be read is named in the import's message and the material keeps its color. (#17)
 
 ### Security
+- Plugins and extensions run under tighter limits: their menus, names and messages are capped and cleaned, and
+  the 3D mouse and SketchCraft AI helpers check what they connect to.
 - Hardening for 0.3.11: stricter checks on what agents and plugins can write and save, on numbers read from imported
   files, and on how much a model's scenes may hold.
 

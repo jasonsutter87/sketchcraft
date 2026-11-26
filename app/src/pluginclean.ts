@@ -104,3 +104,49 @@ export function cleanPreview(lines: unknown, max = 5000): Point3[][] {
   }
   return out;
 }
+
+// ---- names and menus --------------------------------------------------------------
+
+/** Control, bidirectional and other invisible format characters: they can make a name read as something else. */
+const HIDDEN = /[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u180e\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff\ufff9-\ufffb]/g;
+
+/** A name or label as it may be shown: no control or bidi characters, one line, cut to `max`. */
+export function cleanLabel(v: unknown, max = 80): string {
+  let s: string;
+  try {
+    s = typeof v === "string" ? v : v == null ? "" : String(v);
+  } catch {
+    return "";
+  }
+  return s.replace(/[\t\n\r]/g, " ").replace(HIDDEN, "").replace(/\s+/g, " ").trim().slice(0, max);
+}
+
+/** Most menu items one extension may add, and the longest label. */
+export const MAX_MENU_ITEMS = 50;
+export const MAX_LABEL = 80;
+
+/**
+ * A menu a Ruby extension built, cut down: only the first MAX_MENU_ITEMS text
+ * entries, each a clean label. `dropped` is how many were left out.
+ */
+export function cleanMenu(m: unknown): { items: string[]; dropped: number; indexes: number[] } {
+  if (!Array.isArray(m)) return { items: [], dropped: 0, indexes: [] };
+  const items: string[] = [];
+  const indexes: number[] = [];
+  for (let i = 0; i < m.length && items.length < MAX_MENU_ITEMS; i++) {
+    items.push(cleanLabel(m[i], MAX_LABEL) || "(unnamed)");
+    indexes.push(i);
+  }
+  return { items, dropped: Math.max(0, m.length - items.length), indexes };
+}
+
+const SHOWN_AT = new Map<string, number[]>();
+/** A plugin may show at most `max` messages (toasts and windows) in `windowMs`; the rest are dropped. */
+export function displayAllowed(id: string, now = Date.now(), max = 20, windowMs = 5000): boolean {
+  const recent = (SHOWN_AT.get(id) ?? []).filter((t) => now - t < windowMs);
+  const ok = recent.length < max;
+  if (ok) recent.push(now);
+  SHOWN_AT.set(id, recent);
+  if (SHOWN_AT.size > 200) SHOWN_AT.clear();
+  return ok;
+}
