@@ -7,6 +7,7 @@ import { LineStyleControls } from "./linestyle";
 import { formatArea, formatVolume, type Run } from "./panelkit";
 import { aiName } from "./ai";
 import { labsAi } from "./labs";
+import { PartSettings } from "./partsettings";
 
 export function EntityInfo({ scene, sel, run }: { scene: Scene; sel: Sel; run: Run }) {
   const [tag, setTag] = useState("");
@@ -71,6 +72,7 @@ export function EntityInfo({ scene, sel, run }: { scene: Scene; sel: Sel; run: R
           </>
         )}
       </div>
+      {one != null && groups.length === 1 && <PartSettings group={one} scene={scene} run={run} />}
       {edges.length > 0 && (
         <div className="field">
           <span>Line (on sheets)</span>

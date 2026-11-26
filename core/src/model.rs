@@ -222,6 +222,9 @@ pub struct Group {
     /// can't be moved, edited or deleted until unlocked
     #[serde(default, skip_serializing_if = "is_false")]
     pub locked: bool,
+    /// made by the Wall, Stairs, Roof or Column tool: its settings, to change and rebuild it (see `recipe`)
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "crate::recipe::lenient")]
+    pub recipe: Option<crate::recipe::Recipe>,
 }
 
 /// A model file written before 0.3.6 holds the absolute path of the library file; keep only its name,
@@ -1835,7 +1838,12 @@ impl Model {
                     }
                     let Some(g) = self.groups.get(&gid).cloned() else { continue };
                     let new = self.new_id();
-                    self.groups.insert(new, Group { name: name.unwrap_or_else(|| format!("{} copy", g.name)), tag: g.tag.clone(), hidden: false, parent, locked: false });
+                    // a copied wall, stair, roof or column remembers its settings too, offset to where the copy lands
+                    let recipe = g.recipe.clone().map(|mut r| {
+                        r.frame = (glam::DMat4::from_translation(by) * glam::DMat4::from_cols_array(&r.frame)).to_cols_array();
+                        r
+                    });
+                    self.groups.insert(new, Group { name: name.unwrap_or_else(|| format!("{} copy", g.name)), tag: g.tag.clone(), hidden: false, parent, locked: false, recipe });
                     if let Some(p) = parent {
                         index.kids.entry(p).or_default().push(new);
                     }

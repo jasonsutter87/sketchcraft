@@ -10,6 +10,7 @@ pub mod animate;
 pub mod backups;
 pub mod assets;
 pub mod builders;
+pub mod recipe;
 pub mod callouts;
 pub mod cloud;
 pub mod commands;

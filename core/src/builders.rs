@@ -138,7 +138,15 @@ impl Model {
     /// `thickness` of the roof slab.
     pub fn roof(&mut self, face: Id, kind: &str, pitch: f64, overhang: f64, thickness: f64) -> Result<Id> {
         let pts = self.pts(&self.face(face)?.outer.clone());
-        let n = geom::newell(&pts);
+        self.roof_over(&pts, kind, pitch, overhang, thickness)
+    }
+
+    /// A roof over an outline (see `roof`).
+    pub fn roof_over(&mut self, pts: &[DVec3], kind: &str, pitch: f64, overhang: f64, thickness: f64) -> Result<Id> {
+        if pts.len() < 3 {
+            bail!("a roof needs an outline of at least three corners");
+        }
+        let n = geom::newell(pts);
         if n.z.abs() < 0.7 {
             bail!("pick a flat top face for the roof");
         }
@@ -157,7 +165,7 @@ impl Model {
         let ay = DVec3::Z.cross(ax);
         let z0 = pts.iter().map(|p| p.z).fold(f64::MIN, f64::max);
         let (mut x0, mut x1, mut y0, mut y1) = (f64::MAX, f64::MIN, f64::MAX, f64::MIN);
-        for p in &pts {
+        for p in pts {
             x0 = x0.min(p.dot(ax));
             x1 = x1.max(p.dot(ax));
             y0 = y0.min(p.dot(ay));

@@ -9,6 +9,11 @@ What changed in each SketchCraft release, newest first. The format follows
 ## [0.3.11] - 2026-11-26
 
 ### Added
+- **Walls, stairs, roofs and columns keep their settings.** Select one you placed and change its thickness, height,
+  rise, pitch or roof type in **Entity Info**: it's remade in place, with its doors and windows cut again. A wall
+  you've edited by hand asks before your edits are replaced. While the Wall, Stairs, Roof, Column or Room tool is in
+  use, its settings now show in a small card over the view instead of only below the library. Agents use `part_info`
+  and `rebuild`. (#263)
 - **Two themes for people coming from SketchUp.** **Themes › Harbor** has a Web layout: floating cards along the top,
   a one-column tool rail, and panel tiles on the right that slide out. **Harbor Desktop** has a docked tool bar, document
   tabs, a strip of saved views, the tray on the right and a status bar (in the desktop app on macOS its menus are in the

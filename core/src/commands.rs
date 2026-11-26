@@ -183,6 +183,7 @@ impl Command {
                 | Command::ExportPdf { .. }
                 | Command::Assets
                 | Command::WallInfo { .. }
+                | Command::PartInfo { .. }
                 | Command::RoomPreview { .. }
                 | Command::Rooms
                 | Command::TextureUv { .. }
@@ -1244,7 +1245,7 @@ impl Engine {
                 Command::TerrainGrid { .. } | Command::Smoove { .. } | Command::Stamp { .. } |
                 Command::Drape { .. } | Command::Wall { .. } | Command::Stairs { .. } | Command::FloorplanBuild { .. } | Command::RoomInfo { .. } | Command::Roof { .. } |
                 Command::Column { .. } | Command::Insert { .. } | Command::Assets { .. } |
-                Command::WallPull { .. } | Command::WallInfo { .. } |
+                Command::WallPull { .. } | Command::WallInfo { .. } | Command::PartInfo { .. } | Command::Rebuild { .. } |
                 Command::RoomRect { .. } | Command::RoomPreview { .. } | Command::Rooms
             ) => self.run_build(c),
             c @ (
