@@ -601,7 +601,10 @@ pub fn vet(caller: &Caller, cmd: &mut Value) -> Result<(), String> {
             let stem = p.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
             let textures = p.with_file_name(format!("{stem}_textures"));
             let extras: Vec<PathBuf> = match *c {
-                "export_obj" => vec![p.with_extension("mtl"), textures],
+                "export_obj" => {
+                    let (mtl, tex) = crate::export::obj_siblings(p);
+                    vec![mtl, tex]
+                }
                 "export_dae" | "export_fbx" => vec![textures],
                 _ => vec![],
             };

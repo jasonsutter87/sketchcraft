@@ -148,6 +148,9 @@ export interface Props {
   onContext: (x: number, y: number) => void;
   onToast: (t: string, bad?: boolean) => void;
   onSection: (on: boolean) => void;
+  /** turn Parallel Projection on or off from the view: standard views (Top, Front...) switch to it and orbiting
+   *  away switches back, as Blender's Auto Perspective does (#232) */
+  onParallel?: (on: boolean) => void;
   /** the coach's × */
   onHideHelp?: () => void;
   /** the view is put away (the Layout workspace covers it): it keeps everything but draws nothing and takes no keys */

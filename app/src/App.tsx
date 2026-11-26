@@ -269,6 +269,8 @@ function ModelingApp() {
   const [showSheets, setShowSheets] = useState(false);
   const [showLocation, setShowLocation] = useState(false);
   const [showRender, setShowRender] = useState(false);
+  /** the view bar's style toggles, unfolded on a narrow model view */
+  const [viewsMore, setViewsMore] = useState(false);
   // bumps when the section moves, so its height box refreshes
   const [sectionTick, setSectionTick] = useState(0);
   /** Match Photo in progress: the photo being lined up */
@@ -1237,7 +1239,7 @@ function ModelingApp() {
             </button>
             {aiOn && (
               <button className="btn small ghost ai-btn" data-testid="ai-btn" title="SketchCraft AI: ask for changes in plain words (local test)" onClick={openAi}>
-                SketchCraft AI
+                <span className="ai-long">SketchCraft </span>AI
               </button>
             )}
             <button className="btn small ghost skin-btn" title="Themes: SketchCraft's colors, layout and icons" onClick={() => setShowSkins(true)}>
@@ -1314,6 +1316,7 @@ function ModelingApp() {
             setSection(on);
             setSectionTick((t) => t + 1);
           }}
+          onParallel={(on) => setStyles((s) => (!!s.parallel === on ? s : { ...s, parallel: on }))}
           api={api}
           paused={inLayout}
           pluginTool={
@@ -1388,7 +1391,7 @@ function ModelingApp() {
           </label>
         </Toolbar>
 
-        <div className="views">
+        <div className={`views${viewsMore ? " more" : ""}`}>
           {layout === "desktop" && (
             <>
               {scene?.views.map((v) => (
@@ -1417,6 +1420,11 @@ function ModelingApp() {
             ›
           </button>
           <span className="vsep" />
+          {/* on a narrow model view these fold behind ⋯ (they're in the View and Camera menus too), so the bar stays one row, #226 */}
+          <button className={`views-more${viewsMore ? " on" : ""}`} aria-expanded={viewsMore} title={viewsMore ? "Fewer view options" : "More view options: X-ray, edges, shadows, parallel…"} onClick={() => setViewsMore((v) => !v)}>
+            ⋯
+          </button>
+          <span className="view-toggles">
           {(
             [
               ["xray", "X-ray"],
@@ -1437,6 +1445,7 @@ function ModelingApp() {
               {label}
             </button>
           ))}
+          </span>
           {scene && (scene.activeGroup != null || scene.editing != null) && (
             <button className={styles.hideRest ? "on" : ""} title="Hide Rest of Model: only what you're editing shows" onClick={() => setStyles((s) => ({ ...s, hideRest: !s.hideRest }))}>
               Hide rest
