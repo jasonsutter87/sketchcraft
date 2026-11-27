@@ -68,6 +68,9 @@ What changed in each SketchCraft release, newest first. The format follows
   Camera menus too. (#226)
 
 ### Fixed
+- **The Room tool snaps to the rooms already there.** Its corners go onto a room's corners (where its walls meet) or
+  line up with them, and otherwise onto the grid; the hint says which. A room drawn in the gap between two rooms
+  shares both their walls instead of building a second wall beside each.
 - **A door leaves the wall solid.** A door, from the Door tool or the library, used to leave a face lying across the
   doorway on the floor, so the wall showed as "Not solid: has open edges". The floor of the doorway is open now.
 - **The tool settings card sits beside the tool tip** instead of on top of it.

@@ -221,6 +221,9 @@ export interface RoomRow {
   name: string;
   area: number;
   center: [number, number, number];
+  /** the inside, as the engine reports it (a rectilinear polygon), and its walls' thickness */
+  outline?: [number, number][];
+  thickness?: number;
 }
 
 export type Op =
