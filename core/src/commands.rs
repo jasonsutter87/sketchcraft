@@ -1261,7 +1261,7 @@ impl Engine {
                 Command::Place { .. } | Command::ComponentFaceMe { .. } | Command::ComponentCuts { .. } |
                 Command::Edit { .. } | Command::Close { .. } | Command::Explode { .. } | Command::Components { .. } |
                 Command::Ungroup { .. } | Command::MakeUnique { .. } | Command::Connected { .. } |
-                Command::SameAs { .. } | Command::Resize { .. } | Command::SetAxes { .. }
+                Command::SameAs { .. } | Command::Resize { .. } | Command::SetAxes { .. } | Command::AlignAxes { .. }
             ) => self.run_groups(c),
             c @ (
                 Command::Hide { .. } | Command::Unhide { .. } | Command::Tag { .. } | Command::TagVisible { .. } |

@@ -337,6 +337,8 @@ export default {
   "context.group": "创建组",
   "context.nest": "将这些编组（嵌套）",
   "context.explode": "炸开",
+  "context.alignAxes": "将坐标轴对齐到此面",
+  "context.resetAxes": "重置坐标轴",
   "context.hide": "隐藏",
   "context.delete": "删除",
   "context.reverse": "反转面",

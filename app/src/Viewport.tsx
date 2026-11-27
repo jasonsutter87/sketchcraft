@@ -801,7 +801,7 @@ export default function Viewport(props: Props) {
     const s = live.current.scene;
     if (!T || !s) return;
     syncClouds();
-    // the drawing axes follow the model's
+    // the drawing axes: the open group's or component's own, else the model's (the engine says which)
     {
       const a = s.axes;
       const x = a ? V(a[1]) : new THREE.Vector3(1, 0, 0);
@@ -1818,6 +1818,11 @@ export default function Viewport(props: Props) {
     for (const k of ["normal", "axis", "direction"]) if (k in out) out[k] = dir(out[k]);
     if ("by" in out) out.by = vec(out.by);
     if (Array.isArray(out.points)) out.points = (out.points as unknown[]).map(pt);
+    // the Axes tool inside a component sets the component's own axes, kept in its coordinates (#266)
+    if (out.cmd === "set_axes") {
+      if ("origin" in out) out.origin = pt(out.origin);
+      for (const k of ["x", "y"]) if (k in out) out[k] = dir(out[k]);
+    }
     return out;
   }
 

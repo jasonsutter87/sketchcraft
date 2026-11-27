@@ -337,6 +337,8 @@ export default {
   "context.group": "Criar grupo",
   "context.nest": "Agrupar estes (aninhar)",
   "context.explode": "Explodir",
+  "context.alignAxes": "Alinhar os eixos a esta face",
+  "context.resetAxes": "Redefinir eixos",
   "context.hide": "Ocultar",
   "context.delete": "Excluir",
   "context.reverse": "Inverter faces",

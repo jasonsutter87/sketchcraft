@@ -337,6 +337,8 @@ export default {
   "context.group": "Crea gruppo",
   "context.nest": "Raggruppa gli elementi",
   "context.explode": "Esplodi",
+  "context.alignAxes": "Allinea gli assi a questa faccia",
+  "context.resetAxes": "Reimposta assi",
   "context.hide": "Nascondi",
   "context.delete": "Elimina",
   "context.reverse": "Inverti facce",

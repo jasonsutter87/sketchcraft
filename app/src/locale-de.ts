@@ -337,6 +337,8 @@ export default {
   "context.group": "Gruppe erstellen",
   "context.nest": "Diese gruppieren (verschachteln)",
   "context.explode": "Auflösen",
+  "context.alignAxes": "Achsen an dieser Fläche ausrichten",
+  "context.resetAxes": "Achsen zurücksetzen",
   "context.hide": "Ausblenden",
   "context.delete": "Löschen",
   "context.reverse": "Flächen umkehren",

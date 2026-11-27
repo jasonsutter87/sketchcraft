@@ -60,6 +60,8 @@ export interface GroupInfo {
   /** the group it sits inside (null: top level) */
   parent: number | null;
   locked: boolean;
+  /** it has its own drawing axes (#266) */
+  ownAxes?: boolean;
 }
 
 export interface InstanceInfo {
@@ -75,6 +77,8 @@ export interface InstanceInfo {
   attrs?: Record<string, string>;
   /** it always turns to face the camera (a flat scale figure) */
   faceMe?: boolean;
+  /** its component has its own drawing axes (#266) */
+  ownAxes?: boolean;
 }
 
 /** A face-me figure: drawn around its own point, turned toward the camera. */

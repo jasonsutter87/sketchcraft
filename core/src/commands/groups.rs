@@ -150,22 +150,55 @@ impl Engine {
                 m.resize(factor)?;
                 json!({"factor": factor})
             }
-            Command::SetAxes { origin, x, y, reset } => {
-                if reset {
-                    m.axes = None;
-                    return Ok(json!({"axes": null}));
-                }
-                let (Some(o), Some(x), Some(y)) = (origin, x, y) else { bail!("set_axes needs origin, x and y (or reset)") };
-                let x = DVec3::from(x).normalize_or_zero();
-                let y = DVec3::from(y);
-                let y = (y - x * y.dot(x)).normalize_or_zero();
-                if x == DVec3::ZERO || y == DVec3::ZERO || !crate::model::finite3(&o) {
-                    bail!("the red and green directions need to be different");
-                }
-                m.axes = Some([o, x.to_array(), y.to_array()]);
-                json!({"axes": m.axes})
+            Command::SetAxes { id, origin, x, y, reset } => {
+                let frame = if reset {
+                    None
+                } else {
+                    let (Some(o), Some(x), Some(y)) = (origin, x, y) else { bail!("set_axes needs origin, x and y (or reset)") };
+                    Some(crate::model::axes_frame(o, x, y)?)
+                };
+                let (whose, axes) = set_axes_of(m, id, frame)?;
+                json!({"axes": axes, "of": whose})
+            }
+            Command::AlignAxes { face, id } => {
+                let frame = m.face_axes(face)?;
+                let (whose, axes) = set_axes_of(m, id, Some(frame))?;
+                json!({"axes": axes, "of": whose})
             }
             other => unreachable!("command routed to the wrong group: {other:?}"),
         })
+    }
+}
+
+/// Give `frame` (None: the default) to whoever's axes `id` names: a group, a component placement (whose
+/// component keeps them in its own coordinates, for all its copies), or with no `id` the open group, else the
+/// model being edited. Says whose they were and what they are now, in the coordinates the command used.
+fn set_axes_of(m: &mut Model, id: Option<Id>, frame: Option<[[f64; 3]; 3]>) -> Result<(Value, Option<[[f64; 3]; 3]>)> {
+    match id {
+        Some(g) if m.groups.contains_key(&g) => {
+            m.groups.get_mut(&g).unwrap().axes = frame;
+            Ok((json!({"group": g}), frame))
+        }
+        Some(i) => {
+            let Some(inst) = m.instances.get(&i) else { bail!("{i} is not a group or component placement") };
+            let (def, t) = (inst.def, inst.transform);
+            let local = match frame {
+                Some(f) => Some(crate::model::axes_through(t.inverse(), f).ok_or_else(|| anyhow::anyhow!("that placement is flattened, so it can't have axes"))?),
+                None => None,
+            };
+            let Some(d) = m.definitions.get_mut(&def) else { bail!("{i} is not a group or component placement") };
+            std::sync::Arc::make_mut(&mut d.model).axes = local;
+            Ok((json!({"component": def}), frame))
+        }
+        None => match m.active_group {
+            Some(g) if m.groups.contains_key(&g) => {
+                m.groups.get_mut(&g).unwrap().axes = frame;
+                Ok((json!({"group": g}), frame))
+            }
+            _ => {
+                m.axes = frame;
+                Ok((json!("model"), frame))
+            }
+        },
     }
 }
