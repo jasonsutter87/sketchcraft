@@ -163,21 +163,26 @@ pub fn parse(d: &[u8], version: String) -> Result<SkpFile> {
         bail!("the SketchUp archive has entries that share the same bytes, so it was not read");
     }
     let inflated = std::cell::Cell::new(0u64);
-    let mut read = |name: &str, limit: u64| -> Option<Vec<u8>> {
-        let f = zip.by_name(name).ok()?;
-        if f.size() > limit || inflated.get().saturating_add(f.size()) > MAX_INFLATED {
-            return None;
+    // what can't be read says why (#296: "missing, over 64 MB or can't be read" left the person guessing)
+    let mut read = |name: &str, limit: u64| -> Result<Vec<u8>, String> {
+        let f = zip.by_name(name).map_err(|_| "it isn't in the file".to_string())?;
+        let too_big = |n: u64| format!("it is {} MB and pictures are read up to {} MB", (n >> 20).max(1), limit >> 20);
+        if f.size() > limit {
+            return Err(too_big(f.size()));
+        }
+        if inflated.get().saturating_add(f.size()) > MAX_INFLATED {
+            return Err(format!("the file's pictures add up to more than the {} MB that are read", MAX_INFLATED >> 20));
         }
         // stop at the limit whatever the directory claims
         let mut v = Vec::new();
-        f.take(limit + 1).read_to_end(&mut v).ok()?;
+        f.take(limit + 1).read_to_end(&mut v).map_err(|_| "it is damaged in the file".to_string())?;
         if v.len() as u64 > limit {
-            return None;
+            return Err(too_big(v.len() as u64));
         }
         inflated.set(inflated.get() + v.len() as u64);
-        Some(v)
+        Ok(v)
     };
-    let model = read("model.dat", MAX_MODEL_DAT).context("the archive has no model.dat, or it is more than 256 MB")?;
+    let model = read("model.dat", MAX_MODEL_DAT).ok().context("the archive has no model.dat, or it is more than 256 MB")?;
     if model.len() < 6 {
         bail!("empty model.dat");
     }
@@ -228,7 +233,7 @@ pub fn parse(d: &[u8], version: String) -> Result<SkpFile> {
         if crate::skp::out_of_time() {
             bail!("this SketchUp file took too long to read, so it was not imported");
         }
-        let Some(xml) = read(&format!("materials/{name}/material.xml"), MAX_XML) else { continue };
+        let Ok(xml) = read(&format!("materials/{name}/material.xml"), MAX_XML) else { continue };
         let xml = String::from_utf8_lossy(&xml).to_string();
         let attr = |k: &str| -> Option<String> {
             let i = xml.find(&format!(" {k}=\""))? + k.len() + 3;
@@ -245,11 +250,17 @@ pub fn parse(d: &[u8], version: String) -> Result<SkpFile> {
                 let j = xml[i..].find("path=\"./")? + i + 8;
                 Some(xml[j..j + xml[j..].find('"')?].to_string())
             });
-            let bytes = img.and_then(|p| read(&format!("materials/{name}/{p}"), MAX_PICTURE));
             let shown = name.trim_start_matches("_LC_");
-            if bytes.is_none() && xml.contains("<mat:image ") {
-                crate::safety::note_skipped(shown, "its picture is missing, over 64 MB or can't be read; the material keeps its color");
+            let bytes = match img {
+                Some(p) => read(&format!("materials/{name}/{p}"), MAX_PICTURE).map_err(|why| format!("its picture {p} can't be used: {why}")),
+                None => Err("its picture isn't named in the file".to_string()),
+            };
+            if let Err(why) = &bytes {
+                if xml.contains("<mat:image ") {
+                    crate::safety::note_skipped(shown, &format!("{why}; the material keeps its color"));
+                }
             }
+            let bytes = bytes.ok();
             let decoded = bytes.and_then(|b| decode_picture(&b, shown, &mut pictures, &mut pixels));
             if let Some((data, aspect)) = decoded {
                 let mut t = tiles.remove(&id).unwrap_or_default();

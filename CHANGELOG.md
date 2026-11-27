@@ -6,6 +6,11 @@ What changed in each SketchCraft release, newest first. The format follows
 
 ## [Unreleased]
 
+### Changed
+- **Clearer messages for models too big to open.** A model whose components multiply past what SketchCraft can draw
+  is refused with the components that make it so, how many copies each has, and what to do. A texture left out of a
+  SketchUp import now says why: missing from the file, too big, damaged, or over the file's picture budget. (#296)
+
 ### Fixed
 - **Doors and windows at a wall's corner.** A door or window placed past the end of a wall face, at a corner of a
   closed wall (inside or outside), used to be refused. It now slides along to where both faces of the wall are, clear
