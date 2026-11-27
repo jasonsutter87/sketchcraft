@@ -434,6 +434,10 @@ export default function Viewport(props: Props) {
         // nothing to draw
       } else if (live.current.styles.ao) {
         // ambient occlusion: render through a post-processing chain (built on first use)
+        if (ao.current && ao.current.composer.renderer !== renderer) {
+          ao.current.composer.dispose();
+          ao.current = null;
+        }
         if (!ao.current) {
           const size = renderer.getSize(new THREE.Vector2());
           const composer = new EffectComposer(renderer);
@@ -464,6 +468,9 @@ export default function Viewport(props: Props) {
       controls.removeEventListener("change", syncControlsNear);
       unwatchGlide();
       controls.dispose();
+      // the AO chain draws with this renderer: it goes with it (kept, the next view drew AO into a dead canvas)
+      ao.current?.composer.dispose();
+      ao.current = null;
       renderer.dispose();
       el.removeChild(renderer.domElement);
     };
