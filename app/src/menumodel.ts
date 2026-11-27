@@ -52,6 +52,7 @@ export const MENUS: Menu[] = [
     id: "file",
     label: "menu.file",
     items: [
+      act("file.welcome", "menu.welcome"),
       act("file.new", "menu.new"),
       act("file.open", "menu.open"),
       SEP,

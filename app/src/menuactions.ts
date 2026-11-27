@@ -92,7 +92,7 @@ export interface MenuCtx {
   setLayout: (l: Layout) => void;
   setLanguage: (l: string) => void;
   // dialogs and links
-  open: Record<"restore" | "render" | "sheets" | "layout" | "timeline" | "location" | "text3d" | "projection" | "positionTexture" | "uvEditor" | "newPaintTexture" | "photocraft" | "fixModel" | "checkModel" | "printCheck" | "cutPlan" | "dado" | "rabbet" | "tenon" | "makeFaces" | "flatten" | "plugins" | "themes" | "keys" | "keyEditor" | "spaceMouse" | "palette" | "learn" | "about" | "customize", () => void>;
+  open: Record<"restore" | "render" | "sheets" | "layout" | "timeline" | "location" | "text3d" | "projection" | "positionTexture" | "uvEditor" | "newPaintTexture" | "photocraft" | "fixModel" | "checkModel" | "printCheck" | "cutPlan" | "dado" | "rabbet" | "tenon" | "makeFaces" | "flatten" | "plugins" | "themes" | "keys" | "keyEditor" | "spaceMouse" | "palette" | "learn" | "about" | "customize" | "welcome", () => void>;
   checkForUpdates: () => void;
   openLink: (which: "issues") => void;
 }
@@ -228,6 +228,7 @@ export function buildMenuActions(c: MenuCtx): Record<string, MenuAction> {
 
   // Help
   add("help.learn", c.open.learn);
+  add("file.welcome", c.open.welcome);
   add("help.shortcuts", c.open.keys);
   add("help.search", c.open.palette);
   add("help.updates", c.checkForUpdates);

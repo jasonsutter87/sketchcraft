@@ -1,4 +1,5 @@
 import { LocaleProvider, useLocale } from "./locale";
+import { Welcome, welcomeAtStart } from "./welcome";
 import { cleanLabel, cleanText } from "./pluginclean";
 import { glideOn, setGlide as saveGlide } from "./glide";
 import { groupRepairNotice, groupRepairOf } from "./grouprepair";
@@ -28,6 +29,7 @@ import { Views } from "./views";
 import { EMPTY, isEmpty, selIds, type Sel } from "./selection";
 import { formatLength, parseLength, UNIT_OPTIONS } from "./units";
 import { pickSave, rememberedFile, rememberFile } from "./files";
+import { recentFiles } from "./recent";
 import Viewport, { type Backdrop, type BuildSettings, type FaceStyle, type Styles, type Tool, type ViewportApi } from "./Viewport";
 import { MatchPhoto, type PhotoMatch } from "./matchphoto";
 import { prepareImage } from "./textures";
@@ -228,6 +230,8 @@ function ModelingApp() {
   const [showRestore, setShowRestore] = useState(false);
   const [showTimeline, setShowTimeline] = useState(false);
   const [showLearn, setShowLearn] = useState(false);
+  /** the welcome screen: at launch (unless turned off), and from File › Welcome… */
+  const [showWelcome, setShowWelcome] = useState(() => welcomeAtStart());
   const [showAbout, setShowAbout] = useState(false);
   const [showPrintCheck, setShowPrintCheck] = useState(false);
   const [showCutPlan, setShowCutPlan] = useState(false);
@@ -352,7 +356,7 @@ function ModelingApp() {
   const pluginCommandDefs = livePlugins.flatMap((pl) => pl.commands.map((c) => ({ id: `plugin:${pl.id}:${c.id}`, label: c.label, group: "Plugins" as const, key: "" })));
   useEffect(() => keymap.setExtra(pluginCommandDefs));
   const [importReport, setImportReport] = useState<NamedReport | null>(null);
-  const { file, importFile, runTemplate, openExample } = useFileActions({ run, say, refresh, api, scene, figure, currentFile, setCurrentFile, setSel, onReport: setImportReport });
+  const { file, importFile, runTemplate, openExample, openPath } = useFileActions({ run, say, refresh, api, scene, figure, currentFile, setCurrentFile, setSel, onReport: setImportReport });
 
   // SubD: make one from a group or component (Subdivide…) or from a cube cage (SubD box); both end in SubD mode
   const [subdividing, setSubdividing] = useState<{ id: number; component: boolean } | null>(null);
@@ -679,6 +683,7 @@ function ModelingApp() {
       { label: "3D Text…", hint: "File", run: () => setShowText3d(true) },
       { label: "Generate report (CSV)…", hint: "File", run: file.report },
       { id: "win.themes", label: "Themes…", hint: "Colors, layout and icons (skins)", run: () => setShowSkins(true) },
+      { id: "file.welcome", label: "Welcome…", hint: "File · start a new model in a style and units, a starter, an example, or a recent file", run: () => setShowWelcome(true) },
       ...livePlugins.flatMap((pl) => pl.commands.map((c) => ({ id: `plugin:${pl.id}:${c.id}`, label: c.label, hint: `Plugin · ${cleanLabel(c.hint ?? pl.name, 120)}`, run: () => void runPluginCommand(pl, c.id) }))),
       { id: "win.plugins", label: "Manage plugins…", hint: "Install, turn on or off, remove", run: () => (reloadPlugins(), setShowPlugins(true)) },
       ...(layout === "classic" ? [{ id: "win.tray", label: tray ? "Hide the tray" : "Show the tray", hint: "Classic layout · collapsible panels down the right side", run: () => setTray(!tray) }] : []),
@@ -878,6 +883,7 @@ function ModelingApp() {
       spaceMouse: () => setShowSpaceMouse(true),
       palette: () => setShowPalette(true),
       learn: () => setShowLearn(true),
+      welcome: () => setShowWelcome(true),
       about: () => setShowAbout(true),
       customize: () => setShowWs(true),
     },
@@ -1537,6 +1543,40 @@ function ModelingApp() {
         )}
         <UpdateCard />
         {scene && showTimeline && <TimelinePanel scene={scene} run={run} api={api} setTool={chooseTool} onToast={say} onClose={() => setShowTimeline(false)} />}
+        {showWelcome && (
+          <Welcome
+            recent={recentFiles()}
+            onClose={() => setShowWelcome(false)}
+            onStart={async (s) => {
+              setShowWelcome(false);
+              await file.new();
+              await run({ cmd: "units", units: s.units });
+              setStyles((st) => ({ ...st, ...s.styles }));
+              say(`New ${s.name.toLowerCase()} model, in ${s.unitsLabel.toLowerCase()}. ⌘Z brings the last one back.`);
+            }}
+            onStarter={async (lines) => {
+              setShowWelcome(false);
+              await file.new();
+              await runTemplate(lines);
+            }}
+            onExample={(name, data) => {
+              setShowWelcome(false);
+              void openExample(name, data);
+            }}
+            onOpen={() => {
+              setShowWelcome(false);
+              void file.open();
+            }}
+            onRecent={async (path) => {
+              setShowWelcome(false);
+              if (!(await openPath(path))) say(`Couldn't open ${path.split(/[\\/]/).pop()}: it may have moved. It's off the list now.`, true);
+            }}
+            onLearn={() => {
+              setShowWelcome(false);
+              setShowLearn(true);
+            }}
+          />
+        )}
         {showLearn && (
           <LearnCenter
             onStart={(id) => {

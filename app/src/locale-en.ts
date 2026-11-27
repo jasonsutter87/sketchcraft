@@ -1,6 +1,7 @@
 export default {
   "menu.file": "File",
   "menu.new": "New",
+  "menu.welcome": "Welcome…",
   "menu.open": "Open…",
   "menu.save": "Save",
   "menu.saveAs": "Save As…",

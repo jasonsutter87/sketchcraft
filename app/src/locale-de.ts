@@ -2,6 +2,7 @@
 export default {
   "menu.file": "Datei",
   "menu.new": "Neu",
+  "menu.welcome": "Willkommen…",
   "menu.open": "Öffnen…",
   "menu.save": "Speichern",
   "menu.saveAs": "Speichern unter…",
