@@ -228,7 +228,7 @@ export function buildMenuActions(c: MenuCtx): Record<string, MenuAction> {
 
   // Help
   add("help.learn", c.open.learn);
-  add("file.welcome", c.open.welcome);
+  add("help.welcome", c.open.welcome);
   add("help.shortcuts", c.open.keys);
   add("help.search", c.open.palette);
   add("help.updates", c.checkForUpdates);

@@ -11,7 +11,7 @@ What changed in each SketchCraft release, newest first. The format follows
 ### Added
 - **A welcome screen.** When SketchCraft starts it offers a new model in a look and its units (Simple, Architectural
   or Visualization, each in metric or feet and inches), the starter models and examples, Open file, and the models you
-  opened or saved lately. Learn is one click away. **File › Welcome…** brings it back; a switch turns it off at start.
+  opened or saved lately. Learn is one click away. **Help › Welcome…** brings it back; a switch turns it off at start.
 - **Door and Window tools.** In the **Arch** tab, pick **Door** or **Window**, hover the side of a wall to see where it
   goes, and click: it's centred where you clicked, a door on the floor and a window at its sill, cut through the
   wall and marked as an IFC door or window. Width, height and sill are in the card over the view. In a wall made with

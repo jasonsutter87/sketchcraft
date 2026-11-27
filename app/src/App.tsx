@@ -230,7 +230,7 @@ function ModelingApp() {
   const [showRestore, setShowRestore] = useState(false);
   const [showTimeline, setShowTimeline] = useState(false);
   const [showLearn, setShowLearn] = useState(false);
-  /** the welcome screen: at launch (unless turned off), and from File › Welcome… */
+  /** the welcome screen: at launch (unless turned off), and from Help › Welcome… */
   const [showWelcome, setShowWelcome] = useState(() => welcomeAtStart());
   const [showAbout, setShowAbout] = useState(false);
   const [showPrintCheck, setShowPrintCheck] = useState(false);
@@ -683,7 +683,7 @@ function ModelingApp() {
       { label: "3D Text…", hint: "File", run: () => setShowText3d(true) },
       { label: "Generate report (CSV)…", hint: "File", run: file.report },
       { id: "win.themes", label: "Themes…", hint: "Colors, layout and icons (skins)", run: () => setShowSkins(true) },
-      { id: "file.welcome", label: "Welcome…", hint: "File · start a new model in a style and units, a starter, an example, or a recent file", run: () => setShowWelcome(true) },
+      { id: "help.welcome", label: "Welcome…", hint: "Help · start a new model in a style and units, a starter, an example, or a recent file", run: () => setShowWelcome(true) },
       ...livePlugins.flatMap((pl) => pl.commands.map((c) => ({ id: `plugin:${pl.id}:${c.id}`, label: c.label, hint: `Plugin · ${cleanLabel(c.hint ?? pl.name, 120)}`, run: () => void runPluginCommand(pl, c.id) }))),
       { id: "win.plugins", label: "Manage plugins…", hint: "Install, turn on or off, remove", run: () => (reloadPlugins(), setShowPlugins(true)) },
       ...(layout === "classic" ? [{ id: "win.tray", label: tray ? "Hide the tray" : "Show the tray", hint: "Classic layout · collapsible panels down the right side", run: () => setTray(!tray) }] : []),

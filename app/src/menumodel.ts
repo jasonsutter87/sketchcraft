@@ -52,7 +52,6 @@ export const MENUS: Menu[] = [
     id: "file",
     label: "menu.file",
     items: [
-      act("file.welcome", "menu.welcome"),
       act("file.new", "menu.new"),
       act("file.open", "menu.open"),
       SEP,
@@ -255,6 +254,7 @@ export const MENUS: Menu[] = [
     id: "help",
     label: "menu.help",
     items: [
+      act("help.welcome", "menu.welcome"),
       act("help.learn", "menu.learn"),
       act("help.shortcuts", "menu.shortcuts"),
       act("help.search", "menu.commands"),
