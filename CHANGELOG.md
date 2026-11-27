@@ -123,10 +123,32 @@ What changed in each SketchCraft release, newest first. The format follows
   it. A picture that can't be read is named in the import's message and the material keeps its color. (#17)
 
 ### Security
-- Plugins and extensions run under tighter limits: their menus, names and messages are capped and cleaned, and
-  the 3D mouse and SketchCraft AI helpers check what they connect to.
-- Hardening for 0.3.11: stricter checks on what agents and plugins can write and save, on numbers read from imported
-  files, and on how much a model's scenes may hold.
+- **Hardening for 0.3.11.**
+  - Plugin and extension menus are cut to a fixed number of entries, each a clean one-line label, and a plugin adds at
+    most 50 commands.
+  - Text from plugins (names, menus, messages, command hints, the install dialog and every toast) is cleaned of control,
+    direction and Unicode format characters wherever it is shown, so it can't read as something else.
+  - Plugin messages are rate limited everywhere they are shown, and a plugin's result table is bounded.
+  - The plugin install dialog checks a plugin's size before reading it.
+  - The plugin sandbox closes network and storage on the worker's prototypes as well as on the worker itself, closes the
+    old file-system entry points too, and is checked after setup: a plugin whose sandbox still has a name open is not run.
+  - Extension file names, in single scripts as well as archives, may not carry control or direction characters or the
+    names Windows keeps for devices (`con`, `nul`, `com1`...).
+  - Files an agent or a plugin writes are opened without following links, links inside an agent's workspace are refused
+    (for agents allowed any path too), and that rule lasts only for the one command.
+  - DWG export is written the same safe way as every other export.
+  - The SketchCraft AI helper works in an empty folder that only you can use: on a shared `/tmp` it never takes a folder
+    or link another user made first, and its agents fall back to modeling only when no private folder can be made.
+  - The 3D mouse trusts only a `spacenavd` socket owned by the system or by you, so another user on the computer can't
+    steer the camera, and its reads no longer block the app.
+  - Colours, finishes and vertex colours read from imported files, IFC files and saved models are brought into range,
+    and material numbers are checked before saving.
+  - Scene lists count toward a model's size estimates and have limits for agents and plugins.
+  - Texture file names written with a model avoid the names Windows keeps for devices.
+  - Cutting work keeps its time limit in every loop, so a push/pull's corner repair can't freeze the app.
+  - In the browser build a file is checked against a 256 MB limit before it is read into memory.
+  - Questions the app asks come one at a time, and closing one answers it, so a plugin or agent can't stack them.
+  - Android: the app's data is left out of device backups.
 
 ## [0.3.10] - 2026-11-24
 
