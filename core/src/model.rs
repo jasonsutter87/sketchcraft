@@ -1169,10 +1169,60 @@ impl Model {
             ids.dedup();
             ids
         };
+        // corners in a row that are at one spot (two vertices a hair apart, from a boolean on decimal sizes) are one
+        // corner, and a loop with no area left is no loop: either would leave a sliver with edges nothing else uses
+        let tidy = |m: &Model, ids: Vec<Id>| -> Vec<Id> {
+            let mut out: Vec<Id> = Vec::with_capacity(ids.len());
+            for id in ids {
+                if out.last().is_some_and(|&l| m.p(l).distance(m.p(id)) < WELD) {
+                    continue;
+                }
+                out.push(id);
+            }
+            while out.len() > 1 && m.p(out[0]).distance(m.p(*out.last().unwrap())) < WELD {
+                out.pop();
+            }
+            // a spike: the outline runs out along a line and straight back (a sliver of no width the boolean left on
+            // decimal sizes). Its tip goes; corners that only carry straight on stay (an edge shared with a neighbour)
+            loop {
+                let n = out.len();
+                if n < 3 {
+                    break;
+                }
+                let spike = (0..n).find(|&i| {
+                    let (a, b, c) = (m.p(out[(i + n - 1) % n]), m.p(out[i]), m.p(out[(i + 1) % n]));
+                    let (ab, bc) = (b - a, c - b);
+                    ab.cross(bc).length() <= WELD * (ab.length() + bc.length()) && ab.dot(bc) < 0.0
+                });
+                let Some(i) = spike else { break };
+                out.remove(i);
+                // its neighbours may now meet at one spot
+                let n = out.len();
+                if n >= 2 {
+                    let j = i % n;
+                    let k = (j + n - 1) % n;
+                    if m.p(out[j]).distance(m.p(out[k])) < WELD {
+                        out.remove(j);
+                    }
+                }
+            }
+            if out.len() < 3 || geom::signed_area(&geom::to2d(&m.pts(&out), u, v)).abs() < 1e-9 {
+                return Vec::new();
+            }
+            out
+        };
         let mut pieces = Vec::new();
         for poly in result.0.iter() {
             let outer = to_ids(self, poly.exterior(), true);
-            let holes = poly.interiors().iter().map(|h| to_ids(self, h, false)).collect::<Vec<_>>();
+            let outer = tidy(self, outer);
+            let mut holes = Vec::new();
+            for h in poly.interiors() {
+                let h = to_ids(self, h, false);
+                let h = tidy(self, h);
+                if !h.is_empty() {
+                    holes.push(h);
+                }
+            }
             if outer.len() >= 3 {
                 pieces.push(Face { outer, holes, material: parent.material.clone(), group: parent.group, ..Default::default() });
             }
@@ -1474,7 +1524,9 @@ impl Model {
                         continue;
                     }
                     // the cells the edge's box covers (an edge longer than the whole box is clipped to it)
+                    // one cell more each way: a vertex within the weld distance of the edge can sit just across a cell's side
                     let (c0, c1) = (cell(pa.min(pb).max(lo)), cell(pa.max(pb).min(hi)));
+                    let (c0, c1) = ((c0.0 - 1, c0.1 - 1, c0.2 - 1), (c1.0 + 1, c1.1 + 1, c1.2 + 1));
                     let mut cand: Vec<usize> = Vec::new();
                     if (c1.0 - c0.0 + 1) * (c1.1 - c0.1 + 1) * (c1.2 - c0.2 + 1) <= 4096 {
                         for x in c0.0..=c1.0 {
@@ -1581,9 +1633,13 @@ impl Model {
         if hits.is_empty() {
             return Ok(());
         }
+        // the overlap's corners are the faces' own corners: a boolean on decimal sizes puts them a hair off, and a
+        // region a hair short of a corner leaves a sliver of wall along it
+        let snap_to: Vec<DVec3> = std::iter::once(&t).chain(hits.iter().filter_map(|(id, _)| self.faces.get(id))).flat_map(|f| f.loops().flatten().map(|v| self.p(*v)).collect::<Vec<_>>()).collect();
+        let snap = |p: DVec3| snap_to.iter().copied().filter(|q| q.distance(p) < WELD).min_by(|a, b| a.distance(p).total_cmp(&b.distance(p))).unwrap_or(p);
         let to3 = |mp: &MultiPolygon<f64>| -> Vec<(Vec<DVec3>, Vec<Vec<DVec3>>)> {
             let back = |ls: &LineString<f64>| -> Vec<DVec3> {
-                let mut pts: Vec<DVec3> = ls.coords().map(|c| u * c.x + v * c.y + n * depth).collect();
+                let mut pts: Vec<DVec3> = ls.coords().map(|c| snap(u * c.x + v * c.y + n * depth)).collect();
                 if pts.len() > 1 && pts.first() == pts.last() {
                     pts.pop();
                 }

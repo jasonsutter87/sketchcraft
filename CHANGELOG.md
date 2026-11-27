@@ -104,7 +104,8 @@ What changed in each SketchCraft release, newest first. The format follows
 - **Drawing around a hole, and pushing through at a part's edge.** A rectangle drawn around an opening that already
   goes through now takes that opening with it, instead of leaving two holes on top of each other, and a notch pushed
   through at the edge or corner of a part leaves a closed solid with no thin face across the notch. Cuts side by side
-  (a pocket beside a hole, two notches in a row) and a cut around a pocket stay closed solids too.
+  (a pocket beside a hole, two notches in a row) and a cut around a pocket stay closed solids too, at any size and on
+  parts turned off the axes.
 - **SketchUp 2017-2020 files import their materials and the pictures on them.** These files came in with every face in
   the default color: their materials were not found at all. Now the names, colors and texture pictures come across
   (and the pictures of 2013-2016 files that share one between materials), each picture at the size SketchUp keeps for
