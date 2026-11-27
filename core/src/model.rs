@@ -1195,6 +1195,63 @@ impl Model {
         Ok(())
     }
 
+    /// Take the area of polygon `quad` out of every face of the active group lying in its plane (a doorway's foot
+    /// through a wall's bottom face, however many holes or pieces that face has). Returns how many faces it cut.
+    pub(crate) fn remove_footprint(&mut self, quad: &[DVec3]) -> Result<usize> {
+        let n = geom::newell(quad).normalize_or_zero();
+        let w = n.dot(quad[0]);
+        let g = self.active_group;
+        let mid = geom::centroid(quad);
+        let hits: Vec<Id> = self
+            .faces
+            .iter()
+            .filter(|(&id, f)| f.group == g && !f.outer.is_empty() && self.contains(id, mid) && self.normal(id).dot(n).abs() > 1.0 - 1e-6 && self.pts(&f.outer).iter().all(|p| (p.dot(n) - w).abs() < 1e-5))
+            .map(|(&id, _)| id)
+            .collect();
+        let mut cut = 0;
+        for id in hits {
+            if self.faces.contains_key(&id) {
+                self.subtract_region(id, &[(quad.to_vec(), vec![])], &[])?;
+                cut += 1;
+            }
+        }
+        Ok(cut)
+    }
+
+    /// Delete the edges of the active group that no face uses and that run along the segment p-q (a doorway's foot
+    /// once the floor under it is gone).
+    pub(crate) fn drop_loose_edges_along(&mut self, p: DVec3, q: DVec3) {
+        let g = self.active_group;
+        let used: std::collections::HashSet<(Id, Id)> = self.faces.values().flat_map(|f| f.loops().flat_map(|l| (0..l.len()).map(move |i| (l[i].min(l[(i + 1) % l.len()]), l[i].max(l[(i + 1) % l.len()]))))).collect();
+        let d = q - p;
+        let len2 = d.length_squared();
+        if len2 < 1e-18 {
+            return;
+        }
+        let on_pq = |x: DVec3| {
+            let t = (x - p).dot(d) / len2;
+            (-1e-6..=1.0 + 1e-6).contains(&t) && (p + d * t).distance(x) < 1e-5
+        };
+        let dead: Vec<Id> = self
+            .edges
+            .iter()
+            .filter(|(_, e)| e.group == g && !used.contains(&(e.a.min(e.b), e.a.max(e.b))))
+            .filter(|(_, e)| {
+                let (a, b) = (self.p(e.a), self.p(e.b));
+                // collinear with p-q and overlapping it
+                let col = (a - p).cross(d).length() < 1e-5 * len2.sqrt() && (b - p).cross(d).length() < 1e-5 * len2.sqrt();
+                let ab = b - a;
+                let mid = (p + q) * 0.5;
+                let t = (mid - a).dot(ab) / ab.length_squared().max(1e-18);
+                col && (on_pq(a) || on_pq(b) || ((0.0..=1.0).contains(&t) && (a + ab * t).distance(mid) < 1e-5))
+            })
+            .map(|(&id, _)| id)
+            .collect();
+        for id in dead {
+            self.edges.remove(&id);
+        }
+    }
+
     /// Imported data is rarely perfectly flat: points within 1 cm of the
     /// best-fit plane are moved onto it before the face is made.
     pub fn add_polygon(&mut self, points: &[DVec3]) -> Result<Id> {
