@@ -7,7 +7,7 @@ g.window ??= globalThis;
 const { contextItems } = await import("../src/contextmenu");
 
 // #266: right-click a face to put the drawing axes on it; right-click a group or component with its own axes to reset them
-const EMPTY = { faces: [], edges: [], groups: [], instances: [] };
+const EMPTY: Record<"faces" | "edges" | "groups" | "instances", number[]> = { faces: [], edges: [], groups: [], instances: [] };
 
 function scene(over: Partial<Record<string, unknown>> = {}): Scene {
   return {
