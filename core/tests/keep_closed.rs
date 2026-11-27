@@ -121,7 +121,8 @@ fn f05_an_opening_past_the_end_of_its_face_in_a_closed_wall() {
         let mut e = Engine::new();
         let g = ok(&mut e, json!({"cmd": "wall", "points": [[0, 0, 0], [6.5, 0, 0], [6.5, 9.5, 0], [0, 9.5, 0]], "closed": true, "thickness": 0.3}))["group"].as_u64().unwrap();
         let f = *e.model.faces.iter().filter(|(&k, fc)| fc.group == Some(g as u32) && e.model.normal(k).x > 0.99 && e.model.center(k).x < 1.0).max_by(|a, b| e.model.face_area(*a.0).total_cmp(&e.model.face_area(*b.0))).unwrap().0;
-        cut(&mut e, json!({"cmd": "opening", "kind": kind, "host": f, "at": [0.15, 0.6, 1.2], "width": 1.0, "height": if kind == "door" { 2.1 } else { 1.2 }, "sill": 0.9}));
+        // it fits where both faces of the wall are, moved along clear of the corner (0.3.12: it used to be refused)
+        assert!(cut(&mut e, json!({"cmd": "opening", "kind": kind, "host": f, "at": [0.15, 0.6, 1.2], "width": 1.0, "height": if kind == "door" { 2.1 } else { 1.2 }, "sill": 0.9})), "{kind} refused");
     }
 }
 
@@ -213,14 +214,70 @@ fn an_outward_offset_on_a_solid_makes_its_ledge() {
 
 #[test]
 fn a_batch_whose_cut_was_refused_leaves_no_undo_step() {
+    // one of the cut orders the safety net still refuses (from the random triples): a slot, a pocket opening into it,
+    // then a cut through over the pocket
     let mut e = Engine::new();
-    let g = ok(&mut e, json!({"cmd": "wall", "points": [[0, 0, 0], [6.5, 0, 0], [6.5, 9.5, 0], [0, 9.5, 0]], "closed": true, "thickness": 0.3}))["group"].as_u64().unwrap();
-    let f = *e.model.faces.iter().filter(|(&k, fc)| fc.group == Some(g as u32) && e.model.normal(k).x > 0.99 && e.model.center(k).x < 1.0).max_by(|a, b| e.model.face_area(*a.0).total_cmp(&e.model.face_area(*b.0))).unwrap().0;
+    // in a group of its own: the loose rectangle drawn below must not be what makes it refused or not
+    ok(&mut e, json!({"cmd": "begin_group", "name": "Slab"}));
+    slab(&mut e, &[[0., 0., 0.], [8., 0., 0.], [8., 8., 0.], [0., 8., 0.]], 2.0);
+    let at = |e: &Engine, x: f64, y: f64| *e.model.faces.keys().filter(|&&k| e.model.normal(k).z > 0.99 && (e.model.center(k).z - 2.0).abs() < 1e-6).find(|&&k| { let p = e.model.center(k); (p.x - x).abs() < 1e-6 && (p.y - y).abs() < 1e-6 }).unwrap();
+    for [x0, y0, x1, y1, d] in [[2., 6., 7., 7., -2.], [4., 5., 6., 6., -0.5]] {
+        ok(&mut e, json!({"cmd": "rect", "from": [x0, y0, 2.0], "to": [x1, y1, 2.0]}));
+        let f = at(&e, (x0 + x1) / 2.0, (y0 + y1) / 2.0);
+        ok(&mut e, json!({"cmd": "pushpull", "face": f, "distance": d}));
+    }
+    ok(&mut e, json!({"cmd": "rect", "from": [2, 2, 2.0], "to": [7, 6, 2.0]}));
+    let last = at(&e, 4.5, 4.0);
+    ok(&mut e, json!({"cmd": "end_group"}));
     ok(&mut e, json!({"cmd": "rect", "from": [20, 20, 0], "to": [22, 22, 0]}));
     let n = e.model.faces.len();
     ok(&mut e, json!({"cmd": "begin_batch"}));
-    assert_eq!(run(&mut e, json!({"cmd": "opening", "kind": "window", "host": f, "at": [0.15, 0.6, 1.2], "width": 1.0, "height": 1.2, "sill": 0.9}))["ok"], false);
+    let r = run(&mut e, json!({"cmd": "pushpull", "face": last, "distance": -2.0}));
+    assert_eq!(r["ok"], false, "this cut order is cut cleanly now: pick another refused one for this test ({r})");
     ok(&mut e, json!({"cmd": "end_batch"}));
     ok(&mut e, json!({"cmd": "undo"}));
     assert_eq!(e.model.faces.len(), n - 1, "the one Undo takes back the rectangle, the last thing that happened");
+}
+
+#[test]
+fn openings_at_wall_ends_fit_where_both_faces_are() {
+    for kind in ["window", "door"] {
+        let h = if kind == "door" { 2.1 } else { 1.2 };
+        // the outside face of a closed wall at its corner: it runs on past the inside face, so the opening moves in
+        let mut e = Engine::new();
+        let g = ok(&mut e, json!({"cmd": "wall", "points": [[0, 0, 0], [6.5, 0, 0], [6.5, 9.5, 0], [0, 9.5, 0]], "closed": true, "thickness": 0.3}))["group"].as_u64().unwrap();
+        let f = side(&e, g, [-1., 0.]);
+        assert!(cut(&mut e, json!({"cmd": "opening", "kind": kind, "host": f, "at": [0, 0.2, 1.2], "width": 1.0, "height": h, "sill": 0.9})), "outside corner {kind}");
+        // the free end of a straight wall: both faces end together, so it may go right to the end (a notch)
+        let mut e = Engine::new();
+        let g = ok(&mut e, json!({"cmd": "wall", "points": [[0, 0, 0], [5, 0, 0]]}))["group"].as_u64().unwrap();
+        let f = side(&e, g, [0., -1.]);
+        assert!(cut(&mut e, json!({"cmd": "opening", "kind": kind, "host": f, "at": [0.1, 0, 1.2], "width": 1.0, "height": h, "sill": 0.9})), "free end {kind}");
+        let left = e.model.instances.values().map(|i| i.transform.w_axis.x).fold(f64::MAX, f64::min);
+        assert!(left.abs() < 1e-6, "{kind} at the free end starts at {left}");
+    }
+}
+
+#[test]
+fn a_stray_open_face_does_not_switch_the_check_off_for_a_loose_solid() {
+    // the slab is loose (no group), and so is a rectangle elsewhere: the loose geometry as a whole was never closed,
+    // so before 0.3.12 a cut that opened the slab said ok
+    let mut e = Engine::new();
+    ok(&mut e, json!({"cmd": "rect", "from": [20, 20, 0], "to": [22, 22, 0]}));
+    slab(&mut e, &[[0., 0., 0.], [8., 0., 0.], [8., 8., 0.], [0., 8., 0.]], 2.0);
+    let at = |e: &Engine, x: f64, y: f64| *e.model.faces.keys().filter(|&&k| e.model.normal(k).z > 0.99 && (e.model.center(k).z - 2.0).abs() < 1e-6).find(|&&k| { let p = e.model.center(k); (p.x - x).abs() < 1e-6 && (p.y - y).abs() < 1e-6 }).unwrap();
+    for [x0, y0, x1, y1, d] in [[2., 6., 7., 7., -2.], [4., 5., 6., 6., -0.5], [2., 2., 7., 6., -2.]] {
+        ok(&mut e, json!({"cmd": "rect", "from": [x0, y0, 2.0], "to": [x1, y1, 2.0]}));
+        let f = at(&e, (x0 + x1) / 2.0, (y0 + y1) / 2.0);
+        let (faces, edges) = (e.model.faces.len(), e.model.edges.len());
+        let r = run(&mut e, json!({"cmd": "pushpull", "face": f, "distance": d}));
+        if r["ok"] != true {
+            assert!(r["error"].as_str().unwrap().contains("gap"), "{r}");
+            assert_eq!((e.model.faces.len(), e.model.edges.len()), (faces, edges), "refused but not put back");
+            return;
+        }
+        // a cut that worked left the slab closed (the stray rectangle's 4 open edges are its own)
+        assert_eq!(bad_edges(&e), 4, "said ok over a gap in the slab: {r}");
+    }
+    panic!("the third cut is one the safety net refuses on a grouped slab; if it is cut cleanly now, pick another refused order");
 }

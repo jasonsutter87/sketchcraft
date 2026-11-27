@@ -12,7 +12,7 @@ use crate::geom;
 use anyhow::{anyhow, bail, Result};
 use glam::DVec3;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 pub type Id = u32;
 pub const WELD: f64 = 1e-6;
@@ -1344,6 +1344,52 @@ impl Model {
     }
 
     /// As `open_edges_by_group`, or with `strict` every edge not used by exactly two faces (non-manifold too).
+    /// The model's pieces: faces of one group joined through shared points, each with its points and whether every
+    /// edge of it is used by two faces (`strict`: exactly two; otherwise an even number, as `edge_faults_by_group`).
+    fn solid_pieces(&self, strict: bool) -> Vec<Piece> {
+        let ids: Vec<Id> = self.faces.keys().copied().collect();
+        let mut parent: Vec<usize> = (0..ids.len()).collect();
+        fn root(p: &mut [usize], mut i: usize) -> usize {
+            while p[i] != i {
+                p[i] = p[p[i]];
+                i = p[i];
+            }
+            i
+        }
+        // faces sharing a point (in the same group) are one piece
+        let mut first: HashMap<(Option<Id>, Id), usize> = HashMap::new();
+        for (i, k) in ids.iter().enumerate() {
+            let f = &self.faces[k];
+            for &v in f.loops().flatten() {
+                match first.get(&(f.group, v)) {
+                    Some(&j) => {
+                        let (a, b) = (root(&mut parent, i), root(&mut parent, j));
+                        parent[a] = b;
+                    }
+                    None => {
+                        first.insert((f.group, v), i);
+                    }
+                }
+            }
+        }
+        let mut by_root: HashMap<usize, (Option<Id>, HashSet<Id>, HashMap<(Id, Id), u32>)> = HashMap::new();
+        for (i, k) in ids.iter().enumerate() {
+            let f = &self.faces[k];
+            let r = root(&mut parent, i);
+            let e = by_root.entry(r).or_insert_with(|| (f.group, HashSet::new(), HashMap::new()));
+            for l in f.loops() {
+                e.1.extend(l.iter().copied());
+                for (a, b) in pairs(l) {
+                    *e.2.entry((a.min(b), a.max(b))).or_default() += 1;
+                }
+            }
+        }
+        by_root
+            .into_values()
+            .map(|(group, points, uses)| Piece { group, points, closed: uses.values().all(|&n| if strict { n == 2 } else { n != 1 }) })
+            .collect()
+    }
+
     fn edge_faults_by_group(&self, strict: bool) -> HashMap<Option<Id>, usize> {
         let mut uses: HashMap<(Option<Id>, Id, Id), u32> = HashMap::new();
         for f in self.faces.values() {
@@ -1376,12 +1422,23 @@ impl Model {
     /// that only reshape a surface (follow me), where an edge shared three or four ways is a fault too.
     pub fn keep_sound<T>(&mut self, strict: bool, change: impl FnOnce(&mut Model) -> Result<T>) -> Result<T> {
         let before = self.edge_faults_by_group(strict);
+        // and piece by piece: a closed solid among loose faces (or in a group with a stray face) is a solid too, and
+        // one open face elsewhere must not switch the check off for it. Its points are what is kept of it.
+        let closed_points: HashSet<Id> = self.solid_pieces(strict).into_iter().filter(|p| p.closed).flat_map(|p| p.points).collect();
         let out = change(self)?;
         let after = self.edge_faults_by_group(strict);
+        let gap = |m: &Model, g: Option<Id>| {
+            let what = g.and_then(|g| m.groups.get(&g)).map(|x| format!("\"{}\"", x.name)).unwrap_or_else(|| "the model".into());
+            anyhow::anyhow!("that would leave a gap in {what}'s surface, so it wasn't done: SketchCraft can't cut this one cleanly yet (try a slightly different size or position, or make the cuts in another order)")
+        };
         for (g, n) in &before {
             if *n == 0 && after.get(g).copied().unwrap_or(0) > 0 {
-                let what = g.and_then(|g| self.groups.get(&g)).map(|x| format!("\"{}\"", x.name)).unwrap_or_else(|| "the model".into());
-                bail!("that would leave a gap in {what}'s surface, so it wasn't done: SketchCraft can't cut this one cleanly yet (try a slightly different size or position, or make the cuts in another order)");
+                return Err(gap(self, *g));
+            }
+        }
+        if !closed_points.is_empty() {
+            if let Some(p) = self.solid_pieces(strict).into_iter().find(|p| !p.closed && p.points.iter().any(|v| closed_points.contains(v))) {
+                return Err(gap(self, p.group));
             }
         }
         Ok(out)
@@ -3868,4 +3925,11 @@ impl Model {
         }
         self.axes
     }
+}
+
+/// One connected piece of a group's faces (see `Model::solid_pieces`).
+struct Piece {
+    group: Option<Id>,
+    points: HashSet<Id>,
+    closed: bool,
 }

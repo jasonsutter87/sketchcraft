@@ -13,6 +13,19 @@ What changed in each SketchCraft release, newest first. The format follows
   puts them back. Its axes move, turn and copy with it, and a component's are shared by all its copies. Agents use
   `set_axes` with an `id`, and `align_axes`. (#266)
 
+### Changed
+- **Clearer messages for models too big to open.** A model whose components multiply past what SketchCraft can draw
+  is refused with the components that make it so, how many copies each has, and what to do. A texture left out of a
+  SketchUp import now says why: missing from the file, too big, damaged, or over the file's picture budget. (#296)
+
+### Fixed
+- **Doors and windows at a wall's corner.** A door or window placed past the end of a wall face, at a corner of a
+  closed wall (inside or outside), used to be refused. It now slides along to where both faces of the wall are, clear
+  of the corner. At the free end of a wall it can still go right to the end.
+- **The solid safety net checks each solid on its own.** A cut that opened an ungrouped solid said ok if there was
+  any open face anywhere else in the loose geometry (a stray rectangle, an imported plan). Each connected solid is now
+  checked by itself, so that cut is refused and the model is put back.
+
 ## [0.3.11] - 2026-11-26
 
 ### Added

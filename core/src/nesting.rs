@@ -33,6 +33,37 @@ impl std::fmt::Display for NestProblem {
     }
 }
 
+/// A component and what its copies add up to (see `Model::heaviest_components`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Heavy {
+    pub name: String,
+    /// how many times it is drawn, counting the copies of everything it sits in
+    pub copies: usize,
+    /// its own edges, faces and placements times `copies`
+    pub total: usize,
+}
+
+/// A count for a sentence: 8,095,909 is "8.1 million", 12,400 is "12,400".
+fn about(n: usize) -> String {
+    if n >= 1_000_000 {
+        format!("{:.1} million", n as f64 / 1e6)
+    } else {
+        thousands(n)
+    }
+}
+
+fn thousands(n: usize) -> String {
+    let d = n.to_string();
+    let mut out = String::new();
+    for (i, ch) in d.chars().enumerate() {
+        if i > 0 && (d.len() - i) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(ch);
+    }
+    out
+}
+
 struct Frame<'a> {
     node: *const Model,
     /// (what the placement names, how many copies it draws)
@@ -120,9 +151,87 @@ impl Model {
     pub fn check_nesting(&self, limit: usize) -> Result<usize, String> {
         let n = self.expanded_count().map_err(|p| p.to_string())?;
         if n > limit {
-            return Err(format!("the components in it add up to about {n} edges and faces once every placement is counted (the limit is {limit}); a component placed many times inside a component placed many times multiplies"));
+            return Err(self.too_big_text(n, limit));
         }
         Ok(n)
+    }
+
+    /// Why a model that expands to `n` (past `limit`) is too big, naming the components that make it so and
+    /// what to do about it (#296: a bare count gave the person nothing to act on).
+    pub fn too_big_text(&self, n: usize, limit: usize) -> String {
+        let mut s = format!("its components add up to about {} edges and faces once every copy is counted, and SketchCraft can draw up to {}", about(n), about(limit));
+        let heavy = self.heaviest_components(3);
+        if !heavy.is_empty() {
+            let parts: Vec<String> = heavy
+                .iter()
+                .map(|h| format!("\"{}\" ({} {}, about {})", h.name, thousands(h.copies), if h.copies == 1 { "copy" } else { "copies" }, about(h.total)))
+                .collect();
+            s += &format!(". Most of it is {}", parts.join(", "));
+        }
+        s += ". To open it, make those components lighter in the program that made it, such as SketchUp (a simpler stand-in, or fewer copies), or save its parts as separate files and open them one at a time";
+        s
+    }
+
+    /// The components that add the most geometry once every copy is drawn, heaviest first (at most `n`):
+    /// a component's copies are its placements multiplied through every component it sits in. Gives nothing
+    /// for a model with a loop (`expanded_count` reports that). One pass over the placements.
+    pub fn heaviest_components(&self, n: usize) -> Vec<Heavy> {
+        // every model reachable from the root, once each, in post-order (children before their parents)
+        let root = self as *const Model;
+        let mut order: Vec<*const Model> = Vec::new();
+        let mut info: HashMap<*const Model, (Vec<(*const Model, usize)>, usize)> = HashMap::new();
+        let mut names: HashMap<*const Model, &str> = HashMap::new();
+        let mut done: HashMap<*const Model, bool> = HashMap::new(); // false: on the path, true: finished
+        let edges = |m: &Model| kids(m, self).into_iter().map(|(k, c, _)| (k as *const Model, c)).collect::<Vec<_>>();
+        info.insert(root, (edges(self), own(self)));
+        done.insert(root, false);
+        let mut stack: Vec<(*const Model, &Model, usize)> = vec![(root, self, 0)];
+        while let Some(&(p, m, next)) = stack.last() {
+            let ks = kids(m, self);
+            if next < ks.len() {
+                stack.last_mut().unwrap().2 += 1;
+                let (km, _, name) = ks[next];
+                let kp = km as *const Model;
+                names.entry(kp).or_insert(name);
+                match done.get(&kp) {
+                    Some(false) => return Vec::new(),
+                    Some(true) => continue,
+                    None => {}
+                }
+                if stack.len() > MAX_NEST {
+                    return Vec::new();
+                }
+                done.insert(kp, false);
+                info.insert(kp, (edges(km), own(km)));
+                stack.push((kp, km, 0));
+            } else {
+                stack.pop();
+                done.insert(p, true);
+                order.push(p);
+            }
+        }
+        // reverse post-order: every parent before its children, so its copies are final when they are handed down
+        let mut copies: HashMap<*const Model, usize> = HashMap::new();
+        copies.insert(root, 1);
+        for &p in order.iter().rev() {
+            let c = copies.get(&p).copied().unwrap_or(0);
+            for &(k, w) in &info[&p].0 {
+                let e = copies.entry(k).or_insert(0);
+                *e = e.saturating_add(c.saturating_mul(w));
+            }
+        }
+        let mut out: Vec<Heavy> = order
+            .iter()
+            .filter(|&&p| p != root)
+            .map(|p| {
+                let c = copies.get(p).copied().unwrap_or(0);
+                Heavy { name: names.get(p).copied().unwrap_or("").to_string(), copies: c, total: c.saturating_mul(info[p].1) }
+            })
+            .filter(|h| h.total > 0)
+            .collect();
+        out.sort_by(|a, b| b.total.cmp(&a.total).then_with(|| a.name.cmp(&b.name)));
+        out.truncate(n);
+        out
     }
 
     /// The ids of every component that `def` uses, at any depth (itself not included unless it is in a loop).
