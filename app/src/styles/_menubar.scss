@@ -146,9 +146,10 @@
   }
 }
 
+/* at 1280px the workspace switch (five workspaces since Arch came in) starts where the eighth menu ended */
 @media (max-width: 1280px) {
   .menubar-item > button {
-    padding: 0 7px;
+    padding: 0 5px;
   }
 }
 
