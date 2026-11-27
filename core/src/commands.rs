@@ -1122,7 +1122,7 @@ impl Engine {
                 let was = if is_open { None } else { before.and_then(|b| b.expanded_count().ok()) };
                 match was {
                     Some(w) if n <= w => None,
-                    _ => Some(anyhow::anyhow!("the components in it would add up to about {n} edges and faces once every placement is counted (the limit is {limit}): a component placed many times inside a component placed many times multiplies. It was not done.")),
+                    _ => Some(anyhow::anyhow!("{}. It was not done, and the model is as it was.", self.model.too_big_text(n, limit))),
                 }
             }
             Ok(_) => None,
