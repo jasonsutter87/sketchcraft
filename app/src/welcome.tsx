@@ -1,5 +1,5 @@
 // The welcome screen: what to start from (a new model in a style and units, a starter, an example), Open file, the
-// models opened or saved lately, and Learn. It shows at launch (unless turned off) and from File › Welcome.
+// models opened or saved lately, and Learn. It shows at launch (unless turned off) and from Help › Welcome.
 import { useState } from "react";
 import { Icons, Logo } from "./icons";
 import { Sheet } from "./sheet";
@@ -138,7 +138,7 @@ export function Welcome({
             />
             <span>Show this when SketchCraft starts</span>
           </label>
-          <p className="muted small">Free, forever. File › Welcome… brings this back.</p>
+          <p className="muted small">Free, forever. Help › Welcome… brings this back.</p>
         </div>
       </nav>
       <div className="welcome-main">
