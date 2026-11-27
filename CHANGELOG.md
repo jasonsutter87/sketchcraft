@@ -6,6 +6,11 @@ What changed in each SketchCraft release, newest first. The format follows
 
 ## [Unreleased]
 
+### Changed
+- **Clearer messages for models too big to open.** A model whose components multiply past what SketchCraft can draw
+  is refused with the components that make it so, how many copies each has, and what to do. A texture left out of a
+  SketchUp import now says why: missing from the file, too big, damaged, or over the file's picture budget. (#296)
+
 ## [0.3.11] - 2026-11-26
 
 ### Added
