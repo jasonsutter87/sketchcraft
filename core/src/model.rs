@@ -231,6 +231,10 @@ pub struct Group {
     /// made by the Wall, Stairs, Roof or Column tool: its settings, to change and rebuild it (see `recipe`)
     #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "crate::recipe::lenient")]
     pub recipe: Option<crate::recipe::Recipe>,
+    /// Its own drawing axes (origin, red, green; blue is red × green), in the same space as its geometry: used
+    /// while it is open for editing, and they move with it. None: it draws on the axes of what it sits in (#266).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub axes: Option<[[f64; 3]; 3]>,
 }
 
 /// A model file written before 0.3.6 holds the absolute path of the library file; keep only its name,
@@ -2306,7 +2310,8 @@ impl Model {
                         r.frame = (glam::DMat4::from_translation(by) * glam::DMat4::from_cols_array(&r.frame)).to_cols_array();
                         r
                     });
-                    self.groups.insert(new, Group { name: name.unwrap_or_else(|| format!("{} copy", g.name)), tag: g.tag.clone(), hidden: false, parent, locked: false, recipe });
+                    let axes = g.axes.map(|[o, x, y]| [(DVec3::from(o) + by).to_array(), x, y]);
+                    self.groups.insert(new, Group { name: name.unwrap_or_else(|| format!("{} copy", g.name)), tag: g.tag.clone(), hidden: false, parent, locked: false, recipe, axes });
                     if let Some(p) = parent {
                         index.kids.entry(p).or_default().push(new);
                     }
@@ -3226,6 +3231,9 @@ impl Model {
                 return bad("the axes");
             }
         }
+        if !self.groups.values().filter_map(|g| g.axes.as_ref()).all(|ax| ax.iter().flatten().all(|&x| sane(x))) {
+            return bad("a group's axes");
+        }
         if !self.cages.values().all(|c| c.points.iter().flatten().all(|&x| sane(x))) {
             return bad("a cage");
         }
@@ -3855,6 +3863,67 @@ mod unit_range {
     }
     pub fn emission<'de, D: Deserializer<'de>>(d: D) -> Result<Option<f32>, D::Error> {
         Ok(Option::<f32>::deserialize(d)?.filter(|x| !x.is_nan()).map(|x| x.clamp(0.0, 100.0)))
+    }
+}
+
+/// Drawing axes from an origin, a red direction and a green one (made square to red), or why not.
+pub fn axes_frame(o: [f64; 3], x: [f64; 3], y: [f64; 3]) -> anyhow::Result<[[f64; 3]; 3]> {
+    let x = glam::DVec3::from(x).normalize_or_zero();
+    let y = glam::DVec3::from(y);
+    let y = (y - x * y.dot(x)).normalize_or_zero();
+    if !finite3(&o) || !x.is_finite() || !y.is_finite() || x == glam::DVec3::ZERO || y == glam::DVec3::ZERO {
+        anyhow::bail!("the red and green directions need to be different");
+    }
+    Ok([o, x.to_array(), y.to_array()])
+}
+
+/// Axes carried by `t` (a move, turn or scale of what they belong to); None if `t` flattens them.
+pub fn axes_through(t: glam::DMat4, [o, x, y]: [[f64; 3]; 3]) -> Option<[[f64; 3]; 3]> {
+    let o = t.transform_point3(glam::DVec3::from(o));
+    axes_frame(o.to_array(), t.transform_vector3(glam::DVec3::from(x)).to_array(), t.transform_vector3(glam::DVec3::from(y)).to_array()).ok()
+}
+
+impl Model {
+    /// Axes lying on face `f`: red along its longest outer edge (from that edge's start), blue out of the face.
+    pub fn face_axes(&self, f: Id) -> anyhow::Result<[[f64; 3]; 3]> {
+        let Some(face) = self.faces.get(&f) else { anyhow::bail!("{f} is not a face") };
+        let pts: Vec<DVec3> = face.outer.iter().filter_map(|v| self.vertices.get(v)).map(|v| v.p).collect();
+        let n = crate::geom::newell(&pts);
+        let mut best: Option<(f64, DVec3, DVec3)> = None;
+        for i in 0..pts.len() {
+            let (a, b) = (pts[i], pts[(i + 1) % pts.len()]);
+            let l = a.distance(b);
+            if best.is_none_or(|(bl, ..)| l > bl + 1e-9) {
+                best = Some((l, a, b));
+            }
+        }
+        let Some((l, a, b)) = best.filter(|(l, ..)| *l > 1e-9) else { anyhow::bail!("face {f} has no edge to line the axes up with") };
+        let _ = l;
+        let x = (b - a).normalize();
+        if n.length_squared() < 1e-18 {
+            anyhow::bail!("face {f} isn't flat enough to line the axes up with");
+        }
+        let y = n.normalize().cross(x);
+        axes_frame(a.to_array(), x.to_array(), y.to_array())
+    }
+
+    /// The drawing axes in force where new geometry goes: the nearest open group (or one it sits in) that has
+    /// its own, else the model's. None: the model's own (the world).
+    pub fn axes_here(&self) -> Option<[[f64; 3]; 3]> {
+        let mut g = self.active_group;
+        let mut steps = 0;
+        while let Some(id) = g {
+            let Some(gr) = self.groups.get(&id) else { break };
+            if gr.axes.is_some() {
+                return gr.axes;
+            }
+            g = gr.parent;
+            steps += 1;
+            if steps > MAX_GROUP_DEPTH {
+                break;
+            }
+        }
+        self.axes
     }
 }
 

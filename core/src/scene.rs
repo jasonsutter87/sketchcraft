@@ -184,12 +184,12 @@ pub fn build(root: &Model, ctx: Option<u32>) -> Value {
     let groups: Vec<Value> = root
         .groups
         .iter()
-        .map(|(id, g)| json!({"id": id, "name": g.name, "tag": g.tag, "hidden": g.hidden, "parent": g.parent, "locked": g.locked, "faces": face_counts.get(id).copied().unwrap_or(0)}))
+        .map(|(id, g)| json!({"id": id, "name": g.name, "tag": g.tag, "hidden": g.hidden, "parent": g.parent, "locked": g.locked, "faces": face_counts.get(id).copied().unwrap_or(0), "ownAxes": g.axes.is_some()}))
         .collect();
     let instances: Vec<Value> = root
         .instances
         .iter()
-        .map(|(id, i)| json!({"id": id, "name": i.name, "component": i.def, "tag": i.tag, "hidden": i.hidden, "parent": i.parent, "transform": i.transform.to_cols_array(), "attrs": i.attrs, "faceMe": root.definitions.get(&i.def).is_some_and(|d| d.face_me)}))
+        .map(|(id, i)| json!({"id": id, "name": i.name, "component": i.def, "tag": i.tag, "hidden": i.hidden, "parent": i.parent, "transform": i.transform.to_cols_array(), "attrs": i.attrs, "faceMe": root.definitions.get(&i.def).is_some_and(|d| d.face_me), "ownAxes": root.definitions.get(&i.def).is_some_and(|d| d.model.axes.is_some())}))
         .collect();
     // placements per component, in the model and inside other components, counted in one pass each
     let mut placed_top: std::collections::HashMap<u32, usize> = std::collections::HashMap::new();
@@ -230,10 +230,11 @@ pub fn build(root: &Model, ctx: Option<u32>) -> Value {
             json!({"id": id, "name": c.name, "count": c.len(), "colored": !c.colors.is_empty(), "hidden": c.hidden, "version": c.version, "lo": lo.to_array(), "hi": hi.to_array()})
         })
         .collect();
+    let model_axes = json!(root.axes);
     let mut out = json!({
         "sections": root.sections,
         "activeSection": root.active_section,
-        "axes": root.axes,
+        "axes": axes_shown(root, ctx),
         "clouds": clouds,
         "positions": q(&positions, 1e-5),
         "colors": q(&colors, 1e-3),
@@ -298,6 +299,7 @@ pub fn build(root: &Model, ctx: Option<u32>) -> Value {
     // (set apart from the big literal above: json! stops expanding past a recursion limit)
     out["triUv"] = json!(if any_own_uv { tri_uv } else { Vec::new() });
     out["seams"] = json!(seams);
+    out["modelAxes"] = model_axes;
     out["ghostEdges"] = json!(q(&ghost_edges(root), 1e-5));
     out["vcolors"] = json!(if any_vcol { q(&vcolors, 1e-3) } else { Vec::new() });
     out["tagStyles"] = json!(root.drafting.tag_styles);
@@ -332,4 +334,14 @@ fn ghost_edges(root: &Model) -> Vec<f32> {
         out.extend([e.a.x as f32, e.a.y as f32, e.a.z as f32, e.b.x as f32, e.b.y as f32, e.b.z as f32]);
     }
     out
+}
+
+/// The drawing axes the person draws on now, in world space (#266): inside a component, its own (or its frame);
+/// inside a group, the nearest one with its own; else the model's. Null: the world's.
+fn axes_shown(root: &Model, ctx: Option<u32>) -> Option<[[f64; 3]; 3]> {
+    let Some((d, def)) = ctx.and_then(|d| root.definitions.get(&d).map(|def| (d, def))) else { return root.axes_here() };
+    // where the component is drawn while it is open (the same placement `build` draws it at)
+    let t = root.instances.values().find(|i| i.def == d).map(|i| i.transform).unwrap_or_default();
+    let local = def.model.axes_here().unwrap_or([[0.0; 3], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]);
+    crate::model::axes_through(t, local).or(root.axes)
 }

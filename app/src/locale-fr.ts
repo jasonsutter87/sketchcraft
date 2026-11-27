@@ -337,6 +337,8 @@ export default {
   "context.group": "Créer un groupe",
   "context.nest": "Les grouper (imbriquer)",
   "context.explode": "Éclater",
+  "context.alignAxes": "Aligner les axes sur cette face",
+  "context.resetAxes": "Réinitialiser les axes",
   "context.hide": "Masquer",
   "context.delete": "Supprimer",
   "context.reverse": "Inverser les faces",

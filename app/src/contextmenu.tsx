@@ -47,6 +47,9 @@ export function contextItems(scene: Scene, sel: Sel, run: Run, setSel: (s: Sel) 
     if (f?.material && scene.materials.find((m) => m.name === f.material)?.texture) items.push({ label: "Texture › Position", labelId: "context.positionTexture", run: () => subd.positionTexture?.() });
   }
   if (one && (sel.groups.length || sel.instances.length)) items.push({ label: `Edit ${sel.groups.length ? "group" : "component"}`, run: () => (run({ cmd: "edit", id: ids[0] }), setSel(EMPTY)) });
+  // its own drawing axes back to the default (#266); a component's are shared by all its copies
+  if (one && !sel.faces.length && (sel.groups.length ? scene.groups.find((g) => g.id === ids[0])?.ownAxes : sel.instances.length && scene.instances.find((i) => i.id === ids[0])?.ownAxes))
+    items.push({ label: "Reset axes", labelId: "context.resetAxes", run: () => run({ cmd: "set_axes", id: ids[0], reset: true }) });
   // groups and components selected go inside the new group as they are (nesting)
   if (sel.faces.length || sel.groups.length || sel.instances.length) {
     items.push({ label: "Make group", labelId: "context.group", run: () => run({ cmd: "group", ids: [...sel.faces, ...sel.groups, ...sel.instances] }).then((r) => r.ok && setSel({ ...EMPTY, groups: [r.group as number] })) });
@@ -83,6 +86,11 @@ export function contextItems(scene: Scene, sel: Sel, run: Run, setSel: (s: Sel) 
   // a picture laid on the selection by planar, box, cylinder or sphere projection
   if (subd?.projectTexture && (sel.faces.length || sel.groups.length || sel.instances.length)) items.push({ label: "Project texture…", labelId: "context.projectTexture", run: () => subd.projectTexture?.() });
   if (sel.faces.length === 1 && !sel.groups.length && !sel.instances.length) items.push({ label: "Orient faces (match this one)", run: () => run({ cmd: "orient_faces", face: sel.faces[0] }) });
+  // the drawing axes on this face (a pitched roof): the open group's or component's, else the model's (#266)
+  if (sel.faces.length === 1 && !sel.groups.length && !sel.instances.length && !sel.edges.length) {
+    const whose = scene.editing != null ? "this component's" : scene.activeGroup != null ? "this group's" : "the model's";
+    items.push({ label: "Align axes to this face", labelId: "context.alignAxes", run: () => run({ cmd: "align_axes", face: sel.faces[0] }).then((r) => r.ok && onToast?.(`Drawing axes on this face (${whose})`)) });
+  }
   // Select ›: what's connected, what shares the paint, what shares the tag
   const pickInto = (r: Reply) => r.ok && setSel({ ...EMPTY, faces: (r.faces as number[]) ?? [], edges: (r.edges as number[]) ?? [], groups: (r.groups as number[]) ?? [], instances: (r.instances as number[]) ?? [] });
   const seed = sel.faces[0] ?? sel.edges[0];

@@ -58,6 +58,14 @@ impl Model {
                 c.detect_symmetry();
             }
         }
+        // a group's own axes go where it goes (#266)
+        for g in &in_moved_groups {
+            if let Some(gr) = self.groups.get_mut(g) {
+                if let Some(ax) = gr.axes {
+                    gr.axes = crate::model::axes_through(t, ax);
+                }
+            }
+        }
         for id in &inst {
             let i = self.instances.get_mut(id).unwrap();
             i.transform = t * i.transform;

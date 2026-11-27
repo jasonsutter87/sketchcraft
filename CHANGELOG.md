@@ -6,6 +6,13 @@ What changed in each SketchCraft release, newest first. The format follows
 
 ## [Unreleased]
 
+### Added
+- **Axes on groups and components.** A group or component keeps its own drawing axes. Open it and the Axes tool
+  moves its axes, not the model's; drawing, inference and the axis lines use them until you close it. Right-click a
+  face and pick **Align axes to this face** to draw straight onto a sloped roof. **Reset axes** on a group or component
+  puts them back. Its axes move, turn and copy with it, and a component's are shared by all its copies. Agents use
+  `set_axes` with an `id`, and `align_axes`. (#266)
+
 ### Changed
 - **Clearer messages for models too big to open.** A model whose components multiply past what SketchCraft can draw
   is refused with the components that make it so, how many copies each has, and what to do. A texture left out of a

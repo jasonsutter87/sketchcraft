@@ -1047,8 +1047,11 @@ pub enum Command {
     /// No section cut (the planes stay, ready to switch back on).
     SectionOff,
     /// Move the drawing axes (the Axes tool): origin, red direction, green
-    /// direction (made square to red). `reset`: back to the model's own.
+    /// direction (made square to red). `reset`: back to the default. Whose axes: `id` (a group or a component
+    /// placement), else the group or component open for editing, else the model's.
     SetAxes {
+        #[serde(default)]
+        id: Option<Id>,
         #[serde(default)]
         origin: Option<[f64; 3]>,
         #[serde(default)]
@@ -1057,6 +1060,13 @@ pub enum Command {
         y: Option<[f64; 3]>,
         #[serde(default)]
         reset: bool,
+    },
+    /// Line the drawing axes up with a face: red along its longest outer edge, blue out of it. Whose axes:
+    /// as `set_axes`.
+    AlignAxes {
+        face: Id,
+        #[serde(default)]
+        id: Option<Id>,
     },
     /// A finish on faces (or everything in groups): each keeps its color or
     /// image, as a material "<its material> (<label>)" with these values.

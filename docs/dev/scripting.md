@@ -50,7 +50,7 @@ townhouse, a row of houses, a retail center and the asset lineup.
 | Library | `insert` (door, window, garage_door, tree, palm, car, streetlight, bench, hydrant, person, beaver; the texturing test set dice, can, globe, crate, soccer_ball; scale figures walker, shopper, jogger, child, dog_walker, stroller, wheelchair, cyclist, car_flat, suv_flat), `assets`, `wall`, `stairs`, `roof`, `column`, `library`, `save_to_library` |
 | Paint | `paint` (a color or material), `material` (color, texture, roughness, metalness, glass, emission), `texture`, `opacity`, `finish` |
 | Visibility | `hide`, `unhide`, `tag`, `tag_visible`, `tag_color`, `rename_tag`, `soften`, `weld`, `explode_curve` |
-| Notes and views | `dimension`, `text`, `guide`, `clear_guides`, `save_view`, `show_view`, `delete_view`, `section`, `section_plane`, `section_off`, `set_axes` |
+| Notes and views | `dimension`, `text`, `guide`, `clear_guides`, `save_view`, `show_view`, `delete_view`, `section`, `section_plane`, `section_off`, `set_axes`, `align_axes` |
 | Terrain and site | `terrain_from_contours`, `terrain_grid`, `smoove`, `stamp`, `drape`, `flip_edge`, `add_location`, `environment`, `sun` |
 | Photos and scans | `match_photo`, `photo_solve`, `project_photo`, `import_cloud`, `cloud`, `cloud_data` |
 | Inspect | `info`, `faces`, `pick`, `parts`, `parts_layout`, `volume`, `report`, `classify`, `units` |
