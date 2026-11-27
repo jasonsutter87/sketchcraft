@@ -71,10 +71,11 @@ What changed in each SketchCraft release, newest first. The format follows
   Camera menus too. (#226)
 
 ### Fixed
-- **Cuts never leave a solid open without saying so.** A push/pull, a door or window, an opening edit or a rebuilt
-  wall that would open a gap in a closed solid is now refused with a message, and the model stays as it was, instead
-  of replying that all is well over a broken surface. Drawing a shape on a face that earlier cuts had shaped no longer
-  opens a seam along one of those cuts.
+- **Cuts never leave a solid open without saying so.** A push/pull, a door or window (from the tools or placed from
+  the library into a wall), an opening edit, a rebuilt wall, an offset or a Follow Me that would open a gap in a
+  closed solid is now refused with a message, and the model stays as it was, instead of replying that all is well
+  over a broken surface. Drawing or cutting a shape on a face that earlier lines or cuts had shaped no longer opens a
+  seam along one of them, and an offset inside a group stays in that group.
 - **Doors and windows keep a wall a closed solid.** A third door at the foot of a wall, or any door in a closed wall, no longer leaves the wall open or with a zero-area face; and a door or window moved, copied or arrayed on top of another no longer corrupts the wall when it is rebuilt (the overlapping one is left out and the reply says so).
 - **The Room tool snaps to the rooms already there.** Its corners go onto a room's corners (where its walls meet) or
   line up with them, and otherwise onto the grid; the hint says which. A room drawn in the gap between two rooms

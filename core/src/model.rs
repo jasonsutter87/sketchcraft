@@ -1248,6 +1248,9 @@ impl Model {
                 self.insert_face(piece);
             }
         }
+        // the boolean re-traces the whole outline, so a corner in line anywhere along it (where a neighbouring face
+        // still has one) can be gone: put those back over the whole face, not only near the cut
+        self.mend_t_junctions(&fp, parent.group)?;
         Ok(())
     }
 
@@ -1333,6 +1336,11 @@ impl Model {
     /// edge, a gap in the surface. A closed solid has none (an edge shared by more faces is not a gap: two cuts
     /// meeting at a corner, or a face left inside the solid when a tapered top is pushed).
     pub fn open_edges_by_group(&self) -> HashMap<Option<Id>, usize> {
+        self.edge_faults_by_group(false)
+    }
+
+    /// As `open_edges_by_group`, or with `strict` every edge not used by exactly two faces (non-manifold too).
+    fn edge_faults_by_group(&self, strict: bool) -> HashMap<Option<Id>, usize> {
         let mut uses: HashMap<(Option<Id>, Id, Id), u32> = HashMap::new();
         for f in self.faces.values() {
             for l in f.loops() {
@@ -1346,7 +1354,7 @@ impl Model {
             out.entry(f.group).or_default();
         }
         for ((g, _, _), n) in uses {
-            if n == 1 {
+            if n == 1 || (strict && n != 2) {
                 *out.entry(g).or_default() += 1;
             }
         }
@@ -1357,9 +1365,15 @@ impl Model {
     /// that was a closed solid before is not one after: the geometry has cases it can't cut cleanly yet, and a
     /// refusal (the engine puts the model back) is better than a model with a gap in it that says nothing is wrong.
     pub fn keep_closed<T>(&mut self, change: impl FnOnce(&mut Model) -> Result<T>) -> Result<T> {
-        let before = self.open_edges_by_group();
+        self.keep_sound(false, change)
+    }
+
+    /// As `keep_closed`, and (`strict`) a solid whose every edge joined exactly two faces must stay so: for changes
+    /// that only reshape a surface (offset, follow me), where an edge shared three or four ways is a fault too.
+    pub fn keep_sound<T>(&mut self, strict: bool, change: impl FnOnce(&mut Model) -> Result<T>) -> Result<T> {
+        let before = self.edge_faults_by_group(strict);
         let out = change(self)?;
-        let after = self.open_edges_by_group();
+        let after = self.edge_faults_by_group(strict);
         for (g, n) in &before {
             if *n == 0 && after.get(g).copied().unwrap_or(0) > 0 {
                 let what = g.and_then(|g| self.groups.get(&g)).map(|x| format!("\"{}\"", x.name)).unwrap_or_else(|| "the model".into());
