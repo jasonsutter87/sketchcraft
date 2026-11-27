@@ -7,6 +7,7 @@ import type { Reply, Scene } from "./engine";
 import { exec, inTauri, onMobileApp } from "./engine";
 import { confirm } from "./ask";
 import { isModelPath, pickOpen, pickSave } from "./files";
+import { addRecent, forgetRecent } from "./recent";
 import { parseReport, readReportWhen, reportHeadline, shouldShow, type NamedReport } from "./importreport";
 import type { Sel } from "./selection";
 import { EMPTY } from "./selection";
@@ -233,6 +234,7 @@ export function useFileActions({ run, say, refresh, api, scene, figure, currentF
         const r = await run({ cmd: "open", path });
         if (!r.ok) return;
         setCurrentFile(path);
+        addRecent(path);
         api.current?.fitSoon();
         await refresh();
       } else {
@@ -252,6 +254,7 @@ export function useFileActions({ run, say, refresh, api, scene, figure, currentF
       const r = await run({ cmd: "save", path });
       if (r.ok) {
         setCurrentFile(path);
+        addRecent(path);
         say(`Saved ${path.split("/").pop()}`);
       }
     },
@@ -332,5 +335,22 @@ export function useFileActions({ run, say, refresh, api, scene, figure, currentF
       if (r.ok) say(`Rendered ${path.split("/").pop()}`);
     },
   };
-  return { file, importFile, importPath, runTemplate, openExample };
+  /** Open a model by its path (a recent file): one that can't be opened any more comes off the list. */
+  const openPath = async (path: string): Promise<boolean> => {
+    if (!isModelPath(path)) return false;
+    stopWatching();
+    const r = await run({ cmd: "open", path });
+    if (!r.ok) {
+      forgetRecent(path);
+      return false;
+    }
+    setCurrentFile(path);
+    addRecent(path);
+    setSel(EMPTY);
+    api.current?.fitSoon();
+    await refresh();
+    return true;
+  };
+
+  return { file, importFile, importPath, runTemplate, openExample, openPath };
 }

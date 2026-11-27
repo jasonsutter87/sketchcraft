@@ -2,6 +2,7 @@
 export default {
   "menu.file": "文件",
   "menu.new": "新建",
+  "menu.welcome": "欢迎…",
   "menu.open": "打开…",
   "menu.save": "保存",
   "menu.saveAs": "另存为…",
