@@ -39,11 +39,11 @@ impl Engine {
                 if kind != "door" && kind != "window" {
                     bail!("kind is door or window");
                 }
-                m.place_opening(&kind, host, v3(at), width, height, sill)?
+                m.keep_closed(|m| m.place_opening(&kind, host, v3(at), width, height, sill))?
             }
             Command::OpeningInfo { instance } => m.opening_info(instance)?,
-            Command::OpeningEdit { instance, width, height, sill } => m.edit_opening(instance, width, height, sill)?,
-            Command::Rebuild { group, set, force } => m.rebuild_part(group, &set, force)?,
+            Command::OpeningEdit { instance, width, height, sill } => m.keep_closed(|m| m.edit_opening(instance, width, height, sill))?,
+            Command::Rebuild { group, set, force } => m.keep_closed(|m| m.rebuild_part(group, &set, force))?,
             Command::RoomInfo { name } => m.room_info(&name)?,
             Command::FloorplanBuild { plan } => {
                 let plan = crate::floorplan::parse(&Value::Object(plan))?;

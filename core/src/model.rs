@@ -1060,6 +1060,12 @@ impl Model {
         }
 
         let cutting = split.is_some() && hole_in.is_none();
+        // re-tracing the split face can drop a corner in line anywhere along its outline (where a cut's wall meets
+        // it), not only next to the new shape: the repair below looks over the whole face
+        let parent_pts: Vec<DVec3> = match split {
+            Some((pid, _)) if cutting => self.pts(&self.faces[&pid].outer),
+            _ => vec![],
+        };
         let mut inner_holes: Vec<Vec<Id>> = Vec::new();
         if let Some((pid, fnorm)) = hole_in.or(split) {
             if fnorm.dot(n) < 0.0 {
@@ -1095,7 +1101,7 @@ impl Model {
             // ground-like faces face up
             lp.reverse();
         }
-        let around: Vec<DVec3> = if cutting { self.pts(&lp) } else { vec![] };
+        let around: Vec<DVec3> = if cutting { self.pts(&lp).into_iter().chain(parent_pts).collect() } else { vec![] };
         let face = Face { outer: lp, holes: inner_holes, group, ..Default::default() };
         let id = match look {
             Some(look) if !cutting => self.insert_face_with(face, look),
@@ -1319,6 +1325,48 @@ impl Model {
         let g = self.active_group;
         let lp: Vec<Id> = points.iter().map(|p| self.vertex_with(*p, g, &mut look)).collect::<Result<_>>()?;
         self.add_face_with(lp, Some(&mut look))
+    }
+
+    // ----- keeping solids closed -------------------------------------------------
+
+    /// For each group (None: loose geometry) with faces: how many of its edges only one of its faces uses: an open
+    /// edge, a gap in the surface. A closed solid has none (an edge shared by more faces is not a gap: two cuts
+    /// meeting at a corner, or a face left inside the solid when a tapered top is pushed).
+    pub fn open_edges_by_group(&self) -> HashMap<Option<Id>, usize> {
+        let mut uses: HashMap<(Option<Id>, Id, Id), u32> = HashMap::new();
+        for f in self.faces.values() {
+            for l in f.loops() {
+                for (a, b) in pairs(l) {
+                    *uses.entry((f.group, a.min(b), a.max(b))).or_default() += 1;
+                }
+            }
+        }
+        let mut out: HashMap<Option<Id>, usize> = HashMap::new();
+        for f in self.faces.values() {
+            out.entry(f.group).or_default();
+        }
+        for ((g, _, _), n) in uses {
+            if n == 1 {
+                *out.entry(g).or_default() += 1;
+            }
+        }
+        out
+    }
+
+    /// Run a change that cuts into solids (push/pull, a door or a window, a rebuilt part), and refuse it if a group
+    /// that was a closed solid before is not one after: the geometry has cases it can't cut cleanly yet, and a
+    /// refusal (the engine puts the model back) is better than a model with a gap in it that says nothing is wrong.
+    pub fn keep_closed<T>(&mut self, change: impl FnOnce(&mut Model) -> Result<T>) -> Result<T> {
+        let before = self.open_edges_by_group();
+        let out = change(self)?;
+        let after = self.open_edges_by_group();
+        for (g, n) in &before {
+            if *n == 0 && after.get(g).copied().unwrap_or(0) > 0 {
+                let what = g.and_then(|g| self.groups.get(&g)).map(|x| format!("\"{}\"", x.name)).unwrap_or_else(|| "the model".into());
+                bail!("that would leave a gap in {what}'s surface, so it wasn't done: SketchCraft can't cut this one cleanly yet (try a slightly different size or position, or make the cuts in another order)");
+            }
+        }
+        Ok(out)
     }
 
     // ----- push / pull ----------------------------------------------------------

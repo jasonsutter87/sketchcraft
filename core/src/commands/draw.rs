@@ -114,7 +114,7 @@ impl Engine {
                     Some(t) if m.normal(face).dot(v3(t)) < 0.0 => -distance,
                     _ => distance,
                 };
-                let ids = m.pushpull(face, distance)?;
+                let ids = m.keep_closed(|m| m.pushpull(face, distance))?;
                 json!({"face": ids[0], "created": &ids[1..]})
             }
             Command::Move { ids, by } => json!({"moved": m.translate(&ids, v3(by))?}),
