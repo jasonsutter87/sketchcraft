@@ -93,7 +93,8 @@ impl Engine {
                 v["unchanged"] = json!(r.changes() == 0);
                 v
             }
-            Command::Offset { face, distance } => json!({"face": m.keep_sound(true, |m| m.offset(face, distance))?}),
+            // not under the net: an outward offset on a solid makes a ledge around the face, open at its rim by design
+            Command::Offset { face, distance } => json!({"face": m.offset(face, distance)?}),
             Command::FollowMe { face, points, edges, around } => {
                 let (path, closed) = if let Some(p) = points {
                     let pts: Vec<DVec3> = p.into_iter().map(v3).collect();
