@@ -68,6 +68,9 @@ What changed in each SketchCraft release, newest first. The format follows
   Camera menus too. (#226)
 
 ### Fixed
+- **The Room tool snaps to the rooms already there.** Its corners go onto a room's corners (where its walls meet) or
+  line up with them, and otherwise onto the grid; the hint says which. A room drawn in the gap between two rooms
+  shares both their walls instead of building a second wall beside each.
 - **Ambient occlusion no longer blanks the view.** With Ambient occlusion on (the Architectural style), the model view
   could come up empty, with no model, grid or sky, after the view was set up again (a layout change; always in the dev
   build): the shading was drawn into the old view's canvas.
