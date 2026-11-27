@@ -4314,7 +4314,7 @@ export default function Viewport(props: Props) {
       }
       if (e.key === "Escape") {
         if (st.current.op) cancel();
-        else if (live.current.tool === "place") live.current.setTool("select");
+        else if (live.current.tool === "place" || live.current.tool === "door" || live.current.tool === "window") live.current.setTool("select");
         else if (live.current.scene?.editing != null || live.current.scene?.activeGroup != null) live.current.run({ cmd: "close" });
         else live.current.setSel(EMPTY);
         return;
