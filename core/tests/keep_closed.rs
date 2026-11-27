@@ -210,3 +210,17 @@ fn an_outward_offset_on_a_solid_makes_its_ledge() {
     let r = run(&mut e, json!({"cmd": "offset", "face": t, "distance": -0.2}));
     assert_eq!(r["ok"], true, "{r}");
 }
+
+#[test]
+fn a_batch_whose_cut_was_refused_leaves_no_undo_step() {
+    let mut e = Engine::new();
+    let g = ok(&mut e, json!({"cmd": "wall", "points": [[0, 0, 0], [6.5, 0, 0], [6.5, 9.5, 0], [0, 9.5, 0]], "closed": true, "thickness": 0.3}))["group"].as_u64().unwrap();
+    let f = *e.model.faces.iter().filter(|(&k, fc)| fc.group == Some(g as u32) && e.model.normal(k).x > 0.99 && e.model.center(k).x < 1.0).max_by(|a, b| e.model.face_area(*a.0).total_cmp(&e.model.face_area(*b.0))).unwrap().0;
+    ok(&mut e, json!({"cmd": "rect", "from": [20, 20, 0], "to": [22, 22, 0]}));
+    let n = e.model.faces.len();
+    ok(&mut e, json!({"cmd": "begin_batch"}));
+    assert_eq!(run(&mut e, json!({"cmd": "opening", "kind": "window", "host": f, "at": [0.15, 0.6, 1.2], "width": 1.0, "height": 1.2, "sill": 0.9}))["ok"], false);
+    ok(&mut e, json!({"cmd": "end_batch"}));
+    ok(&mut e, json!({"cmd": "undo"}));
+    assert_eq!(e.model.faces.len(), n - 1, "the one Undo takes back the rectangle, the last thing that happened");
+}

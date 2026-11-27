@@ -71,6 +71,9 @@ What changed in each SketchCraft release, newest first. The format follows
   Camera menus too. (#226)
 
 ### Fixed
+- **Undo after a refused change.** When a tool's change was refused, the next Undo did nothing and every Undo after
+  it landed one step later than expected. A refused change is no longer an undo step. The Room tool's windows also
+  stay under the top of the wall.
 - **Cuts never leave a solid open without saying so.** A push/pull, a door or window (from the tools or placed from
   the library into a wall), an opening edit, a rebuilt wall or a Follow Me that would open a gap in a
   closed solid is now refused with a message, and the model stays as it was, instead of replying that all is well
