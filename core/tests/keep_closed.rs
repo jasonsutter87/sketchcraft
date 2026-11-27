@@ -148,3 +148,56 @@ fn random_cut_triples_never_say_ok_over_a_gap() {
     eprintln!("random triples: {done} cuts made, {refused} refused");
     assert!(done > 500 && refused * 20 < done, "cuts made {done}, refused {refused}");
 }
+
+#[test]
+fn n01_a_library_door_placed_into_a_turned_wall() {
+    for deg in (5..360).step_by(15) {
+        let (c, s) = ((deg as f64).to_radians().cos(), (deg as f64).to_radians().sin());
+        let mut e = Engine::new();
+        let g = ok(&mut e, json!({"cmd": "wall", "points": [[0, 0, 0], [10.0 * c, 10.0 * s, 0]]}))["group"].as_u64().unwrap();
+        let f = side(&e, g, [s, -c]);
+        let m = e.model.center(f);
+        let r = run(&mut e, json!({"cmd": "insert", "asset": "door", "at": [m.x, m.y, 0], "rotate": deg, "host": f}));
+        if r["ok"] == true {
+            assert_eq!(bad_edges(&e), 0, "{deg}°: ok over a gap: {r}");
+        } else {
+            assert!(r["error"].as_str().unwrap_or("").contains("gap"), "{deg}° -> {r}");
+            assert_eq!(bad_edges(&e), 0);
+        }
+    }
+}
+
+#[test]
+fn n02_a_line_up_from_the_ground_then_a_cut_at_the_ground() {
+    let mut e = Engine::new();
+    slab(&mut e, &[[0., 0., 0.], [6., 0., 0.], [6., 4., 0.], [0., 4., 0.]], 3.0);
+    ok(&mut e, json!({"cmd": "line", "points": [[1, 0, 0], [1, 0, 3]]}));
+    let f = ok(&mut e, json!({"cmd": "rect", "from": [6, 1, 0], "to": [6, 2.5, 2]}))["face"].clone();
+    assert!(cut(&mut e, json!({"cmd": "pushpull", "face": f, "distance": -0.2})), "an ordinary cut was refused");
+}
+
+#[test]
+fn n03_offset_inside_a_closed_group_from_outside_it() {
+    let mut e = Engine::new();
+    ok(&mut e, json!({"cmd": "begin_group", "name": "Box"}));
+    slab(&mut e, &[[0., 0., 0.], [8., 0., 0.], [8., 6., 0.], [0., 6., 0.]], 3.0);
+    ok(&mut e, json!({"cmd": "end_group"}));
+    let t = top(&e, 3.0);
+    ok(&mut e, json!({"cmd": "offset", "face": t, "distance": 1}));
+    assert_eq!(bad_edges(&e), 0);
+}
+
+#[test]
+fn n04_a_follow_me_groove_never_says_ok_over_a_fault() {
+    let mut e = Engine::new();
+    slab(&mut e, &[[0., 0., 0.], [6., 0., 0.], [6., 4., 0.], [0., 4., 0.]], 3.0);
+    let p = ok(&mut e, json!({"cmd": "polygon", "points": [[0, 0.3, 2.5], [0, 0.3, 3], [0, 0.8, 3], [0, 0.8, 2.5]]}))["face"].clone();
+    let r = run(&mut e, json!({"cmd": "follow_me", "face": p, "points": [[0, 0.5, 3], [6, 0.5, 3]]}));
+    let mut uses = std::collections::HashMap::<(u32, u32), usize>::new();
+    for f in e.model.faces.values() { for l in f.loops() { for i in 0..l.len() { let (a, b) = (l[i], l[(i + 1) % l.len()]); *uses.entry((a.min(b), a.max(b))).or_default() += 1; } } }
+    if r["ok"] == true {
+        assert!(uses.values().all(|&n| n == 2), "ok over a non-manifold result: {r}");
+    } else {
+        assert!(r["error"].as_str().unwrap_or("").contains("gap"), "{r}");
+    }
+}

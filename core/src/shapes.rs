@@ -91,7 +91,11 @@ impl Model {
             })
             .collect();
         if d > 0.0 {
-            return self.add_polygon(&moved);
+            // the inner shape is part of the face's own group, wherever the offset was started from
+            let was = std::mem::replace(&mut self.active_group, f.group);
+            let r = self.add_polygon(&moved);
+            self.active_group = was;
+            return r;
         }
         let mut look = crate::model::Lookup::default();
         let outer: Vec<Id> = moved.iter().map(|p| self.vertex_with(*p, f.group, &mut look)).collect::<Result<_>>()?;

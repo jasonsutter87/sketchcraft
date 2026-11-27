@@ -84,8 +84,10 @@ impl Engine {
                     other => other.to_string(),
                 };
                 let Some(def) = m.find_definition(&key) else { bail!("no component {key}") };
-                let instance = m.place(def, v3(at), rotate, name)?;
-                let opening = place_cut(m, instance, host);
+                let (instance, opening) = m.keep_closed(|m| {
+                    let i = m.place(def, v3(at), rotate, name)?;
+                    Ok((i, place_cut(m, i, host)))
+                })?;
                 json!({"instance": instance, "opening": opening})
             }
             Command::ComponentFaceMe { id, on } => {

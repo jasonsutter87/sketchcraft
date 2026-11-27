@@ -93,7 +93,7 @@ impl Engine {
                 v["unchanged"] = json!(r.changes() == 0);
                 v
             }
-            Command::Offset { face, distance } => json!({"face": m.offset(face, distance)?}),
+            Command::Offset { face, distance } => json!({"face": m.keep_sound(true, |m| m.offset(face, distance))?}),
             Command::FollowMe { face, points, edges, around } => {
                 let (path, closed) = if let Some(p) = points {
                     let pts: Vec<DVec3> = p.into_iter().map(v3).collect();
@@ -106,7 +106,7 @@ impl Engine {
                 } else {
                     bail!("follow_me needs points, edges or around");
                 };
-                let faces = m.follow_me(face, &path, closed)?;
+                let faces = m.keep_sound(true, |m| m.follow_me(face, &path, closed))?;
                 json!({"faces": faces})
             }
             Command::Pushpull { face, distance, toward } => {
