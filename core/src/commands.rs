@@ -660,9 +660,12 @@ impl Engine {
         }
         let who = self.batch_origin.take();
         if let Some((before, rev, _)) = self.batch.take() {
-            if self.revision != rev {
+            // a batch whose commands were all refused (or changed nothing) is no step: Undo would do nothing visible
+            // and every Undo after it would land one step later than the person expects
+            let patch = if self.revision != rev { Some(crate::history::patch_between(&before, &self.model)) } else { None };
+            if let Some(patch) = patch.filter(|p| !p.is_empty()) {
                 // a plugin's run: say how much it changed (the app tells the person)
-                self.last_batch = who.as_ref().map(|w| (w.clone(), crate::history::patch_between(&before, &self.model).things()));
+                self.last_batch = who.as_ref().map(|w| (w.clone(), patch.things()));
                 self.undo.push(Step::Snap(Box::new(before)));
                 self.step_origins.push(who.unwrap_or_else(|| "you".into()));
                 self.redo.clear();

@@ -2686,7 +2686,10 @@ export default function Viewport(props: Props) {
     const w = n.dot(V(f.outer[0]));
     const kind = live.current.build.roomOpening;
     const at = point.clone().addScaledVector(n, w - n.dot(point)); // onto the wall's face
-    at.z = kind === "door" ? base : Math.min(Math.max(point.z, base + 0.6), base + 1.6);
+    // a window (1.5 m tall) must fit under the wall's top: one poking through it would leave a gap in the wall
+    const top = Math.max(...f.outer.map((q) => q[2]));
+    const hi = Math.max(Math.min(base + 1.6, top - 1.6), base + 0.05);
+    at.z = kind === "door" ? base : Math.min(Math.max(point.z, Math.min(base + 0.6, hi)), hi);
     if (kind === "window" && Math.abs(point.z - base) < 0.05) at.z = base + 1.0;
     const rot = THREE.MathUtils.radToDeg(Math.atan2(n.y, n.x)) + 90;
     const r = await run({ cmd: "insert", asset: kind, at: arr(at), rotate: r4(rot), host: plan.face });
