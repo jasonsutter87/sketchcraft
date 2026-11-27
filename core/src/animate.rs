@@ -91,6 +91,7 @@ pub fn animate_cams(m: &Model, path: &str, cams: &[CameraSpec], fps: f64, base: 
     let next = std::sync::atomic::AtomicUsize::new(0);
     let failed = std::sync::Mutex::new(None::<String>);
     let lim = crate::deadline::current();
+    let no_follow = crate::safety::no_follow();
     std::thread::scope(|s| {
         for _ in 0..threads {
             s.spawn(|| {
@@ -101,7 +102,7 @@ pub fn animate_cams(m: &Model, path: &str, cams: &[CameraSpec], fps: f64, base: 
                     }
                     let mut o = base.clone();
                     o.camera = Some(cams[i].clone());
-                    if let Err(e) = render::render(m, &o).save(dir.join(format!("frame_{i:05}.png"))) {
+                    if let Err(e) = { crate::safety::set_no_follow(no_follow); crate::safety::save_image(&render::render(m, &o), dir.join(format!("frame_{i:05}.png"))) } {
                         *failed.lock().unwrap() = Some(e.to_string());
                         break;
                     }

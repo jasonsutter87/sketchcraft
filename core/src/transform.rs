@@ -82,6 +82,8 @@ impl Model {
             self.replace_folded_face(face, triangles);
         }
         self.fold(&vs);
+        // walls, stairs, roofs and columns remember where they now stand
+        self.follow_recipes(&in_moved_groups, t);
         Ok(vs.len() + inst.len())
     }
 

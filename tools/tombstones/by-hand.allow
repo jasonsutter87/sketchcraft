@@ -1,0 +1,27 @@
+# Paths the test runs cannot reach, so "never hit" proves nothing here. A mark that matches a rule goes to the
+# report's "Check by hand" section and is never turned into a deprecation.
+#
+# One rule per line:   <path glob>[::<symbol glob>]   # why
+# Globs are relative to the repo root; ** crosses folders, * does not. Tune this list as the report teaches you.
+
+# Old file formats: only a person with an old file reaches them
+core/src/skp.rs                  # legacy SketchUp readers (era-specific paths, only the corpus covers some)
+core/src/skp_vff.rs              # SketchUp 2013+ reader: odd versions only show up in users' files
+core/src/dwg.rs                  # DWG versions
+core/src/dxf.rs                  # DXF dialects
+core/src/fbx.rs                  # FBX importer variants
+core/src/ifcin.rs                # IFC import needs IfcOpenShell, absent in CI
+core/src/format.rs               # model file migrations from older versions
+
+# Native-only and mobile: the browser suites run the web build against the bridge
+app/src/engine.ts::*             # chooses between Tauri (native) and the browser bridge
+app/src/files.ts::*              # native file dialogs and save paths
+app/src/updater.tsx              # the updater only runs in the packaged app
+app/src/touch.ts                 # touch and Android gestures
+app/src/**/*android*             # Android-only code
+app/src/**/*mobile*              # phone layout code
+
+# Rare menus and dialogs a person opens once
+app/src/learn.tsx                # lessons: depend on the person's progress
+app/src/contributors*            # About box credits
+core/src/mcp.rs::*               # the MCP server runs under an AI agent, not under the test runs

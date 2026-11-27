@@ -14,6 +14,22 @@ use glam::{DMat4, DVec2, DVec3};
 use crate::geom;
 use crate::model::{Id, Model};
 
+/// Does the segment a-b lie along one of the edges of the closed outline `rim` (within 0.1 mm)?
+fn along_rim(a: DVec3, b: DVec3, rim: &[DVec3]) -> bool {
+    let on = |p: DVec3, s: DVec3, e: DVec3| {
+        let d = e - s;
+        let len2 = d.length_squared();
+        if len2 < 1e-18 {
+            return false;
+        }
+        let t = (p - s).dot(d) / len2;
+        (-1e-6..=1.0 + 1e-6).contains(&t) && (s + d * t).distance(p) < 1e-4
+    };
+    // both ends and the middle on the outline (it may carry extra corners along the foot)
+    let near = |p: DVec3| (0..rim.len()).any(|k| on(p, rim[k], rim[(k + 1) % rim.len()]));
+    near(a) && near(b) && near((a + b) * 0.5)
+}
+
 /// The back outline of a component's geometry, in its own coordinates.
 pub fn back_outline(def: &Model) -> Option<Vec<DVec3>> {
     let mut best: Option<(f64, Vec<DVec3>)> = None;
@@ -95,6 +111,20 @@ pub(crate) fn cut_on_plane(m: &mut Model, outline: &[DVec3], n: DVec3, group: Op
 /// `host`; through the wall when the face behind is near and parallel.
 /// Returns how many faces were opened (1, or 2 through a thick wall).
 pub fn cut(m: &mut Model, def: &Model, transform: DMat4, host: Id) -> Result<usize> {
+    // a door or window in a remembered wall is part of it, not a hand edit: the wall can still be rebuilt (#263)
+    let group = m.faces.get(&host).and_then(|f| f.group);
+    let fresh = group.and_then(|g| m.groups.get(&g)?.recipe.as_ref().map(|r| (g, glam::DMat4::from_cols_array(&r.frame), r.print))).filter(|&(g, frame, print)| m.part_print(g, frame) == print);
+    let r = cut_into(m, def, transform, host);
+    if let (Ok(_), Some((g, frame, _))) = (&r, fresh) {
+        let print = m.part_print(g, frame);
+        if let Some(r) = m.groups.get_mut(&g).and_then(|g| g.recipe.as_mut()) {
+            r.print = print;
+        }
+    }
+    r
+}
+
+fn cut_into(m: &mut Model, def: &Model, transform: DMat4, host: Id) -> Result<usize> {
     let Some(local) = back_outline(def) else { bail!("this component has no flat back to cut an opening with") };
     let f = m.faces.get(&host).cloned().ok_or_else(|| anyhow::anyhow!("no face {host}"))?;
     let n = m.normal(host);
@@ -107,8 +137,21 @@ pub fn cut(m: &mut Model, def: &Model, transform: DMat4, host: Id) -> Result<usi
     for p in &mut outline {
         *p -= n * (p.dot(n) - w);
     }
+    // the wall face's own outline, before the cut: an opening edge lying along it (a door's foot) gets no reveal
+    let rim = m.pts(&f.outer);
     let group = f.group;
-    let mut opened = cut_on_plane(m, &outline, n, group)?;
+    // an opening whose foot is on the wall's own foot (a door) is cut out of the faces as a region (holes and other
+    // doors on the face don't matter); drawing its lines instead lets the line tool close loops through the
+    // outlines left by earlier doors, or through the hole of a closed wall's bottom
+    let foot = (0..outline.len()).any(|i| along_rim(outline[i], outline[(i + 1) % outline.len()], &rim));
+    let cut_region = |m: &mut Model, poly: &[DVec3]| -> Result<usize> {
+        let keep = m.active_group;
+        m.active_group = group;
+        let r = m.remove_footprint(poly);
+        m.active_group = keep;
+        r
+    };
+    let mut opened = if foot { cut_region(m, &outline)? } else { cut_on_plane(m, &outline, n, group)? };
     if opened == 0 {
         bail!("the opening doesn't fit on that face");
     }
@@ -134,13 +177,26 @@ pub fn cut(m: &mut Model, def: &Model, transform: DMat4, host: Id) -> Result<usi
         .fold(None, |a: Option<f64>, d| Some(a.map_or(d, |a| a.min(d))));
     if let Some(d) = behind {
         let back: Vec<DVec3> = outline.iter().map(|p| *p - n * d).collect();
-        opened += cut_on_plane(m, &back, -n, group)?;
+        opened += if foot { cut_region(m, &back)? } else { cut_on_plane(m, &back, -n, group)? };
         // reveals: a side face for each edge of the opening, facing into it
         let keep = m.active_group;
         m.active_group = group;
+        let mut feet: Vec<[DVec3; 2]> = Vec::new();
         for i in 0..outline.len() {
             let j = (i + 1) % outline.len();
             let quad = [outline[i], outline[j], back[j], back[i]];
+            // along the wall's own edge (a door's foot on the floor) there is no side to fill: the quad lies on the
+            // wall's bottom face, so drawing it splits that face, and the piece across the doorway goes (kept as a
+            // reveal it lay across the opening and left the wall with open edges)
+            if along_rim(outline[i], outline[j], &rim) {
+                if let Err(e) = m.remove_footprint(&quad) {
+                    m.active_group = keep;
+                    return Err(e);
+                }
+                feet.push([outline[i], outline[j]]);
+                feet.push([back[i], back[j]]);
+                continue;
+            }
             if let Ok(id) = m.add_polygon(&quad) {
                 let mid = (quad[0] + quad[1] + quad[2] + quad[3]) / 4.0;
                 if m.normal(id).dot(c - n * (d / 2.0) - mid) < 0.0 {
@@ -150,7 +206,13 @@ pub fn cut(m: &mut Model, def: &Model, transform: DMat4, host: Id) -> Result<usi
                 }
             }
         }
+        // the doorway's foot has no face on either side now; edges left behind along it would let a later cut close
+        // a loop through them (a face with the doorway filled in)
+        for [p, q] in feet {
+            m.drop_loose_edges_along(p, q);
+        }
         m.active_group = keep;
     }
     Ok(opened)
 }
+

@@ -53,11 +53,16 @@ the commands it could not match. Details are in [Keyboard shortcuts](09-shortcut
 ## Importing your old models
 
 **File › Open…** and **File › Import…** (⌘I) read `.skp` files from SketchUp 6 to 8 and from 2013 onward, which covers
-files saved by SketchUp Make 2017. You get the geometry, groups, components and colors, and textures from 2021 and later files (in files from 2017 to 2020 textures currently come in as colors, see the changelog)
+files saved by SketchUp Make 2017. You get the geometry, groups, components, colors and textures (the pictures, at the size SketchUp gives them)
 ([Files](05-files.md#opening-other-formats)). Also:
 
 - **Dimensions** (linear ones) come in as dimensions attached to what they measure. Radial dimensions, free text labels
   with leaders and annotations in 2021 and later files are left out; the import result says how many.
+- **The import report.** When an import finishes, a **SketchUp import report** opens: what came across (faces,
+  components, materials and how many pictures, dimensions) and anything that did not, each with the reason: a picture
+  that could not be read, text labels, dimensions that could not be placed, SketchUp tags. Close it with Esc or
+  **Close**, and tick **Only show this when something was left out** to see it less. Scenes, styles and extension data
+  in a `.skp` file are not imported.
 - **Guide lines** and **section planes** are read so the file opens, but they are not placed in the model.
 - Files you save are `.sketchcraft` files. SketchCraft exports glTF, FBX, OBJ, STL, 3MF, Collada, DXF, DWG, IFC, PDF,
   PNG and MP4, but does not write `.skp`, so keep your originals if you also still use SketchUp.
@@ -93,5 +98,7 @@ The full list is in [SketchUp Ruby scripts in SketchCraft](../dev/sketchup-ruby.
 - **AI agents.** Every action is also a command an AI agent can run ([AI agents over MCP](../dev/mcp.md)).
 
 For everything that SketchUp has and SketchCraft does not yet, read [SketchUp feature parity](../PARITY.md).
+
+Which SketchUp extensions run is in [SketchUp extensions: what runs](12-ruby-extensions.md).
 
 Next: [Troubleshooting](10-troubleshooting.md)

@@ -15,6 +15,8 @@ const BUILD_TOOLS: { id: Tool; name: string; how: string }[] = [
   { id: "stairs", name: "Stairs", how: "Click where the bottom step starts, then the direction it climbs." },
   { id: "roof", name: "Roof", how: "Click a flat top face: the top of your walls or a ceiling you drew." },
   { id: "column", name: "Column", how: "Click to drop a column." },
+  { id: "door", name: "Door", how: "Click the side of a wall: a door on the floor, cut through the wall." },
+  { id: "window", name: "Window", how: "Click the side of a wall: a window at its sill height, cut through the wall." },
 ];
 
 /** Room mode's panel: what a click on a wall adds, walls down, and the rooms by name (rename here). */
@@ -71,7 +73,6 @@ export function BuildTools({ tool, setTool, build, setBuild, units, scene, run }
   const name = (b: (typeof BUILD_TOOLS)[number]) => (b.id === "wallpull" ? t("build.wallpull") : b.id === "room" ? t("build.room") : b.name);
   const how = (b: (typeof BUILD_TOOLS)[number]) => (b.id === "wallpull" ? t("build.wallpull.how") : b.id === "room" ? t("build.room.how") : b.how);
   const active = BUILD_TOOLS.find((b) => b.id === tool);
-  const set = (k: keyof BuildSettings) => (v: unknown) => setBuild({ ...build, [k]: v });
   return (
     <>
       <div className="tiles build">
@@ -82,68 +83,94 @@ export function BuildTools({ tool, setTool, build, setBuild, units, scene, run }
           </button>
         ))}
       </div>
-      {active && (
-        <div className="build-options">
-          <p>{how(active)}</p>
-          {tool === "room" && (
-            <>
-              <LengthInput label="Thickness" value={build.wallThickness} units={units} onChange={set("wallThickness")} />
-              <LengthInput label="Height" value={build.wallHeight} units={units} onChange={set("wallHeight")} />
-              <RoomOptions build={build} set={set} units={units} scene={scene} run={run} />
-            </>
-          )}
-          {tool === "wall" && (
-            <>
-              <LengthInput label="Thickness" value={build.wallThickness} units={units} onChange={set("wallThickness")} />
-              <LengthInput label="Height" value={build.wallHeight} units={units} onChange={set("wallHeight")} />
-            </>
-          )}
-          {tool === "stairs" && (
-            <>
-              <LengthInput label="Total rise" value={build.stairRise} units={units} onChange={set("stairRise")} />
-              <LengthInput label="Width" value={build.stairWidth} units={units} onChange={set("stairWidth")} />
-            </>
-          )}
-          {tool === "roof" && (
-            <>
-              <label className="field">
-                <span>Type</span>
-                <select value={build.roofKind} onChange={(e) => set("roofKind")(e.target.value)}>
-                  <option value="gable">Gable</option>
-                  <option value="hip">Hip</option>
-                  <option value="shed">Shed</option>
-                </select>
-              </label>
-              <label className="field">
-                <span>Pitch</span>
-                <input
-                  defaultValue={`${build.roofPitch}°`}
-                  title="Degrees, or rise/run like 6/12"
-                  onBlur={(e) => {
-                    const t = e.target.value.trim();
-                    const ratio = /^(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)$/.exec(t);
-                    const deg = ratio ? (Math.atan(Number(ratio[1]) / Number(ratio[2])) * 180) / Math.PI : parseFloat(t);
-                    if (deg > 0 && deg < 80) set("roofPitch")(Math.round(deg * 10) / 10);
-                    e.target.value = `${build.roofPitch}°`;
-                  }}
-                />
-              </label>
-              <LengthInput label="Overhang" value={build.roofOverhang} units={units} onChange={set("roofOverhang")} />
-            </>
-          )}
-          {tool === "column" && (
-            <>
-              <LengthInput label="Size" value={build.columnSize} units={units} onChange={set("columnSize")} />
-              <LengthInput label="Height" value={build.columnHeight} units={units} onChange={set("columnHeight")} />
-              <label className="field check">
-                <input type="checkbox" checked={build.columnRound} onChange={(e) => set("columnRound")(e.target.checked)} />
-                <span>Round</span>
-              </label>
-            </>
-          )}
-        </div>
-      )}
+      {active && <BuildOptions tool={tool} build={build} setBuild={setBuild} units={units} scene={scene} run={run} />}
     </>
+  );
+}
+
+/** The tools that have settings to show while they're in use (#263: they were easy to miss, below the library). */
+export const SETTINGS_TOOLS: ReadonlySet<Tool> = new Set<Tool>(["room", "wall", "stairs", "roof", "column", "door", "window"]);
+
+/** A build tool's settings. `compact`: just the inputs, for the card over the view while the tool is in use. */
+export function BuildOptions({ tool, build, setBuild, units, scene, run, compact = false }: { tool: Tool; build: BuildSettings; setBuild: (b: BuildSettings) => void; units: string; scene: Scene | null; run: Run; compact?: boolean }) {
+  const { t } = useLocale();
+  const how = (b: (typeof BUILD_TOOLS)[number]) => (b.id === "wallpull" ? t("build.wallpull.how") : b.id === "room" ? t("build.room.how") : b.how);
+  const active = BUILD_TOOLS.find((b) => b.id === tool);
+  const set = (k: keyof BuildSettings) => (v: unknown) => setBuild({ ...build, [k]: v });
+  if (!active) return null;
+  return (
+    <div className="build-options">
+      {!compact && <p>{how(active)}</p>}
+      {tool === "room" && (
+        <>
+          <LengthInput label="Thickness" value={build.wallThickness} units={units} onChange={set("wallThickness")} />
+          <LengthInput label="Height" value={build.wallHeight} units={units} onChange={set("wallHeight")} />
+          {!compact && <RoomOptions build={build} set={set} units={units} scene={scene} run={run} />}
+        </>
+      )}
+      {tool === "wall" && (
+        <>
+          <LengthInput label="Thickness" value={build.wallThickness} units={units} onChange={set("wallThickness")} />
+          <LengthInput label="Height" value={build.wallHeight} units={units} onChange={set("wallHeight")} />
+        </>
+      )}
+      {tool === "stairs" && (
+        <>
+          <LengthInput label="Total rise" value={build.stairRise} units={units} onChange={set("stairRise")} />
+          <LengthInput label="Width" value={build.stairWidth} units={units} onChange={set("stairWidth")} />
+        </>
+      )}
+      {tool === "roof" && (
+        <>
+          <label className="field">
+            <span>Type</span>
+            <select value={build.roofKind} onChange={(e) => set("roofKind")(e.target.value)}>
+              <option value="gable">Gable</option>
+              <option value="hip">Hip</option>
+              <option value="shed">Shed</option>
+            </select>
+          </label>
+          <label className="field">
+            <span>Pitch</span>
+            <input
+              defaultValue={`${build.roofPitch}°`}
+              title="Degrees, or rise/run like 6/12"
+              onBlur={(e) => {
+                const t = e.target.value.trim();
+                const ratio = /^(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)$/.exec(t);
+                const deg = ratio ? (Math.atan(Number(ratio[1]) / Number(ratio[2])) * 180) / Math.PI : parseFloat(t);
+                if (deg > 0 && deg < 80) set("roofPitch")(Math.round(deg * 10) / 10);
+                e.target.value = `${build.roofPitch}°`;
+              }}
+            />
+          </label>
+          <LengthInput label="Overhang" value={build.roofOverhang} units={units} onChange={set("roofOverhang")} />
+        </>
+      )}
+      {tool === "door" && (
+        <>
+          <LengthInput label="Width" value={build.doorWidth} units={units} onChange={set("doorWidth")} />
+          <LengthInput label="Height" value={build.doorHeight} units={units} onChange={set("doorHeight")} />
+        </>
+      )}
+      {tool === "window" && (
+        <>
+          <LengthInput label="Width" value={build.windowWidth} units={units} onChange={set("windowWidth")} />
+          <LengthInput label="Height" value={build.windowHeight} units={units} onChange={set("windowHeight")} />
+          <LengthInput label="Sill height" value={build.windowSill} units={units} onChange={set("windowSill")} />
+        </>
+      )}
+      {tool === "column" && (
+        <>
+          <LengthInput label="Size" value={build.columnSize} units={units} onChange={set("columnSize")} />
+          <LengthInput label="Height" value={build.columnHeight} units={units} onChange={set("columnHeight")} />
+          <label className="field check">
+            <input type="checkbox" checked={build.columnRound} onChange={(e) => set("columnRound")(e.target.checked)} />
+            <span>Round</span>
+          </label>
+        </>
+      )}
+    </div>
   );
 }
 

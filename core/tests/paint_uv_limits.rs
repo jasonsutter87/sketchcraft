@@ -485,6 +485,30 @@ fn materials_whose_names_tidy_to_the_same_file_keep_their_own_pictures() {
     std::fs::remove_dir_all(&d).ok();
 }
 
+/// #222: Blender showed an exported OBJ's textures as missing. With a space in the name, `mtllib My House.mtl`
+/// reads as two files; the material file and the textures folder are named without spaces.
+#[test]
+fn an_obj_named_with_spaces_points_at_its_materials_and_pictures() {
+    let mut e = Engine::new();
+    let f = rect(&mut e, 0.0, 0.0);
+    let data = Canvas::filled(4, 4, [200, 100, 40]).to_data_url().unwrap();
+    run(&mut e, json!({"cmd": "texture", "name": "Old Brick", "data": data, "width": 1, "height": 1}));
+    run(&mut e, json!({"cmd": "paint", "ids": [f], "material": "Old Brick"}));
+    let d = scratch("obj-spaces");
+    run(&mut e, json!({"cmd": "export_obj", "path": d.join("My House.obj")}));
+    let obj = std::fs::read_to_string(d.join("My House.obj")).unwrap();
+    assert!(obj.lines().any(|l| l == "mtllib My_House.mtl"), "{obj}");
+    let mtl = std::fs::read_to_string(d.join("My_House.mtl")).unwrap();
+    let map = mtl.lines().find_map(|l| l.strip_prefix("map_Kd ")).expect("a textured material");
+    assert!(!map.contains(' '), "{map}");
+    assert!(d.join(map).is_file(), "{map} is written beside the OBJ");
+    // every usemtl names a material the .mtl defines
+    for u in obj.lines().filter_map(|l| l.strip_prefix("usemtl ")) {
+        assert!(mtl.lines().any(|l| l.strip_prefix("newmtl ") == Some(u)), "{u} isn't in the .mtl");
+    }
+    std::fs::remove_dir_all(&d).ok();
+}
+
 // ---- taking turns for batches ------------------------------------------------------------------------------------
 
 #[test]

@@ -115,6 +115,8 @@ export interface SavedView {
   fov: number;
   /** Match Photo: the photo behind this view (data URL) */
   photo?: string;
+  /** shows only these and hides the rest, even what is drawn later (#229) */
+  only?: number[];
 }
 
 export type Annotation =
@@ -219,6 +221,8 @@ export interface Scene {
   /** the distinct pens: width in paper mm, dash pattern in paper mm, rgb */
   edgeStyles?: { w: number; dash: number[]; color: [number, number, number] }[];
   softEdges: number[];
+  /** segments of what is hidden (empty when nothing is), for View > Hidden Geometry */
+  ghostEdges?: number[];
   groups: GroupInfo[];
   instances: InstanceInfo[];
   figures?: Figure[];

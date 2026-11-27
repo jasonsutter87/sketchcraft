@@ -179,7 +179,7 @@ const tool = async (id) => {
   const btn = p.locator(`nav.toolbar button[aria-label="${name}"]`);
   if (!(await btn.count())) {
     await p.locator('nav.toolbar button.more').click();
-    await p.locator('.more-tools button[role=option]', { hasText: name.split(':')[0].split(' (')[0] }).first().click();
+    await p.locator('.more-tools button[role=option]', { hasText: new RegExp('^\\s*' + name.split(':')[0].split(' (')[0].replace(/\W/g, '\\$&')) }).first().click();
   } else await btn.first().click();
   await wait(150);
 };
@@ -972,6 +972,81 @@ await scenario('column', ['column'], async () => {
   check(s.faces.length >= 5 && near((Math.min(...xs) + Math.max(...xs)) / 2, 3, 0.2), `Column: a click drops one there (${s.faces.length} faces around x 3)`);
   check(Math.max(...s.faces.map((f) => bbox(f).z1)) > 1, 'and it stands up');
 });
+
+
+// Door and Window (#264): hover a wall's side and click; the card over the view sets the size. A wall is drawn by command
+// (a closed 6 m room, axis-aligned, where openings succeed) and looked at from the south so the click lands on a side.
+for (const kind of ['door', 'window']) {
+  await scenario(kind, [kind], async () => {
+    const Kind = kind === 'door' ? 'Door' : 'Window';
+    await fresh((X) => X({ cmd: 'wall', points: [[-3, -3, 0], [3, -3, 0], [3, 3, 0], [-3, 3, 0]], closed: true, thickness: 0.2, height: 2.7 }), { view: 'none' });
+    // from the south, level with the wall, so its outer side faces the camera
+    await camera([0, -14, 1.5], [0, -3.1, 1.3]);
+    await wait(300);
+    const solidOf = async () => (await X({ cmd: 'check_solid' })).solid;
+    check((await solidOf()) === true, `${Kind}: the wall starts as a closed solid`);
+    const f0 = (await scene()).faces.length;
+    const inst0 = (await scene()).instances.length;
+    await tool(kind);
+    check((await activeTool()) === INFO[kind].name, `the ${Kind} button turns the tool on`);
+    // the card over the view: the size fields
+    const card = p.locator('.build-options').first();
+    check(await card.isVisible().catch(() => false), `${Kind}: the card over the view shows the size`);
+    // hovering the wall shows the size it would be
+    await move([0, -3.1, 1.2]);
+    const label = await p.locator('.measure label').first().innerText().catch(() => '');
+    check(new RegExp(Kind, 'i').test(label), `hovering a wall's side reads "${label}"`);
+    await click([0, -3.1, 1.2]);
+    let s = await until((s) => s.faces.length > f0 || s.instances.length > inst0, 4000);
+    check(s.faces.length > f0 || s.instances.length > inst0, `a click on the wall's side places a ${kind} (${f0} -> ${s.faces.length} faces, ${s.instances.length} placed)`);
+    check((await solidOf()) === true, `the wall is still a closed solid with the ${kind} cut through`);
+    // the reveal faces (the opening's sides, top and sill) are the new, narrow faces through the wall
+    const reveals = (s, x0, x1) => s.faces.filter((f) => { const b = bbox(f); return b.y1 - b.y0 > 0.15 && b.y1 - b.y0 < 0.25 && b.y0 < -2.8 && b.x0 > x0 && b.x1 < x1 && b.z1 < 2.6; });
+    const reveal = reveals(s, -2.5, 2.5);
+    check(reveal.length >= 3, `the wall has the opening's sides cut through it (${reveal.length} reveal faces)`);
+    const foot = Math.min(...reveal.map((f) => bbox(f).z0));
+    check(kind === 'door' ? near(foot, 0, 0.02) : near(foot, 0.9, 0.05), `${kind === 'door' ? 'the door stands on the floor' : 'the window sits at its 0.9 m sill'} (opening foot ${foot.toFixed(2)} m)`);
+    const widthOf = (r) => (r.length ? Math.max(...r.map((f) => bbox(f).x1)) - Math.min(...r.map((f) => bbox(f).x0)) : 0);
+    const w0 = kind === 'door' ? 0.9 : 1.2;
+    check(near(widthOf(reveal), w0, 0.05), `the opening is the card's width (${widthOf(reveal).toFixed(2)} m, wanted ${w0})`);
+    await key('Control+z');
+    s = await until((s) => s.faces.length === f0 && s.instances.length === inst0, 4000);
+    check(s.faces.length === f0 && s.instances.length === inst0, `one Undo takes the ${kind} away`);
+    // the card's width changes the next opening
+    const wid = card.locator('label.field', { hasText: /^Width/ }).locator('input');
+    await wid.click();
+    await wid.fill('1.6');
+    await wid.press('Enter');
+    await wait(200);
+    await click([0, -3.1, 1.2]);
+    s = await until((s) => s.faces.length > f0 || s.instances.length > inst0, 4000);
+    const width2 = widthOf(reveals(s, -2.5, 2.5));
+    check(near(width2, 1.6, 0.06), `a width of 1.6 in the card makes the next ${kind} 1.6 m wide (${width2.toFixed(2)} m)`);
+    check((await solidOf()) === true, 'and the wall is still a closed solid');
+    await key('Control+z');
+    await until((s) => s.faces.length === f0, 4000);
+    // clicking off the wall: nothing is built and the model stays solid
+    await click([8, -8, 0]);
+    await wait(300);
+    const s2 = await scene();
+    check(s2.faces.length === f0 && s2.instances.length === inst0, `a click off the wall changes nothing (${s2.faces.length} faces)`);
+    check((await solidOf()) === true, 'and the model is still a closed solid');
+    // an opening wider than the wall is refused with a reason, and changes nothing
+    await wid.click();
+    await wid.fill('9');
+    await wid.press('Enter');
+    await wait(200);
+    await move([0, -3.1, 1.2]);
+    const why = await p.locator('.measure label').first().innerText().catch(() => '');
+    check(/wider|fit|wall/i.test(why), `hovering with a too-wide opening says why: "${why}"`);
+    await click([0, -3.1, 1.2]);
+    await wait(500);
+    check((await scene()).faces.length === f0, 'and a click there builds nothing');
+    await key('Escape');
+    await wait(200);
+    check((await activeTool()) !== INFO[kind].name, `Esc leaves the ${Kind} tool (now ${await activeTool()})`);
+  });
+}
 
 // =====================================================================================================================
 // section, terrain

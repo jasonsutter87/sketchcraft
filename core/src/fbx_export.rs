@@ -358,7 +358,7 @@ pub fn write_fbx(m: &Model, path: &str, binary: bool) -> Result<FbxStats> {
                         if let Ok((ext, data)) = crate::texmap::bytes(t) {
                             let name = tex_files.name(mname, ext);
                             let dir = pth.with_file_name(&tex_dir);
-                            if std::fs::create_dir_all(&dir).is_ok() && std::fs::write(dir.join(&name), data).is_ok() {
+                            if std::fs::create_dir_all(&dir).is_ok() && crate::safety::write_output(dir.join(&name), data).is_ok() {
                                 tex_written.insert(mname.to_string(), name.clone());
                                 file = Some(name);
                             }
@@ -586,7 +586,7 @@ pub fn write_fbx(m: &Model, path: &str, binary: bool) -> Result<FbxStats> {
         n("Connections", vec![], conns),
     ];
     let bytes = if binary { to_binary(&top) } else { to_ascii(&top) };
-    std::fs::write(pth, bytes)?;
+    crate::safety::write_output(pth, bytes)?;
     Ok(FbxStats { meshes, triangles })
 }
 

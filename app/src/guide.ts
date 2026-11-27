@@ -143,13 +143,17 @@ export function guide(tool: Tool, c: GuideCtx, language: Language = "en"): Guide
     case "place":
       return g("Place", `Click to drop ${c.placing ? c.placing.replace(/^file:.*\//, "").replace(/^component:\d+$/, "a copy").replace(/\.\w+$/, "").replace(/_/g, " ") : "it"}. On a wall, doors and windows face out of it.`, [["Esc", "done placing"]]);
     case "wall":
-      return busy ? g("Wall", "Click the next corner. Click the first point to close a room.", [["Double-click / Enter", "finish"], TYPE, LOCK, ESC]) : g("Wall", "Click where the wall starts. Thickness and height are in the Library tab.", []);
+      return busy ? g("Wall", "Click the next corner. Click the first point to close a room.", [["Double-click / Enter", "finish"], TYPE, LOCK, ESC]) : g("Wall", "Click where the wall starts. Thickness and height are in the card over the view.", []);
     case "stairs":
       return busy ? g("Stairs", "Click the direction the stairs climb.", [ESC]) : g("Stairs", "Click where the bottom step starts.", []);
     case "roof":
       return g("Roof", "Click a flat top face, like the top of your walls.", []);
     case "column":
       return g("Column", "Click to drop a column.", []);
+    case "door":
+      return g("Door", "Click the side of a wall: a door on the floor, cut through the wall. Its width and height are in the card over the view.", []);
+    case "window":
+      return g("Window", "Click the side of a wall: a window at its sill height, cut through the wall. Its size and sill are in the card over the view.", []);
     case "smoove":
       return g("Smoove", "Click the terrain to raise it there.", [["⇧ click", "dig instead"]]);
     case "stamp":

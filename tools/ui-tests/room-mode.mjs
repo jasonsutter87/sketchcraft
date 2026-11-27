@@ -307,6 +307,38 @@ await key('Control+z');
 s = await until((st) => rooms(st).length === 0);
 check(rooms(s).length === 0 && s.faces.length === 0, 'and one more removes the first');
 
+// ---- a room in the gap between two rooms: the pointer snaps to their corners, and both walls are shared -------------
+// (one wall between each pair, like the rungs of a ladder, not a second wall beside each: stacked boxes)
+await X({ cmd: 'new' });
+await X({ cmd: 'room_rect', from: [0, 0, 0], to: [4, 3, 0] });
+await X({ cmd: 'room_rect', from: [8, 0, 0], to: [12, 3, 0] });
+await p.reload();
+await p.waitForSelector('.viewport canvas');
+await wait(900);
+await tool('room');
+await wait(400);
+// a few pixels off the first room's corner (the room list arrives as the tool starts)
+const [cx, cy] = await px([4, 0, 0]);
+await p.mouse.move(cx + 7, cy + 5, { steps: 3 });
+await wait(200);
+const snapLabel = await p.locator('.snap-label').innerText({ timeout: 800 }).catch(() => '');
+// the hint sits on the corner itself (the canvas's own pixels; the snap mark is placed in them)
+const mark = await p.locator('.snap').evaluate((el) => {
+  const r = el.getBoundingClientRect();
+  return [r.left + r.width / 2, r.top + r.height / 2];
+}).catch(() => [NaN, NaN]);
+const off = Math.hypot(mark[0] - cx, mark[1] - cy);
+check(snapLabel === 'Corner' && off < 1.5, `near a room's corner the pointer snaps onto it (${snapLabel || 'no snap'}, ${off.toFixed(1)} px off)`);
+const [ex, ey] = await px([8, 3, 0]);
+await p.mouse.down();
+await p.mouse.move((cx + ex) / 2, (cy + ey) / 2, { steps: 6 });
+await p.mouse.move(ex - 6, ey + 7, { steps: 6 });
+await wait(200);
+await p.mouse.up();
+s = await until((st) => rooms(st).length === 3);
+check(rooms(s).length === 3, `the room in the gap is made (${rooms(s).length} rooms)`);
+check(wallSidesAt(s, 4.0) === 2 && wallSidesAt(s, 8.0) === 2, `it shares both walls: one wall each side, no doubles (${wallSidesAt(s, 4.0)} and ${wallSidesAt(s, 8.0)} wall faces at x 4 and 8)`);
+
 check(problems.length === 0, `no page errors ${problems.slice(0, 3).join(' | ').slice(0, 300)}`);
 await b.close();
 console.log(failed ? `${failed} check(s) failed, ${passed} passed` : `all ${passed} checks passed`);

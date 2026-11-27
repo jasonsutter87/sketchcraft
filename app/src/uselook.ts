@@ -1,5 +1,6 @@
 // Skin, layout and workspace customizations, remembered between launches.
 import { useEffect, useState } from "react";
+import { loadTrayOn, loadTrayOpen, saveTrayOn } from "./tray";
 import { applySkin, readSkin, SKINS, store, type Skin } from "./skins";
 import { cleanEdits, toolAfterSwitch, WORKSPACES, withEdits, type Layout, type LeftTab, type WorkspaceEdits, type WorkspaceId } from "./workspace";
 import type { Styles, Tool } from "./Viewport";
@@ -44,12 +45,20 @@ export function useLook({ tool, chooseTool, setStyles, setTab }: {
     if (useBackdrop) setStyles((st) => ({ ...st, background: s.backdrop ?? "default" }));
     // picked from the gallery: it brings its layout (Classic docks, ours float)
     if (useBackdrop && s.layout) setLayout(s.layout);
+    // ...and whether it comes with the Classic tray
+    if (useBackdrop && s.tray !== undefined) setTray(s.tray);
   };
+  const [tray, setTrayState] = useState(loadTrayOn);
+  const setTray = (on: boolean) => {
+    setTrayState(on);
+    saveTrayOn(on);
+  };
+  const [trayOpen, setTrayOpen] = useState(loadTrayOpen);
   const [wsId, setWsId] = useState<WorkspaceId>(() => (WORKSPACES.some((w) => w.id === store.get("sketchcraft.workspace")) ? (store.get("sketchcraft.workspace") as WorkspaceId) : "model"));
   const [wsEdits, setWsEdits] = useState(rememberedEdits);
   const [layout, setLayoutState] = useState<Layout>(() => {
     const v = store.get("sketchcraft.layout");
-    return v === "classic" || v === "floating" || v === "side" ? v : (rememberedSkin().layout ?? "classic");
+    return v === "classic" || v === "floating" || v === "side" || v === "web" || v === "desktop" ? v : (rememberedSkin().layout ?? "classic");
   });
   const setLayout = (l: Layout) => {
     setLayoutState(l);
@@ -80,5 +89,5 @@ export function useLook({ tool, chooseTool, setStyles, setTab }: {
     const next = toolAfterSwitch(w, tool);
     if (next !== tool) chooseTool(next);
   };
-  return { skin, setSkinState, wearSkin, wsId, setWsId, wsEdits, setWsEdits, layout, setLayoutState, setLayout, ws, editWs, switchWs };
+  return { skin, setSkinState, wearSkin, wsId, setWsId, wsEdits, setWsEdits, layout, setLayoutState, setLayout, ws, editWs, switchWs, tray, setTray, trayOpen, setTrayOpen };
 }

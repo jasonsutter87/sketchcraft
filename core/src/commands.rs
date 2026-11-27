@@ -183,6 +183,8 @@ impl Command {
                 | Command::ExportPdf { .. }
                 | Command::Assets
                 | Command::WallInfo { .. }
+                | Command::PartInfo { .. }
+                | Command::OpeningInfo { .. }
                 | Command::RoomPreview { .. }
                 | Command::Rooms
                 | Command::TextureUv { .. }
@@ -464,6 +466,8 @@ impl Engine {
             return json!({"ok": false, "error": e});
         }
         self.untrusted = !matches!(caller, Caller::Ui) || self.nested_untrusted;
+        // for this command only (put back as it was when the command returns or unwinds)
+        let _no_follow = crate::safety::NoFollow::set(self.untrusted);
         if let Err(e) = self.resolve(&mut v) {
             crate::policy::settle(caller, false);
             return json!({"ok": false, "error": e.to_string()});
@@ -656,9 +660,12 @@ impl Engine {
         }
         let who = self.batch_origin.take();
         if let Some((before, rev, _)) = self.batch.take() {
-            if self.revision != rev {
+            // a batch whose commands were all refused (or changed nothing) is no step: Undo would do nothing visible
+            // and every Undo after it would land one step later than the person expects
+            let patch = if self.revision != rev { Some(crate::history::patch_between(&before, &self.model)) } else { None };
+            if let Some(patch) = patch.filter(|p| !p.is_empty()) {
                 // a plugin's run: say how much it changed (the app tells the person)
-                self.last_batch = who.as_ref().map(|w| (w.clone(), crate::history::patch_between(&before, &self.model).things()));
+                self.last_batch = who.as_ref().map(|w| (w.clone(), patch.things()));
                 self.undo.push(Step::Snap(Box::new(before)));
                 self.step_origins.push(who.unwrap_or_else(|| "you".into()));
                 self.redo.clear();
@@ -1244,7 +1251,8 @@ impl Engine {
                 Command::TerrainGrid { .. } | Command::Smoove { .. } | Command::Stamp { .. } |
                 Command::Drape { .. } | Command::Wall { .. } | Command::Stairs { .. } | Command::FloorplanBuild { .. } | Command::RoomInfo { .. } | Command::Roof { .. } |
                 Command::Column { .. } | Command::Insert { .. } | Command::Assets { .. } |
-                Command::WallPull { .. } | Command::WallInfo { .. } |
+                Command::WallPull { .. } | Command::WallInfo { .. } | Command::PartInfo { .. } | Command::Rebuild { .. } |
+                Command::Opening { .. } | Command::OpeningInfo { .. } | Command::OpeningEdit { .. } |
                 Command::RoomRect { .. } | Command::RoomPreview { .. } | Command::Rooms
             ) => self.run_build(c),
             c @ (

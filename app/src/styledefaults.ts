@@ -25,7 +25,7 @@ export const STYLE_PRESETS: StylePreset[] = [
 export const STYLE_KEY = "sketchcraft.style";
 
 const FACES = ["textured", "shaded", "monochrome", "hiddenline", "wireframe", "physical"];
-const BACKGROUNDS = ["sky", "default", "paper", "blueprint", "night"];
+const BACKGROUNDS = ["sky", "daylight", "default", "grey", "paper", "blueprint", "night"];
 const FLAGS = ["profiles", "sketchy", "extensions", "ao", "edges", "lineWeights"] as const;
 
 /** The look a user chose, read back from storage text: only known, well-formed keys survive. */

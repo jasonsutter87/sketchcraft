@@ -40,6 +40,8 @@ export function Toolbar({
   children,
   extra = [],
   iconStyle = "default",
+  oneColumn = false,
+  reserve = 0,
 }: {
   groups: string[][];
   tool: string;
@@ -52,6 +54,10 @@ export function Toolbar({
   /** plugin buttons, in their own group at the end */
   extra?: ExtraButton[];
   iconStyle?: ToolIconStyle;
+  /** docked down the left in a single column (the Web layout): what doesn't fit the height goes under ⋯ */
+  oneColumn?: boolean;
+  /** px at the bar's right end that something else uses (the Desktop layout's buttons) */
+  reserve?: number;
 }) {
   const { language } = useLocale();
   const info = (id: string) => toolInfo(id, language);
@@ -71,18 +77,18 @@ export function Toolbar({
     setRoom(Infinity);
     setTall(Infinity);
     if (!host) return;
-    const measure = () => (vertical ? setTall(host.clientHeight) : setRoom(host.clientWidth));
+    const measure = () => (vertical ? setTall(host.clientHeight) : setRoom(host.clientWidth - reserve));
     const ro = new ResizeObserver(measure);
     ro.observe(host);
     measure();
     return () => ro.disconnect();
-  }, [vertical]);
+  }, [vertical, reserve]);
 
   // docked down the left: one column of tools when they fit the height, else two side by side
   // (like Photoshop's double-column tool bar), more on a very short window. The bar is a grid per
   // group, so it is exactly as wide as its columns and every button sits on its background.
   const cols = useMemo(() => {
-    if (!vertical || !Number.isFinite(tall)) return 1;
+    if (!vertical || oneColumn || !Number.isFinite(tall)) return 1;
     const btn = nav.current?.querySelector<HTMLElement>(".tool:not(.more)");
     const per = (btn?.offsetHeight ?? 34) + 1;
     const groupPad = 9;
@@ -92,7 +98,7 @@ export function Toolbar({
       if (need <= tall) return c;
     }
     return 4;
-  }, [vertical, tall, groups]);
+  }, [vertical, oneColumn, tall, groups]);
   // the view bar and the quick-action strip keep clear of however wide that makes the bar
   useLayoutEffect(() => {
     const host = nav.current?.parentElement;
@@ -104,14 +110,18 @@ export function Toolbar({
   // which tools fit: sizes measured from the bar itself, so skins can differ
   const { shown, hidden } = useMemo(() => {
     const all = groups.flat();
-    if (!Number.isFinite(room)) return { shown: groups, hidden: [] as string[] };
+    // one column down the left measures the height it has; the bar along the bottom, its width
+    const single = vertical && oneColumn;
+    const space = single ? tall : room;
+    if (!Number.isFinite(space)) return { shown: groups, hidden: [] as string[] };
     const el = nav.current;
     const btn = el?.querySelector<HTMLElement>(".tool:not(.more)");
-    const per = (btn?.offsetWidth ?? 34) + 1;
-    const groupPad = 9;
-    const chrome = 14 + 44 + 32; // bar padding, color chip, margins either side
-    const moreW = 64;
-    let left = room - chrome;
+    const per = single ? (btn?.offsetHeight ?? 40) : (btn?.offsetWidth ?? 34) + 1;
+    const groupPad = single ? 6 : 9;
+    // bar padding, color chip, margins either side (one column: the chip, the gaps above and below)
+    const chrome = single ? 48 + 56 + 50 : 14 + 44 + 32;
+    const moreW = single ? per + groupPad : 64;
+    let left = space - chrome;
     // everything fits?
     const full = all.length * per + groups.length * groupPad;
     if (full <= left) return { shown: groups, hidden: [] as string[] };
@@ -135,7 +145,7 @@ export function Toolbar({
     }
     if (pinned) shown.push(pinned);
     return { shown, hidden };
-  }, [groups, room, extra.length]);
+  }, [groups, room, tall, vertical, oneColumn, extra.length]);
 
   const activeHidden = hidden.includes(tool);
   return (
@@ -167,7 +177,7 @@ export function Toolbar({
                 <span className="more-n">+{hidden.length - 1}</span>
               </>
             ) : (
-              <span className="more-label">+{hidden.length} more</span>
+              <span className="more-label">{oneColumn ? "⋯" : `+${hidden.length} more`}</span>
             )}
           </button>
           {open && (

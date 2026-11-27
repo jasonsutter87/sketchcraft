@@ -33,7 +33,7 @@ fn write_to(path: &str, bytes: &[u8]) -> Result<()> {
     if let Some(dir) = std::path::Path::new(path).parent() {
         std::fs::create_dir_all(dir).ok();
     }
-    std::fs::write(path, bytes)?;
+    crate::safety::write_output(path, bytes)?;
     Ok(())
 }
 
@@ -55,7 +55,7 @@ pub fn write_dae(m: &Model, path: &str) -> Result<usize> {
                         let file = tex_files.name(name, ext);
                         let dir = p.with_file_name(&tex_dir);
                         std::fs::create_dir_all(&dir)?;
-                        std::fs::write(dir.join(&file), data)?;
+                        crate::safety::write_output(dir.join(&file), data)?;
                         texs.push((name.to_string(), file));
                     }
                 }

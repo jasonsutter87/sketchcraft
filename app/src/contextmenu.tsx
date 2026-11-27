@@ -7,20 +7,31 @@ import { EMPTY, isEmpty, selIds, type Sel } from "./selection";
 import { formatLength, parseLength } from "./units";
 import { type Run } from "./panelkit";
 import { useEscapeToClose } from "./sheet";
+import type { MenuAction } from "./menuactions";
+import { anythingHidden, emptySpaceItems } from "./emptymenu";
 
 export interface MenuItem {
   labelId?: string;
   label: string;
   key?: string;
   danger?: boolean;
+  /** shown greyed out and does nothing (Paste with an empty clipboard) */
+  disabled?: boolean;
+  /** ticked (the chosen projection, a style that is on) */
+  checked?: boolean;
+  /** a title over the items below it, not clickable */
+  heading?: boolean;
   run: () => void;
 }
 
-export function contextItems(scene: Scene, sel: Sel, run: Run, setSel: (s: Sel) => void, fitSel: () => void, section?: { origin: number[]; normal: number[] } | null, onCage?: (id: number) => void, onToast?: (t: string) => void, subd?: { subdivide: () => void; subdBox: () => void; projectTexture?: () => void; positionTexture?: () => void }): MenuItem[] {
+export function contextItems(scene: Scene, sel: Sel, run: Run, setSel: (s: Sel) => void, fitSel: () => void, section?: { origin: number[]; normal: number[] } | null, onCage?: (id: number) => void, onToast?: (t: string) => void, subd?: { subdivide: () => void; subdBox: () => void; projectTexture?: () => void; positionTexture?: () => void }, actions?: Record<string, MenuAction>): MenuItem[] {
   const ids = selIds(sel);
   const items: MenuItem[] = [];
   if (isEmpty(sel)) {
-    items.push({ label: "Unhide all", run: () => run({ cmd: "unhide" }) });
+    // empty space: the Edit / Camera / View menu's own actions (disabled where they don't apply)
+    if (actions) items.push(...emptySpaceItems(actions, anythingHidden(scene)));
+    else items.push({ label: "Unhide all", run: () => run({ cmd: "unhide" }) });
+    if (actions) items.push({ label: "Model", heading: true, run: () => {} });
     items.push({ label: "Clear guides", run: () => run({ cmd: "clear_guides" }) });
     items.push({ label: "SubD box", run: () => subd?.subdBox() });
     items.push({ label: "Soften flat seams", run: () => run({ cmd: "soften", coplanar: true }) });
@@ -200,19 +211,31 @@ export function ContextMenu({ x, y, items, close }: { x: number; y: number; item
   return (
     <div className="menu-scrim" onPointerDown={close} onContextMenu={(e) => (e.preventDefault(), close())}>
       <div className="menu" ref={box} style={at} onPointerDown={(e) => e.stopPropagation()}>
-        {items.map((it) => (
-          <button
-            key={it.label}
-            className={it.danger ? "danger" : ""}
-            onClick={() => {
-              close();
-              it.run();
-            }}
-          >
-            <span>{it.labelId ? t(it.labelId) : it.label}</span>
-            {it.key && <kbd>{it.key}</kbd>}
-          </button>
-        ))}
+        {items.map((it) =>
+          it.heading ? (
+            <div key={it.label} className="menu-heading">
+              {it.labelId ? t(it.labelId) : it.label}
+            </div>
+          ) : (
+            <button
+              key={it.label}
+              className={it.danger ? "danger" : ""}
+              disabled={it.disabled}
+              aria-checked={it.checked}
+              role={it.checked === undefined ? undefined : "menuitemcheckbox"}
+              onClick={() => {
+                close();
+                it.run();
+              }}
+            >
+              <span>
+                {it.checked !== undefined && <span className="menu-tick">{it.checked ? "✓" : ""}</span>}
+                {it.labelId ? t(it.labelId) : it.label}
+              </span>
+              {it.key && <kbd>{it.key}</kbd>}
+            </button>
+          ),
+        )}
       </div>
     </div>
   );

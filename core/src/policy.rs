@@ -178,7 +178,7 @@ const LIBRARY: [&str; 3] = ["library", "save_to_library", "library_add"];
 
 /// Commands that only change or inspect the model: safe for plugins.
 const MODEL: &[&str] = &[
-    "rect", "polygon", "line", "circle", "arc", "spline", "bezier", "make_faces", "flatten", "offset", "follow_me", "pushpull", "push_pull", "move", "rotate", "scale", "duplicate", "array", "delete", "reverse", "paint", "texture", "vertex_paint", "vertex_paint_clear", "vertex_colors", "begin_group", "end_group", "group", "faces", "pick", "copy", "info", "parts", "parts_layout", "lay_out_parts", "cut_stock", "cut_plan", "dado", "rabbet", "tenon", "make_component", "place", "component_cuts", "component_face_me", "edit", "close", "explode", "components", "hide", "unhide", "tag", "tag_visible", "tag_color", "tag_style", "edge_style", "hatch_pattern", "hatch_patterns", "rename_tag", "set_parent", "ungroup", "lock", "soften", "rename", "guide", "clear_guides", "units", "dimension", "text", "save_view", "show_view", "delete_view", "sheets", "sheet_add", "sheet_edit", "sheet_delete", "viewport_add", "viewport_edit", "sheet_item_delete", "sheet_dim", "sheet_reattach", "sheet_line", "sheet_text", "sheet_table", "sheet_table_paste", "sheet_trim", "sheet_extend", "sheet_offset", "sheets_info", "drafting_status", "sheet_ir", "sheet_duplicate", "sheet_order", "viewport_points", "dimension_auto", "layout_preset", "render", "door_swing", "levels", "solid", "intersect", "flip", "section", "terrain_from_contours", "terrain_grid", "smoove", "stamp", "drape", "flip_edge", "match_photo", "set_attrs", "cloud_data", "cloud", "connected", "same_as", "resize", "section_plane", "section_edit", "section_off", "set_axes", "finish", "options", "report", "classify", "bevel", "divide", "slice", "material", "subd", "cage_edit", "subdivide", "timeline", "timeline_frames", "weld", "explode_curve", "make_unique", "orient_faces", "fix_model", "check_solid", "print_check", "text_3d", "text3d", "opacity", "environment", "sun", "volume", "wall", "wall_pull", "wall_info", "room_rect", "room_preview", "rooms", "stairs", "roof", "column", "insert", "assets", "raise_walls", "project_photo", "photo_solve", "purge", "texture_project", "texture_uv", "texture_paint_new", "texture_paint_stroke", "texture_paint_status", "texture_pixels", "floorplan_build", "room_info",
+    "rect", "polygon", "line", "circle", "arc", "spline", "bezier", "make_faces", "flatten", "offset", "follow_me", "pushpull", "push_pull", "move", "rotate", "scale", "duplicate", "array", "delete", "reverse", "paint", "texture", "vertex_paint", "vertex_paint_clear", "vertex_colors", "begin_group", "end_group", "group", "faces", "pick", "copy", "info", "parts", "parts_layout", "lay_out_parts", "cut_stock", "cut_plan", "dado", "rabbet", "tenon", "make_component", "place", "component_cuts", "component_face_me", "edit", "close", "explode", "components", "hide", "unhide", "tag", "tag_visible", "tag_color", "tag_style", "edge_style", "hatch_pattern", "hatch_patterns", "rename_tag", "set_parent", "ungroup", "lock", "soften", "rename", "guide", "clear_guides", "units", "dimension", "text", "save_view", "show_view", "delete_view", "sheets", "sheet_add", "sheet_edit", "sheet_delete", "viewport_add", "viewport_edit", "sheet_item_delete", "sheet_dim", "sheet_reattach", "sheet_line", "sheet_text", "sheet_table", "sheet_table_paste", "sheet_trim", "sheet_extend", "sheet_offset", "sheets_info", "drafting_status", "sheet_ir", "sheet_duplicate", "sheet_order", "viewport_points", "dimension_auto", "layout_preset", "render", "door_swing", "levels", "solid", "intersect", "flip", "section", "terrain_from_contours", "terrain_grid", "smoove", "stamp", "drape", "flip_edge", "match_photo", "set_attrs", "cloud_data", "cloud", "connected", "same_as", "resize", "section_plane", "section_edit", "section_off", "set_axes", "finish", "options", "report", "classify", "bevel", "divide", "slice", "material", "subd", "cage_edit", "subdivide", "timeline", "timeline_frames", "weld", "explode_curve", "make_unique", "orient_faces", "fix_model", "check_solid", "print_check", "text_3d", "text3d", "opacity", "environment", "sun", "volume", "wall", "wall_pull", "wall_info", "part_info", "rebuild", "opening", "opening_info", "opening_edit", "room_rect", "room_preview", "rooms", "stairs", "roof", "column", "insert", "assets", "raise_walls", "project_photo", "photo_solve", "purge", "texture_project", "texture_uv", "texture_paint_new", "texture_paint_stroke", "texture_paint_status", "texture_pixels", "floorplan_build", "room_info",
     "texture_position", "texture_frame", "uv_seam", "uv_unwrap", "uv_pack", "uv_lightmap", "uv_set", "uv_transform", "uv_info",
 ];
 
@@ -293,6 +293,10 @@ fn confine(raw: &str, ws: &Workspace) -> Result<String, String> {
             if name.starts_with('.') || crate::library::reserved(&name) || crate::library::is_protected(&walked, &base) {
                 return Err(format!("{raw:?}: agents can't use hidden files, Backups or the Plugins folder (--any-path lifts the folder limit, not this)"));
             }
+            // a link left after resolving points at nothing yet: the hidden-name and folder rules never see where
+            if is_link(&walked) {
+                return Err(format!("{raw:?} is a link; an agent reads and writes files themselves, not through links"));
+            }
         }
         return Ok(full.to_string_lossy().into_owned());
     };
@@ -310,8 +314,18 @@ fn confine(raw: &str, ws: &Workspace) -> Result<String, String> {
         if name.starts_with('.') || crate::library::reserved(&name) || crate::library::is_protected(&walked, root) {
             return Err(format!("{raw:?}: agents can't use hidden files, Backups or the Plugins folder"));
         }
+        // a link that still names something here after resolving points at nothing yet: writing would follow it
+        // and make a file wherever it points
+        if is_link(&walked) {
+            return Err(format!("{raw:?} is a link; an agent writes and reads files in the workspace itself, not through links"));
+        }
     }
     Ok(full.to_string_lossy().into_owned())
+}
+
+/// Is `p` itself a symbolic link (whether or not what it points at exists)?
+fn is_link(p: &Path) -> bool {
+    std::fs::symlink_metadata(p).is_ok_and(|m| m.file_type().is_symlink())
 }
 
 struct Walk {
@@ -594,6 +608,9 @@ pub fn vet(caller: &Caller, cmd: &mut Value) -> Result<(), String> {
             }
             let resolved = resolve(p);
             reject_side_name(&resolved)?;
+            if is_link(&resolved) {
+                return Err(format!("{path:?} is a link: an agent writes files themselves, not through links"));
+            }
             if resolved.exists() && !ws.owns(&resolved) {
                 return Err(format!("{path:?} already exists and wasn't made by this agent (or has changed since): an agent writes new file names, it doesn't replace the person's files"));
             }
@@ -601,12 +618,18 @@ pub fn vet(caller: &Caller, cmd: &mut Value) -> Result<(), String> {
             let stem = p.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
             let textures = p.with_file_name(format!("{stem}_textures"));
             let extras: Vec<PathBuf> = match *c {
-                "export_obj" => vec![p.with_extension("mtl"), textures],
+                "export_obj" => {
+                    let (mtl, tex) = crate::export::obj_siblings(p);
+                    vec![mtl, tex]
+                }
                 "export_dae" | "export_fbx" => vec![textures],
                 _ => vec![],
             };
             for x in extras {
                 let x = resolve(&x);
+                if is_link(&x) {
+                    return Err(format!("{} is a link: \"{c}\" would write through it, and an agent writes files in the workspace itself", x.display()));
+                }
                 if x.exists() && !ws.owns(&x) {
                     return Err(format!("{} already exists and wasn't made by this agent (or has changed since): \"{c}\" would write into it, and an agent doesn't replace the person's files", x.display()));
                 }
@@ -726,8 +749,8 @@ mod tests {
             component_face_me components connected copy cut_plan cut_stock dado delete delete_view dimension dimension_auto divide door_swing drafting_status drape \
             duplicate edge_style edit end_group environment explode explode_curve faces finish fix_model flatten flip flip_edge floorplan_build follow_me group guide \
             hatch_pattern hatch_patterns hide info insert intersect layout_preset levels line lock make_component make_unique match_photo \
-            material lay_out_parts make_faces move offset opacity options orient_faces paint parts parts_layout photo_solve pick place polygon print_check project_photo purge \
-            push_pull rabbet tenon \
+            material lay_out_parts make_faces move offset opacity options orient_faces paint part_info parts parts_layout photo_solve pick place polygon print_check project_photo purge \
+            push_pull rabbet rebuild tenon opening opening_info opening_edit \
             pushpull raise_walls rect rename rename_tag render report resize reverse roof room_preview room_rect rooms rotate same_as room_info \
             save_view scale section section_edit section_off section_plane set_attrs set_axes set_parent sheet_add sheet_delete sheet_dim \
             sheet_duplicate sheet_edit sheet_extend sheet_ir sheet_item_delete sheet_line sheet_offset sheet_order sheet_reattach \

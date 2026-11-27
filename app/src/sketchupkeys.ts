@@ -80,6 +80,7 @@ const NAMES: Record<string, string[]> = {
   "view.back": ["Back", "Camera/Standard Views/Back", "viewBack:"],
   "view.left": ["Left", "Camera/Standard Views/Left", "viewLeft:"],
   "view.backedges": ["Back Edges", "View/Face Style/Back Edges", "toggleDisplayBackEdges:"],
+  "view.hidden": ["Hidden Geometry", "View/Hidden Geometry", "toggleDisplayHidden:"],
   "view.xray": ["X-Ray", "View/Face Style/X-Ray", "viewXRay:"],
   "view.shadows": ["Shadows", "View/Shadows", "toggleShadows:"],
   "view.edges": ["Edges", "View/Edge Style/Edges", "toggleDisplayEdges:"],

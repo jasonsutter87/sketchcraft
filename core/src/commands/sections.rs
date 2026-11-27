@@ -57,7 +57,7 @@ impl Engine {
                 let cut = m.section_styled(v3(origin), v3(normal), &drafting)?;
                 if let Some(p) = &path {
                     let text = if p.to_ascii_lowercase().ends_with(".dxf") { cut.dxf() } else { cut.svg() };
-                    std::fs::write(p, text)?;
+                    crate::safety::write_output(p, text)?;
                 }
                 // fills as triangles, ready to draw, by each region's tag cut style (design §3.4): the default
                 // poché in `fill`; a tag's own solid colour in `solid`; a tag's hatch in `hatches` (its triangles and

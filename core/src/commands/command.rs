@@ -164,6 +164,9 @@ pub enum Command {
         group: Option<Id>,
         #[serde(default)]
         facing: Option<[f64; 3]>,
+        /// also give each face's outline (`outer`) and hole outlines (`inner`) as points in meters
+        #[serde(default)]
+        outlines: bool,
     },
     /// The face under a point (on its plane, inside its outline), or the
     /// nearest face center if none contains it. Optional facing filter.
@@ -428,6 +431,10 @@ pub enum Command {
         /// true: the camera only (SketchUp's scene with its other properties unticked)
         #[serde(default)]
         camera_only: bool,
+        /// Show only these (groups, components, faces, edges) when the scene is shown, and hide everything else,
+        /// including what is drawn later (#229).
+        #[serde(default)]
+        only: Option<Vec<Id>>,
     },
     /// Go to a saved view's state: tags shown / hidden and what's hidden as
     /// they were. Returns the view (camera, style, section) for the app.
@@ -1452,6 +1459,39 @@ pub enum Command {
         #[serde(default)]
         name: Option<String>,
     },
+    /// Door or Window tool: a `kind` ("door" or "window") `width` x `height` in the wall face `host`, centred near
+    /// `at`; a window `sill` above the wall's foot. Cut through the wall and classed IfcDoor or IfcWindow.
+    Opening {
+        kind: String,
+        host: Id,
+        at: [f64; 3],
+        width: f64,
+        height: f64,
+        #[serde(default = "sill_default")]
+        sill: f64,
+    },
+    /// A placed door's or window's size and sill, and whether it can be resized.
+    OpeningInfo { instance: Id },
+    /// Resize a placed door or window, or move a window's sill (in a wall the Wall tool made).
+    OpeningEdit {
+        instance: Id,
+        #[serde(default)]
+        width: Option<f64>,
+        #[serde(default)]
+        height: Option<f64>,
+        #[serde(default)]
+        sill: Option<f64>,
+    },
+    /// What a group was made as (wall, stairs, roof, column) and the settings it remembers.
+    PartInfo { group: Id },
+    /// Change a remembered wall's, stair's, roof's or column's settings and remake it in place.
+    Rebuild {
+        group: Id,
+        #[serde(default)]
+        set: serde_json::Map<String, serde_json::Value>,
+        #[serde(default)]
+        force: bool,
+    },
     /// Walls along a path: `thickness` and `height`; `closed` makes a room.
     Wall {
         points: Vec<[f64; 3]>,
@@ -2010,6 +2050,10 @@ fn arc_segments() -> usize {
 
 fn bezier_segments() -> usize {
     16
+}
+
+fn sill_default() -> f64 {
+    0.9
 }
 
 fn wall_t() -> f64 {

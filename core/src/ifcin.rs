@@ -167,7 +167,7 @@ fn build(m: &mut Model, data: Out, name: &str) -> Result<IfcResult> {
                     .entry(key)
                     .or_insert_with(|| {
                         let n = format!("ifc:{:02x}{:02x}{:02x}{}", key.0, key.1, key.2, if key.3 < 255 { format!("-{:02x}", key.3) } else { String::new() });
-                        m.materials.entry(n.clone()).or_insert(crate::model::Material { color: [c[0] as f32, c[1] as f32, c[2] as f32], texture: None, opacity: (c[3] as f32).clamp(0.05, 1.0), ..Default::default() });
+                        m.materials.entry(n.clone()).or_insert(crate::model::Material { color: [unit(c[0], 0.8), unit(c[1], 0.8), unit(c[2], 0.8)], texture: None, opacity: unit(c[3], 1.0).clamp(0.05, 1.0), ..Default::default() });
                         n
                     })
                     .clone()
@@ -236,5 +236,14 @@ mod tests {
         assert_eq!(m.groups[&storey].name, "Ground Floor");
         assert_eq!(m.groups[&storey].tag.as_deref(), Some("Ground Floor"));
         assert!(m.faces.values().all(|f| f.material.as_deref() == Some("ifc:ff0000")));
+    }
+}
+
+/// A colour channel from the file as 0..1: out-of-range values to the nearest end, a value that isn't a number to `or`.
+fn unit(c: f64, or: f32) -> f32 {
+    if c.is_nan() {
+        or
+    } else {
+        c.clamp(0.0, 1.0) as f32
     }
 }

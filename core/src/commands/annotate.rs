@@ -3,6 +3,10 @@
 
 use super::*;
 
+/// What an agent or a plugin may save as scenes (#229's "show only" lists are copied into every undo step).
+const MAX_SCENES_UNTRUSTED: usize = 500;
+const MAX_SCENE_IDS_UNTRUSTED: usize = 20_000;
+
 impl Engine {
     pub(super) fn run_annotate(&mut self, cmd: Command) -> Result<Value> {
         // the laid-out view is the session's, not the model's (and always of the whole model, never inside `edit`)
@@ -61,7 +65,12 @@ impl Engine {
                         m.tags.insert(t.clone(), *on);
                     }
                 }
-                if let Some(hidden) = &v.hidden {
+                // a list from a file that names nothing left (empty, or every id gone) would hide the whole model:
+                // such a scene shows as an ordinary one
+                let only: Option<Vec<Id>> = v.only.as_ref().map(|o| o.iter().copied().filter(|id| m.faces.contains_key(id) || m.edges.contains_key(id) || m.groups.contains_key(id) || m.instances.contains_key(id)).collect()).filter(|o: &Vec<Id>| !o.is_empty());
+                if let Some(only) = &only {
+                    m.show_only(only);
+                } else if let Some(hidden) = &v.hidden {
                     let h: std::collections::BTreeSet<Id> = hidden.iter().copied().collect();
                     for (id, g) in m.groups.iter_mut() {
                         g.hidden = h.contains(id);
@@ -72,10 +81,39 @@ impl Engine {
                     for (id, f) in m.faces.iter_mut() {
                         f.hidden = h.contains(id);
                     }
+                    // lines: a scene saved before lines were remembered lists none, so they all show again (a
+                    // "show only" scene shown before it may have hidden them)
+                    for (id, e) in m.edges.iter_mut() {
+                        e.hidden = h.contains(id);
+                    }
                 }
                 serde_json::to_value(&v)?
             }
-            Command::SaveView { name, eye, target, fov, photo, style, section, camera_only } => {
+            Command::SaveView { name, eye, target, fov, photo, style, section, camera_only, only } => {
+                // an agent or a plugin keeps to a few hundred scenes and lists of what a scene shows that fit a
+                // model; every scene is copied into each undo step
+                if self.untrusted {
+                    let new = !m.views.iter().any(|v| v.name == name);
+                    if new && m.views.len() >= MAX_SCENES_UNTRUSTED {
+                        bail!("this model has {} scenes; an agent or a plugin can add up to {MAX_SCENES_UNTRUSTED}", m.views.len());
+                    }
+                    if only.as_ref().is_some_and(|o| o.len() > MAX_SCENE_IDS_UNTRUSTED) {
+                        bail!("a scene can show up to {MAX_SCENE_IDS_UNTRUSTED} things when an agent or a plugin saves it; name groups instead of every face");
+                    }
+                }
+                let only = match only {
+                    None => None,
+                    Some(_) if camera_only => bail!("a scene can't be camera only and show only some things"),
+                    Some(ids) => {
+                        let mut ids: Vec<Id> = ids.into_iter().filter(|id| m.faces.contains_key(id) || m.edges.contains_key(id) || m.groups.contains_key(id) || m.instances.contains_key(id)).collect();
+                        ids.sort_unstable();
+                        ids.dedup();
+                        if ids.is_empty() {
+                            bail!("nothing to show: name the groups, components, faces or edges the scene shows");
+                        }
+                        Some(ids)
+                    }
+                };
                 if let Some(p) = photo.as_deref() {
                     crate::safety::check_picture(p).map_err(|e| anyhow::anyhow!("photo: {e}"))?;
                 }
@@ -85,11 +123,11 @@ impl Engine {
                 let (tags, hidden) = if camera_only {
                     (None, None)
                 } else {
-                    let hidden: Vec<Id> = m.groups.iter().filter(|(_, g)| g.hidden).map(|(k, _)| *k).chain(m.instances.iter().filter(|(_, i)| i.hidden).map(|(k, _)| *k)).chain(m.faces.iter().filter(|(_, f)| f.hidden).map(|(k, _)| *k)).collect();
+                    let hidden: Vec<Id> = m.groups.iter().filter(|(_, g)| g.hidden).map(|(k, _)| *k).chain(m.instances.iter().filter(|(_, i)| i.hidden).map(|(k, _)| *k)).chain(m.faces.iter().filter(|(_, f)| f.hidden).map(|(k, _)| *k)).chain(m.edges.iter().filter(|(_, e)| e.hidden).map(|(k, _)| *k)).collect();
                     (Some(m.tags.clone()), Some(hidden))
                 };
                 let (style, section) = if camera_only { (None, None) } else { (style, section) };
-                m.views.push(crate::model::View { name, eye, target, fov, photo, style, tags, hidden, section });
+                m.views.push(crate::model::View { name, eye, target, fov, photo, style, tags, hidden, section, only });
                 json!({})
             }
             Command::MatchPhoto { name, width, height, red, green, origin, distance, photo } => {
@@ -99,7 +137,7 @@ impl Engine {
                 }
                 let cam = crate::matchphoto::solve(width, height, red, green, origin, distance)?;
                 m.views.retain(|v| v.name != name);
-                m.views.push(crate::model::View { name: name.clone(), eye: cam.eye.to_array(), target: cam.target.to_array(), fov: cam.fov, photo, style: None, tags: None, hidden: None, section: None });
+                m.views.push(crate::model::View { name: name.clone(), eye: cam.eye.to_array(), target: cam.target.to_array(), fov: cam.fov, photo, style: None, tags: None, hidden: None, section: None, only: None });
                 json!({"view": name, "eye": cam.eye.to_array(), "target": cam.target.to_array(), "fov": cam.fov})
             }
             Command::DeleteView { name } => {
@@ -202,7 +240,7 @@ impl Engine {
             Command::Report { path } => {
                 let rows = crate::dynamic::report(m);
                 if let Some(p) = &path {
-                    std::fs::write(p, crate::dynamic::report_csv(&rows))?;
+                    crate::safety::write_output(p, crate::dynamic::report_csv(&rows))?;
                 }
                 json!({"rows": rows, "path": path})
             }

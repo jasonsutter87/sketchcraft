@@ -21,7 +21,7 @@ impl Engine {
                 let n = name.unwrap_or_else(|| format!("Group {}", m.groups.len() + 1));
                 json!({"group": m.group(&ids, n)?})
             }
-            Command::Faces { group, facing } => {
+            Command::Faces { group, facing, outlines } => {
                 let dir = facing.map(|f| v3(f).normalize_or_zero());
                 let list: Vec<Value> = m
                     .faces
@@ -32,7 +32,7 @@ impl Engine {
                     .map(|id| {
                         let f = &m.faces[&id];
                         let r = |v: DVec3| [round(v.x), round(v.y), round(v.z)];
-                        json!({
+                        let mut o = json!({
                             "id": id,
                             "normal": r(m.normal(id)),
                             "center": r(m.center(id)),
@@ -41,7 +41,12 @@ impl Engine {
                             "holes": f.holes.len(),
                             "group": f.group,
                             "material": f.material,
-                        })
+                        });
+                        if outlines {
+                            o["outer"] = json!(m.pts(&f.outer).into_iter().map(r).collect::<Vec<_>>());
+                            o["inner"] = json!(f.holes.iter().map(|h| m.pts(h).into_iter().map(r).collect::<Vec<_>>()).collect::<Vec<_>>());
+                        }
+                        o
                     })
                     .collect();
                 json!({"faces": list})
@@ -79,8 +84,10 @@ impl Engine {
                     other => other.to_string(),
                 };
                 let Some(def) = m.find_definition(&key) else { bail!("no component {key}") };
-                let instance = m.place(def, v3(at), rotate, name)?;
-                let opening = place_cut(m, instance, host);
+                let (instance, opening) = m.keep_closed(|m| {
+                    let i = m.place(def, v3(at), rotate, name)?;
+                    Ok((i, place_cut(m, i, host)))
+                })?;
                 json!({"instance": instance, "opening": opening})
             }
             Command::ComponentFaceMe { id, on } => {

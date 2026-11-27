@@ -5,6 +5,9 @@
 //! live in ~/Documents/SketchCraft/Plugins. Also here: `parts`, the sizes a
 //! cut list needs.
 
+
+/// Most commands one plugin may add (app/src/pluginclean.ts MAX_MENU_ITEMS is the same).
+pub const MAX_PLUGIN_COMMANDS: usize = 50;
 use crate::model::{Id, Model};
 use glam::DVec3;
 use serde_json::{json, Value};
@@ -37,6 +40,8 @@ fn entry(id: &str, manifest: &str, code: String, builtin: bool, folder: Option<&
     // command icons, sent as data URLs: inline SVG ("<svg ...>"), or a small
     // SVG or PNG file beside main.js
     if let Some(cmds) = o.get_mut("commands").and_then(|c| c.as_array_mut()) {
+        // a plugin adds at most this many commands to the menus (the same limit as a Ruby extension's menu)
+        cmds.truncate(MAX_PLUGIN_COMMANDS);
         for c in cmds {
             let Some(icon) = c.get("icon").and_then(|i| i.as_str()).map(str::to_string) else { continue };
             let data = if icon.trim_start().starts_with("<svg") && icon.len() <= 64 * 1024 {
@@ -74,7 +79,7 @@ pub fn ruby_menu_labels(files: &[(String, Vec<u8>)]) -> Vec<String> {
                 let t = rest.trim_start_matches(|c: char| c == '(' || c == ' ' || c == '\t');
                 let Some(q) = t.chars().next().filter(|c| *c == '"' || *c == '\'') else { continue };
                 if let Some(end) = t[1..].find(q) {
-                    let label: String = t[1..1 + end].chars().filter(|c| !c.is_control()).take(80).collect();
+                    let label: String = t[1..1 + end].chars().filter(|c| !c.is_control() && !crate::text::is_format_char(*c) && !crate::text::is_invisible_filler(*c)).take(80).collect();
                     if !label.trim().is_empty() && !out.contains(&label) && out.len() < 50 {
                         out.push(label);
                     }
@@ -217,6 +222,10 @@ pub fn install(bytes: &[u8], file_name: Option<&str>, opts: &InstallOpts) -> Res
     // a single SketchUp Ruby script (.rb)
     if file_name.is_some_and(|n| n.to_ascii_lowercase().ends_with(".rb")) {
         let name = Path::new(file_name.unwrap()).file_name().and_then(|n| n.to_str()).unwrap_or("script.rb").to_string();
+        // the same name checks the archive's files get
+        if name.starts_with('.') || name.contains('\\') || name.contains(':') || !plain_file_name(&name) {
+            bail!("unsafe file name: {}", name.chars().filter(|c| !c.is_control() && !crate::text::is_format_char(*c) && !crate::text::is_invisible_filler(*c)).take(80).collect::<String>());
+        }
         let text = std::str::from_utf8(bytes).context("that .rb file isn't text")?;
         return install_ruby(vec![(name, text.as_bytes().to_vec())], opts);
     }
@@ -253,8 +262,8 @@ pub fn install(bytes: &[u8], file_name: Option<&str>, opts: &InstallOpts) -> Res
         let name = f.name()?.trim_start_matches("./").to_string();
         let Some(rel) = name.strip_prefix(&prefix) else { continue };
         // safe names only: no parent dirs, no absolute paths, no hidden files
-        if rel.is_empty() || rel.split('/').any(|p| p.is_empty() || p == ".." || p.starts_with('.')) || rel.contains('\\') || rel.contains(':') {
-            bail!("unsafe file name in the plugin: {name}");
+        if rel.is_empty() || rel.split('/').any(|p| p.is_empty() || p == ".." || p.starts_with('.')) || rel.contains('\\') || rel.contains(':') || !plain_file_name(rel) {
+            bail!("unsafe file name in the plugin: {}", name.chars().filter(|c| !c.is_control() && !crate::text::is_format_char(*c) && !crate::text::is_invisible_filler(*c)).take(80).collect::<String>());
         }
         let ext = Path::new(rel).extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
         if !matches!(ext.as_str(), "json" | "js" | "svg" | "png" | "md" | "txt" | "rb") {
@@ -352,6 +361,19 @@ fn gate(about: &Value, opts: &InstallOpts) -> Result<Option<Value>> {
 /// A SketchUp Ruby extension: its .rb files (the top-level ones load it),
 /// with a plugin.json written for it. Its commands are the menu items it adds
 /// when it loads (the app finds them by running it).
+/// Names a zip may not carry: control or direction characters (a name could read as something else), and the
+/// names Windows keeps for devices (`con`, `nul`, `com1`...), which can't be written as files there.
+fn plain_file_name(rel: &str) -> bool {
+    if rel.chars().any(|c| c.is_control() || crate::text::is_format_char(c) || crate::text::is_invisible_filler(c)) {
+        return false;
+    }
+    !rel.split('/').any(|part| {
+        let f = crate::library::fold(part);
+        let stem = f.split('.').next().unwrap_or("").trim_end();
+        crate::library::is_device(&f) || stem == "com0" || stem == "lpt0"
+    })
+}
+
 fn install_ruby(files: Vec<(String, Vec<u8>)>, opts: &InstallOpts) -> Result<Value> {
     let entries: Vec<String> = files.iter().filter(|(n, _)| !n.contains('/') && n.to_ascii_lowercase().ends_with(".rb")).map(|(n, _)| n.clone()).collect();
     let Some(first) = entries.first() else { bail!("no .rb file at the top of it (a SketchUp extension loads from one)") };
