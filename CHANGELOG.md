@@ -6,6 +6,14 @@ What changed in each SketchCraft release, newest first. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- **Doors and windows at a wall's corner.** A door or window placed past the end of a wall face, at a corner of a
+  closed wall (inside or outside), used to be refused. It now slides along to where both faces of the wall are, clear
+  of the corner. At the free end of a wall it can still go right to the end.
+- **The solid safety net checks each solid on its own.** A cut that opened an ungrouped solid said ok if there was
+  any open face anywhere else in the loose geometry (a stray rectangle, an imported plan). Each connected solid is now
+  checked by itself, so that cut is refused and the model is put back.
+
 ## [0.3.11] - 2026-11-26
 
 ### Added

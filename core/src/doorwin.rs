@@ -102,6 +102,9 @@ struct Side {
     plane: DVec3,
     a: (f64, f64),
     z: (f64, f64),
+    /// where along it an opening can go: where this face and the wall's other face both are, less `GAP` at an end
+    /// where they don't finish together (a corner, where the other wall runs on)
+    fit: (f64, f64),
 }
 
 /// Do two openings' back outlines (world points) overlap or come within `GAP` of each other, on one wall (parallel
@@ -153,14 +156,45 @@ impl Model {
         }
         let along = (-n).cross(DVec3::Z).normalize();
         let pts = self.pts(&f.outer);
-        let ext = |g: &dyn Fn(&DVec3) -> f64| pts.iter().fold((f64::MAX, f64::MIN), |(l, h), p| (l.min(g(p)), h.max(g(p))));
-        Ok(Side { n, along, plane: pts[0], a: ext(&|p| p.dot(along)), z: ext(&|p| p.z) })
+        let ext = |pts: &[DVec3], g: &dyn Fn(&DVec3) -> f64| pts.iter().fold((f64::MAX, f64::MIN), |(l, h), p| (l.min(g(p)), h.max(g(p))));
+        let a = ext(&pts, &|p| p.dot(along));
+        Ok(Side { n, along, plane: pts[0], a, z: ext(&pts, &|p| p.z), fit: self.wall_fit(host, n, pts[0], a, &ext) })
+    }
+
+    /// `Side::fit` for face `host` (normal `n`, a point `on` it, `a` its extent along the wall): the other face is the
+    /// one in the same group facing the other way within 0.65 m behind it that overlaps it most. A cut must come out
+    /// through it: past its end, it would run into the wall round the corner (R0311-F-05). No such face: `a`.
+    fn wall_fit(&self, host: Id, n: DVec3, on: DVec3, a: (f64, f64), ext: &dyn Fn(&[DVec3], &dyn Fn(&DVec3) -> f64) -> (f64, f64)) -> (f64, f64) {
+        let along = (-n).cross(DVec3::Z).normalize();
+        let group = self.faces.get(&host).and_then(|f| f.group);
+        let plane = n.dot(on);
+        let mut best: Option<((f64, f64), f64)> = None;
+        for (&k, f) in &self.faces {
+            if k == host || f.group != group || self.normal(k).dot(n) > -0.999 {
+                continue;
+            }
+            let pts = self.pts(&f.outer);
+            let Some(p0) = pts.first() else { continue };
+            let behind = plane - n.dot(*p0);
+            if !(1e-4..=0.65).contains(&behind) {
+                continue;
+            }
+            let b = ext(&pts, &|p| p.dot(along));
+            let overlap = a.1.min(b.1) - a.0.max(b.0);
+            if overlap > 0.0 && best.is_none_or(|(_, o)| overlap > o) {
+                best = Some((b, overlap));
+            }
+        }
+        let Some((b, _)) = best else { return a };
+        let lo = if (a.0 - b.0).abs() < 1e-4 { a.0 } else { a.0.max(b.0) + GAP };
+        let hi = if (a.1 - b.1).abs() < 1e-4 { a.1 } else { a.1.min(b.1) - GAP };
+        if hi > lo { (lo, hi) } else { a }
     }
 
     /// Where a `w` x `h` opening goes on `side`, centred at `centre` along the wall (moved along to fit) and `up`
     /// above the wall's foot.
     fn opening_frame(side: &Side, kind: &str, centre: f64, w: f64, h: f64, up: f64) -> Result<DMat4> {
-        let (a0, a1) = side.a;
+        let (a0, a1) = side.fit;
         if w > a1 - a0 - 1e-3 {
             bail!("that {kind} is wider than the wall ({:.2} m)", a1 - a0);
         }
