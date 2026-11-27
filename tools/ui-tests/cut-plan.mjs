@@ -7,7 +7,7 @@
 // makes); then the dialog is driven with real clicks, and the bridge is asked what happened.
 import fs from 'node:fs';
 import path from 'node:path';
-import { launch, PAGE, pageExec } from '../demos/lib.mjs';
+import { answerAsk, launch, PAGE, pageExec } from '../demos/lib.mjs';
 
 if (!process.env.SKETCHCRAFT_DOC) {
   console.error('Set SKETCHCRAFT_DOC to a scratch model path (and run the bridge with the same); tools/ui-tests/run.mjs does.');
@@ -34,9 +34,6 @@ await ctx.addInitScript(() => {
 });
 const p = await ctx.newPage();
 p.on('pageerror', (e) => problems.push(String(e)));
-// the Save buttons ask for a path with a prompt in the browser: answer with the next path in the queue
-const answers = [];
-p.on('dialog', (d) => (d.type() === 'prompt' && answers.length ? d.accept(answers.shift()) : d.dismiss()).catch(() => {}));
 const X = (c) => pageExec(p, c);
 const sh = (name) => (process.env.SHOT_DIR ? p.screenshot({ path: path.join(process.env.SHOT_DIR, `cut-plan-${name}.png`) }).catch(() => {}) : null);
 
@@ -129,18 +126,18 @@ try {
   // the files
   const pdf = path.join(OUT, 'diagrams.pdf');
   const labels = path.join(OUT, 'labels.pdf');
-  answers.push(pdf);
   await dlg.locator('[data-action="export-diagrams"]').click();
+  await answerAsk(p, pdf);
   await wait(900);
   check(fs.existsSync(pdf) && fs.readFileSync(pdf).subarray(0, 5).toString() === '%PDF-', 'Export diagrams writes a PDF');
   check(/diagrams\.pdf/.test(await toastText()), 'and says which file it saved');
-  answers.push(labels);
   await dlg.locator('[data-action="print-labels"]').click();
+  await answerAsk(p, labels);
   await wait(900);
   check(fs.existsSync(labels) && fs.readFileSync(labels).subarray(0, 5).toString() === '%PDF-', 'Print labels writes a PDF');
   const svg = path.join(OUT, 'diagrams.svg');
-  answers.push(svg);
   await dlg.locator('[data-action="export-svg"]').click();
+  await answerAsk(p, svg);
   await wait(900);
   check(fs.existsSync(svg) && fs.readFileSync(svg, 'utf8').includes('Side left'), 'Export SVG writes the diagrams with the part names');
 
