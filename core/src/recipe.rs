@@ -364,7 +364,9 @@ impl Model {
         self.groups.remove(&fresh);
         self.put_back_looks(g, &looks);
 
-        let (mut kept, mut lost) = (0, 0);
+        let (mut kept, mut lost, mut crowded) = (0, 0, 0);
+        // where the openings cut so far sit: one that would overlap or touch them is left out, not cut across them
+        let mut placed: Vec<Vec<DVec3>> = Vec::new();
         for (id, def, t, n) in openings {
             self.check_deadline()?;
             let back = crate::openings::back_outline(&def).unwrap_or_default();
@@ -373,10 +375,16 @@ impl Model {
                 lost += 1;
                 continue;
             };
+            let outline: Vec<DVec3> = back.iter().map(|p| t.transform_point3(*p)).collect();
+            if placed.iter().any(|o| crate::doorwin::outlines_clash(&outline, o)) {
+                crowded += 1;
+                continue;
+            }
             if crate::openings::cut(self, &def, t, host).is_ok() {
                 if let Some(i) = self.instances.get_mut(&id) {
                     i.transform = t;
                 }
+                placed.push(outline);
                 kept += 1;
             } else {
                 lost += 1;
@@ -390,6 +398,10 @@ impl Model {
         out["openings"] = json!(kept);
         if lost > 0 {
             out["openings_off_the_wall"] = json!(lost);
+        }
+        if crowded > 0 {
+            out["openings_overlapping"] = json!(crowded);
+            out["note"] = json!(format!("{crowded} door or window overlapped or touched another in the wall, so it was left out (not cut); move it and rebuild again"));
         }
         if let (Value::Object(o), Value::Object(x)) = (&mut out, extra) {
             o.extend(x);

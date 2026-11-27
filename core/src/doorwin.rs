@@ -104,6 +104,22 @@ struct Side {
     z: (f64, f64),
 }
 
+/// Do two openings' back outlines (world points) overlap or come within `GAP` of each other, on one wall (parallel
+/// upright planes within 0.65 m of each other: either face of it)?
+pub(crate) fn outlines_clash(a: &[DVec3], b: &[DVec3]) -> bool {
+    let (Some(p), Some(q)) = (a.first(), b.first()) else { return false };
+    // the along-the-wall direction from the first outline's plane
+    let n = crate::geom::newell(a).normalize_or_zero();
+    if n == DVec3::ZERO || n.z.abs() > 1e-3 || crate::geom::newell(b).normalize_or_zero().dot(n).abs() < 0.999 || (n.dot(*p) - n.dot(*q)).abs() > 0.65 {
+        return false;
+    }
+    let along = n.cross(DVec3::Z).normalize();
+    let ext = |pts: &[DVec3], g: &dyn Fn(&DVec3) -> f64| pts.iter().fold((f64::MAX, f64::MIN), |(l, h), p| (l.min(g(p)), h.max(g(p))));
+    let ((a0, a1), (b0, b1)) = (ext(a, &|p| p.dot(along)), ext(b, &|p| p.dot(along)));
+    let ((z0, z1), (y0, y1)) = (ext(a, &|p| p.z), ext(b, &|p| p.z));
+    a0 < b1 + GAP && b0 < a1 + GAP && z0 < y1 + GAP && y0 < z1 + GAP
+}
+
 impl Model {
     /// The definition of a door or window this size, made the first time it's asked for.
     pub fn opening_definition(&mut self, kind: &str, w: f64, h: f64) -> Result<Id> {
@@ -249,7 +265,7 @@ impl Model {
             x.transform = t;
         }
         match self.rebuild_part(wall, &Map::new(), false) {
-            Ok(r) if r["openings_off_the_wall"].is_null() => self.opening_info(inst),
+            Ok(r) if r["openings_off_the_wall"].is_null() && r["openings_overlapping"].is_null() =>self.opening_info(inst),
             Ok(_) => bail!("the {kind} no longer fits that wall"),
             Err(e) => {
                 self.instances.insert(inst, before);

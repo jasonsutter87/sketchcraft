@@ -68,6 +68,7 @@ What changed in each SketchCraft release, newest first. The format follows
   Camera menus too. (#226)
 
 ### Fixed
+- **Doors and windows keep a wall a closed solid.** A third door at the foot of a wall, or any door in a closed wall, no longer leaves the wall open or with a zero-area face; and a door or window moved, copied or arrayed on top of another no longer corrupts the wall when it is rebuilt (the overlapping one is left out and the reply says so).
 - **The Room tool snaps to the rooms already there.** Its corners go onto a room's corners (where its walls meet) or
   line up with them, and otherwise onto the grid; the hint says which. A room drawn in the gap between two rooms
   shares both their walls instead of building a second wall beside each.
