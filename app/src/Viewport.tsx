@@ -1,4 +1,5 @@
 import { descendants } from "./grouptree";
+import { glideOn, watchGlide } from "./glide";
 import { translate, useLocale } from "./locale";
 import { TEXTURING_SET } from "./texturing-set";
 import { fixtureOf, wallSnap } from "./fixtures";
@@ -9,11 +10,15 @@ import { useEffect, useRef, useState } from "react";
 import { ask, confirm } from "./ask";
 import { AxisGizmo } from "./gizmo";
 import * as THREE from "three";
+import type { Nav } from "./spacemouse";
+import { isRotateState, orbitPivotEnabled, pivotShift } from "./viewport/pivot";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { TouchGestures, touchMapping } from "./touch";
 import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { GTAOPass } from "three/examples/jsm/postprocessing/GTAOPass.js";
+import { setupAO, skipAO, syncAO } from "./viewport/ao";
+import { openingSpot } from "./viewport/openingspot";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { Line2 } from "three/examples/jsm/lines/Line2.js";
@@ -31,9 +36,10 @@ import { Icons } from "./icons";
 import { AXES, AXIS_COLORS, closestOnLine, infer, rayFrom, setDrawingAxes, V, type Axis, type InferEnv, type Pick, type Snap } from "./inference";
 import { combine, EMPTY, selIds, selMode, toggle, type Sel } from "./selection";
 import { formatLength, parseLengths } from "./units";
-import { autoTagColor, ACCENT, BACKGROUNDS, skyDome } from "./viewport/colors";
+import { autoTagColor, ACCENT, BACKGROUNDS, hasSky, skyDome, tintSky } from "./viewport/colors";
 import { FrameWatch } from "./viewport/framewatch";
-import { FIT_RADIUS_FLOOR, MAX_PERSPECTIVE_NEAR, fitDistance, fitRadius, perspectiveNear } from "./viewport/fit";
+import { FACE_OFFSET, FACE_OFFSET_UNDER_PICTURES, PICTURE_OFFSET } from "./viewport/depth";
+import { FIT_RADIUS_FLOOR,MAX_PERSPECTIVE_NEAR, fitDistance, fitRadius, perspectiveNear } from "./viewport/fit";
 import { styledEdges, averagedNormals, smoothNormals } from "./viewport/edges";
 import { adoptPainted, checkerTexture, forgetPainted, profileMaterial, textureFor } from "./viewport/materials";
 import { DEFAULT_TPAINT, decodePixels, Painter, sampleRgba, stroke3DCommand, trisOf, uvAt } from "./texturepaint";
@@ -45,7 +51,7 @@ import { isMac, isTypingTarget } from "./keymap";
 import { paintCommand, paintReach } from "./paintmods";
 import { DEFAULT_VPAINT, effectiveRadius, extendStroke, ringPoints, sceneDiagonal, stepRadius, strokeCommand } from "./vertexpaint";
 import type { Tool, BuildSettings, FaceStyle, Backdrop, Styles, Cam, ViewportApi, PluginPoint, Props, Op, LabelSpec, Last, WallPlan, RoomPreview, RoomRow, TPaintRun } from "./viewport/types";
-import { areaText, dragLabel, fillRects, gridStep, modeLabel, roomLabel, roomMode, roomModeKey, snapGrid, type Rect, type RoomMode } from "./viewport/rooms";
+import { areaText, dragLabel, fillRects, gridStep, centreCorners, groundCorners, modeLabel, roomLabel, roomMode, roomModeKey, snapRoomPoint, type Rect, type RoomMode, type RoomSnap } from "./viewport/rooms";
 export { autoTagColor };
 export type { Tool, BuildSettings, FaceStyle, Backdrop, Styles, Cam, ViewportApi, PluginPoint };
 
@@ -94,6 +100,9 @@ export default function Viewport(props: Props) {
   const [box, setBox] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
 
   const live = useRef(props);
+  /** a standard view turned Parallel on by itself: the way it looks (camera direction), to go back to perspective
+   *  once the camera turns away from it */
+  const autoParallel = useRef<THREE.Vector3 | null>(null);
   /** How many quick presses in a row (1 single, 2 double, 3 triple) and the last press */
   const clicks = useRef(1);
   const lastDown = useRef<{ t: number; x: number; y: number; button: number } | null>(null);
@@ -213,12 +222,34 @@ export default function Viewport(props: Props) {
     const ortho = new THREE.OrthographicCamera(-10, 10, 10, -10, -10000, 10000);
     ortho.up.set(0, 0, 1);
     const controls = new OrbitControls(persp, renderer.domElement);
-    controls.enableDamping = true;
+    // the glide after an orbit or pan: Camera > Smooth Camera (#251)
+    controls.enableDamping = glideOn();
     controls.dampingFactor = 0.14;
+    const unwatchGlide = watchGlide((on) => (controls.enableDamping = on));
     controls.screenSpacePanning = true;
     controls.zoomToCursor = true;
     controls.minDistance = FIT_RADIUS_FLOOR;
     controls.enableZoom = false; // our own wheel handler: trackpads orbit, pinch zooms
+
+    // Orbit about the surface point under the cursor when an orbit starts (SketchUp's way); off with sketchcraft.orbitPivot=off.
+    // Nothing under the cursor: the view's centre, as before. The camera's eye never moves at the start, so the view does not jump.
+    const pivotUnder = (cx: number, cy: number): THREE.Vector3 | null => {
+      let on = true;
+      try {
+        on = orbitPivotEnabled((k) => localStorage.getItem(k));
+      } catch {
+        /* private window: on */
+      }
+      if (!on || !t.current) return null;
+      return pick({ clientX: cx, clientY: cy })?.point ?? null;
+    };
+    let swipePivot: THREE.Vector3 | null = null;
+    let swipeAt = 0;
+    let pivot: THREE.Vector3 | null = null;
+    let pivotTimer = 0;
+    let lastQuat = new THREE.Quaternion();
+    let lastDown = { x: 0, y: 0 };
+    window.addEventListener("pointerdown", (e) => (lastDown = { x: e.clientX, y: e.clientY }), true);
 
     // Trackpad: two-finger swipe orbits, Shift+swipe pans, pinch zooms toward the cursor.
     // Mouse wheel: zooms toward the cursor.
@@ -241,6 +272,7 @@ export default function Viewport(props: Props) {
         target.add(d);
       } else if (trackpad) {
         // orbit around the target, Z up
+        const before = cam.quaternion.clone();
         const off = cam.position.clone().sub(target);
         const r = off.length();
         const az = Math.atan2(off.y, off.x) - e.deltaX * 0.006;
@@ -248,6 +280,15 @@ export default function Viewport(props: Props) {
         el = THREE.MathUtils.clamp(el, -1.5, 1.5);
         cam.position.set(target.x + r * Math.cos(el) * Math.cos(az), target.y + r * Math.cos(el) * Math.sin(az), target.z + r * Math.sin(el));
         cam.lookAt(target);
+        // turn about the point under the cursor where the swipe began, not the view's centre
+        const now = performance.now();
+        if (now - swipeAt > 300) swipePivot = pivotUnder(e.clientX, e.clientY);
+        swipeAt = now;
+        if (swipePivot) {
+          const d = pivotShift(swipePivot, target, before, cam.quaternion);
+          cam.position.add(d);
+          target.add(d);
+        }
       } else {
         // zoom toward what's under the cursor
         const f = Math.exp((pinch ? e.deltaY * 0.012 : Math.sign(e.deltaY) * 0.12));
@@ -256,8 +297,15 @@ export default function Viewport(props: Props) {
         rc.setFromCamera(new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1), cam);
         const focus = rc.ray.intersectPlane(new THREE.Plane().setFromNormalAndCoplanarPoint(cam.getWorldDirection(new THREE.Vector3()).negate(), target), new THREE.Vector3()) ?? target.clone();
         if (cam === T.ortho) {
+          // toward the cursor too: the point under it stays put
+          const ndc = new THREE.Vector3(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1, 0);
+          const before = ndc.clone().unproject(T.ortho);
           T.ortho.zoom = THREE.MathUtils.clamp(T.ortho.zoom / f, 0.02, 200);
           T.ortho.updateProjectionMatrix();
+          const shift = before.sub(ndc.clone().unproject(T.ortho));
+          T.ortho.position.add(shift);
+          target.add(shift);
+          T.ortho.updateMatrixWorld();
         } else {
           const minR = FIT_RADIUS_FLOOR;
           if (f < 1 && cam.position.distanceTo(target) * f < minR) return;
@@ -271,10 +319,27 @@ export default function Viewport(props: Props) {
     renderer.domElement.addEventListener("wheel", wheel, { passive: false });
     // moving the camera leaves a matched photo's view (as in SketchUp)
     controls.addEventListener("start", () => {
+      window.clearTimeout(pivotTimer);
+      lastQuat = controls.object.quaternion.clone();
+      pivot = isRotateState((controls as unknown as { state: number }).state) ? pivotUnder(lastDown.x, lastDown.y) : null;
       if (backdropOn.current) showBackdrop(null);
       rememberView();
     });
-    controls.addEventListener("end", () => rememberView());
+    controls.addEventListener("end", () => {
+      rememberView();
+      // the turn eases out for a moment after the drag ends; after that, other camera moves are not about the pivot
+      pivotTimer = window.setTimeout(() => (pivot = null), 2000);
+    });
+    // each step of a turn (and of its easing out) is made about the picked point instead of the target
+    controls.addEventListener("change", () => {
+      const cam = controls.object;
+      if (pivot) {
+        const d = pivotShift(pivot, controls.target, lastQuat, cam.quaternion);
+        cam.position.add(d);
+        controls.target.add(d);
+      }
+      lastQuat = cam.quaternion.clone();
+    });
     renderer.domElement.addEventListener("wheel", () => backdropOn.current && showBackdrop(null));
 
     const world = new THREE.Scene();
@@ -292,6 +357,9 @@ export default function Viewport(props: Props) {
     const grid = new THREE.GridHelper(600, 600, 0xd5d8e2, 0xe4e6ee);
     grid.rotation.x = Math.PI / 2;
     (grid.material as THREE.Material).depthWrite = false;
+    // drawn before the model, so a face on the floor always covers it (#253: a
+    // box's bottom face fought with the grid when looked at inside the box)
+    grid.renderOrder = -10;
     ground.add(grid);
     // the drawing axes (moved and turned by the Axes tool)
     axesGroup.current.matrixAutoUpdate = false;
@@ -300,12 +368,17 @@ export default function Viewport(props: Props) {
       axesGroup.current.add(new THREE.Line(g, new THREE.LineBasicMaterial({ color: c, transparent: true, opacity: 0.55 })));
     }
     world.add(axesGroup.current);
-    const catcher = new THREE.Mesh(new THREE.PlaneGeometry(2000, 2000), new THREE.ShadowMaterial({ opacity: 0.22 }));
+    // pushed further back than model faces are (they take polygonOffset 1/1), so
+    // a face lying on the floor wins even at grazing angles, where the offset
+    // scales with the slope and outgrows the 1 cm the ground sits below
+    const catcher = new THREE.Mesh(new THREE.PlaneGeometry(2000, 2000), new THREE.ShadowMaterial({ opacity: 0.22, polygonOffset: true, polygonOffsetFactor: 6, polygonOffsetUnits: 12 }));
     catcher.receiveShadow = true;
     catcher.visible = false;
     ground.add(catcher);
     world.add(ground);
     const sky = skyDome();
+    skipAO(sky);
+    skipAO(ground);
     world.add(sky);
 
     const model = new THREE.Group();
@@ -313,6 +386,8 @@ export default function Viewport(props: Props) {
     const preview = new THREE.Group();
     const cage = new THREE.Group();
     world.add(model, overlay, preview, cage, cloudGroup.current);
+    // only the model's own faces cast ambient occlusion
+    for (const o of [overlay, preview, cage]) skipAO(o);
 
     t.current = { renderer, persp, ortho, camera: persp, controls, world, sun, model, overlay, preview, cage, ground, sky, catcher, pickMesh: null, editMesh: null, groundZ: 0 };
     const syncControlsNear = () => syncPerspectiveNear(t.current!.camera.position.distanceTo(controls.target));
@@ -322,8 +397,7 @@ export default function Viewport(props: Props) {
       const { clientWidth: w, clientHeight: h } = el;
       renderer.setSize(w, h);
       frames.invalidate(); // a resized canvas starts blank, even at the same size
-      ao.current?.composer.setSize(w, h);
-      ao.current?.gt.setSize(w, h);
+      ao.current?.composer.setSize(w, h); // sizes the AO pass too, in device pixels
       persp.aspect = w / Math.max(h, 1);
       persp.updateProjectionMatrix();
       syncOrtho(false);
@@ -342,6 +416,12 @@ export default function Viewport(props: Props) {
       }
       controls.update();
       const cam = t.current!.camera;
+      // orbited away from a standard view that turned Parallel on: back to perspective
+      const ap = autoParallel.current;
+      if (ap && cam.getWorldDirection(new THREE.Vector3()).dot(ap) < Math.cos(THREE.MathUtils.degToRad(1))) {
+        autoParallel.current = null;
+        live.current.onParallel?.(false);
+      }
       if (sky.visible) {
         sky.position.copy(cam.position);
         sky.scale.setScalar(Math.max(cam.near * 10, Math.min(cam.far * 0.5, 5000)));
@@ -354,12 +434,17 @@ export default function Viewport(props: Props) {
         // nothing to draw
       } else if (live.current.styles.ao) {
         // ambient occlusion: render through a post-processing chain (built on first use)
+        if (ao.current && ao.current.composer.renderer !== renderer) {
+          ao.current.composer.dispose();
+          ao.current = null;
+        }
         if (!ao.current) {
           const size = renderer.getSize(new THREE.Vector2());
           const composer = new EffectComposer(renderer);
           const rp = new RenderPass(world, cam);
           const gt = new GTAOPass(world, cam, size.x, size.y);
           gt.output = GTAOPass.OUTPUT.Default;
+          setupAO(gt);
           composer.addPass(rp);
           composer.addPass(gt);
           composer.addPass(new OutputPass());
@@ -368,7 +453,7 @@ export default function Viewport(props: Props) {
           ao.current = { composer, rp, gt };
         }
         ao.current.rp.camera = cam;
-        ao.current.gt.camera = cam;
+        syncAO(ao.current.gt, cam, cam.position.distanceTo(controls.target));
         ao.current.composer.render();
       } else renderer.render(world, cam);
       if (draw) frames.drew(renderer, world, cam, extra);
@@ -381,7 +466,11 @@ export default function Viewport(props: Props) {
       cancelAnimationFrame(raf);
       ro.disconnect();
       controls.removeEventListener("change", syncControlsNear);
+      unwatchGlide();
       controls.dispose();
+      // the AO chain draws with this renderer: it goes with it (kept, the next view drew AO into a dead canvas)
+      ao.current?.composer.dispose();
+      ao.current = null;
       renderer.dispose();
       el.removeChild(renderer.domElement);
     };
@@ -413,10 +502,13 @@ export default function Viewport(props: Props) {
     const T = t.current;
     if (!T) return;
     const want = styles.parallel ? T.ortho : T.persp;
+    if (!styles.parallel) autoParallel.current = null;
     if (T.camera !== want) {
       if (styles.parallel) syncOrtho(true);
       else {
-        T.persp.position.copy(T.ortho.position);
+        // as close as parallel was zoomed: the same size on screen at the target
+        const off = T.ortho.position.clone().sub(T.controls.target);
+        T.persp.position.copy(T.controls.target).addScaledVector(off, 1 / Math.max(T.ortho.zoom, 1e-3));
         T.persp.quaternion.copy(T.ortho.quaternion);
       }
       T.camera = want;
@@ -428,7 +520,7 @@ export default function Viewport(props: Props) {
     T.catcher.visible = styles.shadows;
     buildModel();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [styles.xray, styles.shadows, styles.edges, styles.parallel, styles.backEdges, styles.face, styles.profiles, styles.vertexColors, styles.checker, styles.sketchy, styles.extensions, styles.background, styles.byTag, styles.notes, styles.hideRest, styles.lineWeights]);
+  }, [styles.xray, styles.shadows, styles.edges, styles.parallel, styles.backEdges, styles.face, styles.profiles, styles.vertexColors, styles.checker, styles.sketchy, styles.extensions, styles.background, styles.byTag, styles.notes, styles.hideRest, styles.lineWeights, styles.showHidden]);
 
   // ---------------------------------------------------------------- labels
   /** Keep one DOM label per spec; positions are updated every frame. */
@@ -729,6 +821,7 @@ export default function Viewport(props: Props) {
       }
     }
     T.model.children.forEach((c) => (c as THREE.Mesh).geometry?.dispose());
+    if (T.pickMesh && T.pickMesh.parent !== T.model) T.pickMesh.geometry.dispose(); // the undrawn pick copy
     T.model.clear();
     const xray = live.current.styles.xray;
     const clip = st.current.section ? [st.current.section] : st.current.cutaway ? [st.current.cutaway] : [];
@@ -785,7 +878,10 @@ export default function Viewport(props: Props) {
     const sty = live.current.styles;
     const faceStyle: FaceStyle = sty.face ?? "textured";
     const bg = BACKGROUNDS[sty.background ?? "default"];
-    const common = { side: THREE.FrontSide as THREE.Side, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1, transparent: xray, opacity: xray ? 0.42 : 1, depthWrite: !xray, clippingPlanes: clip };
+    // pictures are drawn over the base mesh on the same plane: keep the base well behind them (see viewport/depth.ts)
+    const pictures = faceStyle === "textured" && !!s.triTex?.some((i) => i >= 0);
+    const baseOffset = pictures ? FACE_OFFSET_UNDER_PICTURES : FACE_OFFSET;
+    const common = { side: THREE.FrontSide as THREE.Side, polygonOffset: true, polygonOffsetFactor: baseOffset.factor, polygonOffsetUnits: baseOffset.units, transparent: xray, opacity: xray ? 0.42 : 1, depthWrite: !xray, clippingPlanes: clip };
     // physically based: a soft studio around the model to reflect, made once
     const physical = faceStyle === "physical";
     if (physical && !envMap.current) envMap.current = new THREE.PMREMGenerator(T.renderer).fromScene(new RoomEnvironment(), 0.04).texture;
@@ -820,11 +916,32 @@ export default function Viewport(props: Props) {
       if (faceStyle === "monochrome") return new THREE.MeshLambertMaterial({ ...common, side, color: 0xeceef3 });
       return new THREE.MeshLambertMaterial({ ...common, side, vertexColors: true });
     };
-    const front = new THREE.Mesh(geo, mat(THREE.FrontSide));
-    const back = new THREE.Mesh(bgeo, mat(THREE.BackSide));
+    // Under a textured face only its picture is drawn (the textured meshes below): a plain copy under it, in the
+    // same plane, fought it for depth, and the plain color flickered through in perspective (#222). Picking still
+    // uses every face (pick, below).
+    const texturedTri = (tri: number) => {
+      const ti = s.triTex?.[tri] ?? -1;
+      return ti >= 0 && !!s.materials.find((m) => m.name === s.textures[ti])?.texture;
+    };
+    let shown = geo;
+    let shownBack = bgeo;
+    if (faceStyle === "textured" && s.triTex?.some((ti) => ti >= 0)) {
+      const collapse = (g: THREE.BufferGeometry) => {
+        const c = g.clone();
+        const a = c.getAttribute("position").array as Float32Array;
+        for (let tri = 0; tri < s.triFace.length; tri++) if (texturedTri(tri)) for (let k = 3; k < 9; k++) a[tri * 9 + k] = a[tri * 9 + (k % 3)];
+        return c;
+      };
+      shown = collapse(geo);
+      shownBack = collapse(bgeo);
+    }
+    const front = new THREE.Mesh(shown, mat(THREE.FrontSide));
+    const back = new THREE.Mesh(shownBack, mat(THREE.BackSide));
     front.castShadow = back.castShadow = live.current.styles.shadows;
     front.receiveShadow = live.current.styles.shadows;
     T.model.add(front, back);
+    // what clicks hit: every face (not drawn; the shown meshes may leave textured faces to their pictures)
+    const pick = shown === geo ? front : new THREE.Mesh(geo, front.material);
 
     // profiles: an outline around every shape
     const box = new THREE.Box3().setFromBufferAttribute(geo.getAttribute("position") as THREE.BufferAttribute);
@@ -835,6 +952,7 @@ export default function Viewport(props: Props) {
       pg.setAttribute("normal", new THREE.BufferAttribute(averagedNormals(s.positions), 3));
       const outline = new THREE.Mesh(pg, profileMaterial(bg.line, 2.2, clip));
       outline.raycast = () => {}; // not pickable
+      skipAO(outline); // an outline is not a surface: in the AO pass it would speckle every profile
       T.model.add(outline);
     }
 
@@ -859,9 +977,10 @@ export default function Viewport(props: Props) {
         geo2.setAttribute("normal", new THREE.BufferAttribute(smoothNormals(g.pos), 3));
         const mesh = new THREE.Mesh(
           geo2,
-          new THREE.MeshLambertMaterial({ map: textureFor(mat.name, mat.texture.data), vertexColors: !!vc, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 0, polygonOffsetUnits: 0, transparent: xray || (mat.opacity ?? 1) < 1, opacity: Math.min(xray ? 0.42 : 1, mat.opacity ?? 1), depthWrite: !xray && (mat.opacity ?? 1) >= 1, clippingPlanes: clip })
+          new THREE.MeshLambertMaterial({ map: textureFor(mat.name, mat.texture.data), vertexColors: !!vc, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: PICTURE_OFFSET.factor, polygonOffsetUnits: PICTURE_OFFSET.units, transparent: xray || (mat.opacity ?? 1) < 1, opacity: Math.min(xray ? 0.42 : 1, mat.opacity ?? 1), depthWrite: !xray && (mat.opacity ?? 1) >= 1, clippingPlanes: clip })
         );
         mesh.receiveShadow = live.current.styles.shadows;
+        mesh.castShadow = live.current.styles.shadows; // the plain faces under it are gone
         mesh.userData.texName = mat.name;
         T.model.add(mesh);
       }
@@ -925,7 +1044,8 @@ export default function Viewport(props: Props) {
     if (!backdropOn.current) {
       T.renderer.setClearColor(bg.clear, 1);
       T.ground.visible = bg.grid;
-      T.sky.visible = sty.background === "sky";
+      T.sky.visible = hasSky(sty.background);
+      if (hasSky(sty.background)) tintSky(T.sky, sty.background);
     }
     // section fill: the cut faces of walls and solids, dark, with a heavy outline
     if (st.current.section) {
@@ -1028,11 +1148,21 @@ export default function Viewport(props: Props) {
       soft.computeLineDistances();
       T.model.add(soft);
     }
+    if (live.current.styles.showHidden && s.ghostEdges?.length) {
+      // what you've hidden, faint and dashed, through faces (View > Hidden Geometry)
+      const gg = new THREE.BufferGeometry();
+      gg.setAttribute("position", new THREE.Float32BufferAttribute(s.ghostEdges, 3));
+      const ghost = new THREE.LineSegments(gg, new THREE.LineDashedMaterial({ color: 0x8a8ea0, dashSize: 0.1, gapSize: 0.08, depthTest: false, depthWrite: false, transparent: true, opacity: 0.6, clippingPlanes: clip }));
+      ghost.computeLineDistances();
+      ghost.renderOrder = 5;
+      ghost.raycast = () => {};
+      T.model.add(ghost);
+    }
     addGuides(T, s);
     addAnnotationLines(T, s);
     st.current.labels = [...annotationSpecs(), ...roomSpecs()];
     syncLabels();
-    T.pickMesh = front;
+    T.pickMesh = pick;
 
     addFigures(T, s, clip);
     // turn them to the camera now, not after the next frame is drawn (a new figure flashed its
@@ -1094,7 +1224,7 @@ export default function Viewport(props: Props) {
     let current = true;
     void exec({ cmd: "rooms" }).then((r) => {
       if (!current || !r.ok) return;
-      st.current.rooms = ((r as unknown as { rooms: RoomRow[] }).rooms ?? []).map((x) => ({ id: x.id, name: x.name, area: x.area, center: x.center }));
+      st.current.rooms = ((r as unknown as { rooms: RoomRow[] }).rooms ?? []).map((x) => ({ id: x.id, name: x.name, area: x.area, center: x.center, outline: x.outline, thickness: x.thickness }));
       st.current.labels = [...annotationSpecs(), ...roomSpecs()];
       syncLabels();
       placeLabels();
@@ -1567,6 +1697,25 @@ export default function Viewport(props: Props) {
   }
   const T0 = () => t.current!;
 
+  /** The Door or Window tool's size, from the build settings (a door stands on the floor). */
+  function openingSize(kind: "door" | "window") {
+    const b = live.current.build;
+    return kind === "door" ? { w: b.doorWidth, h: b.doorHeight, sill: 0 } : { w: b.windowWidth, h: b.windowHeight, sill: b.windowSill };
+  }
+
+  /** Door and Window tools: where the opening would go on the hovered wall, or why it can't (#264). */
+  function hoverOpening(e: { clientX: number; clientY: number }, kind: "door" | "window") {
+    clearPreview();
+    const T = t.current;
+    const h = pick(e);
+    if (!T || !h?.face) return live.current.onMeasure("", "");
+    const z = openingSize(kind);
+    const spot = openingSpot(kind, h.face.outer, h.face.normal, arr(h.point), z.w, z.h, z.sill);
+    if (!spot.ok) return live.current.onMeasure(spot.why, "");
+    T.preview.add(polyline(spot.corners.map((c) => V(c)), ACCENT, true));
+    live.current.onMeasure(kind === "door" ? "Door" : "Window", `${formatLength(z.w, units)} × ${formatLength(z.h, units)}`);
+  }
+
   function clearPreview() {
     const T = t.current;
     if (!T) return;
@@ -1617,7 +1766,7 @@ export default function Viewport(props: Props) {
     backdropOn.current = !!photo;
     T.renderer.setClearColor(0xf3f4f8, photo ? 0 : 1);
     T.ground.visible = !photo;
-    T.sky.visible = !photo && live.current.styles.background === "sky";
+    T.sky.visible = !photo && hasSky(live.current.styles.background);
   }
 
   function showSnap(sn: Snap) {
@@ -1700,34 +1849,70 @@ export default function Viewport(props: Props) {
   function view(name: "iso" | "top" | "front" | "right" | "back" | "left") {
     const T = t.current!;
     setFov(40);
-    const dirs: Record<string, Vec3> = { iso: [1, -1.35, 0.95], top: [0, -0.001, 1], front: [0, -1, 0.08], back: [0, 1, 0.08], right: [1, 0, 0.08], left: [-1, 0, 0.08] };
+    // Top, Front, Right...: straight along an axis, in parallel projection (zooming in perspective slides the eye
+    // sideways, and tall parts lean as if the model turned, #232); orbiting away goes back to perspective
+    const flat = name !== "iso";
+    const dirs: Record<string, Vec3> = { iso: [1, -1.35, 0.95], top: [0, -0.001, 1], front: [0, -1, 0], back: [0, 1, 0], right: [1, 0, 0], left: [-1, 0, 0] };
     const d = V(dirs[name]).normalize();
     const dist = T.camera.position.distanceTo(T.controls.target);
+    // leave parallel first (if it was switched on for an earlier view), so the camera below is the one shown
+    if (!flat && autoParallel.current) {
+      autoParallel.current = null;
+      live.current.onParallel?.(false);
+    }
     T.persp.position.copy(T.controls.target.clone().addScaledVector(d, dist));
     T.persp.lookAt(T.controls.target);
-    if (T.camera === T.ortho) {
-      T.ortho.position.copy(T.persp.position);
-      T.ortho.quaternion.copy(T.persp.quaternion);
-    }
+    // in parallel, the camera shown turns too: fit() aims along the shown camera (Top then Front did nothing in parallel)
+    if (T.camera === T.ortho) syncOrtho(true);
     fit();
+    if (flat && live.current.onParallel && (autoParallel.current || !live.current.styles.parallel)) {
+      autoParallel.current = d.clone().negate();
+      if (T.camera !== T.ortho) live.current.onParallel(true);
+    }
   }
 
   /** Orbit around the target by a drag of (dx, dy) pixels (the axis gizmo). */
   function orbitBy(dx: number, dy: number) {
+    orbitRad(dx * -0.009, dy * 0.009);
+  }
+
+  /** Orbit around the target: `yaw` radians counter-clockwise seen from above, `pitch` radians up over the model. */
+  function orbitRad(yaw: number, pitch: number) {
     const T = t.current;
     if (!T) return;
     const target = T.controls.target;
     const off = T.camera.position.clone().sub(target);
     const r = off.length();
     if (r < 1e-9) return;
-    let theta = Math.atan2(off.y, off.x) - dx * 0.009;
-    let phi = Math.acos(THREE.MathUtils.clamp(off.z / r, -1, 1)) - dy * 0.009;
+    let theta = Math.atan2(off.y, off.x) + yaw;
+    let phi = Math.acos(THREE.MathUtils.clamp(off.z / r, -1, 1)) - pitch;
     phi = THREE.MathUtils.clamp(phi, 0.001, Math.PI - 0.001);
     off.set(r * Math.sin(phi) * Math.cos(theta), r * Math.sin(phi) * Math.sin(theta), r * Math.cos(phi));
     T.camera.position.copy(target).add(off);
     if (T.camera === T.ortho) T.persp.position.copy(T.camera.position);
     T.camera.lookAt(target);
     T.controls.update();
+  }
+
+  /** A 3D mouse's slice of motion (spacemouse.ts): orbit, pan and zoom, from where the camera is now. */
+  function navigate(n: Nav) {
+    const T = t.current;
+    if (!T || live.current.paused) return;
+    if (backdropOn.current) showBackdrop(null);
+    if (n.yaw !== 0 || n.pitch !== 0) orbitRad(n.yaw, n.pitch);
+    if (n.panRight !== 0 || n.panUp !== 0) {
+      const cam = T.camera;
+      // a share of what the view spans at the target: the distance away, or the height an orthographic view shows
+      const span = cam === T.ortho ? (T.ortho.top - T.ortho.bottom) / T.ortho.zoom : cam.position.distanceTo(T.controls.target);
+      const right = new THREE.Vector3().setFromMatrixColumn(cam.matrix, 0);
+      const up = new THREE.Vector3().setFromMatrixColumn(cam.matrix, 1);
+      const d = right.multiplyScalar(n.panRight * span).add(up.multiplyScalar(n.panUp * span));
+      cam.position.add(d);
+      T.controls.target.add(d);
+      if (cam === T.ortho) T.persp.position.copy(cam.position);
+      T.controls.update();
+    }
+    if (n.dolly !== 1) dolly(n.dolly);
   }
 
   /** Look at the model along an axis: from +z is the top view, -y the front. */
@@ -2076,9 +2261,9 @@ export default function Viewport(props: Props) {
         op.r = Math.abs(lens[0]);
         return void (await commitCircle());
       case "carc":
-        if (!op.a || !lens.length) return;
-        // typed: the angle in degrees
-        op.ang = THREE.MathUtils.degToRad(lens[0]) * Math.sign(op.ang || 1);
+        if (!op.a || !nums.length) return;
+        // typed: the angle in degrees (a plain number, as Rotate takes it: a length would be read in the model's units)
+        op.ang = THREE.MathUtils.degToRad(nums[0]) * Math.sign(op.ang || 1);
         return void (await commitCarc());
       case "rrect":
         if (!op.b || !lens.length) return;
@@ -2175,6 +2360,7 @@ export default function Viewport(props: Props) {
       const o = ray({ clientX, clientY });
       return { origin: [o.origin.x, o.origin.y, o.origin.z] as Vec3, dir: [o.direction.x, o.direction.y, o.direction.z] as Vec3 };
     },
+    navigate,
     watchCamera: (cb: () => void) => {
       const c = t.current!.controls;
       c.addEventListener("change", cb);
@@ -2460,11 +2646,22 @@ export default function Viewport(props: Props) {
   }
 
   /** The ground point under the mouse, snapped to the room grid (0.1 m, or 6 in). */
-  function groundCorner(e: { clientX: number; clientY: number }): THREE.Vector3 | null {
+  /** A Room tool corner under the pointer: on a corner already there, in line with one, or on the grid. */
+  function roomPoint(e: { clientX: number; clientY: number }): RoomSnap | null {
     const q = ray(e).intersectPlane(new THREE.Plane(UP, 0), new THREE.Vector3());
     if (!q) return null;
-    const step = gridStep(units);
-    return new THREE.Vector3(snapGrid(q.x, step), snapGrid(q.y, step), 0);
+    const s = live.current.scene;
+    // rooms are drawn along their walls' centre lines: those corners are what a new room lines up with (a wall's
+    // faces are half a thickness either side, and a room snapped to them would sit off its neighbour)
+    const rooms = st.current.rooms.filter((r) => r.outline?.length && r.thickness);
+    const centre = rooms.flatMap((r) => centreCorners(r.outline!, r.thickness!));
+    const t = Math.max(0, ...rooms.map((r) => r.thickness!));
+    const other = (s ? groundCorners(s.edges) : []).filter((c) => !centre.some((k) => Math.abs(k[0] - c[0]) <= t && Math.abs(k[1] - c[1]) <= t));
+    return snapRoomPoint(q, [...centre, ...other], (x, y) => toScreen2(new THREE.Vector3(x, y, 0)), gridStep(units));
+  }
+  function groundCorner(e: { clientX: number; clientY: number }): THREE.Vector3 | null {
+    const p = roomPoint(e);
+    return p ? new THREE.Vector3(p.x, p.y, 0) : null;
   }
 
   async function commitRoom() {
@@ -2489,7 +2686,10 @@ export default function Viewport(props: Props) {
     const w = n.dot(V(f.outer[0]));
     const kind = live.current.build.roomOpening;
     const at = point.clone().addScaledVector(n, w - n.dot(point)); // onto the wall's face
-    at.z = kind === "door" ? base : Math.min(Math.max(point.z, base + 0.6), base + 1.6);
+    // a window (1.5 m tall) must fit under the wall's top: one poking through it would leave a gap in the wall
+    const top = Math.max(...f.outer.map((q) => q[2]));
+    const hi = Math.max(Math.min(base + 1.6, top - 1.6), base + 0.05);
+    at.z = kind === "door" ? base : Math.min(Math.max(point.z, Math.min(base + 0.6, hi)), hi);
     if (kind === "window" && Math.abs(point.z - base) < 0.05) at.z = base + 1.0;
     const rot = THREE.MathUtils.radToDeg(Math.atan2(n.y, n.x)) + 90;
     const r = await run({ cmd: "insert", asset: kind, at: arr(at), rotate: r4(rot), host: plan.face });
@@ -2942,10 +3142,13 @@ export default function Viewport(props: Props) {
       return;
     };
     const moveRoom = ({ e, L, op }: MoveArgs<"room">) => {
-      const c = groundCorner(e);
-      if (!c) return;
+      const p = roomPoint(e);
+      if (!p) return;
+      const c = new THREE.Vector3(p.x, p.y, 0);
       op.b = c;
-      setHint(null);
+      // the far corner says what it snapped to, as the first one did
+      if (p.kind === "grid") setHint(null);
+      else setHint({ ...toScreen2(c), label: p.kind === "corner" ? "Corner" : "In line", kind: p.kind === "corner" ? "endpoint" : "axis" });
       op.alt = e.altKey;
       const mode = roomMode(op.alt);
       const key = `${op.a.x},${op.a.y},${c.x},${c.y},${mode}`;
@@ -3183,6 +3386,9 @@ export default function Viewport(props: Props) {
           return moveScale({ e, L: L as Live, E, op, lock });
       }
 
+      // Door and Window tools: the opening's outline on the hovered wall (#264)
+      if (L.tool === "door" || L.tool === "window") return hoverOpening(e, L.tool);
+
       // nothing in progress: show what a click would hit
       if (["axes", "line", "freehand", "spline", "arc", "arccenter", "arc3", "pie", "rect", "rrect", "circle", "polygon", "tape", "dimension", "text", "move", "rotate", "scale", "place", "wall", "stairs", "column", "protractor"].includes(L.tool)) {
         const sn = infer(E, e, {});
@@ -3201,8 +3407,8 @@ export default function Viewport(props: Props) {
         const id = h ? h.owner : null;
         if (L.tool === "wallpull" || L.tool === "room") lookAtWall(h?.face ? h.owner : null, h?.point);
         if (L.tool === "room") {
-          const c = groundCorner(e);
-          if (c && !h?.face) setHint({ ...toScreen2(c), label: "Corner", kind: "endpoint" });
+          const p = roomPoint(e);
+          if (p && !h?.face) setHint({ ...toScreen2(new THREE.Vector3(p.x, p.y, 0)), label: p.kind === "corner" ? "Corner" : p.kind === "inline" ? "In line" : "Grid", kind: p.kind === "corner" ? "endpoint" : "axis" });
           else setHint(null);
         }
         if (id !== st.current.hover || he !== st.current.hoverEdge) {
@@ -3485,7 +3691,7 @@ export default function Viewport(props: Props) {
     const downTape = async ({ e, E, op }: DownArgs) => {
       if (op?.t === "tape") return void (await commitTape(infer(E, e, { anchor: op.p0, lock: st.current.lock }).p));
       const sn = infer(E, e, {});
-      st.current.op = { t: "tape", p0: sn.p, along: sn.kind === "on-edge" && sn.along ? sn.along : null, cur: sn.p };
+      st.current.op = { t: "tape", p0: sn.p, along: (sn.kind === "on-edge" || sn.kind === "on-guide") && sn.along ? sn.along : null, cur: sn.p };
       return;
     };
     const downDimension = async ({ e, E, op }: DownArgs) => {
@@ -3589,6 +3795,15 @@ export default function Viewport(props: Props) {
       const he = pickEdge(e);
       if (he == null) return L.onToast("Click an edge between two triangles.", true);
       await run({ cmd: "flip_edge", edge: he });
+      return;
+    };
+    const downOpening = async ({ e, L }: DownArgs) => {
+      const kind = L.tool === "door" ? "door" : "window";
+      const h = pick(e);
+      if (!h?.face) return L.onToast(`Click the side of a wall to put a ${kind} there.`, true);
+      const z = openingSize(kind);
+      await run({ cmd: "opening", kind, host: h.face.id, at: arr(h.point), width: z.w, height: z.h, sill: z.sill });
+      clearPreview();
       return;
     };
     const downColumn = async ({ e, L, E }: DownArgs) => {
@@ -3867,6 +4082,9 @@ export default function Viewport(props: Props) {
           return downFlipedge({ e, L: L as Live, E, op, sel });
         case "column":
           return downColumn({ e, L: L as Live, E, op, sel });
+        case "door":
+        case "window":
+          return downOpening({ e, L: L as Live, E, op, sel });
         case "paint":
           return downPaint({ e, L: L as Live, E, op, sel });
         case "vpaint":
@@ -4099,7 +4317,7 @@ export default function Viewport(props: Props) {
       }
       if (e.key === "Escape") {
         if (st.current.op) cancel();
-        else if (live.current.tool === "place") live.current.setTool("select");
+        else if (live.current.tool === "place" || live.current.tool === "door" || live.current.tool === "window") live.current.setTool("select");
         else if (live.current.scene?.editing != null || live.current.scene?.activeGroup != null) live.current.run({ cmd: "close" });
         else live.current.setSel(EMPTY);
         return;

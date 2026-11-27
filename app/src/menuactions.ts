@@ -79,8 +79,11 @@ export interface MenuCtx {
   /** the parts are laid out flat to look at (`lay_out_parts`), and the switch */
   laidOut: boolean;
   layOutParts: () => void;
-  toggleStyle: (key: "shadows" | "xray" | "backEdges" | "edges" | "profiles" | "vertexColors" | "sketchy" | "ao" | "notes" | "help" | "hideRest") => void;
+  toggleStyle: (key: "shadows" | "xray" | "backEdges" | "edges" | "profiles" | "vertexColors" | "sketchy" | "ao" | "notes" | "help" | "hideRest" | "showHidden") => void;
   setStyles: (patch: Partial<Styles>) => void;
+  /** the camera glides to a stop after an orbit or pan (#251) */
+  glide: boolean;
+  toggleGlide: () => void;
   // panels, layout, language
   workspaceTo: (id: string) => void;
   showTab: (tab: "outliner" | "library" | "views") => void;
@@ -89,7 +92,7 @@ export interface MenuCtx {
   setLayout: (l: Layout) => void;
   setLanguage: (l: string) => void;
   // dialogs and links
-  open: Record<"restore" | "render" | "sheets" | "layout" | "timeline" | "location" | "text3d" | "projection" | "positionTexture" | "uvEditor" | "newPaintTexture" | "photocraft" | "fixModel" | "checkModel" | "printCheck" | "cutPlan" | "dado" | "rabbet" | "tenon" | "makeFaces" | "flatten" | "plugins" | "themes" | "keys" | "keyEditor" | "palette" | "learn" | "about" | "customize", () => void>;
+  open: Record<"restore" | "render" | "sheets" | "layout" | "timeline" | "location" | "text3d" | "projection" | "positionTexture" | "uvEditor" | "newPaintTexture" | "photocraft" | "fixModel" | "checkModel" | "printCheck" | "cutPlan" | "dado" | "rabbet" | "tenon" | "makeFaces" | "flatten" | "plugins" | "themes" | "keys" | "keyEditor" | "spaceMouse" | "palette" | "learn" | "about" | "customize" | "welcome", () => void>;
   checkForUpdates: () => void;
   openLink: (which: "issues") => void;
 }
@@ -152,6 +155,7 @@ export function buildMenuActions(c: MenuCtx): Record<string, MenuAction> {
   for (const f of FACE_STYLES) add(`view.face.${f}`, () => c.setStyles({ face: f }), model, (s.face ?? "textured") === f);
   for (const b of BACKGROUNDS) add(`view.bg.${b}`, () => c.setStyles({ background: b }), model, (s.background ?? "default") === b);
   add("view.shadows", () => c.toggleStyle("shadows"), model, !!s.shadows);
+  add("view.hidden", () => c.toggleStyle("showHidden"), model, !!s.showHidden);
   add("view.xray", () => c.toggleStyle("xray"), model, !!s.xray);
   add("view.backedges", () => c.toggleStyle("backEdges"), model, !!s.backEdges);
   add("view.edges", () => c.toggleStyle("edges"), model, !!s.edges);
@@ -180,6 +184,7 @@ export function buildMenuActions(c: MenuCtx): Record<string, MenuAction> {
   add("view.next", c.nextView, model);
   add("view.perspective", () => c.setStyles({ parallel: false }), model, !s.parallel);
   add("view.parallel", () => c.setStyles({ parallel: true }), model, !!s.parallel);
+  add("view.glide", c.toggleGlide, true, c.glide);
 
   // every tool a menu offers (Draw, Tools, Camera)
   for (const id of ["orbit", "pan", "zoom", "zoomwindow", "position", "lookaround", "walk", "line", "freehand", "spline", "arc", "arccenter", "arc3", "pie", "rect", "rrect", "circle", "polygon", "wall", "room", "select", "move", "rotate", "scale", "push", "wallpull", "followme", "offset", "tape", "dimension", "text", "paint", "vpaint", "tpaint", "erase", "section"] as const) {
@@ -219,9 +224,11 @@ export function buildMenuActions(c: MenuCtx): Record<string, MenuAction> {
   add("win.views", () => c.showTab("views"), c.leftTabs.includes("views"));
   add("win.info", c.showRightPanel);
   add("win.keyeditor", c.open.keyEditor);
+  add("win.spacemouse", c.open.spaceMouse);
 
   // Help
   add("help.learn", c.open.learn);
+  add("help.welcome", c.open.welcome);
   add("help.shortcuts", c.open.keys);
   add("help.search", c.open.palette);
   add("help.updates", c.checkForUpdates);

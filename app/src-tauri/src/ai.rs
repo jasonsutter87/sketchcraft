@@ -85,9 +85,54 @@ pub fn chat(url: &str, messages: &Value) -> Result<String, String> {
 }
 
 fn agent() -> Caller {
-    let dir = std::env::temp_dir().join("sketchcraft-ai-empty-workspace");
-    let _ = std::fs::create_dir_all(&dir);
-    Caller::Mcp(Workspace::at(dir))
+    match shared_workspace() {
+        Some(ws) => Caller::Mcp(Workspace::at(ws)),
+        // no private folder could be made: no folder at all, then (a plugin's caller reaches modeling commands only,
+        // never a file), rather than a path in the shared temp folder that someone else could make first
+        None => Caller::Plugin,
+    }
+}
+
+/// The one private workspace this process uses: made once, so a failure to make a folder never leaves a new
+/// one in the temp folder on every call.
+fn shared_workspace() -> Option<std::path::PathBuf> {
+    static WS: std::sync::OnceLock<Option<std::path::PathBuf>> = std::sync::OnceLock::new();
+    WS.get_or_init(|| {
+        let base = std::env::temp_dir();
+        let ws = private_workspace(&base);
+        if ws.is_none() {
+            eprintln!("could not make a private empty workspace folder in {}: SketchCraft AI works on the model only", base.display());
+        }
+        ws
+    })
+    .clone()
+}
+
+/// An empty folder only this user can use. `base/sketchcraft-ai-empty-workspace` is kept when it is a real
+/// folder (not a link) we own that nobody else can open; on a shared `/tmp` another user may have made it
+/// first, and then a fresh folder with its own name (made with mode 0700) is used instead.
+pub fn private_workspace(base: &std::path::Path) -> Option<std::path::PathBuf> {
+    let fixed = base.join("sketchcraft-ai-empty-workspace");
+    if make_private(&fixed) {
+        return Some(fixed);
+    }
+    let unique = base.join(format!("sketchcraft-ai-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0)));
+    make_private(&unique).then_some(unique)
+}
+
+#[cfg(unix)]
+fn make_private(dir: &std::path::Path) -> bool {
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
+    // made by us just now (so ours), or already there: then it must be owned by this user (the owner of $HOME)
+    let made = std::fs::DirBuilder::new().mode(0o700).create(dir).is_ok();
+    let Ok(m) = std::fs::symlink_metadata(dir) else { return false };
+    let mine = made || std::env::var_os("HOME").and_then(|h| std::fs::metadata(h).ok()).is_some_and(|h| h.uid() == m.uid());
+    // not a link, is a folder, nobody else may open it, and we own it
+    m.file_type().is_dir() && !m.file_type().is_symlink() && m.permissions().mode() & 0o077 == 0 && mine
+}
+#[cfg(not(unix))]
+fn make_private(dir: &std::path::Path) -> bool {
+    std::fs::create_dir_all(dir).is_ok()
 }
 
 /// A group's name as the model uses it, `@` + this: lowercase, spaces and dashes as `_`, letters, digits and `_` only
@@ -384,6 +429,33 @@ fn resolve_names(live: &mut Live, list: &[Value]) -> (Vec<Value>, Vec<String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn the_workspace_is_private_and_a_planted_one_is_not_used() {
+        use std::os::unix::fs::PermissionsExt;
+        let base = std::env::temp_dir().join(format!("sc-ai-ws-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        let first = private_workspace(&base);
+        let first = first.unwrap();
+        assert_eq!(first, base.join("sketchcraft-ai-empty-workspace"));
+        assert_eq!(std::fs::metadata(&first).unwrap().permissions().mode() & 0o077, 0);
+        assert_eq!(private_workspace(&base), Some(first.clone())); // again: the same one
+        // somebody else's (open to others) is refused for a fresh folder
+        std::fs::set_permissions(&first, std::fs::Permissions::from_mode(0o777)).unwrap();
+        let second = private_workspace(&base).unwrap();
+        assert_ne!(second, first);
+        assert_eq!(std::fs::metadata(&second).unwrap().permissions().mode() & 0o077, 0);
+        // a link in its place is refused too
+        std::fs::remove_dir(&first).unwrap();
+        std::os::unix::fs::symlink(&base, &first).unwrap();
+        assert_ne!(private_workspace(&base), Some(first.clone()));
+        // a base that can't be written to gives nothing, and makes nothing
+        assert_eq!(private_workspace(&base.join("missing/deeper")), None);
+        assert_eq!(shared_workspace(), shared_workspace());
+        let _ = std::fs::remove_dir_all(&base);
+    }
 
     fn scratch(tag: &str) -> Live {
         let dir = std::env::temp_dir().join(format!("sc-ai-{tag}-{}", std::process::id()));

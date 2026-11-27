@@ -2,6 +2,7 @@
 //! Arms of `Engine::run`; each works on the model being edited (inside `edit`, the open component's definition).
 
 use super::*;
+use crate::recipe::Part;
 
 impl Engine {
     pub(super) fn run_build(&mut self, cmd: Command) -> Result<Value> {
@@ -32,10 +33,17 @@ impl Engine {
             Command::Smoove { group, at, radius, height } => json!({"moved": m.smoove(group, v3(at), radius, height)?}),
             Command::Stamp { group, face, offset } => json!({"moved": m.stamp(group, face, offset)?}),
             Command::Drape { group, ids } => json!({"lines": m.drape(group, &ids)?}),
-            Command::Wall { points, thickness, height, closed } => {
-                let pts: Vec<DVec3> = points.into_iter().map(v3).collect();
-                json!({"group": m.wall(&pts, thickness, height, closed)?})
+            Command::Wall { points, thickness, height, closed } => json!({"group": m.build_part(Part::Wall { points, thickness, height, closed })?.0}),
+            Command::PartInfo { group } => m.part_info(group)?,
+            Command::Opening { kind, host, at, width, height, sill } => {
+                if kind != "door" && kind != "window" {
+                    bail!("kind is door or window");
+                }
+                m.keep_closed(|m| m.place_opening(&kind, host, v3(at), width, height, sill))?
             }
+            Command::OpeningInfo { instance } => m.opening_info(instance)?,
+            Command::OpeningEdit { instance, width, height, sill } => m.keep_closed(|m| m.edit_opening(instance, width, height, sill))?,
+            Command::Rebuild { group, set, force } => m.keep_closed(|m| m.rebuild_part(group, &set, force))?,
             Command::RoomInfo { name } => m.room_info(&name)?,
             Command::FloorplanBuild { plan } => {
                 let plan = crate::floorplan::parse(&Value::Object(plan))?;
@@ -79,15 +87,22 @@ impl Engine {
                 json!({"rooms": list})
             }
             Command::Stairs { at, rise, direction, width, tread } => {
-                let (g, risers) = m.stairs(v3(at), direction, width, rise, tread)?;
-                json!({"group": g, "risers": risers, "riser_height": rise / risers as f64})
+                let (g, mut extra) = m.build_part(Part::Stairs { at, direction, width, rise, tread })?;
+                extra["group"] = json!(g);
+                extra
             }
-            Command::Roof { face, kind, pitch, overhang, thickness } => json!({"group": m.roof(face, &kind, pitch, overhang, thickness)?}),
-            Command::Column { at, size, height, round } => json!({"group": m.column(v3(at), size, height, round)?}),
+            Command::Roof { face, kind, pitch, overhang, thickness } => {
+                let outline = m.pts(&m.face(face)?.outer.clone()).iter().map(|p| p.to_array()).collect();
+                json!({"group": m.build_part(Part::Roof { outline, style: kind, pitch, overhang, thickness })?.0})
+            }
+            Command::Column { at, size, height, round } => json!({"group": m.build_part(Part::Column { at, size, height, round })?.0}),
             Command::Insert { asset, at, rotate, host } => {
                 let def = crate::assets::definition(m, &asset)?;
-                let instance = m.place(def, v3(at), rotate, None)?;
-                let opening = place_cut(m, instance, host);
+                // a door or window placed into a wall cuts it: the same net as the Door and Window tools
+                let (instance, opening) = m.keep_closed(|m| {
+                    let i = m.place(def, v3(at), rotate, None)?;
+                    Ok((i, place_cut(m, i, host)))
+                })?;
                 json!({"instance": instance, "component": def, "opening": opening})
             }
             Command::Assets => json!({"assets": crate::assets::ASSETS.iter().map(|a| json!({"key": a.key, "name": a.name, "about": a.about, "face_me": a.face_me})).collect::<Vec<_>>()}),

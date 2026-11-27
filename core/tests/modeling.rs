@@ -198,10 +198,15 @@ fn door_at_ground_splits_wall_and_recesses() {
     assert!(all.iter().all(|f| f["id"] != door), "door base removed: the recess is open");
     let back = all.iter().find(|f| f["id"] == r["face"]).unwrap();
     assert_eq!(vec3(&back["normal"]), -DVec3::Y);
-    // the recess floor faces up, its ceiling faces down
+    // the recess has a ceiling facing down; its floor would lie back to back on the box's own bottom at z = 0, so
+    // the two go and the bottom is notched under the door (as in SketchUp), and the box stays a closed solid
     let created: Vec<&Value> = r["created"].as_array().unwrap().iter().map(|id| all.iter().find(|f| &f["id"] == id).unwrap()).collect();
-    assert!(created.iter().any(|f| vec3(&f["normal"]) == DVec3::Z));
-    assert!(created.iter().any(|f| vec3(&f["normal"]) == -DVec3::Z));
+    assert!(created.iter().any(|f| vec3(&f["normal"]) == -DVec3::Z), "the ceiling");
+    assert!(!created.iter().any(|f| vec3(&f["normal"]) == DVec3::Z), "no floor left on the bottom face");
+    // facing down: the 8 x 12 bottom less the 1 x 0.3 notch, plus the recess ceiling of the same size
+    let down: f64 = all.iter().filter(|f| vec3(&f["normal"]) == -DVec3::Z).map(|f| f["area"].as_f64().unwrap()).sum();
+    assert!((down - 96.0).abs() < 1e-6, "{down}");
+    assert_eq!(run(&mut e, json!({"cmd": "check_solid"}))["solid"], true);
 }
 
 #[test]
@@ -586,6 +591,22 @@ fn hide_tags_and_soften() {
     let r = run(&mut e, json!({"cmd":"soften","coplanar":true}));
     assert_eq!(r["edges"], 1);
     assert_eq!(e.model.world_edges().iter().filter(|x| !x.soft).count(), 12 + 2, "box edges plus the two wall splits, not the seam");
+}
+
+#[test]
+fn the_scene_lists_what_is_hidden_as_ghost_edges_and_only_that() {
+    let mut e = Engine::new();
+    let g = run(&mut e, json!({"cmd":"begin_group","name":"A"}))["group"].clone();
+    make_box(&mut e);
+    run(&mut e, json!({"cmd":"end_group"}));
+    let shown = sketchcraft::scene::build(&e.model, None);
+    assert!(shown["ghostEdges"].as_array().unwrap().is_empty(), "nothing hidden, no ghosts");
+    run(&mut e, json!({"cmd":"hide","ids":[g]}));
+    let hidden = sketchcraft::scene::build(&e.model, None);
+    assert!(hidden["edges"].as_array().unwrap().is_empty(), "hidden edges still don't draw as real edges");
+    assert_eq!(hidden["ghostEdges"].as_array().unwrap().len(), 12 * 6, "the box's 12 edges, as segments");
+    run(&mut e, json!({"cmd":"unhide"}));
+    assert!(sketchcraft::scene::build(&e.model, None)["ghostEdges"].as_array().unwrap().is_empty());
 }
 
 #[test]
@@ -1843,7 +1864,7 @@ fn photos_solve_corners_and_camera_distances_together() {
     let truth = [("North-east", DVec3::new(14.0, 12.0, 4.0)), ("South", DVec3::new(3.0, -15.0, 2.0)), ("West", DVec3::new(-12.0, 6.0, 6.0))];
     let mut e = Engine::new();
     let target = DVec3::new(3.0, 2.0, 1.5);
-    let views: Vec<View> = truth.iter().map(|(n, eye)| View { name: n.to_string(), eye: eye.to_array(), target: target.to_array(), fov: 45.0, photo: Some("data:image/png;base64,AA==".into()), style: None, tags: None, hidden: None, section: None }).collect();
+    let views: Vec<View> = truth.iter().map(|(n, eye)| View { name: n.to_string(), eye: eye.to_array(), target: target.to_array(), fov: 45.0, photo: Some("data:image/png;base64,AA==".into()), style: None, tags: None, hidden: None, section: None, only: None }).collect();
     // marks where the true corners appear in each photo
     let points: Vec<PhotoPoint> = corners
         .iter()

@@ -5,6 +5,7 @@ import { ErrorBoundary } from "./boundary";
 import { ReadOnlyBanner } from "./readonlybanner";
 // the brand's type, bundled (the app's security policy allows no web fonts)
 import "@fontsource-variable/bricolage-grotesque/opsz.css";
+import "@fontsource-variable/open-sans/index.css";
 import "@fontsource/ibm-plex-mono/400.css";
 import "@fontsource/ibm-plex-mono/500.css";
 import "@fontsource/ibm-plex-mono/600.css";

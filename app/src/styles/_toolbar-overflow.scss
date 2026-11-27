@@ -22,8 +22,13 @@
   grid-auto-flow: column;
   font-size: $font-m;
   font-weight: 600;
-  color: var(--accent-ink, #4a3aa8);
   white-space: nowrap;
+
+  /* the accent ink only while it's a plain button: with the active tool inside it, it is lit like any active tool
+     (white on the accent; this rule came later than .tool.on and turned it blue on blue) */
+  &:not(.on) {
+    color: var(--accent-ink, #4a3aa8);
+  }
 
   .more-n {
     font-size: $font-xs;

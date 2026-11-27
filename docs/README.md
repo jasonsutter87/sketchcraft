@@ -15,6 +15,7 @@ The [guide](guide/README.md), in eleven short chapters:
 9. [Keyboard shortcuts](guide/09-shortcuts.md)
 10. [Troubleshooting and questions](guide/10-troubleshooting.md)
 11. [Coming from SketchUp](guide/11-from-sketchup.md)
+12. [SketchUp extensions: what runs](guide/12-ruby-extensions.md)
 
 ## Building on SketchCraft
 

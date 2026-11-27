@@ -234,7 +234,7 @@ export function Outliner({ scene, sel, setSel, run, byTag, setByTag }: { scene: 
   );
 }
 
-function Tags({ scene, sel, run, byTag, setByTag }: { scene: Scene; sel: Sel; run: Run; byTag: boolean; setByTag: (on: boolean) => void }) {
+export function Tags({ scene, sel, run, byTag, setByTag }: { scene: Scene; sel: Sel; run: Run; byTag: boolean; setByTag: (on: boolean) => void }) {
   const [renaming, setRenaming] = useState<string | null>(null);
   const [name, setName] = useState("");
   const tags = Object.entries(scene.tags).sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true }));

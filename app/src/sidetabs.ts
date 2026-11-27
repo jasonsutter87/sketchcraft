@@ -1,6 +1,6 @@
 // The Vertical layout's single right sidebar: Outliner | Library | Views | Properties, each taking the whole height.
 // Properties is what the Classic layout shows in its lower-right panel (Document, Style, Paint, Finish, Entity info).
-import { leftTabs, type Layout, type LeftTab, type WorkspaceId } from "./workspace";
+import { leftTabs, oneSidebar, type Layout, type LeftTab, type WorkspaceId } from "./workspace";
 
 export type SideTab = LeftTab | "properties" | "ai";
 
@@ -10,7 +10,7 @@ export const SIDE_TAB_KEY = "sketchcraft.sideTab";
 /** The tabs a layout shows: Vertical adds Properties to the left panel's tabs; the others keep them as they were.
  *  With `ai` (the labs switch, labs.ts), SketchCraft AI is the last tab in every workspace and layout. */
 export function panelTabs(ws: WorkspaceId, layout: Layout, ai = false): SideTab[] {
-  const tabs: SideTab[] = layout === "side" ? [...leftTabs(ws), "properties"] : [...leftTabs(ws)];
+  const tabs: SideTab[] = oneSidebar(layout) ? [...leftTabs(ws), "properties"] : [...leftTabs(ws)];
   return ai ? [...tabs, "ai"] : tabs;
 }
 

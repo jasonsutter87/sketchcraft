@@ -54,6 +54,18 @@ pub fn allowed(access: &Access, origin: Option<&str>, host: Option<&str>, token:
     origin_ok && host_ok && token_ok
 }
 
+/// The page origin to name in `Access-Control-Allow-Origin`: the one the request came from when it is the dev page
+/// under either spelling (127.0.0.1 or localhost), so a page opened at http://localhost:5174 can read the replies
+/// (naming only the 127.0.0.1 spelling made the browser drop every reply: no tool could draw); otherwise the
+/// dev page itself, which no other origin matches.
+pub fn allow_origin(access: &Access, origin: Option<&str>) -> String {
+    let page_localhost = access.page.replacen("127.0.0.1", "localhost", 1);
+    match origin {
+        Some(o) if o == page_localhost => page_localhost,
+        _ => access.page.clone(),
+    }
+}
+
 /// 32 hex characters from the operating system's randomness.
 pub fn new_token() -> String {
     let mut bytes = [0u8; 16];
@@ -192,7 +204,8 @@ pub fn serve_with(mut live: Live, opts: Options) -> anyhow::Result<()> {
         };
         let resp = Response::from_string(body.to_string())
             .with_header("Content-Type: application/json".parse::<Header>().unwrap())
-            .with_header(format!("Access-Control-Allow-Origin: {}", access.page).parse::<Header>().unwrap())
+            .with_header(format!("Access-Control-Allow-Origin: {}", allow_origin(&access, origin.as_deref())).parse::<Header>().unwrap())
+            .with_header("Vary: Origin".parse::<Header>().unwrap())
             .with_header(format!("Access-Control-Allow-Headers: content-type, {TOKEN_HEADER}").parse::<Header>().unwrap())
             .with_header("Cache-Control: no-store".parse::<Header>().unwrap());
         req.respond(resp).ok();
@@ -226,6 +239,19 @@ mod tests {
         assert!(!allowed(&a, None, Some("evil.example:5175"), Some("abc123")));
         // another port's page isn't trusted
         assert!(!allowed(&a, Some("http://127.0.0.1:8080"), Some("127.0.0.1:5175"), Some("abc123")));
+    }
+
+    #[test]
+    fn the_dev_page_is_answered_under_either_spelling() {
+        let a = access();
+        let local = DEFAULT_PAGE.replacen("127.0.0.1", "localhost", 1);
+        assert_ne!(local, DEFAULT_PAGE, "the default page is the 127.0.0.1 spelling");
+        assert_eq!(allow_origin(&a, Some(DEFAULT_PAGE)), DEFAULT_PAGE);
+        assert_eq!(allow_origin(&a, Some(&local)), local, "a page opened at localhost reads its replies");
+        // anyone else is named nothing they match
+        assert_eq!(allow_origin(&a, Some("https://evil.example")), DEFAULT_PAGE);
+        assert_eq!(allow_origin(&a, Some("http://localhost:8080")), DEFAULT_PAGE);
+        assert_eq!(allow_origin(&a, None), DEFAULT_PAGE);
     }
 
     #[test]

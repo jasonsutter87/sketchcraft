@@ -189,6 +189,6 @@ pub fn write_ifc(m: &Model, path: &str, project: &str) -> Result<usize> {
     if let Some(dir) = std::path::Path::new(path).parent() {
         std::fs::create_dir_all(dir).ok();
     }
-    std::fs::write(path, out)?;
+    crate::safety::write_output(path, out)?;
     Ok(elements.len())
 }

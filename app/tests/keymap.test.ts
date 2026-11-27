@@ -101,6 +101,15 @@ describe("presets", () => {
     expect(su["view.backedges"]).toBe("K");
     expect(su["help.search"]).toBe("Shift+S");
   });
+  it("gives Hidden Geometry and Unhide all keys no tool already uses", () => {
+    for (const id of ["sketchcraft", "sketchup"] as const) {
+      const b = presetBindings(id);
+      expect(b["view.hidden"]).toBe("Shift+H");
+      expect(b["edit.unhide"]).toBe("Mod+Shift+H");
+      for (const [cmd, key] of Object.entries(b)) if (key && cmd !== "view.hidden" && cmd !== "edit.unhide") expect([cmd, key]).not.toEqual([cmd, "Shift+H"]);
+      expect(Object.values(b).filter((k) => k === "Shift+H" || k === "Mod+Shift+H").length).toBe(2);
+    }
+  });
   it("leaves the tools SketchUp has no key for without one", () => {
     for (const t of ["polygon", "followme", "dimension", "text", "section", "spline"]) expect(su[`tool:${t}`]).toBe("");
     expect(presetBindings("sketchcraft")["tool:polygon"]).toBe("N");

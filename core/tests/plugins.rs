@@ -83,6 +83,23 @@ fn install_turn_off_and_remove_a_plugin() {
     let r = run(&mut e, json!({"cmd":"install_plugin","data": b64(&evil)}));
     assert_eq!(r["ok"], false, "{r}");
     assert!(!home.join("escape.js").exists() && !home.join("Plugins/evil").exists());
+    // names with direction marks or control characters, and Windows device names, are refused too
+    for bad in ["m\u{202E}rb.rb", "a\u{1}b.rb", "con.rb", "sub/NUL.txt", "com1.rb", "lpt9.rb"] {
+        let z = zip_of(&[("plugin.json", r#"{"name":"Odd","commands":[]}"#), ("main.js", ""), (bad, "x")]);
+        let r = run(&mut e, json!({"cmd":"install_plugin","data": b64(&z)}));
+        assert_eq!(r["ok"], false, "{bad}: {r}");
+        assert!(r["error"].as_str().unwrap().contains("unsafe file name"), "{r}");
+    }
+    // superscript-digit device names are refused in a zip, and a single .rb gets the same name checks
+    for bad in ["com\u{b9}.rb", "LPT\u{b2}.rb", "con.rb", "nul.rb", "m\u{202E}rb.rb", "a\u{1}b.rb", "a\u{200B}b.rb", ".hidden.rb", "a:b.rb", "a\\b.rb"] {
+        let r = run(&mut e, json!({"cmd":"install_plugin","data": b64(b"puts 1"),"name":bad}));
+        assert_eq!(r["ok"], false, "single {bad:?}: {r}");
+    }
+    let z = zip_of(&[("plugin.json", r#"{"name":"Odd","commands":[]}"#), ("main.js", ""), ("com\u{b9}.txt", "x")]);
+    assert_eq!(run(&mut e, json!({"cmd":"install_plugin","data": b64(&z)}))["ok"], false);
+    // menu labels read from Ruby code carry no direction or zero-width characters
+    let labels = sketchcraft::plugins::ruby_menu_labels(&[("a.rb".into(), "add_item(\"Ok\u{202E}\u{200B}\u{2066}fine\")".as_bytes().to_vec())]);
+    assert_eq!(labels, vec!["Okfine".to_string()]);
     // and one without plugin.json
     let r = run(&mut e, json!({"cmd":"install_plugin","data": b64(&zip_of(&[("main.js", "")]))}));
     assert!(r["error"].as_str().unwrap().contains("plugin.json"));

@@ -1,11 +1,14 @@
 // File actions: New, Open, Save, the imports and the exports. Each runs engine commands and
 // says what happened.
 import { stopWatching } from "./photocraft";
+import { MAX_BROWSER_FILE, fileTooBig } from "./filelimits";
 import type { RefObject } from "react";
 import type { Reply, Scene } from "./engine";
-import { exec, onMobileApp } from "./engine";
+import { exec, inTauri, onMobileApp } from "./engine";
 import { confirm } from "./ask";
 import { isModelPath, pickOpen, pickSave } from "./files";
+import { addRecent, forgetRecent } from "./recent";
+import { parseReport, readReportWhen, reportHeadline, shouldShow, type NamedReport } from "./importreport";
 import type { Sel } from "./selection";
 import { EMPTY } from "./selection";
 import type { ViewportApi } from "./Viewport";
@@ -32,17 +35,20 @@ export function skippedText(list: string[]): string {
   return `${list.length} picture${list.length === 1 ? " was" : "s were"} left out: ${shown}${list.length > 3 ? `; and ${list.length - 3} more` : ""}.`;
 }
 
+
 /** What an import left out, to follow its "Imported ..." line (empty when nothing was). */
 function importedSkips(r: Reply): string {
   return Array.isArray(r.skipped_pictures) && r.skipped_pictures.length ? ` ${skippedText(r.skipped_pictures as string[])}` : "";
 }
 
 /** Android: the native picker greys out .skp (Android has no MIME type for it) and returns content:// URIs the
- *  engine can't read from disk, so the phone picks through the web view instead, which gives the bytes and the real name. */
-function pickFileMobile(): Promise<File | null> {
+ *  engine can't read from disk, so the phone picks through the web view instead, which gives the bytes and the real name.
+ *  A browser picks the same way: nobody knows a file's full path, and the page gets its bytes. */
+function pickFileHere(accept?: string): Promise<File | null> {
   return new Promise((resolve) => {
     const input = document.createElement("input");
     input.type = "file";
+    if (accept) input.accept = accept;
     input.onchange = () => resolve(input.files?.[0] ?? null);
     input.oncancel = () => resolve(null);
     input.click();
@@ -51,11 +57,16 @@ function pickFileMobile(): Promise<File | null> {
 
 /** what the phone can import from bytes (Open of a .sketchcraft and the scan/IFC imports still need a path) */
 const MOBILE_IMPORT = /\.(skp|fbx|dxf|obj)$/i;
+/** in a browser: picked files, not typed paths (scans, IFC and DWG still need the desktop app, which reads them from disk) */
+const inBrowser = !inTauri;
+const BROWSER_OPEN = /\.(sketchcraft|skp|fbx|dxf|obj)$/i;
+const BROWSER_ACCEPT = ".sketchcraft,.skp,.fbx,.dxf,.obj";
+const BROWSER_ONLY = "In a browser SketchCraft opens .sketchcraft, .skp, .fbx, .dxf and .obj files; scans, IFC and DWG open in the desktop app";
 
 /** The model's name without its folder or extension (what a saved file is called after). */
 const modelBase = (file: string | null) => (file?.split("/").pop() ?? "model").replace(/\.sketchcraft$/, "");
 
-export function useFileActions({ run, say, refresh, api, scene, figure, currentFile, setCurrentFile, setSel }: {
+export function useFileActions({ run, say, refresh, api, scene, figure, currentFile, setCurrentFile, setSel, onReport }: {
   run: (cmd: Record<string, unknown>) => Promise<Reply>;
   say: (text: string, bad?: boolean) => void;
   refresh: () => Promise<void>;
@@ -65,6 +76,8 @@ export function useFileActions({ run, say, refresh, api, scene, figure, currentF
   currentFile: string | null;
   setCurrentFile: (p: string | null) => void;
   setSel: (s: Sel) => void;
+  /** a SketchUp import finished: what came across and what did not */
+  onReport?: (r: NamedReport) => void;
 }) {
   /** Open a bundled example (templates.ts EXAMPLES) in place of the model; the one open is kept in Backups first. */
   const openExample = async (name: string, data: string) => {
@@ -106,7 +119,10 @@ export function useFileActions({ run, say, refresh, api, scene, figure, currentF
 
   /** say what an import made, then show it */
   const reportImport = async (r: Reply, name: string) => {
-    say(`${r.layers != null ? cadSummary(name, r) : `Imported ${name}: ${r.faces} faces`}${importedSkips(r)}`, importedSkips(r) !== "");
+    const report = name.toLowerCase().endsWith(".skp") ? parseReport(r) : null;
+    const left = report && report.skipped.length > 0;
+    say(`${r.layers != null ? cadSummary(name, r) : `Imported ${name}: ${r.faces} faces`}${importedSkips(r)}${report ? ` (${reportHeadline(report)})` : ""}`, importedSkips(r) !== "" || !!left);
+    if (report && onReport && shouldShow(report, readReportWhen())) onReport({ ...report, name });
     if (r.focus) {
       await refresh();
       landOn(r);
@@ -119,6 +135,7 @@ export function useFileActions({ run, say, refresh, api, scene, figure, currentF
   const importFile = async (file: File) => {
     let r: Reply;
     const lower = file.name.toLowerCase();
+    if (fileTooBig(file)) return say(`${file.name} is too big to open here (the most is ${MAX_BROWSER_FILE / 1024 / 1024} MB)`, true);
     if (lower.endsWith(".skp") || lower.endsWith(".fbx")) {
       const bytes = new Uint8Array(await file.arrayBuffer());
       let bin = "";
@@ -181,11 +198,31 @@ export function useFileActions({ run, say, refresh, api, scene, figure, currentF
     },
     open: async () => {
       if (onMobileApp) {
-        const f = await pickFileMobile();
+        const f = await pickFileHere();
         if (!f) return;
         if (!MOBILE_IMPORT.test(f.name)) return say(`${f.name}: on the phone SketchCraft can open .skp, .fbx, .dxf and .obj files for now`, true);
         await run({ cmd: "new" });
         await importFile(f);
+        setCurrentFile(null);
+        setSel(EMPTY);
+        return;
+      }
+      if (inBrowser) {
+        const f = await pickFileHere(BROWSER_ACCEPT);
+        if (!f) return;
+        if (!BROWSER_OPEN.test(f.name)) return say(`${f.name}: ${BROWSER_ONLY}`, true);
+        if (fileTooBig(f)) return say(`${f.name} is too big to open here (the most is ${MAX_BROWSER_FILE / 1024 / 1024} MB)`, true);
+        stopWatching();
+        if (/\.sketchcraft$/i.test(f.name)) {
+          // no path in a browser: ⌘S asks where to save
+          const r = await run({ cmd: "open", data: await f.text() });
+          if (!r.ok) return;
+          api.current?.fitSoon();
+          await refresh();
+        } else {
+          await run({ cmd: "new" });
+          await importFile(f);
+        }
         setCurrentFile(null);
         setSel(EMPTY);
         return;
@@ -197,6 +234,7 @@ export function useFileActions({ run, say, refresh, api, scene, figure, currentF
         const r = await run({ cmd: "open", path });
         if (!r.ok) return;
         setCurrentFile(path);
+        addRecent(path);
         api.current?.fitSoon();
         await refresh();
       } else {
@@ -216,14 +254,21 @@ export function useFileActions({ run, say, refresh, api, scene, figure, currentF
       const r = await run({ cmd: "save", path });
       if (r.ok) {
         setCurrentFile(path);
+        addRecent(path);
         say(`Saved ${path.split("/").pop()}`);
       }
     },
     import: async () => {
       if (onMobileApp) {
-        const f = await pickFileMobile();
+        const f = await pickFileHere();
         if (!f) return;
         if (!MOBILE_IMPORT.test(f.name)) return say(`${f.name}: on the phone SketchCraft can import .skp, .fbx, .dxf and .obj files for now`, true);
+        return importFile(f);
+      }
+      if (inBrowser) {
+        const f = await pickFileHere(BROWSER_ACCEPT.replace(".sketchcraft,", ""));
+        if (!f) return;
+        if (!MOBILE_IMPORT.test(f.name)) return say(`${f.name}: ${BROWSER_ONLY}`, true);
         return importFile(f);
       }
       const path = await pickOpen();
@@ -243,6 +288,11 @@ export function useFileActions({ run, say, refresh, api, scene, figure, currentF
       if (!r.ok) return;
       // a 3MF that is not solid still opens in a slicer but prints badly: say so, and where to look
       if (kind === "3mf" && r.solid === false) say(`Exported ${path.split("/").pop()}, but the model is not solid. Tools > Print check says what to fix.`, true);
+      else if (kind === "obj" && typeof r.textures_dir === "string") {
+        // the pictures are files beside the .obj: Blender shows a missing one as purple, so say what to keep together
+        const skipped = Array.isArray(r.skipped) && r.skipped.length ? ` ${r.skipped.length} picture${r.skipped.length === 1 ? "" : "s"} could not be read and went out as plain color.` : "";
+        say(`Exported ${path.split("/").pop()} with ${r.mtl} and ${r.images} picture${r.images === 1 ? "" : "s"} in ${r.textures_dir}/. Keep them together in one folder.${skipped}`);
+      } else if (kind === "obj" && Array.isArray(r.skipped) && r.skipped.length) say(`Exported ${path.split("/").pop()}, but ${r.skipped.length} picture${r.skipped.length === 1 ? "" : "s"} could not be read and went out as plain color.`, true);
       else say(`Exported ${path.split("/").pop()}`);
     },
     section: async (kind: "svg" | "dxf") => {
@@ -285,5 +335,22 @@ export function useFileActions({ run, say, refresh, api, scene, figure, currentF
       if (r.ok) say(`Rendered ${path.split("/").pop()}`);
     },
   };
-  return { file, importFile, importPath, runTemplate, openExample };
+  /** Open a model by its path (a recent file): one that can't be opened any more comes off the list. */
+  const openPath = async (path: string): Promise<boolean> => {
+    if (!isModelPath(path)) return false;
+    stopWatching();
+    const r = await run({ cmd: "open", path });
+    if (!r.ok) {
+      forgetRecent(path);
+      return false;
+    }
+    setCurrentFile(path);
+    addRecent(path);
+    setSel(EMPTY);
+    api.current?.fitSoon();
+    await refresh();
+    return true;
+  };
+
+  return { file, importFile, importPath, runTemplate, openExample, openPath };
 }

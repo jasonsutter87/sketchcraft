@@ -1,0 +1,377 @@
+@use "variables" as *;
+@use "mixins" as *;
+
+/* ---------- Desktop layout: SketchUp's desktop window. Measured from SketchUp 2027 for Mac
+   (points): a white title strip; a 34pt tool bar on the chrome colour with 30pt buttons and short
+   grip separators, buttons for the workspace, AI, Themes and Render at its right end; a strip of
+   document tabs; a white strip of view tabs; the model; a white 33pt status bar (location and
+   Learn icons, the tool's hint, the Measurements box); and on the right a tray of folding
+   sections: #f4f7fc, 25.5pt #e0e1e9 bars 1.5pt apart. ---------- */
+
+$grip: #86898f;
+$stripe: #009ad9;
+$edge: #c8c8c9;
+$tray: #f4f7fc;
+$bar: #e0e1e9;
+$toolbar: 34px;
+$status: 33px;
+
+.app.desktop-layout {
+  grid-template-rows: auto minmax(0, 1fr);
+  background: $tray;
+
+  /* the tray is the right column (and takes the left panel's place: the column stays, at 0) */
+  &.tray-on {
+    grid-template-columns: 0 minmax(0, 1fr) clamp(260px, 30vw, 440px);
+  }
+
+  .su-top {
+    grid-column: 1 / -1;
+    grid-row: 1;
+    background: var(--bg);
+    border-bottom: 1px solid $edge;
+  }
+}
+
+.app.desktop-layout {
+  /* ----- the window's title, and the menus when there's no system menu bar ----- */
+  .su-title {
+    display: flex;
+    align-items: center;
+    height: 28px;
+    /* on the grid of the menus below: the logo starts where "File" does (the menu row's 6px, the
+       menu bar's 2px, then the item's 9px) */
+    padding-left: 17px;
+    gap: 8px;
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 600;
+    user-select: none;
+
+    /* the beaver, sized to the strip */
+    svg,
+    img {
+      width: auto;
+      height: 20px;
+      flex: none;
+    }
+  }
+
+  /* the desktop app on a Mac: the menus are in the system bar and the window buttons sit here */
+  .su-top.native .su-title {
+    padding-left: 84px;
+  }
+
+  .su-menus {
+    display: flex;
+    align-items: center;
+    height: 26px;
+    padding: 0 6px;
+    border-top: 1px solid var(--line);
+  }
+
+  /* ----- tool bar ----- */
+  .toolbar {
+    min-height: $toolbar;
+    padding: 2px 6px;
+    background: var(--panel);
+    border-bottom: 1px solid $edge;
+  }
+
+  .tool-group {
+    gap: 2px;
+    padding: 0 6px;
+    border: 0;
+
+    /* SketchUp's short grip between groups instead of a full-height rule */
+    & + .tool-group {
+      padding-left: 9px;
+      background: linear-gradient($grip, $grip) left center / 1.5px 20px no-repeat;
+    }
+  }
+
+  .tool {
+    @include size(30px);
+    border-radius: 4px;
+    color: var(--accent-ink);
+
+    &:hover {
+      background: var(--accent-soft);
+    }
+
+    &.on {
+      background: var(--accent-soft);
+      color: var(--accent-ink);
+      box-shadow: inset 0 0 0 1px $stripe;
+    }
+
+    &.more {
+      width: auto;
+      padding: 0 8px;
+    }
+  }
+
+  .toolbar .chip {
+    @include size(22px);
+    border-radius: 3px;
+  }
+
+  /* the workspace, AI, Themes and Render at the bar's right end */
+  .su-end {
+    position: absolute;
+    top: 0;
+    right: 0;
+    z-index: 8;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    height: $toolbar;
+    padding: 0 8px 0 10px;
+    background: linear-gradient($grip, $grip) left center / 1.5px 20px no-repeat;
+
+    .editing-pill {
+      margin-right: 6px;
+    }
+  }
+
+  .su-ws {
+    height: 24px;
+    margin-right: 6px;
+    padding: 0 6px;
+    border: 1px solid $edge;
+    border-radius: 3px;
+    background: var(--bg);
+    color: var(--accent-ink);
+    font: inherit;
+    font-size: 13px;
+  }
+
+  .su-icon {
+    display: grid;
+    place-items: center;
+    @include size(30px);
+    border-radius: 4px;
+    color: var(--accent-ink);
+
+    svg {
+      @include size(20px);
+    }
+
+    &:hover {
+      background: var(--accent-soft);
+    }
+  }
+
+  /* ----- document tabs ----- */
+  .su-doctabs {
+    order: 2;
+    display: flex;
+    align-items: flex-end;
+    gap: 4px;
+    height: 30px;
+    padding: 0 0 0 1px;
+    background: var(--panel);
+    border-bottom: 1px solid $edge;
+  }
+
+  .su-doctab {
+    display: flex;
+    align-items: center;
+    height: 29px;
+    margin-bottom: -1px;
+    padding: 0 16px;
+    border: 1px solid $edge;
+    border-bottom-color: var(--bg);
+    border-radius: 2px 2px 0 0;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 13px;
+    white-space: nowrap;
+  }
+
+  .su-docnew {
+    @include size(26px);
+    margin-bottom: 2px;
+    border: 1px solid $edge;
+    border-radius: 2px;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 15px;
+    line-height: 1;
+  }
+
+  /* ----- the strips under them: white, with bordered buttons like scene tabs ----- */
+  .views,
+  .ws-strip {
+    min-height: 33px;
+    background: var(--bg);
+    border-bottom: 1px solid $edge;
+
+    button {
+      height: 26px;
+      padding: 0 10px;
+      border: 1px solid $edge;
+      border-radius: 2px;
+      background: var(--bg);
+      color: var(--text);
+      font-weight: 400;
+
+      &:hover {
+        background: var(--panel);
+      }
+
+      &.on {
+        background: var(--accent-soft);
+        border-color: $stripe;
+        color: var(--accent-ink);
+      }
+    }
+  }
+
+  .views {
+    order: 3;
+    gap: 4px;
+    padding: 3px 4px;
+  }
+
+  .ws-strip {
+    order: 4;
+  }
+
+  .su-scene {
+    background: var(--panel);
+  }
+
+  .su-scene-add {
+    width: 26px;
+    padding: 0;
+    font-size: 15px;
+  }
+
+  .vsep {
+    width: 1.5px;
+    margin: 6px 4px;
+    background: $grip;
+  }
+
+  /* ----- status bar ----- */
+  @include status-bar($status, var(--bg), 1px solid $edge);
+
+  .su-status-icons {
+    position: absolute;
+    left: 6px;
+    bottom: 0;
+    z-index: 7;
+    display: flex;
+    align-items: center;
+    height: $status;
+
+    button {
+      display: grid;
+      place-items: center;
+      @include size(26px);
+      border-radius: 3px;
+      color: var(--text);
+
+      &:first-child {
+        color: var(--faint);
+      }
+
+      &:hover {
+        background: var(--panel);
+      }
+    }
+
+    &::after {
+      content: "";
+      width: 1px;
+      height: 22px;
+      margin-left: 6px;
+      background: $edge;
+    }
+  }
+
+  .tool-settings {
+    left: 364px;
+  }
+
+  .coach {
+    left: 72px;
+    color: var(--text);
+    font-size: 13px;
+  }
+
+  /* the Measurements box: a grey field behind a divider at the right; its name shows only
+     while a tool is measuring something */
+  .measure {
+    right: 0;
+    padding: 0 4px 0 10px;
+    border-left: 1px solid $edge;
+
+    label {
+      color: var(--muted);
+      font-size: 13px;
+
+      &.idle {
+        display: none;
+      }
+    }
+
+    input {
+      width: 276px;
+      height: 26px;
+      border: 1px solid $edge;
+      border-radius: 2px;
+      background: var(--panel);
+    }
+  }
+
+  /* ----- the tray (tray.ts / classictray.tsx), dressed as SketchUp's Default Tray ----- */
+  .panel.right {
+    background: $tray;
+    border-left: 1px solid $edge;
+  }
+
+  .tray {
+    padding: 0 2px 8px;
+
+    &::before {
+      content: "Default Tray";
+      display: flex;
+      flex: none;
+      align-items: center;
+      height: 30px;
+      margin: 0 -2px 2px;
+      padding: 0 8px;
+      background: var(--panel);
+      border-bottom: 1px solid $edge;
+      color: var(--text);
+      font-size: 13px;
+    }
+  }
+
+  .tray-panel {
+    border-bottom: 0;
+
+    & + .tray-panel {
+      margin-top: 1.5px;
+    }
+
+    .tray-body {
+      padding: 8px 12px 10px;
+    }
+  }
+
+  .tray-head {
+    gap: 10px;
+    height: 25.5px;
+    padding: 0 10px;
+    background: $bar;
+    font-size: 13px;
+    font-weight: 400;
+
+    &:hover {
+      background: #d6d7e0;
+    }
+  }
+}

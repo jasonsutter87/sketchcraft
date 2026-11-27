@@ -43,8 +43,8 @@ export const EXPORT_FORMATS: [string, string][] = [
 ];
 
 export const FACE_STYLES = ["textured", "physical", "shaded", "monochrome", "hiddenline", "wireframe"] as const;
-export const BACKGROUNDS = ["default", "paper", "blueprint", "night"] as const;
-export const LAYOUTS = ["floating", "classic", "side"] as const;
+export const BACKGROUNDS = ["default", "grey", "paper", "blueprint", "night"] as const;
+export const LAYOUTS = ["floating", "classic", "side", "web", "desktop"] as const;
 export const LANGUAGES = ["system", ...LANGUAGE_IDS] as const;
 
 export const MENUS: Menu[] = [
@@ -123,6 +123,7 @@ export const MENUS: Menu[] = [
       { label: "menu.background", items: BACKGROUNDS.map((b) => act(`view.bg.${b}`, `menu.bg.${b}`, "radio")) },
       SEP,
       act("view.shadows", "menu.shadows", "check"),
+      act("view.hidden", "menu.hiddenGeometry", "check"),
       act("view.xray", "menu.xray", "check"),
       act("view.backedges", "menu.backEdges", "check"),
       act("view.edges", "menu.edges", "check"),
@@ -159,6 +160,7 @@ export const MENUS: Menu[] = [
       SEP,
       act("view.perspective", "menu.perspective", "radio"),
       act("view.parallel", "menu.parallel", "radio"),
+      act("view.glide", "menu.glide", "check"),
       SEP,
       tool("orbit"),
       tool("pan"),
@@ -244,6 +246,7 @@ export const MENUS: Menu[] = [
       SEP,
       act("win.themes", "menu.themes"),
       act("win.keyeditor", "menu.customize"),
+      act("win.spacemouse", "menu.spacemouse"),
       act("win.plugins", "menu.manage"),
     ],
   },
@@ -251,6 +254,7 @@ export const MENUS: Menu[] = [
     id: "help",
     label: "menu.help",
     items: [
+      act("help.welcome", "menu.welcome"),
       act("help.learn", "menu.learn"),
       act("help.shortcuts", "menu.shortcuts"),
       act("help.search", "menu.commands"),

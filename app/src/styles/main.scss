@@ -30,6 +30,8 @@
 @use "gizmo";
 @use "fields";
 @use "classic-layout";
+@use "web-layout";
+@use "desktop-layout";
 @use "plugin-result";
 @use "skin-icons";
 @use "themes-window";
@@ -38,7 +40,9 @@
 @use "restore";
 @use "shortcuts";
 @use "paper";
+@use "welcome";
 @use "projection";
 @use "vertexpaint";
 @use "position";
 @use "uv";
+@use "tray";

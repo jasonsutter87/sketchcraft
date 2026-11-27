@@ -70,3 +70,99 @@
   background: var(--accent-soft);
   color: var(--accent-ink);
 }
+
+/* A status bar along the bottom of the model: drawn inside the model area (it isolates its
+   layers) so the tool's hint can sit on it, with the Value box at the right. */
+@mixin status-bar($h, $bg, $border: 0) {
+  .viewport::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 5;
+    height: $h;
+    background: $bg;
+    border-top: $border;
+    pointer-events: none;
+  }
+
+  /* the coach is down in the status bar here: the card can have the top-left corner */
+  .tool-settings {
+    left: 12px;
+  }
+
+  .coach {
+    top: auto;
+    left: 12px;
+    right: auto;
+    bottom: 0;
+    z-index: 6;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    max-width: calc(100% - 420px);
+    height: $h;
+    padding: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    backdrop-filter: none;
+    font-size: 14px;
+    white-space: nowrap;
+    overflow: hidden;
+
+    &-head {
+      margin: 0;
+      color: var(--accent-ink);
+
+      b {
+        display: none;
+      }
+    }
+
+    /* Help in the view bar turns it off */
+    &-hide {
+      display: none;
+    }
+
+    /* the sentence comes first; the key hints give way when there's no room */
+    &-step {
+      flex: none;
+    }
+
+    &-keys {
+      min-width: 0;
+      overflow: hidden;
+      flex-wrap: nowrap;
+      color: var(--muted);
+      font-size: 12px;
+    }
+  }
+
+  .measure {
+    bottom: 0;
+    z-index: 6;
+    height: $h;
+    padding: 0;
+    gap: 3px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+
+    label {
+      color: var(--text);
+      font-size: 13.33px;
+    }
+
+    input {
+      width: 155px;
+      height: 24px;
+      padding: 0 4px;
+      border: 1px solid var(--line-strong);
+      border-radius: 0;
+      background: var(--bg);
+    }
+  }
+}

@@ -291,9 +291,14 @@ pub fn write_atomic(path: impl AsRef<Path>, bytes: &[u8]) -> std::io::Result<()>
 /// `write_atomic`, but `guard` is asked as the very last step before the rename: false leaves the old file as it was.
 pub fn write_atomic_guarded(path: impl AsRef<Path>, bytes: &[u8], guard: impl FnOnce() -> bool) -> std::io::Result<Written> {
     let path = path.as_ref();
-    // a file that is a link is written through it (replacing the link would orphan its target)
+    // a file that is a link is written through it (replacing the link would orphan its target), except for an
+    // agent's or a plugin's command: a link there isn't followed (the rename below replaces a name, never follows one)
+    let is_link = std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink());
+    if is_link && no_follow() {
+        return Err(std::io::Error::other(format!("{} is a link; it was not written through", path.display())));
+    }
     let target;
-    let path = if std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink()) {
+    let path = if is_link {
         target = std::fs::canonicalize(path)?;
         target.as_path()
     } else {
@@ -489,7 +494,89 @@ pub fn note_skipped(what: &str, why: &str) {
     });
 }
 
+/// The pictures noted so far, without taking them (the import's report reads them; the command's reply takes them).
+pub fn peek_skipped() -> Vec<String> {
+    SKIPPED.with(|s| s.borrow().clone())
+}
+
 /// The pictures noted since the last call.
 pub fn take_skipped() -> Vec<String> {
     SKIPPED.with(|s| std::mem::take(&mut *s.borrow_mut()))
+}
+
+thread_local! {
+    /// While an agent's or a plugin's command runs: files it writes are not written through a link.
+    static NO_FOLLOW: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Set for the command about to run (the engine sets it for every command, from who sent it).
+pub fn set_no_follow(on: bool) {
+    NO_FOLLOW.with(|c| c.set(on));
+}
+
+/// Sets it for one command and puts back what was there when dropped, so a later write on this thread that isn't
+/// part of a command (an autosave) isn't held to an agent's rules.
+pub struct NoFollow(bool);
+impl NoFollow {
+    pub fn set(on: bool) -> NoFollow {
+        let was = no_follow();
+        set_no_follow(on);
+        NoFollow(was)
+    }
+}
+impl Drop for NoFollow {
+    fn drop(&mut self) {
+        set_no_follow(self.0);
+    }
+}
+
+/// Is it set on this thread? (Work handed to other threads carries it over with `set_no_follow`.)
+pub fn no_follow() -> bool {
+    NO_FOLLOW.with(|c| c.get())
+}
+
+/// A picture written as `write_output` writes, in the format its name asks for (PNG when it doesn't say).
+pub fn save_image<P, C>(img: &image::ImageBuffer<P, C>, path: impl AsRef<Path>) -> anyhow::Result<()>
+where
+    P: image::PixelWithColorType,
+    [P::Subpixel]: image::EncodableLayout,
+    C: std::ops::Deref<Target = [P::Subpixel]>,
+{
+    let path = path.as_ref();
+    let mut buf = std::io::Cursor::new(Vec::new());
+    img.write_to(&mut buf, image::ImageFormat::from_path(path).unwrap_or(image::ImageFormat::Png))?;
+    write_output(path, buf.into_inner())?;
+    Ok(())
+}
+
+/// Write an output file (an export, a report, a picture beside it). For an agent's or a plugin's command the file is
+/// opened so that a link put in its place after the path was checked is refused, not written through; the person's
+/// own exports write as they always have (through a link to wherever it points).
+pub fn write_output(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> std::io::Result<()> {
+    let path = path.as_ref();
+    if !NO_FOLLOW.with(|c| c.get()) {
+        return std::fs::write(path, bytes);
+    }
+    let mut o = std::fs::OpenOptions::new();
+    o.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        o.custom_flags(libc::O_NOFOLLOW);
+    }
+    #[cfg(not(unix))]
+    if std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink()) {
+        return Err(std::io::Error::other(format!("{} is a link", path.display())));
+    }
+    let mut f = o.open(path).map_err(|e| if e.raw_os_error() == Some(libc_eloop()) { std::io::Error::other(format!("{} is a link; it was not written through", path.display())) } else { e })?;
+    std::io::Write::write_all(&mut f, bytes.as_ref())
+}
+
+#[cfg(unix)]
+fn libc_eloop() -> i32 {
+    libc::ELOOP
+}
+#[cfg(not(unix))]
+fn libc_eloop() -> i32 {
+    -1
 }

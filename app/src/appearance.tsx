@@ -32,6 +32,38 @@ function Mini({ s }: { s: Skin }) {
 
 /** A tiny drawing of a layout: where the tool bars sit around the model. */
 function LayoutMini({ kind }: { kind: Layout }) {
+  if (kind === "desktop") {
+    return (
+      <svg className="layout-mini" viewBox="0 0 120 72" aria-hidden="true">
+        <rect x="0.5" y="0.5" width="119" height="71" rx="5" className="lm-frame" />
+        <rect x="1" y="1" width="118" height="5" className="lm-panel" />
+        <rect x="1" y="6" width="118" height="7" className="lm-bar" />
+        <rect x="1" y="13" width="84" height="5" className="lm-bar2" />
+        <rect x="1" y="18" width="84" height="48" className="lm-model" />
+        <rect x="85" y="13" width="34" height="58" className="lm-panel" />
+        {[16, 21, 26, 31, 36].map((y) => (
+          <rect key={y} x="87" y={y} width="30" height="3.5" className="lm-bar2" />
+        ))}
+        <rect x="1" y="66" width="84" height="5" className="lm-panel" />
+      </svg>
+    );
+  }
+  if (kind === "web") {
+    return (
+      <svg className="layout-mini" viewBox="0 0 120 72" aria-hidden="true">
+        <rect x="0.5" y="0.5" width="119" height="71" rx="5" className="lm-frame" />
+        <rect x="1" y="1" width="118" height="64" className="lm-model" />
+        <rect x="1" y="1" width="30" height="6" className="lm-float" />
+        <rect x="96" y="1" width="23" height="6" className="lm-float" />
+        <rect x="3" y="10" width="6" height="46" rx="1" className="lm-float" />
+        <rect x="88" y="9" width="31" height="22" className="lm-panel" />
+        {[34, 40, 46, 52].map((y) => (
+          <rect key={y} x="113" y={y} width="5" height="4.5" className="lm-float" />
+        ))}
+        <rect x="1" y="65" width="118" height="6" className="lm-bar2" />
+      </svg>
+    );
+  }
   if (kind === "side") {
     return (
       <svg className="layout-mini" viewBox="0 0 120 72" aria-hidden="true">
@@ -72,6 +104,8 @@ export function AppearanceDialog({
   onToast,
   layout,
   onLayout,
+  tray,
+  onTray,
 }: {
   current: Skin;
   onPick: (s: Skin, useBackdrop: boolean) => void;
@@ -79,6 +113,8 @@ export function AppearanceDialog({
   onToast: (t: string, bad?: boolean) => void;
   layout: Layout;
   onLayout: (l: Layout) => void;
+  tray: boolean;
+  onTray: (on: boolean) => void;
 }) {
   const [mine, setMine] = useState<Skin[]>([]);
   const [dir, setDir] = useState("");
@@ -195,6 +231,8 @@ export function AppearanceDialog({
                   ["classic", "Classic", "Tool bars docked above the model, like SketchUp"],
                   ["floating", "Floating", "SketchCraft's own: tool bars float over the model"],
                   ["side", "Vertical tools", "Tools on the left, Outliner and properties on the right"],
+                  ["desktop", "Desktop", "Tool bar and document tabs above the model, a tray of folding panels on the right, menus in the Mac menu bar"],
+                  ["web", "Web", "A slim tool rail on the left, panels that slide out from the right edge, a status bar along the bottom"],
                 ] as const
               ).map(([id, name, about]) => (
                 <button key={id} role="radio" aria-checked={layout === id} className={`layout-card${layout === id ? " on" : ""}`} onClick={() => onLayout(id)}>
@@ -204,6 +242,12 @@ export function AppearanceDialog({
                 </button>
               ))}
             </div>
+            {layout === "classic" && (
+              <label className="field check tray-check" title="A right-hand column of collapsible panels: Entity Info, Materials, Components, Styles, Environments, Tags, Scenes, Outliner">
+                <input type="checkbox" checked={tray} onChange={(e) => onTray(e.target.checked)} />
+                <span>Tray: collapsible panels down the right side</span>
+              </label>
+            )}
           </>
         )}
         {editing && (

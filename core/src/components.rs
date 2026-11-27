@@ -493,6 +493,43 @@ impl Model {
         Ok(())
     }
 
+    /// Show what `only` names (with what it sits inside and what sits inside it, and the edges of the faces it
+    /// names) and hide everything else: a scene that shows just some things (#229). Ids that are gone are skipped.
+    pub fn show_only(&mut self, only: &[Id]) {
+        let named: BTreeSet<Id> = only.iter().copied().collect();
+        // groups shown because something named is inside them (or they are named)
+        let mut up: BTreeSet<Id> = BTreeSet::new();
+        let owner = |m: &Model, id: Id| -> Option<Id> {
+            m.faces.get(&id).map(|f| f.group).or_else(|| m.edges.get(&id).map(|e| e.group)).or_else(|| m.groups.get(&id).map(|g| g.parent)).or_else(|| m.instances.get(&id).map(|i| i.parent)).flatten()
+        };
+        for &id in &named {
+            up.extend(self.ancestors(owner(self, id)));
+        }
+        // inside a named group (at any depth): shown with it
+        let within = |m: &Model, g: Option<Id>| m.ancestors(g).iter().any(|a| named.contains(a));
+        let face_edges: BTreeSet<(Id, Id)> = named
+            .iter()
+            .filter_map(|id| self.faces.get(id))
+            .flat_map(|f| f.loops().flat_map(|l| crate::model::pairs(l).map(|(a, b)| (a.min(b), a.max(b))).collect::<Vec<_>>()).collect::<Vec<_>>())
+            .collect();
+        let gh: Vec<(Id, bool)> = self.groups.iter().map(|(&id, g)| (id, !(named.contains(&id) || up.contains(&id) || within(self, g.parent)))).collect();
+        let ih: Vec<(Id, bool)> = self.instances.iter().map(|(&id, i)| (id, !(named.contains(&id) || within(self, i.parent)))).collect();
+        let fh: Vec<(Id, bool)> = self.faces.iter().map(|(&id, f)| (id, !(named.contains(&id) || within(self, f.group)))).collect();
+        let eh: Vec<(Id, bool)> = self.edges.iter().map(|(&id, e)| (id, !(named.contains(&id) || within(self, e.group) || face_edges.contains(&(e.a.min(e.b), e.a.max(e.b)))))).collect();
+        for (id, h) in gh {
+            self.groups.get_mut(&id).unwrap().hidden = h;
+        }
+        for (id, h) in ih {
+            self.instances.get_mut(&id).unwrap().hidden = h;
+        }
+        for (id, h) in fh {
+            self.faces.get_mut(&id).unwrap().hidden = h;
+        }
+        for (id, h) in eh {
+            self.edges.get_mut(&id).unwrap().hidden = h;
+        }
+    }
+
     pub fn unhide_all(&mut self) {
         self.faces.values_mut().for_each(|f| f.hidden = false);
         self.edges.values_mut().for_each(|e| e.hidden = false);

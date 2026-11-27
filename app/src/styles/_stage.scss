@@ -6,6 +6,8 @@
 .stage {
   position: relative;
   overflow: hidden;
+  /* the view bar folds by the model view's own width (see .views below) */
+  container-type: inline-size;
 }
 
 .viewport {
@@ -191,5 +193,83 @@
     &:hover {
       background: rgba(255, 255, 255, 0.16);
     }
+  }
+}
+
+/* The floating view bar (Vertical and Floating layouts) stays one row over the model: on a narrow model view the
+   style toggles fold behind ⋯, and come back as a second row while it's open (#226). Classic docks the bar as a
+   strip above the model, where it can wrap. */
+.views {
+  .views-more {
+    display: none;
+  }
+
+  .view-toggles {
+    display: contents;
+  }
+}
+
+@container (max-width: 960px) {
+  .app:not(.dock-classic) .views {
+    flex-wrap: nowrap;
+
+    .views-more {
+      display: block;
+    }
+
+    &:not(.more) .view-toggles {
+      display: none;
+    }
+
+    &.more {
+      flex-wrap: wrap;
+    }
+  }
+}
+
+// a build tool's settings over the view while it's in use (#263)
+.tool-settings {
+  position: absolute;
+  /* beside the tool coach (max 280 px wide, top-left), never over it */
+  top: calc(var(--below-views, 66px) - 2px);
+  left: 306px;
+  z-index: 6;
+  width: 210px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--panel, #fff);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.16);
+  font-size: 12px;
+  .build-options {
+    margin: 0;
+  }
+  .field {
+    margin: 4px 0;
+  }
+}
+// phones: the panels already sit under the view
+@media (max-width: 700px) {
+  .tool-settings {
+    display: none;
+  }
+}
+
+// Entity Info: a placed wall's, stair's, roof's or column's settings (#263)
+.part-settings {
+  margin: 8px 0;
+  .part-settings-title {
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  fieldset {
+    border: 0;
+    margin: 0;
+    padding: 0;
+    &:disabled {
+      opacity: 0.5;
+    }
+  }
+  .part-edited span {
+    font-size: 11px;
   }
 }

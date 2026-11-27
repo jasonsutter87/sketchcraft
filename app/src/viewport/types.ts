@@ -10,7 +10,7 @@ export type Tool =
   | "push" | "offset" | "followme" | "move" | "rotate" | "scale"
   | "tape" | "dimension" | "text" | "paint" | "vpaint" | "tpaint" | "erase" | "orbit" | "pan" | "zoom" | "section" | "place"
   | "position" | "lookaround" | "walk" | "zoomwindow" | "protractor"
-  | "wall" | "wallpull" | "room" | "stairs" | "roof" | "column"
+  | "wall" | "wallpull" | "room" | "stairs" | "roof" | "column" | "door" | "window"
   | "smoove" | "stamp" | "drape" | "flipedge"
   | "plugin";
 
@@ -29,6 +29,12 @@ export interface BuildSettings {
   columnSize: number;
   columnHeight: number;
   columnRound: boolean;
+  /** Door and Window tools (#264) */
+  doorWidth: number;
+  doorHeight: number;
+  windowWidth: number;
+  windowHeight: number;
+  windowSill: number;
   /** Sandbox */
   smooveRadius: number;
   smooveHeight: number;
@@ -39,7 +45,7 @@ export interface BuildSettings {
 }
 
 export type FaceStyle = "textured" | "shaded" | "monochrome" | "hiddenline" | "wireframe" | "physical";
-export type Backdrop = "sky" | "default" | "paper" | "blueprint" | "night";
+export type Backdrop = "sky" | "daylight" | "default" | "grey" | "paper" | "blueprint" | "night";
 
 export interface Styles {
   xray: boolean;
@@ -66,6 +72,8 @@ export interface Styles {
   vertexColors?: boolean;
   /** a checker over every face that has its own UVs, to see how a picture stretches (the UV editor's Checker) */
   checker?: boolean;
+  /** things you have hidden drawn as faint dashed lines (View > Hidden Geometry, Shift+H); off by default */
+  showHidden?: boolean;
   /** hidden edges shown dashed (SketchUp's Back Edges, K) */
   backEdges: boolean;
   /** draw tag and edge line weights and styles (default on) */
@@ -115,6 +123,8 @@ export interface ViewportApi {
   toClient: (p: Vec3) => [number, number] | null;
   /** the ray through a client pixel */
   rayAt: (clientX: number, clientY: number) => { origin: Vec3; dir: Vec3 };
+  /** a 3D mouse's slice of camera motion: orbit, pan and zoom (see spacemouse.ts) */
+  navigate: (n: import("../spacemouse").Nav) => void;
   /** call `cb` whenever the camera moves; returns the way to stop */
   watchCamera: (cb: () => void) => () => void;
 }
@@ -144,6 +154,9 @@ export interface Props {
   onContext: (x: number, y: number) => void;
   onToast: (t: string, bad?: boolean) => void;
   onSection: (on: boolean) => void;
+  /** turn Parallel Projection on or off from the view: standard views (Top, Front...) switch to it and orbiting
+   *  away switches back, as Blender's Auto Perspective does (#232) */
+  onParallel?: (on: boolean) => void;
   /** the coach's × */
   onHideHelp?: () => void;
   /** the view is put away (the Layout workspace covers it): it keeps everything but draws nothing and takes no keys */
@@ -208,6 +221,9 @@ export interface RoomRow {
   name: string;
   area: number;
   center: [number, number, number];
+  /** the inside, as the engine reports it (a rectilinear polygon), and its walls' thickness */
+  outline?: [number, number][];
+  thickness?: number;
 }
 
 export type Op =

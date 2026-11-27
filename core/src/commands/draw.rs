@@ -93,6 +93,7 @@ impl Engine {
                 v["unchanged"] = json!(r.changes() == 0);
                 v
             }
+            // not under the net: an outward offset on a solid makes a ledge around the face, open at its rim by design
             Command::Offset { face, distance } => json!({"face": m.offset(face, distance)?}),
             Command::FollowMe { face, points, edges, around } => {
                 let (path, closed) = if let Some(p) = points {
@@ -106,7 +107,7 @@ impl Engine {
                 } else {
                     bail!("follow_me needs points, edges or around");
                 };
-                let faces = m.follow_me(face, &path, closed)?;
+                let faces = m.keep_sound(true, |m| m.follow_me(face, &path, closed))?;
                 json!({"faces": faces})
             }
             Command::Pushpull { face, distance, toward } => {
@@ -114,7 +115,7 @@ impl Engine {
                     Some(t) if m.normal(face).dot(v3(t)) < 0.0 => -distance,
                     _ => distance,
                 };
-                let ids = m.pushpull(face, distance)?;
+                let ids = m.keep_closed(|m| m.pushpull(face, distance))?;
                 json!({"face": ids[0], "created": &ids[1..]})
             }
             Command::Move { ids, by } => json!({"moved": m.translate(&ids, v3(by))?}),

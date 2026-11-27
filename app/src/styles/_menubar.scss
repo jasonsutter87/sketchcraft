@@ -124,6 +124,13 @@
   }
 }
 
+/* "SketchCraft AI" says just "AI" (its tooltip has the rest), leaving the menus room beside the workspace switch */
+@media (max-width: 1500px) {
+  .topbar .ai-btn .ai-long {
+    display: none;
+  }
+}
+
 /* the workspaces are also in View > Workspaces, so the switch goes first when the window is narrow */
 @media (max-width: 1200px) {
   .topbar .ws-switch {
@@ -139,9 +146,10 @@
   }
 }
 
+/* at 1280px the workspace switch (five workspaces since Arch came in) starts where the eighth menu ended */
 @media (max-width: 1280px) {
   .menubar-item > button {
-    padding: 0 7px;
+    padding: 0 5px;
   }
 }
 

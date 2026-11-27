@@ -1,6 +1,6 @@
 [package]
 name = "sketchcraft-core"
-version = "0.3.10"
+version = "0.3.11"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/jasonsutter87/sketchcraft"
@@ -30,6 +30,10 @@ serde = { version = "1", features = ["derive", "rc"] }
 serde_json = { version = "1", features = ["float_roundtrip"] }
 tiny_http = "0.12"
 zip = { version = "9", default-features = false, features = ["deflate"] }
+
+[target.'cfg(unix)'.dependencies]
+# O_NOFOLLOW for files an agent or a plugin writes (safety::write_output)
+libc = "0.2"
 
 [dev-dependencies]
 zip = { version = "9", default-features = false, features = ["deflate"] }

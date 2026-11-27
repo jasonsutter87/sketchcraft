@@ -78,6 +78,22 @@ describe("parseLengths", () => {
   });
 });
 
+describe("a leading or trailing decimal point (#252)", () => {
+  it("reads .12 as 0.12", () => {
+    expect(parseLength(".12", "m")).toBeCloseTo(0.12);
+    expect(parseLength("-.5", "m")).toBeCloseTo(-0.5);
+    expect(parseLength("12.", "m")).toBeCloseTo(12);
+    expect(parseLength(".5m", "ft")).toBeCloseTo(0.5);
+    expect(parseLength('.5"', "m")).toBeCloseTo(0.5 * INCH);
+    expect(parseLength(".5'", "m")).toBeCloseTo(6 * INCH);
+    expect(parseLength("6 .5", "m")).toBeNaN();
+  });
+  it("splits lists that start a length with a point", () => {
+    expect(parseLengths(".5,.25", "m").map((x) => +x.toFixed(4))).toEqual([0.5, 0.25]);
+    expect(parseLengths("2m .5m", "m").map((x) => +x.toFixed(4))).toEqual([2, 0.5]);
+  });
+});
+
 describe("formatLength", () => {
   it("formats each unit", () => {
     expect(formatLength(2.5, "m")).toBe("2.50 m");

@@ -4,22 +4,44 @@
 
 use crate::geom;
 use crate::model::Model;
-use anyhow::Result;
+use anyhow::{Context as _, Result};
 use std::fmt::Write as _;
 use std::path::Path;
 
+/// What an OBJ export wrote: the triangles, and the pictures that go with them.
+#[derive(Debug, Default)]
+pub struct ObjReport {
+    pub triangles: usize,
+    /// the `.mtl` file's name (beside the `.obj`)
+    pub mtl: String,
+    /// the folder of pictures (beside the `.obj`), when there are any
+    pub textures_dir: Option<String>,
+    /// how many picture files were written
+    pub images: usize,
+    /// materials whose picture couldn't be read, so their faces went out in the plain color
+    pub skipped: Vec<String>,
+}
+
 pub fn write_obj(m: &Model, path: &str) -> Result<usize> {
+    Ok(write_obj_report(m, path)?.triangles)
+}
+
+pub fn write_obj_report(m: &Model, path: &str) -> Result<ObjReport> {
     let p = Path::new(path);
     if let Some(dir) = p.parent() {
         std::fs::create_dir_all(dir).ok();
     }
-    let mtl_path = p.with_extension("mtl");
+    let (mtl_path, tex_dir) = obj_siblings(p);
     let mtl_name = mtl_path.file_name().unwrap().to_string_lossy().to_string();
 
     let mut mtl = String::new();
     writeln!(mtl, "newmtl default\nKd 0.95 0.94 0.91\n")?;
+    // materials are named by colour: two of one colour share one entry (a file must not name a material twice)
+    let mut written = std::collections::BTreeSet::new();
     for mat in m.materials.values() {
-        writeln!(mtl, "newmtl {}\nKd {} {} {}\n", color_id(mat.color), mat.color[0], mat.color[1], mat.color[2])?;
+        if written.insert(color_id(mat.color)) {
+            writeln!(mtl, "newmtl {}\nKd {} {} {}\n", color_id(mat.color), mat.color[0], mat.color[1], mat.color[2])?;
+        }
     }
 
     let mut obj = format!("# SketchCraft export\nmtllib {mtl_name}\n");
@@ -45,34 +67,46 @@ pub fn write_obj(m: &Model, path: &str) -> Result<usize> {
         }
     }
     for (name, c) in &colors {
-        if !m.materials.keys().any(|k| mat_id(k) == *name) {
+        if !m.materials.keys().any(|k| mat_id(k) == *name) && written.insert(name.clone()) {
             writeln!(mtl, "newmtl {}\nKd {} {} {}\n", name, c[0], c[1], c[2])?;
         }
     }
     // textures: one material per image, the image beside the OBJ
-    let tex_dir_name = format!("{}_textures", p.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "model".into()));
+    let tex_dir_name = tex_dir.file_name().unwrap().to_string_lossy().to_string();
     let mut tex_mats: std::collections::BTreeMap<String, String> = Default::default();
     let mut tex_files = crate::texmap::FileNames::default();
     let mut vt = 0usize;
+    let mut skipped: Vec<String> = Vec::new();
     for (name, faces) in objects {
         writeln!(obj, "o {}", obj_token(&name))?;
         for f in faces {
             let n = f.normal;
-            let tex = crate::texmap::of_face(m, &f).and_then(|(mname, t)| {
-                if let Some(id) = tex_mats.get(mname) {
-                    return Some((id.clone(), t));
-                }
-                let (ext, data) = crate::texmap::bytes(t).ok()?;
-                let file = tex_files.name(mname, ext);
-                let dir = p.with_file_name(&tex_dir_name);
-                std::fs::create_dir_all(&dir).ok()?;
-                std::fs::write(dir.join(&file), data).ok()?;
-                let id = format!("t_{}", file.rsplit_once('.').map(|x| x.0).unwrap_or(&file));
-                let c = m.find_material(mname).map(|x| x.color).unwrap_or([1.0; 3]);
-                writeln!(mtl, "newmtl {id}\nKd {} {} {}\nmap_Kd {tex_dir_name}/{file}\n", c[0], c[1], c[2]).ok()?;
-                tex_mats.insert(mname.to_string(), id.clone());
-                Some((id, t))
-            });
+            let tex = match crate::texmap::of_face(m, &f) {
+                None => None,
+                Some((mname, t)) => match tex_mats.get(mname) {
+                    Some(id) => Some((id.clone(), t)),
+                    None if skipped.iter().any(|s| s == mname) => None,
+                    None => match crate::texmap::bytes(t) {
+                        // a picture that can't be read: its faces go out in the plain color, and the reply says so
+                        Err(_) => {
+                            skipped.push(mname.to_string());
+                            None
+                        }
+                        Ok((ext, data)) => {
+                            let file = tex_files.name(mname, ext);
+                            let dir = &tex_dir;
+                            // a picture that can't be written fails the export: an .obj naming missing images is the "purple" model
+                            std::fs::create_dir_all(&dir).with_context(|| format!("can't make the textures folder {}", dir.display()))?;
+                            crate::safety::write_output(dir.join(&file), data).with_context(|| format!("can't write the picture {}", dir.join(&file).display()))?;
+                            let id = format!("t_{}", file.rsplit_once('.').map(|x| x.0).unwrap_or(&file));
+                            let c = m.find_material(mname).map(|x| x.color).unwrap_or([1.0; 3]);
+                            writeln!(mtl, "newmtl {id}\nKd {} {} {}\nmap_Kd {tex_dir_name}/{file}\n", c[0], c[1], c[2])?;
+                            tex_mats.insert(mname.to_string(), id.clone());
+                            Some((id, t))
+                        }
+                    },
+                },
+            };
             match &tex {
                 Some((id, _)) => writeln!(obj, "usemtl {id}")?,
                 None => writeln!(obj, "usemtl {}", f.color.map(color_id).unwrap_or_else(|| "default".into()))?,
@@ -99,9 +133,20 @@ pub fn write_obj(m: &Model, path: &str) -> Result<usize> {
             }
         }
     }
-    std::fs::write(p, obj)?;
-    std::fs::write(&mtl_path, mtl)?;
-    Ok(count)
+    crate::safety::write_output(p, obj)?;
+    crate::safety::write_output(&mtl_path, mtl)?;
+    let images = tex_mats.len();
+    Ok(ObjReport { triangles: count, mtl: mtl_name, textures_dir: (images > 0).then_some(tex_dir_name), images, skipped })
+}
+
+/// The material file and the textures folder an OBJ export writes beside `path`.
+/// Named after it, but with no spaces: `mtllib` and `map_Kd` take space-separated
+/// arguments (`mtllib a.mtl b.mtl`), so "My House.mtl" reads as two files in
+/// Blender's and other importers, and the model comes in untextured (#222).
+pub fn obj_siblings(path: &Path) -> (std::path::PathBuf, std::path::PathBuf) {
+    let stem = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "model".into());
+    let safe: String = stem.chars().map(|c| if c.is_whitespace() || c.is_control() { '_' } else { c }).collect();
+    (path.with_file_name(format!("{safe}.mtl")), path.with_file_name(format!("{safe}_textures")))
 }
 
 /// One OBJ token: no spaces or control characters, so a name from the model
@@ -301,7 +346,7 @@ pub fn write_glb(m: &Model, path: &str) -> Result<usize> {
     if let Some(dir) = Path::new(path).parent() {
         std::fs::create_dir_all(dir).ok();
     }
-    std::fs::write(path, out)?;
+    crate::safety::write_output(path, out)?;
     Ok(tris)
 }
 
@@ -328,6 +373,6 @@ pub fn write_stl(m: &Model, path: &str, scale: f64) -> Result<usize> {
     if let Some(dir) = Path::new(path).parent() {
         std::fs::create_dir_all(dir).ok();
     }
-    std::fs::write(path, out)?;
+    crate::safety::write_output(path, out)?;
     Ok(tris.len())
 }
