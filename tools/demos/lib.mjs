@@ -306,3 +306,11 @@ export function encode(frames, out, { width = 960, mp4 = true } = {}) {
   const video = mp4 ? run(['-f', 'concat', '-safe', '0', '-i', list, '-vf', `fps=24,scale=${Math.max(width, 1280)}:-2:flags=lanczos,format=yuv420p`, '-c:v', 'libx264', '-crf', '28', '-movflags', '+faststart', out.replace(/\.gif$/, '.mp4')]) : Promise.resolve();
   return Promise.all([gif, video]);
 }
+
+/** Answer the app's own text box ("Save to which path?", File > Open): type the answer and press Enter. */
+export async function answerAsk(p, value) {
+  const box = p.locator('.sheet.ask input');
+  await box.waitFor({ timeout: 8000 });
+  await box.fill(value);
+  await box.press('Enter');
+}

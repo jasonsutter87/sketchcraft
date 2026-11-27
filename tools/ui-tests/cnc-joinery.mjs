@@ -7,7 +7,7 @@
 // makes); then the menus and dialogs are driven with real clicks, and the bridge is asked what happened.
 import fs from 'node:fs';
 import path from 'node:path';
-import { launch, PAGE, pageExec } from '../demos/lib.mjs';
+import { answerAsk, launch, PAGE, pageExec } from '../demos/lib.mjs';
 
 if (!process.env.SKETCHCRAFT_DOC) {
   console.error('Set SKETCHCRAFT_DOC to a scratch model path (and run the bridge with the same); tools/ui-tests/run.mjs does.');
@@ -35,8 +35,6 @@ await ctx.addInitScript(() => {
 const p = await ctx.newPage();
 p.on('pageerror', (e) => problems.push(String(e)));
 // the Save button asks for a path with a prompt in the browser: answer with the next path in the queue
-const answers = [];
-p.on('dialog', (d) => (d.type() === 'prompt' && answers.length ? d.accept(answers.shift()) : d.dismiss()).catch(() => {}));
 const X = (c) => pageExec(p, c);
 const toastText = () => p.locator('.toast').first().innerText({ timeout: 2500 }).catch(() => '');
 
@@ -135,14 +133,14 @@ try {
   check((await cut.locator('input[aria-label="Tool diameter"]').inputValue()) === '6', 'the CNC page starts with a 6 mm tool');
   await cut.locator('input[aria-label="Tool diameter"]').fill('wide');
   const zip = path.join(OUT, 'cnc.zip');
-  answers.push(zip);
   await cut.locator('[data-action="cnc-save"]').click();
+  await answerAsk(p, zip);
   await wait(300);
   check(/tool diameter/i.test(await cut.locator('[role=alert]').innerText().catch(() => '')) && !fs.existsSync(zip), 'a tool diameter that is not a length is refused and nothing is written');
   await cut.locator('input[aria-label="Tool diameter"]').fill('6');
   await cut.locator('input[aria-label="Dog-bone corners"]').check();
-  answers.push(zip);
   await cut.locator('[data-action="cnc-save"]').click();
+  await answerAsk(p, zip);
   await wait(1200);
   const bytes = fs.existsSync(zip) ? fs.readFileSync(zip) : Buffer.alloc(0);
   check(bytes.subarray(0, 2).toString() === 'PK', 'Save writes a .zip');

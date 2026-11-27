@@ -7,7 +7,7 @@
 // Like the other suites it runs on a scratch model, in a browser pinned to en-US, with real pointer and key events.
 import fs from 'node:fs';
 import path from 'node:path';
-import { exec, launch, PAGE, ROOT } from '../demos/lib.mjs';
+import { answerAsk, exec, launch, PAGE, ROOT } from '../demos/lib.mjs';
 
 if (!process.env.SKETCHCRAFT_DOC) {
   console.error('Set SKETCHCRAFT_DOC to a scratch model path (and run the bridge with the same); tools/ui-tests/run.mjs does.');
@@ -185,14 +185,14 @@ const isMac = process.platform === 'darwin';
   await p.keyboard.press('ArrowRight');
   await p.keyboard.press('ArrowDown');
   await wait(100);
-  check((await menu(p, 'File').count()) === 1 && (await focused(p)) === 'file.new', 'Down opens File and focuses New');
+  check((await menu(p, 'File').count()) === 1 && (await focused(p)) === 'file.welcome', 'Down opens File and focuses Welcome (the first item)');
   await p.keyboard.press('ArrowDown');
-  check((await focused(p)) === 'file.open', 'Down moves to Open');
+  check((await focused(p)) === 'file.new', 'Down moves to New');
   await p.keyboard.press('ArrowUp');
   await p.keyboard.press('ArrowUp');
   check((await focused(p)) === 'Plugins', 'Up from the first item wraps to the last (Plugins)');
   await p.keyboard.press('Home');
-  check((await focused(p)) === 'file.new', 'Home goes to the first item');
+  check((await focused(p)) === 'file.welcome', 'Home goes to the first item');
   await p.keyboard.press('End');
   check((await focused(p)) === 'Plugins', 'End goes to the last item');
   await p.keyboard.press('ArrowRight');
@@ -202,7 +202,7 @@ const isMac = process.platform === 'darwin';
   await wait(100);
   check((await menu(p, 'Plugins').count()) === 0 && (await focused(p)) === 'Plugins', 'Left closes the submenu and comes back');
   await p.keyboard.press('Home');
-  for (let i = 0; i < 7; i++) await p.keyboard.press('ArrowDown');
+  for (let i = 0; i < 8; i++) await p.keyboard.press('ArrowDown');
   check((await focused(p)) === 'Export', `Down arrives at Export (${await focused(p)})`);
   await p.keyboard.press('ArrowRight');
   await wait(150);
@@ -512,14 +512,13 @@ for (const layout of ['classic', 'floating', 'side']) {
   fs.rmSync(out, { force: true });
   const rect = await exec({ cmd: 'rect', from: [0, 0, 0], to: [2, 1, 0] });
   await exec({ cmd: 'pushpull', face: rect.face, distance: 1 });
-  p.removeAllListeners('dialog');
-  p.on('dialog', (d) => (d.type() === 'prompt' ? d.accept(out) : d.dismiss()).catch(() => {}));
   await openMenu(p, 'File');
   await p.getByRole('menuitem', { name: 'Export' }).hover();
   await item(p, 'file.export.fbx').waitFor();
   check((await item(p, 'file.export.fbx').innerText()).includes('FBX'), 'File > Export lists FBX');
   const sent = execRequest(p, 'export_fbx');
   await item(p, 'file.export.fbx').click();
+  await answerAsk(p, out);
   await sent.then(() => check(true, 'choosing FBX sends export_fbx'), () => check(false, 'choosing FBX sends export_fbx'));
   for (let i = 0; i < 100 && !(fs.existsSync(out) && fs.statSync(out).size > 0); i++) await wait(100);
   const size = fs.existsSync(out) ? fs.statSync(out).size : 0;
