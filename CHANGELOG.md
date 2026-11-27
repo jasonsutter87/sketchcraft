@@ -68,6 +68,11 @@ What changed in each SketchCraft release, newest first. The format follows
   Camera menus too. (#226)
 
 ### Fixed
+- **Ambient occlusion no longer blanks the view.** With Ambient occlusion on (the Architectural style), the model view
+  could come up empty, with no model, grid or sky, after the view was set up again (a layout change; always in the dev
+  build): the shading was drawn into the old view's canvas.
+- **The "+N more tools" button reads when it's lit.** With the active tool inside it, the button was blue on blue; it is
+  white on blue like every other active tool.
 - **A door leaves the wall solid.** A door, from the Door tool or the library, used to leave a face lying across the
   doorway on the floor, so the wall showed as "Not solid: has open edges". The floor of the doorway is open now.
 - **The tool settings card sits beside the tool tip** instead of on top of it.
