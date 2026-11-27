@@ -1369,7 +1369,7 @@ impl Model {
     }
 
     /// As `keep_closed`, and (`strict`) a solid whose every edge joined exactly two faces must stay so: for changes
-    /// that only reshape a surface (offset, follow me), where an edge shared three or four ways is a fault too.
+    /// that only reshape a surface (follow me), where an edge shared three or four ways is a fault too.
     pub fn keep_sound<T>(&mut self, strict: bool, change: impl FnOnce(&mut Model) -> Result<T>) -> Result<T> {
         let before = self.edge_faults_by_group(strict);
         let out = change(self)?;

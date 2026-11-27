@@ -72,7 +72,7 @@ What changed in each SketchCraft release, newest first. The format follows
 
 ### Fixed
 - **Cuts never leave a solid open without saying so.** A push/pull, a door or window (from the tools or placed from
-  the library into a wall), an opening edit, a rebuilt wall, an offset or a Follow Me that would open a gap in a
+  the library into a wall), an opening edit, a rebuilt wall or a Follow Me that would open a gap in a
   closed solid is now refused with a message, and the model stays as it was, instead of replying that all is well
   over a broken surface. Drawing or cutting a shape on a face that earlier lines or cuts had shaped no longer opens a
   seam along one of them, and an offset inside a group stays in that group.

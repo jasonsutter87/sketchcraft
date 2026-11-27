@@ -201,3 +201,12 @@ fn n04_a_follow_me_groove_never_says_ok_over_a_fault() {
         assert!(r["error"].as_str().unwrap_or("").contains("gap"), "{r}");
     }
 }
+
+#[test]
+fn an_outward_offset_on_a_solid_makes_its_ledge() {
+    let mut e = Engine::new();
+    slab(&mut e, &[[0., 0., 0.], [8., 0., 0.], [8., 6., 0.], [0., 6., 0.]], 3.0);
+    let t = top(&e, 3.0);
+    let r = run(&mut e, json!({"cmd": "offset", "face": t, "distance": -0.2}));
+    assert_eq!(r["ok"], true, "{r}");
+}
