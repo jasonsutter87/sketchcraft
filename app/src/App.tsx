@@ -565,6 +565,14 @@ function ModelingApp() {
   const paste = async (inPlace = false) => {
     const c = clip.current;
     if (!c) return say("Nothing to paste: select something and press ⌘C first.", true);
+    // a copy (not a cut), not in place: it rides on the cursor and a click puts it down, as in SketchUp
+    if (!inPlace && !c.cut && api.current && scene && c.ids.every((i) => scene.faces.some((f) => f.id === i) || scene.edgeList.some((e) => e.id === i) || scene.groups.some((g) => g.id === i) || scene.instances.some((x) => x.id === i))) {
+      const has = (list: { id: number }[]) => c.ids.filter((i) => list.some((x) => x.id === i));
+      setSel({ faces: has(scene.faces), edges: has(scene.edgeList), groups: has(scene.groups), instances: has(scene.instances) });
+      api.current.grabCopy(c.ids);
+      chooseTool("move");
+      return say("Click where it goes. Esc cancels.");
+    }
     const d = await run({ cmd: "duplicate", ids: c.ids, by: [0, 0, 0] });
     if (!d.ok) return;
     const ids = d.ids as number[];
@@ -593,7 +601,9 @@ function ModelingApp() {
   /** Copy or Cut (cut: out of sight until pasted; undo brings it back) */
   const copySelection = async (cut: boolean) => {
     if (isEmpty(sel)) return;
-    clip.current = { ids: selIds(sel), cut };
+    // a face's own edges come with it: copy the faces, groups and components (loose lines only when that's all there is)
+    const solid = [...sel.faces, ...sel.groups, ...sel.instances];
+    clip.current = { ids: solid.length ? solid : selIds(sel), cut };
     if (cut) {
       await run({ cmd: "hide", ids: clip.current.ids });
       setSel(EMPTY);
@@ -1432,7 +1442,8 @@ function ModelingApp() {
         </Toolbar>
 
         <div className={`views${viewsMore ? " more" : ""}`}>
-          {layout === "desktop" && (
+          {/* scene tabs, one click away (SketchUp): always in the Desktop layout, in the others once there are scenes */}
+          {(layout === "desktop" || (scene?.views.length ?? 0) > 0) && (
             <>
               {scene?.views.map((v) => (
                 <button key={v.name} className="su-scene" onClick={() => void showView(v)} title={`Go to the view “${v.name}”`}>

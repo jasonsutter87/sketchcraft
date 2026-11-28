@@ -93,6 +93,8 @@ export interface ViewportApi {
   applyTyped: (text: string) => void;
   /** Esc from the Value box: drop the operation in progress, as Esc in the view does */
   cancelOp: () => void;
+  /** Paste: hold a copy of these on the cursor with Move; a click puts it down */
+  grabCopy: (ids: number[]) => void;
   fit: () => void;
   fitSoon: () => void;
   /** frame this box (world corners), e.g. where most of an imported drawing is */
@@ -255,6 +257,8 @@ export type Op =
   /** Texture Paint: the material's picture being painted, the stroke's points so far, and the preview copy of the pixels */
   | { t: "tpaint"; mat: string; pts: [number, number, number][]; radius: number; erase: boolean; run: TPaintRun }
   | { t: "vpaint"; targets: number[]; pts: [number, number, number][]; radius: number; erase: boolean }
+  /** Eraser: press, drag over edges (each one marked), let go: all of them in one step */
+  | { t: "erase"; ids: number[]; face: number | null; shift: boolean; soften: boolean }
   | { t: "move"; base: THREE.Vector3; ids: number[]; delta: THREE.Vector3; copy: boolean; vertex?: { far: THREE.Vector3[] } }
   | { t: "rotate"; center: THREE.Vector3; n: THREE.Vector3; ref: THREE.Vector3 | null; angle: number; ids: number[]; copy?: boolean }
   | { t: "scale"; center: THREE.Vector3; start: THREE.Vector3; factor: number; ids: number[] }

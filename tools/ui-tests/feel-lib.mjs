@@ -62,7 +62,11 @@ export async function feel() {
     if (enter) await p.keyboard.press('Enter');
     await wait(300);
   };
-  const activeTool = () => p.locator('nav.toolbar button.tool.on').first().getAttribute('aria-label').catch(() => null);
+  // the tool that is on (one tucked behind "+N more" shows on the More button, named in its title)
+  const activeTool = async () => {
+    const b = p.locator('nav.toolbar button.tool.on').first();
+    return (await b.getAttribute('aria-label').catch(() => null)) || (await b.getAttribute('title').catch(() => null));
+  };
   /** an operation is in progress: the Value box names what it measures */
   const busy = () => p.locator('.measure label:not(.idle)').count().then((n) => n > 0);
   const fresh = async (build) => {

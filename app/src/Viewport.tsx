@@ -195,6 +195,8 @@ export default function Viewport(props: Props) {
     menuAt: number;
     panAt: number;
     selOverride: Sel | null;
+    /** a paste waiting for the Move tool: these ids, held on the cursor as a copy */
+    pendingGrab?: number[] | null;
     press: { x: number; y: number; fresh: boolean } | null;
     labels: LabelSpec[];
     liveLabels: LabelSpec[];
@@ -1289,6 +1291,7 @@ export default function Viewport(props: Props) {
   useEffect(() => {
     if (!t.current) return;
     cancel();
+    if (tool === "move") startGrab();
     setOrbitButtons();
     drawOverlay(); // the hover preview depends on the tool (red for erase, paint color...)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1779,6 +1782,36 @@ export default function Viewport(props: Props) {
     T.preview.children.forEach((c) => (c as THREE.Mesh).geometry?.dispose());
     T.preview.clear();
     if (st.current.liveLabels.length) setLive([]);
+  }
+
+  /** the edges an Eraser drag has passed over, marked in red until it lets go */
+  function drawEraseMarks() {
+    const op = st.current.op;
+    const T = t.current;
+    if (op?.t !== "erase" || !T) return;
+    clearPreview();
+    const s = live.current.scene;
+    const seg: number[] = [];
+    for (const ed of s?.edgeList ?? []) if (op.ids.includes(ed.id)) seg.push(...ed.a, ...ed.b);
+    if (seg.length) T.preview.add(lines(seg, 0xe5484d, false));
+  }
+
+  /** Paste: the copy rides on the cursor, held by its bounding box's corner, and one click puts it down (SketchUp) */
+  function startGrab() {
+    const ids = st.current.pendingGrab;
+    st.current.pendingGrab = null;
+    const s = live.current.scene;
+    if (!ids?.length || !s) return;
+    const has = (list: { id: number }[]) => ids.filter((i) => list.some((x) => x.id === i));
+    const sel: Sel = { faces: has(s.faces), edges: has(s.edgeList), groups: has(s.groups), instances: has(s.instances) };
+    const pos = trianglesOf(ownersOf(sel));
+    const box = new THREE.Box3();
+    for (let i = 0; i + 2 < pos.length; i += 3) box.expandByPoint(new THREE.Vector3(pos[i], pos[i + 1], pos[i + 2]));
+    for (const e of s.edgeList) if (sel.edges.includes(e.id)) (box.expandByPoint(V(e.a)), box.expandByPoint(V(e.b)));
+    if (box.isEmpty()) return;
+    st.current.selOverride = sel;
+    st.current.op = { t: "move", base: box.min.clone(), ids, delta: new THREE.Vector3(), copy: true };
+    live.current.onMeasure("Copy", fmt(0));
   }
 
   function cancel() {
@@ -2388,6 +2421,13 @@ export default function Viewport(props: Props) {
 
   props.api.current = {
     applyTyped,
+    grabCopy: (ids: number[]) => {
+      st.current.pendingGrab = ids;
+      if (live.current.tool === "move") {
+        cancel();
+        startGrab();
+      }
+    },
     cancelOp: () => {
       if (st.current.op) cancel();
     },
@@ -3448,6 +3488,11 @@ export default function Viewport(props: Props) {
           return moveRoom({ e, L: L as Live, E, op, lock });
         case "move":
           return moveMove({ e, L: L as Live, E, op, lock });
+        case "erase": {
+          const he = pickEdge(e);
+          if (he != null) for (const id of curveOf(he)) if (!op.ids.includes(id)) op.ids.push(id);
+          return drawEraseMarks();
+        }
         case "rotate":
           return moveRotate({ e, L: L as Live, E, op, lock });
         case "scale":
@@ -3775,6 +3820,13 @@ export default function Viewport(props: Props) {
         return;
       }
       const sn = infer(E, e, {});
+      // a click on an edge itself (not its ends): that edge's length, ready to pull out (SketchUp)
+      const he = sn.kind === "on-edge" ? pickEdge(e) : null;
+      const ed = he != null ? sceneNow().edgeList.find((x) => x.id === he) : undefined;
+      if (ed) {
+        st.current.op = { t: "dim", a: V(ed.a), b: V(ed.b), off: new THREE.Vector3(), cur: sn.p };
+        return;
+      }
       st.current.op = { t: "dim", a: sn.p, b: null, off: new THREE.Vector3(), cur: sn.p };
       return;
     };
@@ -3962,15 +4014,15 @@ export default function Viewport(props: Props) {
       await run(paintCommand(ent.kind === "faces" ? reach : "face", ent.id, { material: L.paintMaterial, color: L.color }));
       return;
     };
+    // a click erases what's under it; a drag marks every edge it passes over and erases them all on release,
+    // in one step (SketchUp). Shift hides instead, Option/Ctrl softens, both unsoften.
     const downErase = async ({ e }: DownArgs) => {
       const he = pickEdge(e);
       const soften = e.altKey || e.ctrlKey;
-      if (he != null) {
-        if (soften) return void (await run({ cmd: "soften", ids: curveOf(he), soft: !e.shiftKey }));
-        return void (await run({ cmd: e.shiftKey ? "hide" : "delete", ids: curveOf(he) }));
-      }
-      const h = pick(e);
-      if (h && !soften) await run({ cmd: e.shiftKey ? "hide" : "delete", ids: [entityOf(h).id] });
+      const h = he == null ? pick(e) : null;
+      st.current.op = { t: "erase", ids: he != null ? curveOf(he) : [], face: h && !soften ? entityOf(h).id : null, shift: e.shiftKey, soften };
+      el.setPointerCapture(e.pointerId);
+      drawEraseMarks();
       return;
     };
     const downSection = async ({ e, L }: DownArgs) => {
@@ -4215,6 +4267,15 @@ export default function Viewport(props: Props) {
       if (op?.t === "vpaint") {
         if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
         return void (await commitVPaint());
+      }
+      if (op?.t === "erase") {
+        if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
+        st.current.op = null;
+        clearPreview();
+        const ids = op.ids.length ? op.ids : op.face != null ? [op.face] : [];
+        if (!ids.length) return;
+        if (op.soften) return void (await run({ cmd: "soften", ids, soft: !op.shift }));
+        return void (await run({ cmd: op.shift ? "hide" : "delete", ids }));
       }
       if (op?.t === "tpaint") {
         if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
