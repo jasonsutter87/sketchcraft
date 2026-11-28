@@ -5,6 +5,7 @@
 import type { Styles, Tool } from "./Viewport";
 import { BACKGROUNDS, EXPORT_FORMATS, FACE_STYLES, LANGUAGES, LAYOUTS } from "./menumodel";
 import { WORKSPACES, type Layout } from "./workspace";
+import { WHEEL_MODES, type WheelMode } from "./viewport/wheel";
 
 export interface MenuAction {
   run: () => void;
@@ -90,6 +91,9 @@ export interface MenuCtx {
   showRightPanel: () => void;
   togglePanel: (side: "left" | "right") => void;
   setLayout: (l: Layout) => void;
+  /** View › Scroll wheel */
+  wheelMode: WheelMode;
+  setWheelMode: (m: WheelMode) => void;
   setLanguage: (l: string) => void;
   // dialogs and links
   open: Record<"restore" | "render" | "sheets" | "layout" | "timeline" | "location" | "text3d" | "projection" | "positionTexture" | "uvEditor" | "newPaintTexture" | "photocraft" | "fixModel" | "checkModel" | "printCheck" | "cutPlan" | "dado" | "rabbet" | "tenon" | "makeFaces" | "flatten" | "plugins" | "themes" | "keys" | "keyEditor" | "spaceMouse" | "palette" | "learn" | "about" | "customize" | "welcome", () => void>;
@@ -173,6 +177,7 @@ export function buildMenuActions(c: MenuCtx): Record<string, MenuAction> {
   add("view.panel.left", () => c.togglePanel("left"), true, c.showLeft);
   add("view.panel.right", () => c.togglePanel("right"), true, c.showRight);
   for (const l of LAYOUTS) add(`view.layout.${l}`, () => c.setLayout(l), true, c.layout === l);
+  for (const m of WHEEL_MODES) add(`view.wheel.${m}`, () => c.setWheelMode(m), true, c.wheelMode === m);
   add("view.customize", c.open.customize);
   add("win.themes", c.open.themes);
   for (const l of LANGUAGES) add(`lang.${l}`, () => c.setLanguage(l), true, c.language === l);

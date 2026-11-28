@@ -6,6 +6,7 @@
 // ("file.save", "tool:line", "view.xray"), so the key shown beside the item is whatever the person has set.
 
 import { WORKSPACES } from "./workspace";
+import { WHEEL_MODES } from "./viewport/wheel";
 import { LANGUAGE_IDS, LANGUAGE_TABLE } from "./languages";
 
 /** one item of a menu */
@@ -143,6 +144,7 @@ export const MENUS: Menu[] = [
       act("view.panel.left", "menu.leftPanel", "check"),
       act("view.panel.right", "menu.rightPanel", "check"),
       { label: "menu.toolbarLayout", items: LAYOUTS.map((l) => act(`view.layout.${l}`, `menu.layout.${l}`, "radio")) },
+      { label: "menu.scrollWheel", items: WHEEL_MODES.map((m) => act(`view.wheel.${m}`, `menu.wheel.${m}`, "radio")) },
       act("view.customize", "menu.customizeWs"),
       SEP,
       act("win.themes", "menu.themes"),

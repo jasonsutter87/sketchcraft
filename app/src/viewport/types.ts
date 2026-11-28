@@ -161,6 +161,8 @@ export interface Props {
   onHideHelp?: () => void;
   /** the view is put away (the Layout workspace covers it): it keeps everything but draws nothing and takes no keys */
   paused?: boolean;
+  /** View › Scroll wheel: what a wheel event is (auto: worked out from the events, viewport/wheel.ts) */
+  wheelMode?: import("./wheel").WheelMode;
   api: React.MutableRefObject<ViewportApi | null>;
   /** a plugin's tool in use (tool "plugin"): where its moves and clicks go,
    * what it draws, its hint, and the point its rubber band starts from */
