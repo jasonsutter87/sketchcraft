@@ -54,6 +54,8 @@ import { loadPlugins, PluginFormDialog, PluginResultDialog, PluginsDialog, type 
 import { usePlugins } from "./useplugins";
 import { MenuBar, type PluginEntry } from "./menubar";
 import { MENUS } from "./menumodel";
+import type { WheelMode } from "./viewport/wheel";
+import { readWheelMode, WHEEL_MODE_KEY } from "./viewport/wheelpref";
 import { buildMenuActions, type MenuCtx } from "./menuactions";
 import { AboutDialog } from "./about";
 import { openLink } from "./links";
@@ -255,6 +257,13 @@ function ModelingApp() {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [showPlugins, setShowPlugins] = useState(false);
   // who stands at the origin of a new model, for scale
+  const [wheelMode, setWheelModeRaw] = useState<WheelMode>(readWheelMode);
+  const setWheelMode = (m: WheelMode) => {
+    setWheelModeRaw(m);
+    try {
+      localStorage.setItem(WHEEL_MODE_KEY, m);
+    } catch {}
+  };
   const [figure, setFigureRaw] = useState<FigureChoice>(() => readFigure());
   const setFigure = (f: FigureChoice) => {
     setFigureRaw(f);
@@ -853,6 +862,8 @@ function ModelingApp() {
       return side === "left" ? editWs({ showLeft: !ws.showLeft }) : editWs({ showRight: !ws.showRight });
     },
     setLayout,
+    wheelMode,
+    setWheelMode,
     setLanguage: setPreference,
     open: {
       restore: () => setShowRestore(true),
@@ -1344,6 +1355,7 @@ function ModelingApp() {
           onParallel={(on) => setStyles((s) => (!!s.parallel === on ? s : { ...s, parallel: on }))}
           api={api}
           paused={inLayout}
+          wheelMode={wheelMode}
           pluginTool={
             tool === "plugin" && pluginTool
               ? { ...pluginTool, move: (at) => toolSession.current?.move(at), click: (at) => toolSession.current?.click(at) }

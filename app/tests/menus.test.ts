@@ -49,6 +49,8 @@ function stub(over: Partial<MenuCtx> = {}): { ctx: MenuCtx; calls: string[] } {
     showRightPanel: rec("showRightPanel"),
     togglePanel: rec("togglePanel"),
     setLayout: rec("setLayout"),
+    wheelMode: "auto",
+    setWheelMode: rec("setWheelMode"),
     setLanguage: rec("setLanguage"),
     open: group("open"),
     checkForUpdates: rec("checkForUpdates"),
