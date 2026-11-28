@@ -105,6 +105,9 @@ export default function Viewport(props: Props) {
   /** a standard view turned Parallel on by itself: the way it looks (camera direction), to go back to perspective
    *  once the camera turns away from it */
   const autoParallel = useRef<THREE.Vector3 | null>(null);
+  /** a floor plan's cut (Plan, View › Plan, the Arch strip's floors): it lasts while the view looks straight down.
+   *  "armed" until the camera gets there, then "on"; orbiting away removes the cut (#305) */
+  const planWatch = useRef<{ phase: "armed" | "on"; at: number } | null>(null);
   /** How many quick presses in a row (1 single, 2 double, 3 triple) and the last press */
   const clicks = useRef(1);
   const lastDown = useRef<{ t: number; x: number; y: number; button: number } | null>(null);
@@ -431,6 +434,23 @@ export default function Viewport(props: Props) {
       if (ap && cam.getWorldDirection(new THREE.Vector3()).dot(ap) < Math.cos(THREE.MathUtils.degToRad(1))) {
         autoParallel.current = null;
         live.current.onParallel?.(false);
+      }
+      // orbited out of a floor plan: its cut goes too, or everything above it stays hidden in 3D (#305)
+      const pw = planWatch.current;
+      if (pw) {
+        const down = -cam.getWorldDirection(new THREE.Vector3()).z > Math.cos(THREE.MathUtils.degToRad(1));
+        if (pw.phase === "armed") {
+          if (down) pw.phase = "on";
+          else if (performance.now() - pw.at > 3000) planWatch.current = null; // never went to the top view
+        } else if (!down) {
+          planWatch.current = null;
+          const sc = live.current.scene;
+          const plan = sc?.sections?.find((x) => x.id === sc.activeSection && x.name === "Floor plan");
+          if (plan) {
+            void live.current.run({ cmd: "section_off" });
+            live.current.onToast("Floor plan cut removed: you orbited out of the plan view. Plan brings it back.");
+          }
+        }
       }
       if (sky.visible) {
         sky.position.copy(cam.position);
@@ -2389,6 +2409,8 @@ export default function Viewport(props: Props) {
     exitCage: () => exitCage(),
     inCage: () => cageEd.current != null,
     planCut: (height: number) => {
+      // a new plan waits for the top view; changing the height of one being looked at keeps watching
+      if (planWatch.current?.phase !== "on") planWatch.current = { phase: "armed", at: performance.now() };
       // keep what's below: normal points down, plane at z = height (one "Floor plan" plane, reused)
       const plan = live.current.scene?.sections?.find((x) => x.name === "Floor plan");
       const at = { origin: [0, 0, height], normal: [0, 0, -1] };
