@@ -29,6 +29,17 @@ $card-shadow: 2px 2px 5px rgba(0, 0, 0, 0.2);
     grid-row: 1 / -1;
   }
 
+  /* Layout's paper starts below the top bar, not under it: it is opaque, and covering the bar hid the menus and the
+     workspace switch, so there was no way back to the 3D model (#306) */
+  &.ws-layout .layout-stage {
+    top: $bar;
+  }
+
+  /* and the tray (Pages, Outliner...) floats over the paper as it does over the model */
+  &.ws-layout .web-tray {
+    z-index: 21;
+  }
+
   /* ----- top bar: transparent, its three groups are floating cards ----- */
   .topbar {
     grid-column: 1;

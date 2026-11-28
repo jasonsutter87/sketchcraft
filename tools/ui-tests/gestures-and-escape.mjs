@@ -226,6 +226,64 @@ const selectedTitle = (p) => p.locator('.section-title', { hasText: /selected|^F
   await ctx.close();
 }
 
+// ---- a slow mouse wheel zooms, a trackpad swipe still orbits (#232) -------------------------------
+// On macOS a slow notch of a mouse wheel is a few pixels straight down, like the start of a swipe, and it orbited.
+// Zooming keeps the direction the eye looks in and changes its distance; orbiting turns it.
+{
+  const { p, ctx } = await open({ 'sketchcraft.help': 'off' });
+  await X(p, { cmd: 'new' });
+  const r = await X(p, { cmd: 'rect', from: [-2, -2, 0], to: [2, 2, 0] });
+  await X(p, { cmd: 'pushpull', face: r.face, distance: 2 });
+  await fit(p);
+  const box = await p.locator('.viewport canvas').boundingBox();
+  await p.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  const look = () =>
+    p.evaluate(() => {
+      const T = window.__sketchcraftView.current;
+      const d = T.camera.position.clone().sub(T.controls.target);
+      return { dir: d.clone().normalize().toArray(), dist: d.length() };
+    });
+  const turned = (a, b) => Math.acos(Math.min(1, a.dir.reduce((s, v, i) => s + v * b.dir[i], 0)));
+  /** wheel steps far enough apart to be separate notches */
+  const notches = async (steps) => {
+    for (const [dx, dy] of steps) {
+      await p.mouse.wheel(dx, dy);
+      await wait(250);
+    }
+  };
+  // with nothing known yet, a small straight step is a swipe, as before; sideways makes it one for certain
+  let a = await look();
+  await notches([[3, 4]]);
+  let b = await look();
+  check(turned(a, b) > 0.005, `a trackpad swipe orbits (turned ${turned(a, b).toFixed(3)} rad)`);
+  // a fast notch: a mouse for certain; then slow 4 px notches zoom, not orbit
+  await notches([[0, 120]]);
+  a = await look();
+  await notches([[0, 4], [0, 4], [0, 4]]);
+  b = await look();
+  check(turned(a, b) < 1e-4 && b.dist > a.dist * 1.2, `after a mouse is seen, slow notches zoom (turned ${turned(a, b).toFixed(5)} rad, ${a.dist.toFixed(2)} -> ${b.dist.toFixed(2)})`);
+  check((await p.evaluate(() => localStorage.getItem('sketchcraft.wheelSeen'))) === 'mouse', 'and the mouse is remembered for next time');
+  // View › Scroll wheel › Trackpad: a straight step swipes again; Mouse: even a sideways one zooms
+  await p.getByRole('menuitem', { name: 'View', exact: true }).click();
+  await p.getByRole('menuitem', { name: 'Scroll wheel' }).hover();
+  await p.getByRole('menuitemradio', { name: /^Trackpad/ }).click();
+  check((await p.evaluate(() => localStorage.getItem('sketchcraft.wheel'))) === 'trackpad', 'View › Scroll wheel › Trackpad is kept');
+  await p.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  a = await look();
+  await notches([[0, 4]]);
+  b = await look();
+  check(turned(a, b) > 0.005, `set to Trackpad, a small step orbits (turned ${turned(a, b).toFixed(3)} rad)`);
+  await p.getByRole('menuitem', { name: 'View', exact: true }).click();
+  await p.getByRole('menuitem', { name: 'Scroll wheel' }).hover();
+  await p.getByRole('menuitemradio', { name: /^Mouse/ }).click();
+  await p.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  a = await look();
+  await notches([[2, 4]]);
+  b = await look();
+  check(turned(a, b) < 1e-4 && b.dist !== a.dist, `set to Mouse, every step zooms (turned ${turned(a, b).toFixed(5)} rad)`);
+  await ctx.close();
+}
+
 // ---- orbiting out of a floor plan removes its cut (#305) -------------------------------------------
 // Plan cuts the model 4 ft up and looks down. Orbiting back into 3D used to keep the cut, so everything above it
 // (the top of a box, a scale figure from the waist up) stayed hidden. A cut made otherwise stays.

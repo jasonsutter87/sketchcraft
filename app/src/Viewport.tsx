@@ -51,6 +51,8 @@ import { isMac, isTypingTarget } from "./keymap";
 import { paintCommand, paintReach } from "./paintmods";
 import { DEFAULT_VPAINT, effectiveRadius, extendStroke, ringPoints, sceneDiagonal, stepRadius, strokeCommand } from "./vertexpaint";
 import type { Tool, BuildSettings, FaceStyle, Backdrop, Styles, Cam, ViewportApi, PluginPoint, Props, Op, LabelSpec, Last, WallPlan, RoomPreview, RoomRow, TPaintRun } from "./viewport/types";
+import { newWheelMemory, notch, wheelKind } from "./viewport/wheel";
+import { readWheelSeen, WHEEL_SEEN_KEY } from "./viewport/wheelpref";
 import { areaText, dragLabel, fillRects, gridStep, centreCorners, groundCorners, modeLabel, roomLabel, roomMode, roomModeKey, snapRoomPoint, type Rect, type RoomMode, type RoomSnap } from "./viewport/rooms";
 export { autoTagColor };
 export type { Tool, BuildSettings, FaceStyle, Backdrop, Styles, Cam, ViewportApi, PluginPoint };
@@ -255,15 +257,23 @@ export default function Viewport(props: Props) {
     window.addEventListener("pointerdown", (e) => (lastDown = { x: e.clientX, y: e.clientY }), true);
 
     // Trackpad: two-finger swipe orbits, Shift+swipe pans, pinch zooms toward the cursor.
-    // Mouse wheel: zooms toward the cursor.
+    // Mouse wheel: zooms toward the cursor. Which is which: viewport/wheel.ts (#232).
+    const wheelMem = newWheelMemory(readWheelSeen());
     const wheel = (e: WheelEvent) => {
       e.preventDefault();
       const T = t.current;
       if (!T) return;
       const cam = T.camera;
       const target = T.controls.target;
-      const pinch = e.ctrlKey; // macOS reports pinch as ctrl+wheel
-      const trackpad = !pinch && e.deltaMode === 0 && (Math.abs(e.deltaX) > 0 || Math.abs(e.deltaY) < 40);
+      const sureBefore = wheelMem.sure;
+      const kind = wheelKind(e, live.current.wheelMode ?? "auto", performance.now(), wheelMem);
+      if (wheelMem.sure !== sureBefore && wheelMem.sure) {
+        try {
+          localStorage.setItem(WHEEL_SEEN_KEY, wheelMem.sure);
+        } catch {}
+      }
+      const pinch = kind === "pinch";
+      const trackpad = kind === "trackpad";
       if (trackpad && e.shiftKey) {
         // pan
         const dist = cam.position.distanceTo(target);
@@ -294,7 +304,7 @@ export default function Viewport(props: Props) {
         }
       } else {
         // zoom toward what's under the cursor
-        const f = Math.exp((pinch ? e.deltaY * 0.012 : Math.sign(e.deltaY) * 0.12));
+        const f = Math.exp(pinch ? e.deltaY * 0.012 : notch(e) * 0.12);
         const rc = new THREE.Raycaster();
         const rect = renderer.domElement.getBoundingClientRect();
         rc.setFromCamera(new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1), cam);
