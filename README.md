@@ -205,3 +205,4 @@ MIT, see [LICENSE](LICENSE). SketchCraft is an independent, clean-room project.
 It is not affiliated with or endorsed by Trimble or SketchUp, or by ArtCraft.
 
 [![M8ven Score](https://m8ven.ai/badge/mcp/jasonsutter87-sketchcraft-1xpwc9)](https://m8ven.ai/mcp/jasonsutter87-sketchcraft-1xpwc9?s=readme)
+[![Listed on Best MCP](https://bestmcp.it/badge/github/jasonsutter87/sketchcraft.svg)](https://bestmcp.it/developer-tools/sketchcraft/?utm_source=github&utm_medium=readme_badge&utm_campaign=badge)
