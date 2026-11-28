@@ -254,6 +254,39 @@ await until(async () => (await rows()).length === 3);
 check((await rows())[0] === 'Ground floor', 'and the pages are as you left them');
 await tab('Model').click();
 
+// ---- every toolbar layout leaves a way out of Layout (#306) -----------------------------------------------------------------
+// The Web layout runs the model under its top bar, and the opaque paper once covered the bar too: no menus, no workspace
+// switch, and (the workspace being remembered) stuck there after a restart. In each layout, go to Layout by the File menu;
+// the menus, and the workspace tabs where the layout has them, must be what is on top, and they must take you back to
+// Model. (The Desktop layout has no tabs: its way back is View > Workspaces.)
+for (const layout of ['floating', 'classic', 'side', 'web', 'desktop']) {
+  await p.evaluate((l) => localStorage.setItem('sketchcraft.layout', l), layout);
+  await p.reload();
+  await p.waitForSelector('.viewport canvas');
+  await p.getByRole('menuitem', { name: 'File', exact: true }).click();
+  await p.getByRole('menuitem', { name: 'Open in Layout' }).click();
+  await p.waitForSelector('.layout-stage');
+  const onTop = await p.evaluate(() => {
+    const reach = (sel) => {
+      const e = document.querySelector(sel);
+      if (!e) return null;
+      const r = e.getBoundingClientRect();
+      if (!r.width) return null; // hidden on a narrow window (the menus still have it)
+      return e.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2));
+    };
+    return { menus: reach('[role="menuitem"]'), tabs: reach('.ws-switch button.on') };
+  });
+  check(onTop.menus === true && onTop.tabs !== false, `${layout} layout: the menus and the workspace tabs are above the paper (${JSON.stringify(onTop)})`);
+  if (onTop.tabs) await tab('Model').click();
+  else {
+    await p.getByRole('menuitem', { name: 'View', exact: true }).click();
+    await p.getByRole('menuitem', { name: 'Workspaces' }).hover();
+    await p.getByRole('menuitemradio', { name: 'Model', exact: true }).click();
+  }
+  check((await until(async () => (await p.locator('.layout-stage').count()) === 0)) === true, `${layout} layout: Model takes you out of Layout`);
+}
+await p.evaluate(() => localStorage.removeItem('sketchcraft.layout'));
+
 check(problems.length === 0, `no page errors ${problems.join(' | ').slice(0, 200)}`);
 await b.close();
 console.log(failed ? `${failed} check(s) failed` : 'all checks passed');
