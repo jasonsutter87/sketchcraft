@@ -145,6 +145,13 @@ details.panel-fold {
   @include inline-row(2px);
 }
 
+.section-what {
+  padding: 0 4px;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 .section-height {
   width: 72px;
   padding: 3px 6px;

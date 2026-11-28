@@ -226,6 +226,45 @@ const selectedTitle = (p) => p.locator('.section-title', { hasText: /selected|^F
   await ctx.close();
 }
 
+// ---- orbiting out of a floor plan removes its cut (#305) -------------------------------------------
+// Plan cuts the model 4 ft up and looks down. Orbiting back into 3D used to keep the cut, so everything above it
+// (the top of a box, a scale figure from the waist up) stayed hidden. A cut made otherwise stays.
+{
+  const { p, ctx } = await open({ 'sketchcraft.help': 'off' });
+  await X(p, { cmd: 'new' });
+  const r = await X(p, { cmd: 'rect', from: [-2, -2, 0], to: [2, 2, 0] });
+  await X(p, { cmd: 'pushpull', face: r.face, distance: 3 });
+  await fit(p);
+  const active = async () => (await pageScene(p)).activeSection ?? null;
+  const box = await p.locator('.viewport canvas').boundingBox();
+  const swipe = async () => {
+    await p.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    for (let i = 0; i < 6; i++) await p.mouse.wheel(12, 8); // a trackpad swipe: sideways and down, orbits
+    await wait(800);
+  };
+  await p.locator('.views').getByRole('button', { name: 'Plan', exact: true }).click();
+  await wait(1200);
+  check((await active()) != null, 'Plan cuts the model');
+  if (process.env.SHOT_DIR) await p.screenshot({ path: `${process.env.SHOT_DIR}/floor-plan-cut.png` });
+  check((await p.locator('.section-ctl', { hasText: 'Floor plan cut at' }).count()) === 1, 'the views bar says it is a floor plan cut');
+  check((await p.locator('.section-ctl button', { hasText: 'Floor plan ✕' }).count()) === 1, 'and its remove button says so');
+  await swipe();
+  check((await active()) == null, 'orbiting out of the plan view removes the cut');
+  check((await p.locator('.section-ctl').count()) === 0, 'and the cut controls go');
+  check((await p.locator('.toast', { hasText: 'Floor plan cut removed' }).count()) > 0, 'and a note says why');
+  // a cut of your own stays, even through the top view
+  const own = await X(p, { cmd: 'section_plane', name: 'My cut', origin: [0, 0, 1.5], normal: [0, 0, -1] });
+  await reshow(p);
+  check((await active()) != null && (await p.locator('.section-ctl button', { hasText: 'Section ✕' }).count()) === 1, `a cut of your own is labelled Section (${JSON.stringify(own).slice(0, 80)})`);
+  await p.locator('.viewport canvas').click({ position: { x: 5, y: 5 } });
+  await p.keyboard.press('ControlOrMeta+2'); // Top view
+  await wait(800);
+  check(await p.evaluate(() => -window.__sketchcraftView.current.camera.getWorldDirection(new window.__sketchcraftView.current.camera.position.constructor()).z > 0.999), 'Top looks straight down');
+  await swipe();
+  check((await active()) != null, 'and orbiting away from the top view keeps it');
+  await ctx.close();
+}
+
 // ---- orbit pivots about the point under the cursor (#224) -----------------------------------------
 // A middle-button drag that starts on the box's top face turns the view about that spot (it stays under the
 // cursor, and the eye does not jump when the drag starts); started on empty sky, about the view's centre as before;

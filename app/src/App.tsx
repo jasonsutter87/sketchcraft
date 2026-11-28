@@ -290,6 +290,8 @@ function ModelingApp() {
   const [viewsMore, setViewsMore] = useState(false);
   // bumps when the section moves, so its height box refreshes
   const [sectionTick, setSectionTick] = useState(0);
+  // the active cut is a floor plan's (Plan, the Arch strip's floors): the views bar says so (#305)
+  const floorPlanCut = section && !!scene?.sections?.some((x) => x.id === scene.activeSection && x.name === "Floor plan");
   /** Match Photo in progress: the photo being lined up */
   const [matching, setMatching] = useState<{ src: string; width: number; height: number } | null>(null);
   const startMatch = async (file: File) => {
@@ -1489,22 +1491,23 @@ function ModelingApp() {
           )}
           {section && (
             <span className="section-ctl">
+              {floorPlanCut && <span className="section-what">Floor plan cut at</span>}
+              <SectionHeight api={api} units={scene?.units || "m"} tick={sectionTick} />
               <button title="Move the cut up 1 ft (or back, for a side cut)" onClick={() => api.current?.moveSection(-0.3048)}>
                 ▲
               </button>
               <button title="Move the cut down 1 ft (or in, for a side cut)" onClick={() => api.current?.moveSection(0.3048)}>
                 ▼
               </button>
-              <SectionHeight api={api} units={scene?.units || "m"} tick={sectionTick} />
               <button
                 className="on"
                 onClick={() => {
                   api.current?.clearSection();
                   setSection(false);
                 }}
-                title="Remove the section cut"
+                title={floorPlanCut ? "Remove the floor plan cut (orbiting out of the plan view removes it too)" : "Remove the section cut"}
               >
-                Section ✕
+                {floorPlanCut ? "Floor plan ✕" : "Section ✕"}
               </button>
             </span>
           )}
