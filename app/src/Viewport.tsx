@@ -195,6 +195,8 @@ export default function Viewport(props: Props) {
     menuAt: number;
     panAt: number;
     selOverride: Sel | null;
+    /** a paste waiting for the Move tool: these ids, held on the cursor as a copy */
+    pendingGrab?: number[] | null;
     press: { x: number; y: number; fresh: boolean } | null;
     labels: LabelSpec[];
     liveLabels: LabelSpec[];
@@ -330,6 +332,18 @@ export default function Viewport(props: Props) {
       syncPerspectiveNear(T.camera.position.distanceTo(T.controls.target));
     };
     renderer.domElement.addEventListener("wheel", wheel, { passive: false });
+    // double-click the wheel (middle button): centre the view on the point clicked, keeping the angle (SketchUp)
+    renderer.domElement.addEventListener("auxclick", (e) => {
+      if (e.button !== 1 || e.detail !== 2) return;
+      const T = t.current;
+      const q = T && pick({ clientX: e.clientX, clientY: e.clientY })?.point;
+      if (!T || !q) return;
+      const d = q.clone().sub(T.controls.target);
+      T.camera.position.add(d);
+      if (T.camera === T.ortho) T.persp.position.copy(T.camera.position);
+      T.controls.target.copy(q);
+      T.controls.update();
+    });
     // moving the camera leaves a matched photo's view (as in SketchUp)
     controls.addEventListener("start", () => {
       window.clearTimeout(pivotTimer);
@@ -1277,6 +1291,7 @@ export default function Viewport(props: Props) {
   useEffect(() => {
     if (!t.current) return;
     cancel();
+    if (tool === "move") startGrab();
     setOrbitButtons();
     drawOverlay(); // the hover preview depends on the tool (red for erase, paint color...)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1420,6 +1435,21 @@ export default function Viewport(props: Props) {
 
   /** A corner of loose geometry (or of the open group) under the cursor, for
    * Move: its vertex id, where it is, and the far ends of its edges. */
+  /** pick, or failing that the nearest hit within a few pixels: a snapped corner sits on the silhouette, where the
+   *  exact pixel can miss the object (SketchUp's pick aperture) */
+  function pickNear(e: { clientX: number; clientY: number }): Pick | null {
+    const h = pick(e);
+    if (h) return h;
+    for (const r of [3, 6]) {
+      for (let k = 0; k < 8; k++) {
+        const a = (k * Math.PI) / 4;
+        const q = pick({ clientX: e.clientX + r * Math.cos(a), clientY: e.clientY + r * Math.sin(a) });
+        if (q) return q;
+      }
+    }
+    return null;
+  }
+
   function vertexUnder(e: { clientX: number; clientY: number }): { id: number; p: THREE.Vector3; far: THREE.Vector3[] } | null {
     const s = sceneNow();
     if (s.editing != null) return null;
@@ -1752,6 +1782,36 @@ export default function Viewport(props: Props) {
     T.preview.children.forEach((c) => (c as THREE.Mesh).geometry?.dispose());
     T.preview.clear();
     if (st.current.liveLabels.length) setLive([]);
+  }
+
+  /** the edges an Eraser drag has passed over, marked in red until it lets go */
+  function drawEraseMarks() {
+    const op = st.current.op;
+    const T = t.current;
+    if (op?.t !== "erase" || !T) return;
+    clearPreview();
+    const s = live.current.scene;
+    const seg: number[] = [];
+    for (const ed of s?.edgeList ?? []) if (op.ids.includes(ed.id)) seg.push(...ed.a, ...ed.b);
+    if (seg.length) T.preview.add(lines(seg, 0xe5484d, false));
+  }
+
+  /** Paste: the copy rides on the cursor, held by its bounding box's corner, and one click puts it down (SketchUp) */
+  function startGrab() {
+    const ids = st.current.pendingGrab;
+    st.current.pendingGrab = null;
+    const s = live.current.scene;
+    if (!ids?.length || !s) return;
+    const has = (list: { id: number }[]) => ids.filter((i) => list.some((x) => x.id === i));
+    const sel: Sel = { faces: has(s.faces), edges: has(s.edgeList), groups: has(s.groups), instances: has(s.instances) };
+    const pos = trianglesOf(ownersOf(sel));
+    const box = new THREE.Box3();
+    for (let i = 0; i + 2 < pos.length; i += 3) box.expandByPoint(new THREE.Vector3(pos[i], pos[i + 1], pos[i + 2]));
+    for (const e of s.edgeList) if (sel.edges.includes(e.id)) (box.expandByPoint(V(e.a)), box.expandByPoint(V(e.b)));
+    if (box.isEmpty()) return;
+    st.current.selOverride = sel;
+    st.current.op = { t: "move", base: box.min.clone(), ids, delta: new THREE.Vector3(), copy: true };
+    live.current.onMeasure("Copy", fmt(0));
   }
 
   function cancel() {
@@ -2229,7 +2289,7 @@ export default function Viewport(props: Props) {
       return;
     }
     // "x5" / "5x" / "/5" right after a copy: an array
-    const mult = /^(?:x\s*(\d+)|(\d+)\s*x|\/\s*(\d+))$/i.exec(s);
+    const mult = /^(?:[x*]\s*(\d+)|(\d+)\s*[x*]|\/\s*(\d+))$/i.exec(s);
     const last = st.current.last;
     if (mult && last?.t === "move" && last.copy) {
       const n = Number(mult[1] ?? mult[2] ?? mult[3]);
@@ -2309,13 +2369,14 @@ export default function Viewport(props: Props) {
         if (!lens.length) return;
         op.bulge = Math.sign(op.bulge || 1) * Math.abs(lens[0]);
         return void (await commitArc());
+      // a typed distance goes the way you dragged (in or out), as in SketchUp; a minus sign turns it round
       case "push":
         if (!lens.length) return;
-        op.d = lens[0];
+        op.d = (op.d < 0 ? -1 : 1) * lens[0];
         return void (await commitPush());
       case "offset":
         if (!lens.length) return;
-        op.d = lens[0];
+        op.d = (op.d < 0 ? -1 : 1) * lens[0];
         return void (await commitOffset());
       case "wallpull":
         if (!lens.length) return;
@@ -2360,6 +2421,16 @@ export default function Viewport(props: Props) {
 
   props.api.current = {
     applyTyped,
+    grabCopy: (ids: number[]) => {
+      st.current.pendingGrab = ids;
+      if (live.current.tool === "move") {
+        cancel();
+        startGrab();
+      }
+    },
+    cancelOp: () => {
+      if (st.current.op) cancel();
+    },
     fit: () => fit(),
     fitSoon: () => void (st.current.fitNext = true),
     fitBox: (lo, hi) => {
@@ -3417,6 +3488,11 @@ export default function Viewport(props: Props) {
           return moveRoom({ e, L: L as Live, E, op, lock });
         case "move":
           return moveMove({ e, L: L as Live, E, op, lock });
+        case "erase": {
+          const he = pickEdge(e);
+          if (he != null) for (const id of curveOf(he)) if (!op.ids.includes(id)) op.ids.push(id);
+          return drawEraseMarks();
+        }
         case "rotate":
           return moveRotate({ e, L: L as Live, E, op, lock });
         case "scale":
@@ -3702,7 +3778,7 @@ export default function Viewport(props: Props) {
       let s2 = sel;
       if (selIds(sel).length === 0) {
         const he = pickEdge(e);
-        const h = he == null ? pick(e) : null;
+        const h = he == null ? pickNear(e) : null;
         if (he != null) s2 = { ...EMPTY, edges: curveOf(he) };
         else if (h) {
           const ent = entityOf(h);
@@ -3744,6 +3820,13 @@ export default function Viewport(props: Props) {
         return;
       }
       const sn = infer(E, e, {});
+      // a click on an edge itself (not its ends): that edge's length, ready to pull out (SketchUp)
+      const he = sn.kind === "on-edge" ? pickEdge(e) : null;
+      const ed = he != null ? sceneNow().edgeList.find((x) => x.id === he) : undefined;
+      if (ed) {
+        st.current.op = { t: "dim", a: V(ed.a), b: V(ed.b), off: new THREE.Vector3(), cur: sn.p };
+        return;
+      }
       st.current.op = { t: "dim", a: sn.p, b: null, off: new THREE.Vector3(), cur: sn.p };
       return;
     };
@@ -3931,15 +4014,15 @@ export default function Viewport(props: Props) {
       await run(paintCommand(ent.kind === "faces" ? reach : "face", ent.id, { material: L.paintMaterial, color: L.color }));
       return;
     };
+    // a click erases what's under it; a drag marks every edge it passes over and erases them all on release,
+    // in one step (SketchUp). Shift hides instead, Option/Ctrl softens, both unsoften.
     const downErase = async ({ e }: DownArgs) => {
       const he = pickEdge(e);
       const soften = e.altKey || e.ctrlKey;
-      if (he != null) {
-        if (soften) return void (await run({ cmd: "soften", ids: curveOf(he), soft: !e.shiftKey }));
-        return void (await run({ cmd: e.shiftKey ? "hide" : "delete", ids: curveOf(he) }));
-      }
-      const h = pick(e);
-      if (h && !soften) await run({ cmd: e.shiftKey ? "hide" : "delete", ids: [entityOf(h).id] });
+      const h = he == null ? pick(e) : null;
+      st.current.op = { t: "erase", ids: he != null ? curveOf(he) : [], face: h && !soften ? entityOf(h).id : null, shift: e.shiftKey, soften };
+      el.setPointerCapture(e.pointerId);
+      drawEraseMarks();
       return;
     };
     const downSection = async ({ e, L }: DownArgs) => {
@@ -4185,6 +4268,15 @@ export default function Viewport(props: Props) {
         if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
         return void (await commitVPaint());
       }
+      if (op?.t === "erase") {
+        if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
+        st.current.op = null;
+        clearPreview();
+        const ids = op.ids.length ? op.ids : op.face != null ? [op.face] : [];
+        if (!ids.length) return;
+        if (op.soften) return void (await run({ cmd: "soften", ids, soft: !op.shift }));
+        return void (await run({ cmd: op.shift ? "hide" : "delete", ids }));
+      }
       if (op?.t === "tpaint") {
         if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
         return void (await commitTPaint());
@@ -4352,16 +4444,30 @@ export default function Viewport(props: Props) {
         void commitWall(false);
         return;
       }
+      // a tap of Option / Ctrl during Move or Rotate turns making a copy on and off (SketchUp); held at the
+      // pick-up click it starts as a copy (above, in downMove)
+      if ((e.key === "Alt" || e.key === "Control") && !e.repeat) {
+        const op = st.current.op;
+        if ((op?.t === "move" && !op.vertex) || op?.t === "rotate") {
+          e.preventDefault();
+          op.copy = !op.copy;
+          live.current.onToast(op.copy ? "Copy: the original stays put" : "Move: no copy");
+          if (op.t === "move") live.current.onMeasure(op.copy ? "Copy" : "Distance", fmt(op.delta.length()));
+        }
+        return;
+      }
       if (e.key === "Escape") {
         if (st.current.op) cancel();
         else if (live.current.tool === "place" || live.current.tool === "door" || live.current.tool === "window") live.current.setTool("select");
+        else if (selIds(live.current.sel).length) live.current.setSel(EMPTY); // inside a group, the first Esc only clears the pick
         else if (live.current.scene?.editing != null || live.current.scene?.activeGroup != null) live.current.run({ cmd: "close" });
-        else live.current.setSel(EMPTY);
         return;
       }
       // arrow keys lock the direction to an axis (press again to unlock)
       const lockKey: Record<string, Axis | null> = { ArrowRight: 0, ArrowLeft: 1, ArrowUp: 2, ArrowDown: null };
-      if (e.key in lockKey && st.current.op) {
+      // before the first click too, for the tools that draw or move from a point (SketchUp)
+      const anchored = ["line", "move", "rotate", "tape", "wall", "spline", "dimension", "protractor"].includes(live.current.tool);
+      if (e.key in lockKey && (st.current.op || anchored)) {
         e.preventDefault();
         const want = lockKey[e.key];
         st.current.lock = st.current.lock === want ? null : want;

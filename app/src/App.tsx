@@ -565,6 +565,14 @@ function ModelingApp() {
   const paste = async (inPlace = false) => {
     const c = clip.current;
     if (!c) return say("Nothing to paste: select something and press ⌘C first.", true);
+    // a copy (not a cut), not in place: it rides on the cursor and a click puts it down, as in SketchUp
+    if (!inPlace && !c.cut && api.current && scene && c.ids.every((i) => scene.faces.some((f) => f.id === i) || scene.edgeList.some((e) => e.id === i) || scene.groups.some((g) => g.id === i) || scene.instances.some((x) => x.id === i))) {
+      const has = (list: { id: number }[]) => c.ids.filter((i) => list.some((x) => x.id === i));
+      setSel({ faces: has(scene.faces), edges: has(scene.edgeList), groups: has(scene.groups), instances: has(scene.instances) });
+      api.current.grabCopy(c.ids);
+      chooseTool("move");
+      return say("Click where it goes. Esc cancels.");
+    }
     const d = await run({ cmd: "duplicate", ids: c.ids, by: [0, 0, 0] });
     if (!d.ok) return;
     const ids = d.ids as number[];
@@ -593,7 +601,9 @@ function ModelingApp() {
   /** Copy or Cut (cut: out of sight until pasted; undo brings it back) */
   const copySelection = async (cut: boolean) => {
     if (isEmpty(sel)) return;
-    clip.current = { ids: selIds(sel), cut };
+    // a face's own edges come with it: copy the faces, groups and components (loose lines only when that's all there is)
+    const solid = [...sel.faces, ...sel.groups, ...sel.instances];
+    clip.current = { ids: solid.length ? solid : selIds(sel), cut };
     if (cut) {
       await run({ cmd: "hide", ids: clip.current.ids });
       setSel(EMPTY);
@@ -618,8 +628,9 @@ function ModelingApp() {
     if (!ids.length) return say(`Select faces or groups first, then ${keyText("edit.makecomponent") || "Make Component"} makes them a component.`, true);
     const name = await ask("Component name", "Component", undefined, "dialog.componentName");
     if (name) {
-      await run({ cmd: "make_component", ids, name });
-      setSel(EMPTY);
+      const r = await run({ cmd: "make_component", ids, name });
+      // the new component stays selected, ready to move or copy (SketchUp's "Replace selection with component")
+      setSel(typeof r?.instance === "number" ? { ...EMPTY, instances: [r.instance] } : EMPTY);
     }
   };
   const commandsRef = useRef<() => Command[]>(() => []);
@@ -644,20 +655,20 @@ function ModelingApp() {
         api.current?.editCage(sel.groups[0]);
         return;
       }
+      const k = e.key.toLowerCase();
+      const onPaper = wsIdRef.current === "layout";
+      // typing a number starts a measurement (x too once Move is out: "x5" makes 5 copies)
+      if (!onPaper && !e.metaKey && !e.ctrlKey && /^[0-9.\-x*/]$/.test(e.key) && !((k === "x" || k === "*") && tool !== "move")) {
+        setTyped(e.key);
+        typedRef.current?.focus();
+        e.preventDefault();
+        return;
+      }
       if (!combo) return;
       if (combo === "Mod+Y") {
         // Windows redo, kept as a second Redo
         e.preventDefault();
         await run({ cmd: "redo" });
-        return;
-      }
-      const k = e.key.toLowerCase();
-      const onPaper = wsIdRef.current === "layout";
-      // typing a number starts a measurement (x too once Move is out: "x5" makes 5 copies)
-      if (!onPaper && !e.metaKey && !e.ctrlKey && /^[0-9.\-x/]$/.test(e.key) && !(k === "x" && tool !== "move")) {
-        setTyped(e.key);
-        typedRef.current?.focus();
-        e.preventDefault();
         return;
       }
       if (e.key === "Escape" && showKeysRef.current) return setShowKeys(false);
@@ -1431,7 +1442,8 @@ function ModelingApp() {
         </Toolbar>
 
         <div className={`views${viewsMore ? " more" : ""}`}>
-          {layout === "desktop" && (
+          {/* scene tabs, one click away (SketchUp): always in the Desktop layout, in the others once there are scenes */}
+          {(layout === "desktop" || (scene?.views.length ?? 0) > 0) && (
             <>
               {scene?.views.map((v) => (
                 <button key={v.name} className="su-scene" onClick={() => void showView(v)} title={`Go to the view “${v.name}”`}>
@@ -1535,7 +1547,7 @@ function ModelingApp() {
           }}
         >
           <label className={measure.label ? "" : "idle"}>{measure.label || "Value"}</label>
-          <input ref={typedRef} value={typed} placeholder={measure.value || "type, then Enter"} onChange={(e) => setTyped(e.target.value)} onKeyDown={(e) => e.key === "Escape" && (setTyped(""), typedRef.current?.blur())} />
+          <input ref={typedRef} value={typed} placeholder={measure.value || "type, then Enter"} onChange={(e) => setTyped(e.target.value)} onKeyDown={(e) => e.key === "Escape" && (setTyped(""), typedRef.current?.blur(), api.current?.cancelOp())} />
         </form>
         </>
         )}
