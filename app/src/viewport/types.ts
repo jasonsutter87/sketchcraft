@@ -91,6 +91,8 @@ export interface Cam {
 
 export interface ViewportApi {
   applyTyped: (text: string) => void;
+  /** Esc from the Value box: drop the operation in progress, as Esc in the view does */
+  cancelOp: () => void;
   fit: () => void;
   fitSoon: () => void;
   /** frame this box (world corners), e.g. where most of an imported drawing is */

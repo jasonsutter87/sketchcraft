@@ -1420,6 +1420,21 @@ export default function Viewport(props: Props) {
 
   /** A corner of loose geometry (or of the open group) under the cursor, for
    * Move: its vertex id, where it is, and the far ends of its edges. */
+  /** pick, or failing that the nearest hit within a few pixels: a snapped corner sits on the silhouette, where the
+   *  exact pixel can miss the object (SketchUp's pick aperture) */
+  function pickNear(e: { clientX: number; clientY: number }): Pick | null {
+    const h = pick(e);
+    if (h) return h;
+    for (const r of [3, 6]) {
+      for (let k = 0; k < 8; k++) {
+        const a = (k * Math.PI) / 4;
+        const q = pick({ clientX: e.clientX + r * Math.cos(a), clientY: e.clientY + r * Math.sin(a) });
+        if (q) return q;
+      }
+    }
+    return null;
+  }
+
   function vertexUnder(e: { clientX: number; clientY: number }): { id: number; p: THREE.Vector3; far: THREE.Vector3[] } | null {
     const s = sceneNow();
     if (s.editing != null) return null;
@@ -2229,7 +2244,7 @@ export default function Viewport(props: Props) {
       return;
     }
     // "x5" / "5x" / "/5" right after a copy: an array
-    const mult = /^(?:x\s*(\d+)|(\d+)\s*x|\/\s*(\d+))$/i.exec(s);
+    const mult = /^(?:[x*]\s*(\d+)|(\d+)\s*[x*]|\/\s*(\d+))$/i.exec(s);
     const last = st.current.last;
     if (mult && last?.t === "move" && last.copy) {
       const n = Number(mult[1] ?? mult[2] ?? mult[3]);
@@ -2360,6 +2375,9 @@ export default function Viewport(props: Props) {
 
   props.api.current = {
     applyTyped,
+    cancelOp: () => {
+      if (st.current.op) cancel();
+    },
     fit: () => fit(),
     fitSoon: () => void (st.current.fitNext = true),
     fitBox: (lo, hi) => {
@@ -3702,7 +3720,7 @@ export default function Viewport(props: Props) {
       let s2 = sel;
       if (selIds(sel).length === 0) {
         const he = pickEdge(e);
-        const h = he == null ? pick(e) : null;
+        const h = he == null ? pickNear(e) : null;
         if (he != null) s2 = { ...EMPTY, edges: curveOf(he) };
         else if (h) {
           const ent = entityOf(h);
@@ -4352,16 +4370,30 @@ export default function Viewport(props: Props) {
         void commitWall(false);
         return;
       }
+      // a tap of Option / Ctrl during Move or Rotate turns making a copy on and off (SketchUp); held at the
+      // pick-up click it starts as a copy (above, in downMove)
+      if ((e.key === "Alt" || e.key === "Control") && !e.repeat) {
+        const op = st.current.op;
+        if ((op?.t === "move" && !op.vertex) || op?.t === "rotate") {
+          e.preventDefault();
+          op.copy = !op.copy;
+          live.current.onToast(op.copy ? "Copy: the original stays put" : "Move: no copy");
+          if (op.t === "move") live.current.onMeasure(op.copy ? "Copy" : "Distance", fmt(op.delta.length()));
+        }
+        return;
+      }
       if (e.key === "Escape") {
         if (st.current.op) cancel();
         else if (live.current.tool === "place" || live.current.tool === "door" || live.current.tool === "window") live.current.setTool("select");
+        else if (selIds(live.current.sel).length) live.current.setSel(EMPTY); // inside a group, the first Esc only clears the pick
         else if (live.current.scene?.editing != null || live.current.scene?.activeGroup != null) live.current.run({ cmd: "close" });
-        else live.current.setSel(EMPTY);
         return;
       }
       // arrow keys lock the direction to an axis (press again to unlock)
       const lockKey: Record<string, Axis | null> = { ArrowRight: 0, ArrowLeft: 1, ArrowUp: 2, ArrowDown: null };
-      if (e.key in lockKey && st.current.op) {
+      // before the first click too, for the tools that draw or move from a point (SketchUp)
+      const anchored = ["line", "move", "rotate", "tape", "wall", "spline", "dimension", "protractor"].includes(live.current.tool);
+      if (e.key in lockKey && (st.current.op || anchored)) {
         e.preventDefault();
         const want = lockKey[e.key];
         st.current.lock = st.current.lock === want ? null : want;

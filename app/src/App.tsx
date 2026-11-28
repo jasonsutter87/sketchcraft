@@ -618,8 +618,9 @@ function ModelingApp() {
     if (!ids.length) return say(`Select faces or groups first, then ${keyText("edit.makecomponent") || "Make Component"} makes them a component.`, true);
     const name = await ask("Component name", "Component", undefined, "dialog.componentName");
     if (name) {
-      await run({ cmd: "make_component", ids, name });
-      setSel(EMPTY);
+      const r = await run({ cmd: "make_component", ids, name });
+      // the new component stays selected, ready to move or copy (SketchUp's "Replace selection with component")
+      setSel(typeof r?.instance === "number" ? { ...EMPTY, instances: [r.instance] } : EMPTY);
     }
   };
   const commandsRef = useRef<() => Command[]>(() => []);
@@ -644,20 +645,20 @@ function ModelingApp() {
         api.current?.editCage(sel.groups[0]);
         return;
       }
+      const k = e.key.toLowerCase();
+      const onPaper = wsIdRef.current === "layout";
+      // typing a number starts a measurement (x too once Move is out: "x5" makes 5 copies)
+      if (!onPaper && !e.metaKey && !e.ctrlKey && /^[0-9.\-x*/]$/.test(e.key) && !((k === "x" || k === "*") && tool !== "move")) {
+        setTyped(e.key);
+        typedRef.current?.focus();
+        e.preventDefault();
+        return;
+      }
       if (!combo) return;
       if (combo === "Mod+Y") {
         // Windows redo, kept as a second Redo
         e.preventDefault();
         await run({ cmd: "redo" });
-        return;
-      }
-      const k = e.key.toLowerCase();
-      const onPaper = wsIdRef.current === "layout";
-      // typing a number starts a measurement (x too once Move is out: "x5" makes 5 copies)
-      if (!onPaper && !e.metaKey && !e.ctrlKey && /^[0-9.\-x/]$/.test(e.key) && !(k === "x" && tool !== "move")) {
-        setTyped(e.key);
-        typedRef.current?.focus();
-        e.preventDefault();
         return;
       }
       if (e.key === "Escape" && showKeysRef.current) return setShowKeys(false);
@@ -1535,7 +1536,7 @@ function ModelingApp() {
           }}
         >
           <label className={measure.label ? "" : "idle"}>{measure.label || "Value"}</label>
-          <input ref={typedRef} value={typed} placeholder={measure.value || "type, then Enter"} onChange={(e) => setTyped(e.target.value)} onKeyDown={(e) => e.key === "Escape" && (setTyped(""), typedRef.current?.blur())} />
+          <input ref={typedRef} value={typed} placeholder={measure.value || "type, then Enter"} onChange={(e) => setTyped(e.target.value)} onKeyDown={(e) => e.key === "Escape" && (setTyped(""), typedRef.current?.blur(), api.current?.cancelOp())} />
         </form>
         </>
         )}
