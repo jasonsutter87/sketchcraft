@@ -330,6 +330,18 @@ export default function Viewport(props: Props) {
       syncPerspectiveNear(T.camera.position.distanceTo(T.controls.target));
     };
     renderer.domElement.addEventListener("wheel", wheel, { passive: false });
+    // double-click the wheel (middle button): centre the view on the point clicked, keeping the angle (SketchUp)
+    renderer.domElement.addEventListener("auxclick", (e) => {
+      if (e.button !== 1 || e.detail !== 2) return;
+      const T = t.current;
+      const q = T && pick({ clientX: e.clientX, clientY: e.clientY })?.point;
+      if (!T || !q) return;
+      const d = q.clone().sub(T.controls.target);
+      T.camera.position.add(d);
+      if (T.camera === T.ortho) T.persp.position.copy(T.camera.position);
+      T.controls.target.copy(q);
+      T.controls.update();
+    });
     // moving the camera leaves a matched photo's view (as in SketchUp)
     controls.addEventListener("start", () => {
       window.clearTimeout(pivotTimer);
@@ -2324,13 +2336,14 @@ export default function Viewport(props: Props) {
         if (!lens.length) return;
         op.bulge = Math.sign(op.bulge || 1) * Math.abs(lens[0]);
         return void (await commitArc());
+      // a typed distance goes the way you dragged (in or out), as in SketchUp; a minus sign turns it round
       case "push":
         if (!lens.length) return;
-        op.d = lens[0];
+        op.d = (op.d < 0 ? -1 : 1) * lens[0];
         return void (await commitPush());
       case "offset":
         if (!lens.length) return;
-        op.d = lens[0];
+        op.d = (op.d < 0 ? -1 : 1) * lens[0];
         return void (await commitOffset());
       case "wallpull":
         if (!lens.length) return;

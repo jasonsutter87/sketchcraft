@@ -52,6 +52,7 @@ const SUITES = [
   ['cnc-joinery', 'tools/ui-tests/cnc-joinery.mjs', 300],
   ['tools', 'tools/ui-tests/tools.mjs', 900],
   ['feel-games', 'tools/ui-tests/feel-games.mjs', 300],
+  ['feel-arch', 'tools/ui-tests/feel-arch.mjs', 300],
   ['plugin-sandbox', 'tools/security-tests/plugin-sandbox.mjs', 240],
   ['ruby', 'tools/ruby-tests/run.mjs', 300],
   ['visual', 'tools/ui-tests/visual.mjs', 600],
